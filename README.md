@@ -6,10 +6,10 @@ So what: install once, and Claude becomes both your product process and your PM 
 
 ## Install (Claude Code)
 
-Once this repo is on GitHub:
+From GitHub (https://github.com/laurenbdaniels-coder/townsend-plugins):
 
 ```
-/plugin marketplace add <your-github-username>/townsend-plugins
+/plugin marketplace add laurenbdaniels-coder/townsend-plugins
 /plugin install product-flow@townsend-plugins
 /plugin install pm-growth-coach@townsend-plugins
 ```
