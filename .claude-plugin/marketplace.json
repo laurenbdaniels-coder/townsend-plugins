@@ -1,0 +1,26 @@
+{
+  "name": "townsend-plugins",
+  "owner": {
+    "name": "Lauren Daniels"
+  },
+  "plugins": [
+    {
+      "name": "product-flow",
+      "source": "./product-flow",
+      "description": "Stage-by-stage product management workflow: discovery, positioning, strategy, prioritization, PRD, delivery, launch, and measurement — with framework menus, fill-in templates with quality bars, evidence rules, a shared project workspace, and a built-in critique gate.",
+      "version": "1.2.0",
+      "author": { "name": "Lauren Daniels" },
+      "category": "productivity",
+      "keywords": ["product-management", "pm", "prd", "roadmap", "discovery", "launch", "strategy"]
+    },
+    {
+      "name": "pm-growth-coach",
+      "source": "./pm-growth-coach",
+      "description": "A self-development coach for product managers: competency baseline against a behavioral rubric, growth plan with weekly deliberate-practice reps, and evidence-based progress tracking using your real work artifacts.",
+      "version": "0.1.0",
+      "author": { "name": "Lauren Daniels" },
+      "category": "productivity",
+      "keywords": ["product-management", "coaching", "career-growth", "competency"]
+    }
+  ]
+}

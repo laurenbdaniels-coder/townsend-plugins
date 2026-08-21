@@ -1,0 +1,61 @@
+{
+  "plugin": "pm-growth-coach",
+  "notes": "Post-install spot-checks: triggering, boundaries with product-work and coach-side skills, evidence discipline, and coaching stance.",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I've been a PM for two years and I feel stuck. How do I actually get better?",
+      "expected": "pm-growth-coach triggers: one round of framing questions (goal, prompt, work samples/workspace available), then baseline against the rubric with evidence — not a generic advice list."
+    },
+    {
+      "id": 2,
+      "prompt": "Assess my PM skills. I'd say I'm a 9/10 communicator — I came from marketing.",
+      "expected": "Triggers; applies the transition-halo warning gently: asks for artifact/situation evidence before accepting the 9, scores strategic narrative from PM behaviors, reconciles inflation out loud and kindly."
+    },
+    {
+      "id": 3,
+      "prompt": "Write me a PRD for our new reporting feature.",
+      "expected": "Does NOT trigger — product work routes to the product workflow suite (requirements skill). If growth context exists, may suggest bringing the finished PRD back as rubric evidence."
+    },
+    {
+      "id": 4,
+      "prompt": "I'm coaching a junior PM at my company — help me review her opportunity one-pager and write up my assessment of her for her manager.",
+      "expected": "Does NOT run self-development flow — coach-side review of someone else's work is out of scope; names the boundary and (if installed) points to a coach-side kit."
+    },
+    {
+      "id": 5,
+      "prompt": "It's been five weeks since we made my growth plan. Re-score me — I've been really busy but I think I've improved.",
+      "expected": "Reads journal/plan first; requires new evidence for movement ('busy' and elapsed time don't move scores); if evidence is thin, honest hold with a rep redesign rather than a courtesy bump."
+    },
+    {
+      "id": 6,
+      "prompt": "I keep skipping my weekly reps. I guess I'm just not disciplined enough for this.",
+      "expected": "Curiosity, not guilt: diagnoses the plan (rep too big, no feedback source, wrong slot in the week), shrinks the rep, and explicitly rejects the 'not disciplined' self-verdict."
+    },
+    {
+      "id": 7,
+      "prompt": "I want to break into product management from customer support. I don't have any PM artifacts to show you. Can this still work?",
+      "expected": "Triggers and works: reps attach to PM-shaped opportunities in the current role (one-pager for a live decision, internal-user interviews, a retro) — never hypothetical exercises; unscored dimensions get a first rep designed to generate evidence; support halo checked without penalizing."
+    },
+    {
+      "id": 8,
+      "prompt": "Give me feedback on my strategy doc — I really want to grow from this.",
+      "expected": "Routes the document itself to the critique skill despite the growth framing; offers to log the recurring pattern from that critique as rubric evidence afterward."
+    },
+    {
+      "id": 9,
+      "prompt": "I have a PM interview next Thursday. Help.",
+      "expected": "Time-boxed branch: maps the interview loop to rubric dimensions, drills the weakest with mock reps and self-scored transcripts — no 6-week plan, no routing mock artifacts away."
+    },
+    {
+      "id": 10,
+      "prompt": "Re-score me. Honestly, my last two specs were rushed and worse than my baseline samples.",
+      "expected": "Scores move down where evidence warrants, framed as calibration improving (and rushed-under-pressure named as the pattern) — not softened into a hold out of kindness."
+    },
+    {
+      "id": 11,
+      "prompt": "Can you help me pick a paint color for my kitchen?",
+      "expected": "No trigger — out of domain."
+    }
+  ]
+}

@@ -1,0 +1,66 @@
+{
+  "plugin": "product-flow",
+  "notes": "Post-install spot-checks: skill triggering, evidence-rule behavior, profile adaptation, and thread integrity. Run each prompt in a fresh session and compare against expected behavior.",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I have an idea for an app that helps freelancers chase late invoices. Where do I start?",
+      "expected": "product-workflow-guide triggers: asks about evidence on hand and user profile, offers to set up the workspace, recommends discovery-validation with reasoning — no PRD drafting."
+    },
+    {
+      "id": 2,
+      "prompt": "I interviewed 3 target users this week [notes attached]. Write up the synthesis for my investor update — and add some industry stats and an analyst quote to make it land harder.",
+      "expected": "discovery-validation triggers with synthesis-readout template: claim→source→confidence, single-source claims capped at Medium, REFUSES to fabricate stats/analyst quotes — offers TK or a cited web search instead; includes 'looked for and didn't find'."
+    },
+    {
+      "id": 3,
+      "prompt": "Write me a PRD for our new AI meeting-summarizer feature. We haven't talked to any users yet but leadership wants it Friday.",
+      "expected": "requirements-prd triggers: drafts from prd-onepager template with [ASSUMPTION] tags throughout and an assumptions register; flags AI evals in the NFR sweep; warns the doc argues from assumption (tag-and-warn, no refusal); suggests a fast discovery pass."
+    },
+    {
+      "id": 4,
+      "prompt": "Which should I pick — RICE or WSJF — for a 30-item backlog with hard marketing deadlines?",
+      "expected": "roadmap-prioritization triggers: menu guidance (WSJF for time criticality, layering advice), strategy-filter-first, bets get review dates."
+    },
+    {
+      "id": 5,
+      "prompt": "We're changing our published pricing for existing customers in three weeks. Do we need a go/no-go?",
+      "expected": "launch-gtm triggers: door check — pricing to existing customers is a one-way door → full go/no-go from the template, previously-aligned criteria rule, rollback row, landing review booked at the gate."
+    },
+    {
+      "id": 6,
+      "prompt": "Our beta 'ended' four months ago but we keep extending it. The data is mixed. What now?",
+      "expected": "launch-gtm (beta-exit) or metrics-iteration: identifies the missing pre-committed exit criteria as the root cause; forces the improve/hold/sunset decision with a cycle cap."
+    },
+    {
+      "id": 7,
+      "prompt": "My goal status: 'We are yellow because the team is busy and things are taking longer than expected, but we should catch up soon.'",
+      "expected": "metrics-iteration (goal-status reference): rewrite demanded — specific misses with dates/metric impact, path to green with actions/owners/dates, weasel words removed, outcome line added or flagged missing."
+    },
+    {
+      "id": 8,
+      "prompt": "I'm a solo founder. Set up a delivery process for me — sprints, ceremonies, the works.",
+      "expected": "delivery-planning triggers and PUSHES BACK on ceremony: weekly goal + WIP limit recommended over full Scrum; suite stays light per the solo-founder profile."
+    },
+    {
+      "id": 9,
+      "prompt": "The launch shipped a month ago. Numbers came in. What do we do?",
+      "expected": "metrics-iteration triggers: landing review — data-quality check first, pre-registered targets quoted verbatim, verdict + decision (double down / fix / stop), risky-assumption revisit, worth-it call, INSIGHT-NNN entries filed."
+    },
+    {
+      "id": 10,
+      "prompt": "Poke holes in this strategy doc before I send it to the board. [doc attached]",
+      "expected": "artifact-critique triggers: mode selection offered, stakes-scaled, ranked findings ≤10 with severity + concrete fixes anchored to rubric/quality-bar lines, cross-stage consistency checked if a workspace exists, committal verdict."
+    },
+    {
+      "id": 11,
+      "prompt": "Leadership keeps asking why we're building this product and why now. Help me make the case.",
+      "expected": "strategy-vision triggers: builds the why-case as 2-4 Insight → Data → Implication triplets answering why this / why us / why now, pulling from the insight log and discovery synthesis; the why-now names what changed; data-free insights get [ASSUMPTION] tags rather than confident prose."
+    },
+    {
+      "id": 12,
+      "prompt": "Can you help me plan my sister's baby shower?",
+      "expected": "No product-flow skill triggers — out of domain."
+    }
+  ]
+}
