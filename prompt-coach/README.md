@@ -36,7 +36,7 @@ nag.
 
 ## Governance
 
-Owner: Lauren Townsend, HFH SKC. Recommended cadence: a
+Owner: Lauren Townsend. Recommended cadence: a
 quarterly scheduled refresh. Companion handout: the team Word doc
 "Claude_Guardrails_and_Prompt_Library.docx".
 
