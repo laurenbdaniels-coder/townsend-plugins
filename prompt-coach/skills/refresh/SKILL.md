@@ -94,7 +94,7 @@ prompt pattern in the library is now deprecated), say so explicitly.
 
 ## Governance
 
-- **Owner:** Lauren Townsend (lauren.townsend@habitatskc.org)
+- **Owner:** Lauren Townsend, HFH SKC
 - **Cadence:** quarterly full refresh (scheduled task) + on-demand targeted runs
 - **Versioning:** content updates bump the knowledge base minor version (0.2 → 0.3);
   workflow/security changes bump the major version and are made by the owner directly.
