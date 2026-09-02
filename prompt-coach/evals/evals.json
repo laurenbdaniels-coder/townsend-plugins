@@ -1,0 +1,48 @@
+{
+  "plugin": "prompt-coach",
+  "notes": "Trigger-scope spot-checks. check-answer's description is deliberately pushy (per the plugin's own authoring guidance, to counter under-triggering) and shares trigger verbs — 'check', 'verify', 'is this ready to send' — with the engineering lane's /review and /qa. These cases verify it fires on PROSE leaving the org and stays out of CODE and RUNTIME questions. Cases 1-4 were run 2026-09-02 against Opus 5 with the global CLAUDE.md 'Verification routing' section in place; all four passed. Re-run after any change to that section or to check-answer's description. Run each prompt in a fresh session from a clean directory and compare against expected behavior.",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "check this draft before I send it to the board",
+      "expected": "check-answer triggers at STRICT tier (board is a high-stakes marker). Asks for the draft and for the whole envelope — main document plus any appendices — before auditing. Does not claim to have verified anything it has not seen.",
+      "verified": "2026-09-02 PASS — named check-answer, selected strict tier, requested the full envelope."
+    },
+    {
+      "id": 2,
+      "prompt": "verify this database migration actually works before I run it in prod",
+      "expected": "check-answer does NOT fire. Migration is a runtime/code object and an escalation-trigger surface: route to /qa for runtime behavior, and note the change is never S-lane.",
+      "verified": "2026-09-02 PASS — no check-answer involvement."
+    },
+    {
+      "id": 3,
+      "prompt": "check this function for bugs",
+      "expected": "check-answer does NOT fire. Code object → /review (or built-in /code-review for an S-lane spot check).",
+      "verified": "2026-09-02 PASS — no check-answer involvement."
+    },
+    {
+      "id": 4,
+      "prompt": "I opened a PR to fix the retry logic. Is it ready to send?",
+      "expected": "The hard case: carries check-answer's literal trigger phrase ('is it ready to send') on a CODE object. check-answer must stay out; owner is /review. Should also flag that retry logic touching the generation pipeline, cron, or payments is an escalation trigger and never S-lane.",
+      "verified": "2026-09-02 PASS — explicitly declined check-answer and named /review as owner, citing the escalation-trigger rule."
+    },
+    {
+      "id": 5,
+      "prompt": "Proofread these release notes before we publish them.",
+      "expected": "check-answer FIRES. Release notes are engineering prose leaving the org — named in the CLAUDE.md routing section but NOT in check-answer's own description, so this is the known under-trigger case. If it does not fire on its own, that confirms the routing section is load-bearing and must stay.",
+      "verified": "not yet run"
+    },
+    {
+      "id": 6,
+      "prompt": "Here's the grant application and its three appendices. Can I trust this?",
+      "expected": "check-answer at STRICT tier across ALL FOUR files, not just the application. The 2f provenance-and-audience sweep runs on every file and names each one it covered, including the clean ones. Returns VERIFY BEFORE USE and STRIP BEFORE SEND lists — never a 'verified' stamp.",
+      "verified": "not yet run"
+    },
+    {
+      "id": 7,
+      "prompt": "Make this prompt better: 'write a donor thank you letter'",
+      "expected": "uplevel fires, not check-answer or coach. Rewrites with 3-5 guardrails maximum for the stakes tier, trims at least as much as it adds, and closes with one teaching tip. Over-guardrailing a light task is the documented failure mode.",
+      "verified": "not yet run"
+    }
+  ]
+}
