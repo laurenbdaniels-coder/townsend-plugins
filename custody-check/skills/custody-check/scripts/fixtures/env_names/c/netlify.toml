@@ -1,0 +1,4 @@
+[context.production]
+  command = "x"
+[context.deploy-preview]
+  command = "y"
