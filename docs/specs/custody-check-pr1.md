@@ -160,3 +160,14 @@ Human: ~1 week. Claude Code: ~1 session, split: scanner + tests 2h; SKILL.md + r
 
 - Design: `docs/designs/custody-check.md`
 - Follow-up: PR 2, evals (to be filed after this lands)
+
+## Appendix B: amendments accepted during /autoplan (2026-09-17)
+
+The plan review (CEO, DX and Eng phases, each with an outside voice) amended the contract above in four places. Where this appendix differs from the body, the appendix wins; the implementation follows it.
+
+1. **Confidence cap.** A scanner-origin `yes` (Q5 code half, Q6) is emitted with confidence `med`, never `high`. `high` is reserved for founder-confirmed answers. A scanner `no` stays `high` and is never softened by the founder's answers.
+2. **Failure envelope.** On failure the scanner prints `{ok:false, error:<code>, hint:<text>, docs:<README anchor>, partial:true}` with stable codes `usage`, `repo-not-found`, `repo-not-a-directory`, `repo-unreadable`, `python-too-old`, `internal:<ExceptionClass>`. Every hint is path-free and names the next action.
+3. **`version` and `stats`.** The success JSON gains top-level `version` (the scanner's `__version__`, the single source for `--version`, the stderr line, the verdict footer and the CI version guard) and `stats` (`files_skipped_oversize`, `files_skipped_binary`, `files_skipped_generated`, `files_never_open`, `files_skipped_special`, `files_errored`, `max_files_hit`, `max_total_bytes_hit`, `deadline_hit`, `config`).
+4. **`warnings`.** The success JSON gains top-level `warnings` (today only `repo-is-cwd`, non-fatal). Top-level key order is `ok, partial, version, files_scanned, stats, warnings, git, questions`.
+
+Other changes folded into the scanner without changing the shape: line-clipped snippets with name-only snippets for env files and a final sanitization pass over every output string; `O_NOFOLLOW` + `fstat` containment; an instruction-file denylist by family (`.cursor/rules`, `.windsurf*`, `.clinerules*`, `.github/instructions`, `GEMINI.md`, `copilot-instructions*`); lockfile, source-map and minified-bundle skips; a global deadline (`--deadline-s`), byte budget (`--max-total-bytes`), `--pretty`, `--exit-code`, `--exclude-dir`, `--browser-prefix`; `PUBLIC_`, `NUXT_PUBLIC_`, `GATSBY_` prefixes; a placeholder guard and test-path routing that never produce a `no`; neutral segments (`lib`, `utils`, `services`, `db`, `scripts`, `workers`, `jobs`, `cron`), SvelteKit `+server.ts`, Next app-router `use client` and pages-router data-fetching rules; JWT roles (`service_role` → no; `anon`, `authenticated`, unknown → evidence); git codes `git-not-a-repo`, `git-unavailable`, `git-timeout`, `git-subdir`, `git-shallow`, `git-history` under a 15 s budget. Test inventory: 83 unittest cases (the 16 spec cases, the contract tests, and the review additions).
