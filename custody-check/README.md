@@ -60,7 +60,7 @@ run custody-check on ./my-app
 
 That phrase works in Claude Code. In Codex the phrase that worked in my own run was `use the custody-check skill on ./my-app` (the shorter "run X on ./my-app" made Codex step into the app folder first, which is what we are avoiding). If Codex does not find the skill, say `use the skill at ~/.codex/skills/custody-check on ./my-app`.
 
-The agent runs one command (the scanner, `python3 -I custody_scan.py --repo ./my-app`; your host will ask you to allow it once), then asks you the questions it cannot answer from files, one at a time, then prints the verdict. Four to five minutes once the code is local. Recommended: start Claude Code with `claude --permission-mode plan` so nothing can be edited even by accident; if your version of plan mode refuses the scanner's one command, run without it and approve the single `python3` prompt when it appears, or pass `--allowedTools "Bash(python3 *custody_scan.py*)"` (that is a permission-prompt scope, not a sandbox).
+The agent runs one command (the scanner, `python3 -I custody_scan.py --repo ./my-app`; your host will ask you to allow it once), then asks you the questions it cannot answer from files, one at a time, then prints the verdict. Four to five minutes once the code is local. Recommended: start Claude Code with `claude --permission-mode plan` so nothing can be edited even by accident. Verified on Claude Code 2.1.273: plan mode allowed the scanner's one read-only command and the run left the app untouched (`git status` unchanged, no newer files). If your version refuses it, run without plan mode and approve the single `python3` prompt when it appears, or pass `--allowedTools "Bash(python3 *custody_scan.py*)"` (that is a permission-prompt scope, not a sandbox).
 
 You can answer the questions up front instead of one at a time: paste a `Founder answers` block (the shape is in `skills/custody-check/assets/founder-answers-example.md`).
 
@@ -98,7 +98,8 @@ Claude Code and Codex read the instruction files in the folder they start in (`C
 - **`repo-unreadable`.** The folder's permissions block reading. Copy the app somewhere you own.
 - **`python-too-old` / python not found.** The check continues as an interview and tells you it did not scan. Install python 3.9 or newer for the scan (macOS: Command Line Tools; Windows: `py -3`).
 - **`partial: yes`.** The scanner stopped early; the footer says why (file limit, byte budget, time limit, unreadable files). Point it at the app subfolder or re-run with `--max-files 50000` if you asked the agent to pass flags.
-- **`git-not-a-repo`.** A zip export. Q5's code half stays "don't know"; the by-hand test is in the Don't-know list.
+- **`git-not-a-repo`.** A zip export, or an export folder that is not tracked by git. Q5's code half stays "don't know"; the by-hand test is in the Don't-know list.
+- **`git-subdir`.** Your app folder is a tracked part of a larger repository (a monorepo). The commit and tag counts belong to the whole repository.
 - **`git-unavailable` / `git-timeout`.** Install git (macOS: Command Line Tools) or try again.
 - **"I think a `no` is wrong."** A scanner `no` comes with a path and a line. Look there. If it really is a placeholder, a test fixture, or a public key, open an issue on this repository with the check name from the evidence column and I will tune it; the scanner cannot be argued down inside the chat, on purpose.
 - **Windows.** The scanner's unit tests run on Windows in CI; the host skill flow is untested there. Use `py -3` where the docs say `python3`.

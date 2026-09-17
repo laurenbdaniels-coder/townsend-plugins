@@ -90,3 +90,18 @@ Two halves, scored separately; the verdict shows the lower one.
 - **No** only from you: the platform holds the only copy of either.
 - Scanner evidence: `builder-file`, `builder-dependency`, `builder-readme`, `container-config` name the platform; the defaults are the question.
 - **By hand (60 s):** find the export or download button for both the code and the data. Click the data one and open the file.
+
+## All check names
+
+Every `check` the scanner can emit, by question. The skill accepts scanner output only when every check is on this list; `scan-summary` is the placeholder row for a question with zero hits. Effect: **no** flips the answer to no; **yes-part** contributes to a yes; **hint** and **evidence** never change the answer.
+
+- **Q1:** `browser-prefix-anon-jwt` (evidence), `browser-prefix-authenticated-jwt` (evidence), `browser-prefix-named-key` (no), `browser-prefix-privileged-jwt` (no), `browser-prefix-public-key` (evidence), `browser-prefix-service-or-secret-name` (no), `browser-prefix-token-shaped` (evidence), `browser-prefix-unknown-role-jwt` (evidence), `client-anon-jwt` (evidence), `client-authenticated-jwt` (evidence), `client-key-literal` (no), `client-keyish-ident-token` (evidence), `client-privileged-jwt` (no), `client-secret-ident-token` (no), `client-secret-name-token` (no), `client-unknown-role-jwt` (evidence), `env-file-on-disk` (evidence), `mcp-token` (no), `mcp-token-shaped` (evidence), `non-client-key-literal` (evidence), `placeholder-key-literal` (evidence), `scan-summary` (evidence), `server-path-key-literal` (evidence), `test-path-key-literal` (evidence), `tracked-env-file` (no)
+- **Q2:** `api-route-dir` (hint), `framework-config` (hint)
+- **Q3:** `firebase-rules-open` (evidence), `policy-to-anon` (evidence), `policy-using-true` (no), `policy-with-check-true` (evidence), `rls-disabled` (no), `storage-bucket-public` (evidence), `storage-bucket-public-sql` (evidence)
+- **Q4:** `auth-dependency` (evidence), `auth-path` (evidence)
+- **Q5 (code half):** `backup-script` (evidence), `deploy-config` (yes-part), `git-history` (evidence), `git-not-a-repo` (evidence), `git-shallow` (evidence), `git-subdir` (evidence), `git-timeout` (evidence), `git-unavailable` (evidence), `migration-path` (evidence)
+- **Q6:** `env-name` (yes-part)
+- **Q8:** `ai-sdk-dependency` (hint), `model-env-var` (hint), `model-literal` (hint), `spend-cap-word` (hint)
+- **Q9:** `cron-schedule` (hint), `health-route` (hint), `monitoring-dependency` (hint), `sentry-config` (hint)
+- **Q10:** `pii-field` (evidence), `pii-form-input` (evidence)
+- **Q11:** `builder-dependency` (evidence), `builder-file` (evidence), `builder-readme` (evidence), `container-config` (evidence)

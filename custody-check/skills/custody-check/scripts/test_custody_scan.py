@@ -575,6 +575,20 @@ class Q5Tests(ScanCase):
         self.assertEqual(r["git"]["commits"], 12)
         self.assertEqual((q5["answer"], q5["confidence"]), ("dont-know", "med"))
 
+    def test_untracked_folder_inside_parent_repo_is_not_a_repo(self):
+        self.init_repo(commits=3)
+        export = os.path.join(self.repo, "inkling-export")
+        os.makedirs(os.path.join(export, "src"))
+        with open(os.path.join(export, "src", "a.ts"), "w") as fh:
+            fh.write("export const a = 1;\n")
+        with open(os.path.join(export, ".env"), "w") as fh:
+            fh.write("A=b\n")
+        r = self.scan(repo=export)
+        self.assertIsNone(r["git"]["commits"])
+        self.assertIn("git-not-a-repo", evidence_checks(r["questions"]["q5"]["code"]))
+        self.assertNotIn("git-subdir", evidence_checks(r["questions"]["q5"]["code"]))
+        self.assertIn("env-file-on-disk", evidence_checks(r["questions"]["q1"]))
+
     def test_git_timeout_and_unavailable_codes(self):
         self.init_repo(commits=2)
         with mock.patch.object(cs.subprocess, "run", side_effect=subprocess.TimeoutExpired("git", 1)):
@@ -920,6 +934,14 @@ class RepoFilesTests(unittest.TestCase):
         m = re.search(r"^description:\s*(.+)$", text, re.M)
         self.assertTrue(m)
         self.assertLess(len(m.group(1)), 1024)
+
+    def test_every_check_name_is_listed_in_questions_reference(self):
+        path = os.path.join(SKILL_DIR, "references", "questions.md")
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+        listed = set(re.findall(r"`([a-z0-9-]+)`", text))
+        missing = sorted(name for name in cs.CHECKS if name not in listed)
+        self.assertEqual(missing, [], "check names the skill would reject as unknown")
 
     def test_version_four_way(self):
         with open(os.path.join(PLUGIN_DIR, ".claude-plugin", "plugin.json"), encoding="utf-8") as fh:

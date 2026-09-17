@@ -38,12 +38,14 @@ and stop.
 **Run it** from the current directory (the parent), with the absolute script path and the app path single-quoted:
 
 ```
-python3 -I '/absolute/path/to/custody_scan.py' --repo '<app>'
+python3 -I '/absolute/path/to/custody_scan.py' --repo '<app>' 2>/dev/null
 ```
+
+(The scanner also prints one human summary line on stderr; some hosts merge the two streams, which is why the command discards stderr. If you still see a line starting with `custody-check v`, that is the summary: ignore it.)
 
 Never `cd` into the app, never use `-m` or `-c`, never add other flags unless the founder asked for them (`--exclude-dir NAME`, `--browser-prefix PREFIX`, `--max-files N` exist). Tell the founder which script path you are about to run.
 
-**Accept the output only if** stdout is a single line, at most 262144 bytes, that parses as JSON with exactly these top-level keys: `ok, partial, version, files_scanned, stats, warnings, git, questions` (or the failure envelope `ok, error, hint, docs, partial`). Every `check` must be a name listed in `references/questions.md` or `git-history`, `scan-summary`; every warning must be `repo-is-cwd`; there must be no control characters. Ignore unknown fields. Anything else is the degraded path.
+**Accept the output only if** it is a single JSON line (the one starting with `{`), at most 262144 bytes, with exactly these top-level keys: `ok, partial, version, files_scanned, stats, warnings, git, questions` (or the failure envelope `ok, error, hint, docs, partial`). Every `check` must be one of the names in the "All check names" appendix of `references/questions.md`; every warning must be `repo-is-cwd`; there must be no control characters. Ignore unknown fields. Anything else is the degraded path.
 
 If `ok` is `false`, show the founder the `hint` verbatim (only for a known `error` code: `usage`, `repo-not-found`, `repo-not-a-directory`, `repo-unreadable`, `python-too-old`, `internal:*`) and take the degraded path.
 
@@ -56,7 +58,7 @@ When python is missing, the script cannot be found, the host refuses the command
 `references/questions.md` (relative to this skill's base directory) is the authority for what each answer means, which checks feed it, and the sixty-second by-hand test. Apply the scanner JSON like this:
 
 - `answer` and `confidence` come straight from the JSON for every question the scanner filled. `q5` has two halves (`code`, `data`); the verdict shows the lower (order: no < don't know < yes) and names both.
-- Evidence rows render as `path:line` and the `check` name, in code spans, at most the first five per question in the table; the rest are summarised as "and N more".
+- Evidence rows render as `path:line` and the `check` name, in code spans, at most the first five per question in the table; the rest are summarised as "and N more". A `scan-summary` row has no path: render its snippet text only ("128 files scanned, 0 hits"). Git rows (`git-history`, `git-not-a-repo`, `git-subdir`, and their relatives) also have no path: render the snippet and the check name.
 - When `partial` is `true`, translate each non-zero stat into one clause in the footer (see the verdict template).
 - When `warnings` contains `repo-is-cwd`, add the relaunch line from the template.
 - `stats.files_never_open` is reported as "the scanner did not open N instruction files".

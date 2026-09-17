@@ -911,6 +911,10 @@ def git_facts(repo, state):
         if toplevel != real_repo:
             if real_repo.startswith(toplevel + os.sep):
                 subdir = True
+                tracked_here = run(["ls-files", "-z", "--", "."])
+                if tracked_here.returncode != 0 or not tracked_here.stdout.strip("\0"):
+                    state.add("git-not-a-repo", "", 0, "this folder is not tracked by git (an export inside another repository)")
+                    return
             else:
                 state.add("git-not-a-repo", "", 0, "not a git repository")
                 return

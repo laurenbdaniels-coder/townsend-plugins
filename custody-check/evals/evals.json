@@ -1,18 +1,18 @@
 {
   "plugin": "custody-check",
-  "notes": "Trigger-scope spot-checks in the house format. The skill's description is anchored on custody / eleven-questions / vibe-coded vocabulary so it never competes with code-review, shipping, QA or plain test-run skills; case 5 is the near-miss that must NOT fire. Run each prompt in a fresh session from ~/git-projects (the folder that contains an app) and record the outcome. Full `claude plugin eval` cases with seeded-app, clean-app and hostile-repo fixtures are PR 2.",
+  "notes": "Trigger-scope spot-checks in the house format. The skill's description is anchored on custody / eleven-questions / vibe-coded vocabulary so it never competes with code-review, shipping, QA or plain test-run skills; case 5 is the near-miss that must NOT fire. Run each prompt in a fresh session from ~/git-projects (the folder that contains an app) and record the outcome. Full `claude plugin eval` cases with seeded-app, clean-app and hostile-repo fixtures are PR 2. Also verified 2026-09-17: a zip-style export folder (no git) renders Q5 code half as don't know; with python masked from PATH the skill interviews by hand and opens no files.",
   "evals": [
     {
       "id": 1,
       "prompt": "run custody-check on ./inkling-app",
       "expected": "custody-check fires. Preflight passes (cwd is the parent). Runs the scanner once with python3 -I and the absolute script path, accepts the single JSON line, asks next_change and stop_line first, then the remaining Don't-know questions one at a time, renders the verdict template with the footer carrying the version from the JSON. Never opens a file in the app.",
-      "verified": "not yet run"
+      "verified": "2026-09-17 PASS via `claude -p --permission-mode plan` from ~/git-projects on inkling-app: skill fired, scanner ran once, output accepted, verdict rendered with the JSON version in the footer, zero files written."
     },
     {
       "id": 2,
       "prompt": "run the eleven questions on my app in ./inkling-app",
       "expected": "custody-check fires; same flow as case 1.",
-      "verified": "not yet run"
+      "verified": "2026-09-17 PASS in Codex 0.137 with the phrase `use the custody-check skill on ./inkling-app` (skill copied to ~/.codex/skills): verdict rendered, zero files written."
     },
     {
       "id": 3,
