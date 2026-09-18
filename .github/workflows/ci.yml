@@ -5,9 +5,13 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   custody-check:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -33,7 +37,7 @@ jobs:
         id: validate
         continue-on-error: true
         run: |
-          npm i -g @anthropic-ai/claude-code
+          npm i -g --ignore-scripts @anthropic-ai/claude-code@2.1.273
           claude plugin validate --strict ./custody-check
           claude plugin validate --strict .
       - name: Validation outcome
@@ -41,6 +45,7 @@ jobs:
 
   custody-check-windows:
     runs-on: windows-latest
+    timeout-minutes: 15
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4

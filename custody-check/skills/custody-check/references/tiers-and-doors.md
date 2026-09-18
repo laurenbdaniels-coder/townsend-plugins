@@ -25,7 +25,7 @@ Any of these ticked means: get a person who does this for a living before the ne
 - other people's sensitive personal data, especially children's
 - real scale, real money, or a contract riding on uptime
 
-The founder ticks the stop-line in the answers block (`stop_line:`). Scanner evidence on Q10 that shows fields such as `ssn`, `dob`, `medical`, `diagnosis`, `card_number`, `cc_number`, `iban`, or `passport` also raises it.
+The founder ticks the stop-line in the answers block (`stop_line:`). Scanner evidence on Q10 that shows fields such as `ssn`, `social_security`, `dob`, `date_of_birth`, `birthdate`, `medical`, `diagnosis`, `credit_card`, `card_number`, `cc_number`, `iban`, or `passport` also raises it.
 
 ## Three doors
 
@@ -36,7 +36,7 @@ The founder ticks the stop-line in the answers block (`stop_line:`). Scanner evi
 ### Door rule (applied in this order)
 
 1. Stop-line ticked → print **Get a person** above the doors; choose no door.
-2. Q1 = no or Q3 = no → **Patch it**.
+2. Q1 = no, Q2 = no, or Q3 = no → **Patch it** (a founder who says the browser calls the database or the AI provider with a privileged key has answered Q1's question).
 3. Two or more of Q4, Q5, Q6, Q9 are no or Don't know → **Patch it**.
 4. Otherwise → **Ship it**.
 
@@ -44,7 +44,7 @@ Shelve it is never chosen by the tool; it is the founder's call, and the verdict
 
 ### Patch-list order
 
-At most three items, in this order: Q1, then Q3, then whichever of Q4, Q5, Q6, Q9 failed, in that order. Each item is one sentence naming the by-hand test from `questions.md` and, for Q1, the words "rotate it now".
+At most three items, in this order: Q1, then Q2, then Q3, then whichever of Q4, Q5, Q6, Q9 failed, in that order. When the scan was partial and Q1 or Q3 is still Don't know, the door is never Ship it: the verdict prints the rerun recipe (`--max-files 50000`, or point at the app subfolder) above the doors instead. Each item is one sentence naming the by-hand test from `questions.md` and, for Q1, the words "rotate it now".
 
 ## Five, if you'll only do five
 

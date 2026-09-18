@@ -12,13 +12,16 @@ import sys
 
 __version__ = "0.1.0"
 
+_DOCS = "README.md#when-it-goes-wrong"
 HINTS = {
-    "usage": ("Pass the app folder with --repo. Run from the folder that contains your app: python3 custody_scan.py --repo my-app", "README.md#when-it-goes-wrong"),
-    "repo-not-found": ("The --repo folder was not found. Run from the folder that contains your app and pass its name.", "README.md#when-it-goes-wrong"),
-    "repo-not-a-directory": ("The --repo path is a file, not a folder. Pass the app folder itself.", "README.md#when-it-goes-wrong"),
-    "repo-unreadable": ("The --repo folder cannot be read. Check its permissions or copy the app somewhere you own.", "README.md#when-it-goes-wrong"),
-    "python-too-old": ("This scanner needs python 3.9 or newer. Run python3 --version; on macOS install the Command Line Tools, on Windows use py -3.", "README.md#python"),
-    "internal": ("The scanner hit an unexpected error. Answer the eleven questions by hand and file an issue with the error code.", "README.md#when-it-goes-wrong"),
+    "usage": ("Pass the app folder with --repo. Run from the folder that contains your app: python3 custody_scan.py --repo my-app", _DOCS),
+    "repo-not-found": ("The --repo folder was not found. Run from the folder that contains your app and pass its name.", _DOCS),
+    "repo-not-a-directory": ("The --repo path is a file, not a folder. Pass the app folder itself.", _DOCS),
+    "repo-is-symlink": ("The --repo path is a symbolic link. Pass the real folder (the link's target) instead.", _DOCS),
+    "repo-unreadable": ("The --repo folder cannot be read. Check its permissions or copy the app somewhere you own.", _DOCS),
+    "python-too-old": ("This scanner needs python 3.9 or newer. Run python3 --version; on macOS install the Command Line Tools, on Windows use py -3.", _DOCS),
+    "repo-contains-cwd": ("The folder you named contains the folder you launched from. Run from the folder that contains your app and pass its name, never .. or a parent.", _DOCS),
+    "internal": ("The scanner hit an unexpected error. Answer the eleven questions by hand and file an issue with the error code.", _DOCS),
 }
 
 
@@ -31,61 +34,85 @@ def version_guard(version_info):
 
 
 _guard = version_guard(sys.version_info)
-if _guard is not None and __name__ == "__main__":  # pragma: no cover
+if _guard is not None and __name__ == "__main__":
     import json as _json
     sys.stdout.write(_json.dumps(_guard, separators=(",", ":")) + "\n")
     sys.exit(0)
 
 import argparse
 import base64
+import bisect
 import json
 import os
 import re
-import shutil
+import select
+import signal
 import stat
 import subprocess
 import time
+import unicodedata
 import warnings
 
-warnings.simplefilter("ignore")
 
 # ----------------------------------------------------------------- constants
 
 EXCLUDED_DIRS = {".git", "node_modules", "dist", "build", ".next", ".nuxt", "out", "vendor", "venv", ".venv", "__pycache__", "coverage"}
-NEVER_OPEN_DIRS = {".claude", ".codex", ".agents", ".windsurf", ".clinerules"}
-NEVER_OPEN_DIR_PAIRS = {(".cursor", "rules"), (".github", "instructions")}
-NEVER_OPEN_FILE_RE = re.compile(r"^(?:claude|agents|gemini|copilot-instructions)(?:[.-][^/]*)?\.md$", re.I)
-NEVER_OPEN_FILES = {".cursorrules", ".windsurfrules", ".clinerules"}
+NEVER_OPEN_DIRS = {".claude", ".codex", ".agents", ".windsurf", ".clinerules", ".gemini", ".kiro", ".roo", ".trae", ".augment", ".amazonq", ".junie", ".continue", ".aider", ".opencode"}
+NEVER_OPEN_DIR_PAIRS = {(".cursor", "rules"), (".github", "instructions"), (".github", "prompts"), (".github", "agents")}
+NEVER_OPEN_FILE_RE = re.compile(r"^(?:claude|agents?|gemini|conventions|copilot-instructions)(?:[.-][^/]*)?\.md$|^\.aider.*$|.*\.prompt\.md$|.*\.agent\.md$|.*\.instructions\.md$|.*\.mdc$", re.I)
+NEVER_OPEN_FILES = {".cursorrules", ".windsurfrules", ".clinerules", ".rules", "opencode.json", ".roomodes"}
 SKIP_BASENAMES = {"package-lock.json", "yarn.lock", "pnpm-lock.yaml", "bun.lockb", "poetry.lock", "cargo.lock", "composer.lock", "gemfile.lock"}
 SKIP_EXT_SUFFIXES = (".map", ".min.js", ".min.css", ".bundle.js")
 BROWSER_PREFIXES = ("NEXT_PUBLIC_", "VITE_", "REACT_APP_", "EXPO_PUBLIC_", "PUBLIC_", "NUXT_PUBLIC_", "GATSBY_")
 ENV_TEMPLATE_NAMES = {".env.example", ".env.sample", ".env.template"}
+ENV_TEMPLATE_RE = re.compile(r"(?:^|[.-])(?:example|sample|template|dist|defaults)(?:$|[.-])", re.I)
 CLIENT_TOP_DIRS = {"src", "app", "pages", "components", "public", "static"}
-SERVER_SEGMENTS = {"api", "server"}
 NEUTRAL_SEGMENTS = {"lib", "utils", "services", "db", "scripts", "workers", "jobs", "cron"}
 SERVER_FILE_RE = re.compile(r"^middleware\.[^/]+$|\.server\.[^./]+$|^route\.[jt]s$|^\+server\.[jt]s$")
 DEPLOY_CONFIG_BASENAMES = {"vercel.json", "netlify.toml", "fly.toml", "render.yaml", "render.yml", "railway.json", "dockerfile", "procfile"}
 IGNORED_ENV_NAMES = {"development", "dev", "local", "test", "testing", "default", "example", "sample", "template"}
+NONPROD_ENV_STEMS = IGNORED_ENV_NAMES | {"ci", "vault", "enc", "sops", "age"}  # tracked on purpose in most scaffolds
+SOURCE_ROOTS = {"src", "app", "pages", "api", "server", "supabase", "prisma", "functions", "lib", "components", "netlify", "workers"}
+_HAS_NONBLOCK = hasattr(os, "set_blocking") and sys.platform != "win32"
+CONFIG_VALUE_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 SQL_LIKE_EXTS = {".sql", ".psql", ".pgsql", ".ddl"}
-DOC_EXTS = {".md", ".mdx", ".txt", ".rst"}
 CODE_EXTS = {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".vue", ".svelte", ".astro", ".py", ".rb", ".go", ".java", ".kt", ".php", ".cs", ".swift", ".dart"}
 SCHEMA_EXTS = {".prisma", ".graphql", ".gql"}
 HTML_EXTS = {".html", ".htm", ".jsx", ".tsx", ".vue", ".svelte", ".astro"}
-MAX_EVIDENCE = 25
+MAX_EVIDENCE = 12
 MAX_SNIPPET = 120
 MAX_HITS_PER_FILE_PER_CHECK = 5
 MAX_PATH_CHARS = 200
 BINARY_SNIFF_BYTES = 8192
-MCP_MAX_BYTES = 65536
+MCP_MAX_CHARS = 65536
 MCP_MAX_DEPTH = 64
 MCP_MAX_NODES = 10000
+LINE_CLIP_CHARS = 2048
+MAX_SEEN = 20000
 GIT_BUDGET_S = 15.0
+MAX_NEVER_OPEN_COUNT = 10000
+MAX_TRACKED_ENV_FILES = MAX_EVIDENCE
+DEFAULT_MAX_FILES = 20000
+DEFAULT_MAX_FILE_BYTES = 524288
+DEFAULT_MAX_TOTAL_BYTES = 268435456
+DEFAULT_DEADLINE_S = 120.0
+ENV_FILE_RE = re.compile(r"^\.env(\..+)?$")
+FLY_ENV_TOML_RE = re.compile(r"^fly\.([a-z0-9_-]+)\.toml$")
+DEADLINE_TICK = 256
+MAX_ENV_NAME_MATCHES = 200
+MAX_DIR_ENTRIES = 50000
+GIT_OUTPUT_LIMIT = 1 << 20
+MAX_CONFIG_ENTRIES = 20
+MAX_CONFIG_CHARS = 64
+MAX_OUTPUT_BYTES = 30000  # under the host's tool-output window, so the line is never truncated on the way to the agent
+STOPLINE_FIELDS = {"ssn", "social_security", "dob", "date_of_birth", "birthdate", "medical", "diagnosis", "credit_card", "card_number", "cc_number", "iban", "passport"}
+RUN_CHARS = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-+/=.")
 ENV_NAME_RE = re.compile(r"^[a-z0-9_-]{1,32}$")
 CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
 
 # effects: evidence < hint < yes-part < no
 CHECKS = {
-    "tracked-env-file": ("q1", "no"), "env-file-on-disk": ("q1", "evidence"),
+    "tracked-env-file": ("q1", "no"), "tracked-env-file-nonprod": ("q1", "evidence"), "env-file-on-disk": ("q1", "evidence"),
     "mcp-token": ("q1", "no"), "mcp-token-shaped": ("q1", "evidence"),
     "browser-prefix-service-or-secret-name": ("q1", "no"), "browser-prefix-named-key": ("q1", "no"),
     "browser-prefix-privileged-jwt": ("q1", "no"), "browser-prefix-anon-jwt": ("q1", "evidence"),
@@ -98,9 +125,9 @@ CHECKS = {
     "placeholder-key-literal": ("q1", "evidence"), "test-path-key-literal": ("q1", "evidence"),
     "scan-summary": ("q1", "evidence"),
     "api-route-dir": ("q2", "hint"), "framework-config": ("q2", "hint"),
-    "rls-disabled": ("q3", "no"), "policy-using-true": ("q3", "no"), "policy-with-check-true": ("q3", "evidence"),
+    "rls-disabled": ("q3", "no"), "policy-using-true": ("q3", "no"), "policy-select-true": ("q3", "evidence"), "policy-with-check-true": ("q3", "evidence"),
     "policy-to-anon": ("q3", "evidence"), "storage-bucket-public-sql": ("q3", "evidence"),
-    "firebase-rules-open": ("q3", "evidence"), "storage-bucket-public": ("q3", "evidence"),
+    "firebase-rules-open": ("q3", "no"), "firebase-rules-public-read": ("q3", "evidence"), "storage-bucket-public": ("q3", "evidence"),
     "auth-path": ("q4", "evidence"), "auth-dependency": ("q4", "evidence"),
     "deploy-config": ("q5.code", "yes-part"), "migration-path": ("q5.code", "evidence"), "backup-script": ("q5.code", "evidence"),
     "git-history": ("q5.code", "evidence"), "git-not-a-repo": ("q5.code", "evidence"), "git-unavailable": ("q5.code", "evidence"),
@@ -117,9 +144,9 @@ for _name, (_q, _e) in CHECKS.items():
 
 # ------------------------------------------------------------------ regexes
 
-TOKEN_CHARS = r"[A-Za-z0-9_\-+/=.]"
-NAMED_KEY_RE = re.compile(r"(?<![A-Za-z0-9_-])(?:sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|sb_secret_[A-Za-z0-9_-]+)(?![A-Za-z0-9_-])")
-NAMED_KEY_FULL_RE = re.compile(r"(?:sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|sb_secret_[A-Za-z0-9_-]+)")
+NAMED_KEY_ALT = r"sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|sb_secret_[A-Za-z0-9_-]{10,}"
+NAMED_KEY_RE = re.compile(r"(?<![A-Za-z0-9_-])(?:" + NAMED_KEY_ALT + r")(?![A-Za-z0-9_-])")
+NAMED_KEY_FULL_RE = re.compile(r"(?:" + NAMED_KEY_ALT + r")")
 JWT_RE = re.compile(r"(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}(?![A-Za-z0-9_-])")
 JWT_RUN_RE = re.compile(r"[A-Za-z0-9_.-]{27,}")
 JWT_SEG_RE = re.compile(r"[A-Za-z0-9_-]{8,}")
@@ -129,39 +156,49 @@ MAX_VALUE_CHARS = 8192
 PUBLIC_PREFIX_RE = re.compile(r"^(?:sb_publishable_|pk_live_|pk_test_|AIza[0-9A-Za-z_-]{35})")
 GENERIC_TOKEN_RE = re.compile(r"[A-Za-z0-9_\-+/=]{32,}")
 PLACEHOLDER_RE = re.compile(r"your|xxx+|placeholder|example|replace|changeme|dummy", re.I)
-SENSITIVE_NAME_RE = re.compile(r"SERVICE|SECRET", re.I)
-IDENT_SENSITIVE_RE = re.compile(r"service|secret", re.I)
+IDENT_SENSITIVE_RE = re.compile(r"secret|service[_-]?(?:role|key|token)", re.I)
+IDENT_BEFORE_RE = re.compile(r"(?<![A-Za-z0-9_])([A-Za-z_][A-Za-z0-9_]*)[ \t]*[:=][ \t]*[\"'`]?[ \t]*$")
 IDENT_KEYISH_RE = re.compile(r"key|token", re.I)
-IDENT_ASSIGN_TOKEN_RE = re.compile(r"\b(?P<ident>[A-Za-z_][A-Za-z0-9_]*)\s*[:=]\s*[\"'`](?P<value>[A-Za-z0-9_\-+/=.]{32,})[\"'`]")
-USE_CLIENT_RE = re.compile(r"^\s*[\"']use client[\"']", re.M)
-CLIENT_IMPORT_RE = re.compile(r"(?m)^\s*import\b[^\n]{0,200}\bfrom\s+[\"'](?:react|react-dom|vue|svelte|next|@sveltejs/kit)(?:/[^\"']*)?[\"']|require\([\"'](?:react|vue|svelte|next)[\"']\)")
+IDENT_ASSIGN_TOKEN_RE = re.compile(r"\b(?P<ident>[A-Za-z_][A-Za-z0-9_]*)[\"']?[ \t]*[:=][ \t]*[\"'`]?(?P<value>[A-Za-z0-9_\-+/=.]{32,})")
+USE_CLIENT_RE = re.compile(r"^[ \t]*[\"']use client[\"']", re.M)
+CLIENT_IMPORT_RE = re.compile(r"(?m)^[ \t]*import\b[^\n]{0,200}\bfrom[ \t]+[\"'](?:react|react-dom|vue|svelte|next|@sveltejs/kit|@angular/[a-z-]{1,40})(?:/[^\"'\n]{0,80})?[\"']|require\([\"'](?:react|vue|svelte|next)[\"']\)")
+SERVER_ONLY_IMPORT_RE = re.compile(r"(?m)^[ \t]*import\b[^\n]{0,200}[\"'](?:next/(?:headers|server|cache)|server-only)[\"']")
+ANGULAR_IMPORT_RE = re.compile(r"(?m)^[ \t]*import\b[^\n]{0,200}\bfrom[ \t]+[\"']@angular/")
 PAGES_DATA_FN_RE = re.compile(r"\b(?:getServerSideProps|getStaticProps|getStaticPaths)\b")
 TEST_PATH_RE = re.compile(r"(?:^|/)(?:__tests__|tests?|fixtures?)/|\.(?:test|spec|stories)\.[^/]+$")
-RLS_DISABLED_RE = re.compile(r"disable\s+row\s+level\s+security", re.I)
-USING_TRUE_RE = re.compile(r"\busing\s*\(\s*true\s*\)", re.I)
-WITH_CHECK_TRUE_RE = re.compile(r"\bwith\s+check\s*\(\s*true\s*\)", re.I)
+RLS_DISABLED_RE = re.compile(r"disable\s{1,20}row\s{1,20}level\s{1,20}security", re.I)
+USING_TRUE_RE = re.compile(r"\busing\s{0,20}\(\s{0,20}true\s{0,20}\)", re.I)
+WITH_CHECK_TRUE_RE = re.compile(r"\bwith\s{1,20}check\s{0,20}\(\s{0,20}true\s{0,20}\)", re.I)
 POLICY_TO_ANON_RE = re.compile(r"\bcreate\s+policy\b[^\n]{0,300}?\bto\s+anon\b", re.I)
 STORAGE_BUCKET_TRUE_RE = re.compile(r"storage\.buckets\b[^\n]{0,300}?\btrue\b", re.I)
-FIREBASE_ALLOW_TRUE_RE = re.compile(r"\ballow\s+[a-z, ]+:\s*if\s+true\b", re.I)
-RTDB_OPEN_RE = re.compile(r"\"\.(?:read|write)\"\s*:\s*true", re.I)
-TOML_PUBLIC_TRUE_RE = re.compile(r"^\s*public\s*=\s*true\b", re.I | re.M)
-NETLIFY_CONTEXT_RE = re.compile(r"^\s*\[context\.([^\]\n]{1,80})\]", re.M)
-WRANGLER_ENV_RE = re.compile(r"^\s*\[env\.([^\]\n]{1,80})\]", re.M)
+FIREBASE_ALLOW_ALL_RE = re.compile(r"\ballow[ \t]{1,20}([a-z]+(?:[ \t]*,[ \t]*[a-z]+){0,10})[ \t]*;", re.I)
+FIREBASE_ALLOW_TRUE_RE = re.compile(r"\ballow[ \t]{1,20}([a-z]+(?:[ \t]*,[ \t]*[a-z]+){0,10})[ \t]*:[ \t]*if[ \t]{1,20}true\b", re.I)
+FIREBASE_WRITE_RE = re.compile(r"\b(?:write|create|update|delete)\b", re.I)
+RTDB_WRITE_OPEN_RE = re.compile(r"\"\.write\"\s{0,20}:\s{0,20}true", re.I)
+RTDB_READ_OPEN_RE = re.compile(r"\"\.read\"\s{0,20}:\s{0,20}true", re.I)
+SLASH_COMMENT_RE = re.compile(r"//[^\n]*")
+RN_IMPORT_RE = re.compile(r"(?m)^[ \t]*import\b[^\n]{0,200}\bfrom[ \t]+[\"'](?:react-native|expo|expo-router|@expo/[^\"'\n]{0,60})[\"']")
+TOML_PUBLIC_TRUE_RE = re.compile(r"^[ \t]*public[ \t]*=[ \t]*true\b", re.I | re.M)
+NETLIFY_CONTEXT_RE = re.compile(r"^[ \t]*\[context\.([A-Za-z0-9_-]{1,32})(?:\.[^\]\n]{0,80})?\]", re.M)
+WRANGLER_ENV_RE = re.compile(r"^[ \t]*\[env\.([A-Za-z0-9_-]{1,32})(?:\.[^\]\n]{0,80})?\]", re.M)
 VERCEL_ENV_RE = re.compile(r"\"(production|preview|staging)\"\s*:")
+MODEL_PROVIDER_RE = re.compile(r"(?:OPENAI|ANTHROPIC|CLAUDE|GEMINI|GOOGLE_AI|GOOGLE_GENERATIVE_AI|MISTRAL|COHERE|GROQ|TOGETHER|REPLICATE|HUGGINGFACE|AZURE_OPENAI|OPENROUTER|XAI|DEEPSEEK|PERPLEXITY|FIREWORKS)_", re.I)
 MODEL_ENV_RE = re.compile(r"\b((?:OPENAI|ANTHROPIC|CLAUDE|GEMINI|GOOGLE_AI|GOOGLE_GENERATIVE_AI|MISTRAL|COHERE|GROQ|TOGETHER|REPLICATE|HUGGINGFACE|HF|AZURE_OPENAI|OPENROUTER|XAI|DEEPSEEK|PERPLEXITY|FIREWORKS)_[A-Z0-9_]*(?:KEY|TOKEN|SECRET))\b")
 MODEL_LITERAL_RE = re.compile(r"(?<![A-Za-z0-9])(?:gpt-[0-9][A-Za-z0-9.-]*|claude-[a-z0-9.-]+|gemini-[a-z0-9.-]+|llama[-_]?[0-9][A-Za-z0-9.-]*|mistral-[a-z0-9.-]+|o[134]-mini|o3)(?![A-Za-z0-9])")
 SPEND_CAP_RE = re.compile(r"\b(?:max_tokens|maxTokens|rate_limit|rateLimit|spend_cap|budget_limit|maxDuration)\b")
 HEALTH_ROUTE_RE = re.compile(r"[\"'`]/(?:api/)?health(?:z|check|-check)?[\"'`]")
 CRON_VERCEL_RE = re.compile(r"\"crons\"\s*:")
-CRON_WORKFLOW_RE = re.compile(r"^\s*-?\s*cron\s*:", re.M)
-CRON_WRANGLER_RE = re.compile(r"^\s*crons\s*=", re.M)
+CRON_WORKFLOW_RE = re.compile(r"^[ \t]*(?:-[ \t]*)?cron[ \t]*:", re.M)
+CRON_WRANGLER_RE = re.compile(r"^[ \t]*crons[ \t]*=", re.M)
 CRON_SQL_RE = re.compile(r"cron\.schedule\(", re.I)
-PII_FIELD_RE = re.compile(r"\b(email|phone|tel|ssn|social_security|dob|date_of_birth|birthdate|address|street|postal_code|zip_code|passport|credit_card|card_number|cc_number|iban|medical|diagnosis|salary)\b", re.I)
+PII_FIELD_RE = re.compile(r"(?<![a-z0-9])(email|phone|tel|ssn|social_security|dob|date_of_birth|birthdate|address|street|postal_code|zip_code|passport|credit_card|card_number|cc_number|iban|medical|diagnosis|salary)(?![a-z0-9])", re.I)
+CAMEL_SPLIT_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
+POLICY_SELECT_RE = re.compile(r"\bfor[ \t]{1,20}select\b", re.I)
 PII_INPUT_RE = re.compile(r"name=[\"'](email|tel|phone|address|street|cc-[a-z-]+|bday|ssn|dob)[\"']", re.I)
 BUILDER_URL_RE = re.compile(r"lovable\.(?:dev|app)|replit\.com|bolt\.new|base44\.com|v0\.(?:dev|app)", re.I)
 DEP_NAME_RE = re.compile(r"\"(@?[A-Za-z0-9_./-]+)\"\s*:")
 _prefix_alt = "|".join(re.escape(p) for p in BROWSER_PREFIXES)
-PREFILTER_RE = re.compile(r"sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|sb_secret_|eyJ[A-Za-z0-9_-]{8,}|(?:[Ss]ecret|SECRET|[Ss]ervice|SERVICE|[Kk]ey|KEY|[Tt]oken|TOKEN)[A-Za-z0-9_]*\s*[:=]\s*[\"'`]|" + _prefix_alt)
+PREFILTER_RE = re.compile(NAMED_KEY_ALT + r"|eyJ[A-Za-z0-9_-]{8,}|(?:[Ss]ecret|SECRET|[Ss]ervice|SERVICE|[Kk]ey|KEY|[Tt]oken|TOKEN)[A-Za-z0-9_]{0,64}[\"']?[ \t]*[:=]|" + _prefix_alt)
 
 AUTH_DEPS = {"next-auth", "@auth/core", "@auth/nextjs", "@clerk/nextjs", "@clerk/clerk-react", "@clerk/clerk-sdk-node", "@supabase/auth-helpers-nextjs", "@supabase/auth-helpers-react", "@supabase/ssr", "@supabase/auth-ui-react", "passport", "lucia", "better-auth", "jsonwebtoken", "jose", "firebase-admin", "@kinde-oss/kinde-auth-nextjs", "@auth0/nextjs-auth0", "auth0", "django-allauth", "devise", "flask-login", "authlib", "pyjwt", "python-jose"}
 AI_DEPS = {"openai", "@anthropic-ai/sdk", "anthropic", "ai", "@ai-sdk/openai", "@ai-sdk/anthropic", "@ai-sdk/google", "langchain", "@langchain/core", "@langchain/openai", "@langchain/anthropic", "@google/generative-ai", "google-generativeai", "@google/genai", "cohere-ai", "cohere", "replicate", "@mistralai/mistralai", "mistralai", "groq-sdk", "groq", "together-ai", "litellm", "ollama", "openrouter", "@huggingface/inference", "transformers"}
@@ -198,7 +235,14 @@ def _classes(value):
 def _redact_piece(piece):
     piece = NAMED_KEY_RE.sub(lambda m: redact_value(m.group(0)), piece)
     piece = PUBLIC_KEY_RE.sub(lambda m: redact_value(m.group(0)), piece)
-    if len(piece) >= 32 and GENERIC_TOKEN_RE.fullmatch(piece) and _classes(piece) >= 3:
+    if len(piece) < 32 or not GENERIC_TOKEN_RE.fullmatch(piece):
+        return piece
+    if "/" in piece and "+" not in piece and "=" not in piece:
+        # an ordinary slash-separated path is not a token; base64 with "/" also carries "+" or "="
+        # and mixes lower, upper and digits, which a path rarely does
+        alpha_classes = sum(1 for test in (str.islower, str.isupper, str.isdigit) if any(test(c) for c in piece))
+        return redact_value(piece) if alpha_classes >= 3 else piece
+    if _classes(piece) >= 2:
         return redact_value(piece)
     return piece
 
@@ -215,11 +259,49 @@ def _redact_run(match):
             continue
         out.append(_redact_piece(p))
         i += 1
+    if any(o != p for o, p in zip(out, pieces)) or len(out) != len(pieces):
+        # a dotted token (SendGrid, JWT-like): once any piece is a secret, its siblings are too
+        out = [redact_value(o) if (o == p and len(o) >= 16 and re.fullmatch(r"[A-Za-z0-9_\-+/=]+", o)) else o for o, p in zip(out, pieces)]
     return ".".join(out)
 
 
+def _mask_quoted(text):
+    """Hide every quoted string (other than the matched value) on a hit line: passwords are rarely token-shaped.
+
+    A linear scan, so a quoted string of any length is masked up to its closing quote or the end of the text.
+    """
+    out = []
+    i = 0
+    n = len(text)
+    while i < n:
+        c = text[i]
+        if c in "\"'`":
+            j = text.find(c, i + 1)
+            if j < 0:
+                # an unmatched quote: the matched value's own opener when it is the last character, otherwise
+                # an unterminated string whose remainder is masked to the end (it may hold a password)
+                out.append(c if i == n - 1 else c + "\u2026")
+                break
+            out.append(c + "\u2026" + c)
+            i = j + 1
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
 def sweep(text):
-    """Linear-time redaction: every token run is inspected piece by piece, never with backtracking regexes."""
+    """Linear-time redaction: JWT triples first (narrow charset, so glued query strings still split), then every token run piece by piece."""
+    spans = list(find_jwts(text))
+    if spans:
+        out = []
+        pos = 0
+        for start, end in spans:
+            out.append(text[pos:start])
+            out.append(redact_value(text[start:end]))
+            pos = end
+        out.append(text[pos:])
+        text = "".join(out)
     return RUN_RE.sub(_redact_run, text)
 
 
@@ -227,8 +309,6 @@ def find_jwts(text):
     """Yield (start, end) of every JWT-shaped triple, linear in the text length."""
     for m in JWT_RUN_RE.finditer(text):
         run = m.group(0)
-        if len(run) > 4 * MAX_VALUE_CHARS:
-            continue
         base = m.start()
         pieces = run.split(".")
         offsets = []
@@ -250,8 +330,14 @@ def is_jwt(value):
     return len(value) <= MAX_VALUE_CHARS and bool(JWT_RE.fullmatch(value))
 
 
+def _drop_format_chars(text):
+    """Bidi overrides, zero-width and other format characters can reorder rendered text; drop them."""
+    return "".join(c for c in text if not (unicodedata.category(c) in ("Cf", "Cc") or c in "\u2028\u2029"))
+
+
 def sanitize(text, limit=MAX_SNIPPET):
-    text = CONTROL_RE.sub("", str(text)).replace("\r", " ").replace("\n", " ").replace("\t", " ")
+    text = str(text).replace("\r", " ").replace("\n", " ").replace("\t", " ")
+    text = _drop_format_chars(CONTROL_RE.sub("", text))
     text = sweep(text)
     if len(text) > limit:
         text = text[:limit]
@@ -259,17 +345,43 @@ def sanitize(text, limit=MAX_SNIPPET):
 
 
 def sanitize_path(rel):
+    """Redact segment by segment so a nested path stays readable while a secret-shaped name is still hidden."""
     rel = rel.replace(os.sep, "/")
-    return sanitize(rel, MAX_PATH_CHARS)
+    cleaned = "/".join(sanitize(seg, MAX_PATH_CHARS) for seg in rel.split("/"))
+    return cleaned[:MAX_PATH_CHARS]
 
 
 def make_snippet(text, start, end):
-    line_start = text.rfind("\n", 0, start) + 1
-    line_end = text.find("\n", end)
-    if line_end < 0:
-        line_end = len(text)
-    line = text[line_start:line_end]
-    s = start - line_start
+    """Clip to the matched line, redact the WHOLE line first, then window around the match.
+
+    Sweeping before windowing matters: a window cut through a neighbouring secret would
+    leave a fragment too short for any pattern to catch.
+    """
+    lo = max(0, start - 2048)
+    ls = text.rfind("\n", lo, start)
+    line_start = ls + 1 if ls >= 0 else lo
+    hi = min(len(text), end + 2048)
+    le = text.find("\n", end, hi)
+    line_end = le if le >= 0 else hi
+    steps = 0
+    while line_start > 0 and text[line_start - 1] in RUN_CHARS and steps < 8192:
+        line_start -= 1
+        steps += 1
+    steps = 0
+    while line_end < len(text) and text[line_end] in RUN_CHARS and steps < 8192:
+        line_end += 1
+        steps += 1
+    before = _mask_quoted(sweep(text[line_start:start]))
+    value = sweep(text[start:end])
+    tail = sweep(text[end:line_end])
+    quote = before[-1] if before and before[-1] in "\"'`" else None
+    if quote and tail.startswith(quote):
+        tail = quote + _mask_quoted(tail[1:])
+    else:
+        tail = _mask_quoted(tail)
+    after = value + tail
+    line = before + after
+    s = len(before)
     if len(line) > MAX_SNIPPET:
         left = max(0, s - 40)
         line = line[left:left + MAX_SNIPPET]
@@ -280,15 +392,26 @@ def line_of(text, pos):
     return text.count("\n", 0, pos) + 1
 
 
-def is_generic_token(value):
+def _line_start(text, pos):
+    """Start of the line holding pos, never more than LINE_CLIP_CHARS back (a huge single line stays bounded)."""
+    lo = max(0, pos - LINE_CLIP_CHARS)
+    ls = text.rfind("\n", lo, pos)
+    return ls + 1 if ls >= 0 else lo
+
+
+def is_generic_token(value, min_classes=3):
     if len(value) < 32 or len(value) > MAX_VALUE_CHARS or not GENERIC_TOKEN_RE.fullmatch(value.rstrip(".")):
         return False
-    return _classes(value) >= 3
+    return _classes(value) >= min_classes and any(c.isdigit() for c in value)
 
 
 def is_placeholder(value, is_jwt):
     if PLACEHOLDER_RE.search(value):
         return True
+    if value.startswith("sk-") and value.count("-") > 5:
+        return True  # a hyphenated slug (a CSS class such as sk-fading-circle-container), not a key
+    if NAMED_KEY_FULL_RE.match(value) and not value.startswith("sk-"):
+        return False  # a real key shape wins over the digit heuristic (AWS ids are base32 and can lack digits)
     if not is_jwt and not any(c.isdigit() for c in value):
         return True
     return False
@@ -310,7 +433,7 @@ def decode_jwt_role(token):
 # ------------------------------------------------------------------ objects
 
 class Options(object):
-    def __init__(self, max_files=20000, max_file_bytes=524288, max_total_bytes=268435456, deadline_s=120.0, exclude_dirs=(), browser_prefixes=()):
+    def __init__(self, max_files=DEFAULT_MAX_FILES, max_file_bytes=DEFAULT_MAX_FILE_BYTES, max_total_bytes=DEFAULT_MAX_TOTAL_BYTES, deadline_s=DEFAULT_DEADLINE_S, exclude_dirs=(), browser_prefixes=()):
         self.max_files = int(max_files)
         self.max_file_bytes = int(max_file_bytes)
         self.max_total_bytes = int(max_total_bytes)
@@ -318,42 +441,52 @@ class Options(object):
         self.exclude_dirs_added = []
         for d in exclude_dirs:
             d = str(d).strip().strip("/").lower()
-            if not d or d == "." or "/" in d or d in NEVER_OPEN_DIRS or d in EXCLUDED_DIRS:
+            # over-length or path-like values are dropped, never shortened into a different name
+            if not d or len(d) > MAX_CONFIG_CHARS or d == "." or "/" in d or d in NEVER_OPEN_DIRS or d in EXCLUDED_DIRS or not CONFIG_VALUE_RE.match(d):
                 continue
-            if d not in self.exclude_dirs_added:
+            if d not in self.exclude_dirs_added and len(self.exclude_dirs_added) < MAX_CONFIG_ENTRIES:
                 self.exclude_dirs_added.append(d)
         self.browser_prefixes_added = []
         for p in browser_prefixes:
             p = str(p).strip()
-            if p and p not in BROWSER_PREFIXES and p not in self.browser_prefixes_added:
+            if not re.fullmatch(r"[A-Za-z0-9_]{1,%d}" % MAX_CONFIG_CHARS, p) or not CONFIG_VALUE_RE.match(p):
+                continue
+            if p not in BROWSER_PREFIXES and p not in self.browser_prefixes_added and len(self.browser_prefixes_added) < MAX_CONFIG_ENTRIES:
                 self.browser_prefixes_added.append(p)
         self.excluded = EXCLUDED_DIRS | set(self.exclude_dirs_added)
         self.prefixes = tuple(BROWSER_PREFIXES) + tuple(self.browser_prefixes_added)
         alt = "|".join(re.escape(p) for p in self.prefixes)
-        self.browser_assign_re = re.compile(r"[\"']?\b(?P<name>(?:" + alt + r")[A-Z0-9_]+)[\"']?\s*[=:]\s*[\"'`]?(?P<value>[A-Za-z0-9_\-+/=.]{16,})")
+        self.browser_assign_re = re.compile(r"[\"']?\b(?P<name>(?:" + alt + r")[A-Za-z0-9_]+)[\"']?\s*[=:]\s*[\"'`]?(?P<value>[A-Za-z0-9_\-+/=.]{16,})")
         self.prefilter_re = re.compile(PREFILTER_RE.pattern + ("|" + alt if self.browser_prefixes_added else ""))
 
 
 class ScanFile(object):
-    __slots__ = ("rel", "abs", "base", "ext", "top", "segments", "cls", "kinds", "text")
+    __slots__ = ("rel", "base", "ext", "cls", "kinds", "text")
 
-    def __init__(self, rel, abspath, base, ext, top, segments, cls, kinds, text):
+    def __init__(self, rel, base, ext, cls, kinds, text):
         self.rel = rel
-        self.abs = abspath
         self.base = base
         self.ext = ext
-        self.top = top
-        self.segments = segments
         self.cls = cls
         self.kinds = kinds
         self.text = text
+
+
+class Deadline(Exception):
+    """Raised inside a file's detectors when the global deadline passes."""
+
+
+def _empty_git():
+    return {"commits": None, "tags": None, "shallow": None, "tracked_env_files": None}
 
 
 class ScanState(object):
     def __init__(self):
         self.files_scanned = 0
         self.partial = False
-        self.git = {"commits": None, "tags": None, "shallow": None, "tracked_env_files": None}
+        self.git = _empty_git()
+        self.deadline = None
+        self.ticks = 0
         self.evidence = dict((k, []) for k in QUESTION_KEYS)
         self.effects = dict((k, set()) for k in QUESTION_KEYS)
         self.env_names = set()
@@ -361,8 +494,14 @@ class ScanState(object):
         self.seen = set()
         self.warnings = []
         self.stats = {"files_skipped_oversize": 0, "files_skipped_binary": 0, "files_skipped_generated": 0, "files_never_open": 0,
-                      "files_skipped_special": 0, "files_errored": 0, "max_files_hit": False, "max_total_bytes_hit": False, "deadline_hit": False,
-                      "config": {"exclude_dirs_added": [], "browser_prefixes_added": []}}
+                      "files_skipped_special": 0, "files_skipped_hardlink": 0, "files_errored": 0, "dirs_unreadable": 0, "dirs_truncated": 0, "mcp_capped": 0, "output_trimmed": 0, "max_files_hit": False,
+                      "max_total_bytes_hit": False, "deadline_hit": False, "config": {"exclude_dirs_added": [], "browser_prefixes_added": []}}
+
+    def tick(self):
+        """Cheap mid-file deadline check; called from hit loops."""
+        self.ticks += 1
+        if self.deadline is not None and self.ticks % DEADLINE_TICK == 0 and time.monotonic() > self.deadline:
+            raise Deadline()
 
     def add(self, check, path, line, snippet):
         question, effect = CHECKS[check]
@@ -370,9 +509,19 @@ class ScanState(object):
         key = (check, path, line, snippet)
         if key in self.seen:
             return
-        self.seen.add(key)
-        if len(self.evidence[question]) < MAX_EVIDENCE:
-            self.evidence[question].append({"path": sanitize_path(path), "line": int(line), "snippet": sanitize(snippet), "check": check})
+        if len(self.seen) < MAX_SEEN:
+            self.seen.add(key)
+        row = {"path": sanitize_path(path), "line": int(line), "snippet": sanitize(snippet), "check": check}
+        rows = self.evidence[question]
+        if len(rows) < MAX_EVIDENCE:
+            rows.append(row)
+        elif effect == "no":
+            # a row that decides the answer must never be crowded out by evidence-only rows
+            for i in range(len(rows) - 1, -1, -1):
+                if CHECKS[rows[i]["check"]][1] != "no":
+                    del rows[i]
+                    rows.append(row)
+                    break
 
 
 def iter_questions(result):
@@ -385,6 +534,11 @@ def iter_questions(result):
 
 
 # ---------------------------------------------------------------- filesystem
+
+def is_env_template(base):
+    b = base.lower()
+    return b in ENV_TEMPLATE_NAMES or bool(ENV_TEMPLATE_RE.search(b))
+
 
 def is_never_open_dir(name, parent):
     n = name.lower()
@@ -401,10 +555,14 @@ def is_generated(base):
     return b in SKIP_BASENAMES or b.endswith(SKIP_EXT_SUFFIXES)
 
 
-def count_files(path):
+def count_files(path, deadline=None):
     n = 0
-    for _, _, files in os.walk(path, followlinks=False, onerror=lambda e: None):
+    entries = 0
+    for _, dirs, files in os.walk(path, followlinks=False, onerror=lambda e: None):
         n += len(files)
+        entries += len(files) + len(dirs) + 1
+        if n >= MAX_NEVER_OPEN_COUNT or entries >= MAX_NEVER_OPEN_COUNT or (deadline is not None and time.monotonic() > deadline):
+            return min(n, MAX_NEVER_OPEN_COUNT)
     return n
 
 
@@ -444,7 +602,16 @@ def decode_text(data):
         return data.decode("utf-32", errors="replace")
     if data.startswith(b"\xff\xfe") or data.startswith(b"\xfe\xff"):
         return data.decode("utf-16", errors="replace")
-    if b"\x00" in data[:BINARY_SNIFF_BYTES]:
+    head = data[:BINARY_SNIFF_BYTES]
+    if b"\x00" in head:
+        half = len(head) // 2
+        if half >= 8:
+            odd = head[1::2].count(0)
+            even = head[0::2].count(0)
+            if odd >= half * 0.6 and even <= half * 0.05:
+                return data.decode("utf-16-le", errors="replace")  # UTF-16 without a BOM (Windows editors)
+            if even >= half * 0.6 and odd <= half * 0.05:
+                return data.decode("utf-16-be", errors="replace")
         return None
     return data.decode("utf-8-sig", errors="replace")
 
@@ -452,13 +619,14 @@ def decode_text(data):
 def classify(rel, base, ext, text):
     segments = rel.split("/")
     dirs = segments[:-1]
-    top = dirs[0] if dirs else ""
     lower_dirs = [d.lower() for d in dirs]
+    app_dirs = lower_dirs[1:] if lower_dirs and lower_dirs[0] == "src" else lower_dirs
+    top = app_dirs[0] if app_dirs else ""
     kinds = set()
     b = base.lower()
-    if re.match(r"^\.env(\..+)?$", b) or b.endswith(".env") or b == ".envrc":
-        kinds.add("env-template" if b in ENV_TEMPLATE_NAMES else "env")
-    if b == ".mcp.json" or (b == "mcp.json" and lower_dirs and lower_dirs[-1] == ".cursor"):
+    if ENV_FILE_RE.match(b) or b.endswith(".env") or b == ".envrc":
+        kinds.add("env-template" if is_env_template(b) else "env")
+    if b in (".mcp.json", "mcp.json", "mcp_config.json"):
         kinds.add("mcp")
     if ext in SQL_LIKE_EXTS:
         kinds.add("sql")
@@ -484,23 +652,30 @@ def classify(rel, base, ext, text):
         kinds.add("readme")
     if ext in HTML_EXTS:
         kinds.add("html")
-    if ext in DOC_EXTS:
-        kinds.add("doc")
     cls = "other"
-    if any(d in SERVER_SEGMENTS for d in lower_dirs) or SERVER_FILE_RE.search(base):
+    # "api" is server code at the repository root (serverless functions) or under pages/app (Next);
+    # src/api/ in a Vite or CRA app is usually the browser's fetch wrapper, so it stays client
+    api_server = bool(lower_dirs) and (lower_dirs[0] in ("api", "server", "functions", "workers") or
+                                       (bool(app_dirs) and app_dirs[0] in ("server", "functions", "workers")) or
+                                       (len(app_dirs) >= 2 and app_dirs[0] in ("pages", "app", "netlify", "supabase") and app_dirs[1] in ("api", "functions")))
+    if api_server or "server" in lower_dirs or SERVER_FILE_RE.search(base):
         cls = "server"
+    elif ("env" in kinds or "env-template" in kinds) and top not in ("public", "static"):
+        cls = "other"
     else:
         use_client = bool(USE_CLIENT_RE.search(text[:500]))
-        client_import = bool(CLIENT_IMPORT_RE.search(text))
+        client_import = bool(CLIENT_IMPORT_RE.search(text)) and not SERVER_ONLY_IMPORT_RE.search(text)
+        native_import = bool(RN_IMPORT_RE.search(text))
+        angular_import = bool(ANGULAR_IMPORT_RE.search(text))
         if any(d in NEUTRAL_SEGMENTS for d in lower_dirs):
-            cls = "client" if (use_client or client_import) else "other"
-        elif top.lower() == "app":
-            cls = "client" if use_client else "other"
-        elif top.lower() == "pages":
+            cls = "client" if (use_client or client_import or native_import) else "other"
+        elif top == "app":
+            cls = "client" if (use_client or native_import or angular_import) else "other"
+        elif top == "pages":
             cls = "other" if PAGES_DATA_FN_RE.search(text) else "client"
-        elif top.lower() in CLIENT_TOP_DIRS or ext in (".vue", ".svelte") or use_client or client_import:
+        elif top in CLIENT_TOP_DIRS or (lower_dirs and lower_dirs[0] == "src") or ext in (".vue", ".svelte", ".html", ".htm") or use_client or client_import or native_import:
             cls = "client"
-    return top, segments, cls, kinds
+    return cls, kinds
 
 
 # ---------------------------------------------------------------- detectors
@@ -527,13 +702,12 @@ def detect_browser_prefix(sf, state, opts, claimed):
         public = bool(PUBLIC_PREFIX_RE.match(value))
         if not (named or jwt or generic or public):
             continue
-        line = line_of(text, m.start())
-        snippet = name if is_env else make_snippet(text, m.start(), m.end())
+        state.tick()
         if is_placeholder(value, jwt):
             check = "placeholder-key-literal"
         elif is_test and (named or jwt or generic):
             check = "test-path-key-literal"
-        elif SENSITIVE_NAME_RE.search(name) and (named or jwt or generic):
+        elif IDENT_SENSITIVE_RE.search(name) and (named or jwt or generic):
             check = "browser-prefix-service-or-secret-name"
         elif named:
             check = "browser-prefix-named-key"
@@ -548,11 +722,14 @@ def detect_browser_prefix(sf, state, opts, claimed):
             else:
                 check = "browser-prefix-unknown-role-jwt"
         elif public:
-            check = "browser-prefix-public-key"
+            check = "browser-prefix-service-or-secret-name" if MODEL_PROVIDER_RE.search(name) else "browser-prefix-public-key"  # a Google key named for an AI provider is billable, not a web config
         else:
             check = "browser-prefix-token-shaped"
-        if _cap(counter, check):
-            state.add(check, sf.rel, line, snippet)
+        if not _cap(counter, check):
+            continue
+        line = line_of(text, m.start())
+        snippet = name if is_env else make_snippet(text, m.start(), m.end())
+        state.add(check, sf.rel, line, snippet)
 
 
 def detect_key_literals(sf, state, opts, claimed):
@@ -561,8 +738,15 @@ def detect_key_literals(sf, state, opts, claimed):
     is_env = "env" in sf.kinds or "env-template" in sf.kinds
     is_test = bool(TEST_PATH_RE.search(sf.rel))
 
+    starts = [c[0] for c in claimed]
+
     def overlaps(a, b):
-        return any(a < e and b > s for s, e in claimed)
+        i = bisect.bisect_right(starts, a) - 1
+        if i >= 0 and claimed[i][1] > a:
+            return True
+        if i + 1 < len(claimed) and claimed[i + 1][0] < b:
+            return True
+        return False
 
     hits = []
     for m in NAMED_KEY_RE.finditer(text):
@@ -571,19 +755,18 @@ def detect_key_literals(sf, state, opts, claimed):
         hits.append((start, end, "jwt", None))
     for m in IDENT_ASSIGN_TOKEN_RE.finditer(text):
         value = m.group("value")
-        if len(value) > MAX_VALUE_CHARS or NAMED_KEY_FULL_RE.match(value) or is_jwt(value) or not is_generic_token(value.rstrip(".")):
+        if len(value) > MAX_VALUE_CHARS or NAMED_KEY_FULL_RE.match(value) or is_jwt(value):
+            continue
+        classes_needed = 2 if IDENT_SENSITIVE_RE.search(m.group("ident")) else 3  # a hex secret under apiSecret still counts
+        if not is_generic_token(value.rstrip("."), classes_needed):
             continue
         hits.append((m.start("value"), m.end("value"), "generic", m.group("ident")))
     hits.sort()
     for start, end, kind, ident in hits:
         if overlaps(start, end):
             continue
+        state.tick()
         value = text[start:end]
-        line = line_of(text, start)
-        snippet = "" if is_env else make_snippet(text, start, end)
-        if is_env:
-            lstart = text.rfind("\n", 0, start) + 1
-            snippet = re.split(r"[=:\s]", text[lstart:start].strip(), 1)[0][:60]
         check = None
         if kind == "generic":
             if not (IDENT_SENSITIVE_RE.search(ident) or IDENT_KEYISH_RE.search(ident)):
@@ -600,10 +783,10 @@ def detect_key_literals(sf, state, opts, claimed):
             check = "client-key-literal"
         elif kind == "jwt":
             role = decode_jwt_role(value)
-            lstart = text.rfind("\n", 0, start) + 1
+            im = IDENT_BEFORE_RE.search(text[_line_start(text, start):start])
             if role == "service_role":
                 check = "client-privileged-jwt"
-            elif SENSITIVE_NAME_RE.search(text[lstart:start]):
+            elif im and IDENT_SENSITIVE_RE.search(im.group(1)):
                 check = "client-secret-name-token"
             elif role == "anon":
                 check = "client-anon-jwt"
@@ -616,13 +799,20 @@ def detect_key_literals(sf, state, opts, claimed):
                 check = "client-secret-ident-token"
             else:
                 check = "client-keyish-ident-token"
-        if check and _cap(counter, check):
-            state.add(check, sf.rel, line, snippet)
+        if not check or not _cap(counter, check):
+            continue
+        line = line_of(text, start)
+        if is_env:
+            lstart = _line_start(text, start)
+            snippet = re.split(r"[=:\s]", text[lstart:start].strip(), 1)[0][:60]
+        else:
+            snippet = make_snippet(text, start, end)
+        state.add(check, sf.rel, line, snippet)
 
 
 def detect_mcp(sf, state, opts):
     text = sf.text
-    if len(text) > MCP_MAX_BYTES:
+    if len(text) > MCP_MAX_CHARS:
         state.stats["files_skipped_oversize"] += 1
         state.partial = True
         return
@@ -638,6 +828,15 @@ def detect_mcp(sf, state, opts):
         for start, end in find_jwts(text):
             if _cap(counter, "mcp-token"):
                 state.add("mcp-token", sf.rel, line_of(text, start), make_snippet(text, start, end))
+        for m in MCP_PAIR_RE.finditer(text):  # JSONC / trailing commas: still read "key": "value" pairs
+            state.tick()
+            key, value = m.group(1), m.group(2)
+            if NAMED_KEY_RE.search(value) or any(True for _ in find_jwts(value)) or not is_generic_token(value):
+                continue
+            lk = key.lower()
+            check = "mcp-token" if (IDENT_SENSITIVE_RE.search(key) or IDENT_KEYISH_RE.search(key) or lk in ("authorization", "password", "auth")) else "mcp-token-shaped"
+            if _cap(counter, check):
+                state.add(check, sf.rel, line_of(text, m.start()), key)
         return
     stack = [("", data, 0)]
     nodes = 0
@@ -646,6 +845,7 @@ def detect_mcp(sf, state, opts):
         nodes += 1
         if nodes > MCP_MAX_NODES or depth > MCP_MAX_DEPTH:
             state.partial = True
+            state.stats["mcp_capped"] += 1
             break
         if isinstance(node, dict):
             for k, v in node.items():
@@ -673,58 +873,127 @@ def detect_mcp(sf, state, opts):
 
 def _finditer_lines(regex, text, sf, state, check, counter, snippet_fn=None):
     for m in regex.finditer(text):
-        if _cap(counter, check):
-            snippet = snippet_fn(m) if snippet_fn else make_snippet(text, m.start(), m.end())
-            state.add(check, sf.rel, line_of(text, m.start()), snippet)
+        state.tick()
+        if not _cap(counter, check):
+            break
+        snippet = snippet_fn(m) if snippet_fn else make_snippet(text, m.start(), m.end())
+        state.add(check, sf.rel, line_of(text, m.start()), snippet)
+
+
+def _clause(m):
+    return m.group(0)[:MAX_SNIPPET]
 
 
 def detect_sql(sf, state, opts):
     counter = {}
-    text = sf.text
-    _finditer_lines(RLS_DISABLED_RE, text, sf, state, "rls-disabled", counter)
-    _finditer_lines(USING_TRUE_RE, text, sf, state, "policy-using-true", counter)
-    _finditer_lines(WITH_CHECK_TRUE_RE, text, sf, state, "policy-with-check-true", counter)
-    _finditer_lines(POLICY_TO_ANON_RE, text, sf, state, "policy-to-anon", counter)
-    _finditer_lines(STORAGE_BUCKET_TRUE_RE, text, sf, state, "storage-bucket-public-sql", counter)
-    _finditer_lines(CRON_SQL_RE, text, sf, state, "cron-schedule", counter)
+    text = _strip_sql_comments(sf.text)
+    _finditer_lines(RLS_DISABLED_RE, text, sf, state, "rls-disabled", counter, _clause)
+    for m in USING_TRUE_RE.finditer(text):
+        state.tick()
+        # a public-read policy (`for select using (true)`) is a design choice the by-hand test decides;
+        # `for all`, insert/update/delete, or no FOR clause opens writes and is a no
+        window = text[max(0, m.start() - 2000):m.start()].lower()
+        cp = window.rfind("create policy")
+        check = "policy-select-true" if cp >= 0 and POLICY_SELECT_RE.search(window[cp:]) else "policy-using-true"
+        if _cap(counter, check):
+            state.add(check, sf.rel, line_of(text, m.start()), _clause(m))
+    _finditer_lines(WITH_CHECK_TRUE_RE, text, sf, state, "policy-with-check-true", counter, _clause)
+    _finditer_lines(POLICY_TO_ANON_RE, text, sf, state, "policy-to-anon", counter, _clause)
+    _finditer_lines(STORAGE_BUCKET_TRUE_RE, text, sf, state, "storage-bucket-public-sql", counter, _clause)
+    _finditer_lines(CRON_SQL_RE, text, sf, state, "cron-schedule", counter, _clause)
+
+
+SQL_LINE_COMMENT_RE = re.compile(r"--[^\n]*")
+MCP_PAIR_RE = re.compile(r'"([^"\n]{1,80})"[ \t]*:[ \t]*"([^"\n]{32,8192})"')
+
+
+def _blank_block_comments(text):
+    """Blank /* ... */ comments with a linear find loop (a lazy regex is quadratic on unclosed openers).
+
+    Newlines are kept so line numbers hold; an unclosed opener leaves the rest visible, so a decisive
+    line can never be hidden behind a comment that never ends.
+    """
+    out = []
+    i = 0
+    while True:
+        j = text.find("/*", i)
+        if j < 0:
+            out.append(text[i:])
+            break
+        k = text.find("*/", j + 2)
+        if k < 0:
+            out.append(text[i:])
+            break
+        out.append(text[i:j])
+        out.append(re.sub(r"[^\n]", " ", text[j:k + 2]))
+        i = k + 2
+    return "".join(out)
+
+
+def _strip_sql_comments(text):
+    """Blank out comments (keeping newlines so line numbers hold) before the decisive Q3 checks."""
+    text = _blank_block_comments(text)
+    return SQL_LINE_COMMENT_RE.sub(lambda m: " " * len(m.group(0)), text)
+
+
+def _strip_slash_comments(text):
+    text = _blank_block_comments(text)
+    return SLASH_COMMENT_RE.sub(lambda m: " " * len(m.group(0)), text)
 
 
 def detect_rules(sf, state, opts):
     counter = {}
-    _finditer_lines(FIREBASE_ALLOW_TRUE_RE, sf.text, sf, state, "firebase-rules-open", counter)
-    _finditer_lines(RTDB_OPEN_RE, sf.text, sf, state, "firebase-rules-open", counter)
+    text = _strip_slash_comments(sf.text)
+    for regex in (FIREBASE_ALLOW_TRUE_RE, FIREBASE_ALLOW_ALL_RE):
+        for m in regex.finditer(text):
+            state.tick()
+            check = "firebase-rules-open" if FIREBASE_WRITE_RE.search(m.group(1)) else "firebase-rules-public-read"
+            if _cap(counter, check):
+                state.add(check, sf.rel, line_of(text, m.start()), _clause(m))
+    _finditer_lines(RTDB_WRITE_OPEN_RE, text, sf, state, "firebase-rules-open", counter, _clause)
+    _finditer_lines(RTDB_READ_OPEN_RE, text, sf, state, "firebase-rules-public-read", counter, _clause)
 
 
 def detect_supabase_config(sf, state, opts):
     _finditer_lines(TOML_PUBLIC_TRUE_RE, sf.text, sf, state, "storage-bucket-public", {})
 
 
-def _env_name(state, sf, name, line):
+def _env_name(state, rel, name, line):
     name = name.strip().lower()
     if not ENV_NAME_RE.match(name) or name in IGNORED_ENV_NAMES:
         return
     state.env_names.add(name)
-    state.add("env-name", sf.rel, line, name)
+    state.add("env-name", rel, line, name)
+
+
+def _env_matches(state, sf, regex, text):
+    """Bounded pass over environment-name matches: capped, deadline-ticked, line numbers counted incrementally."""
+    pos = 0
+    line = 1
+    for n, m in enumerate(regex.finditer(text)):
+        if n >= MAX_ENV_NAME_MATCHES:
+            break
+        state.tick()
+        line += text.count("\n", pos, m.start())
+        pos = m.start()
+        _env_name(state, sf.rel, m.group(1), line)
 
 
 def detect_env_names(sf, state, opts):
     text = sf.text
     b = sf.base.lower()
     if b == "netlify.toml":
-        for m in NETLIFY_CONTEXT_RE.finditer(text):
-            _env_name(state, sf, m.group(1), line_of(text, m.start()))
+        _env_matches(state, sf, NETLIFY_CONTEXT_RE, text)
     elif b == "wrangler.toml":
-        for m in WRANGLER_ENV_RE.finditer(text):
-            _env_name(state, sf, m.group(1), line_of(text, m.start()))
-        if CRON_WRANGLER_RE.search(text):
-            m = CRON_WRANGLER_RE.search(text)
-            state.add("cron-schedule", sf.rel, line_of(text, m.start()), make_snippet(text, m.start(), m.end()))
+        _env_matches(state, sf, WRANGLER_ENV_RE, text)
+        m = CRON_WRANGLER_RE.search(text)
+        if m:
+            state.add("cron-schedule", sf.rel, line_of(text, m.start()), _clause(m))
     elif b == "vercel.json":
-        for m in VERCEL_ENV_RE.finditer(text):
-            _env_name(state, sf, m.group(1), line_of(text, m.start()))
+        _env_matches(state, sf, VERCEL_ENV_RE, text)
         m = CRON_VERCEL_RE.search(text)
         if m:
-            state.add("cron-schedule", sf.rel, line_of(text, m.start()), make_snippet(text, m.start(), m.end()))
+            state.add("cron-schedule", sf.rel, line_of(text, m.start()), _clause(m))
 
 
 def detect_manifest(sf, state, opts):
@@ -762,9 +1031,11 @@ def detect_model_hints(sf, state, opts):
     counter = {}
     text = sf.text
     _finditer_lines(MODEL_ENV_RE, text, sf, state, "model-env-var", counter, lambda m: m.group(1))
-    _finditer_lines(MODEL_LITERAL_RE, text, sf, state, "model-literal", counter)
+    if "env" in sf.kinds or "env-template" in sf.kinds:
+        return  # env lines are never echoed; the variable name above is all the hint needed
+    _finditer_lines(MODEL_LITERAL_RE, text, sf, state, "model-literal", counter, _clause)
     _finditer_lines(SPEND_CAP_RE, text, sf, state, "spend-cap-word", counter, lambda m: m.group(0))
-    _finditer_lines(HEALTH_ROUTE_RE, text, sf, state, "health-route", counter)
+    _finditer_lines(HEALTH_ROUTE_RE, text, sf, state, "health-route", counter, _clause)
 
 
 def detect_workflow(sf, state, opts):
@@ -772,21 +1043,39 @@ def detect_workflow(sf, state, opts):
 
 
 def detect_pii_schema(sf, state, opts):
-    counter = {}
     seen = set()
-    for m in PII_FIELD_RE.finditer(sf.text):
+    ordinary = 0
+    stopline = 0
+    text = _strip_sql_comments(sf.text) if "sql" in sf.kinds else _strip_slash_comments(sf.text)
+    text = CAMEL_SPLIT_RE.sub("_", text)  # dateOfBirth -> date_Of_Birth so the stop-line vocabulary matches camelCase too
+    for m in PII_FIELD_RE.finditer(text):
+        state.tick()
         field = m.group(1).lower()
         if field in seen:
             continue
         seen.add(field)
-        if len(seen) > 3:
-            break
-        if _cap(counter, "pii-field"):
-            state.add("pii-field", sf.rel, line_of(sf.text, m.start()), field)
+        if field in STOPLINE_FIELDS:
+            # stop-line vocabulary is never crowded out by ordinary fields
+            stopline += 1
+            if stopline > MAX_HITS_PER_FILE_PER_CHECK:
+                continue
+        else:
+            ordinary += 1
+            if ordinary > 3:
+                continue
+        state.add("pii-field", sf.rel, line_of(text, m.start()), field)
+
+
+def _pii_input_token(m):
+    """Map HTML autocomplete-style names onto the stop-line vocabulary the skill knows."""
+    name = m.group(1).lower()
+    if name.startswith("cc-"):
+        return "card_number" if "number" in name else "credit_card"
+    return {"bday": "dob", "tel": "phone"}.get(name, name)
 
 
 def detect_pii_inputs(sf, state, opts):
-    _finditer_lines(PII_INPUT_RE, sf.text, sf, state, "pii-form-input", {}, lambda m: m.group(1).lower())
+    _finditer_lines(PII_INPUT_RE, sf.text, sf, state, "pii-form-input", {}, _pii_input_token)
 
 
 def detect_readme(sf, state, opts):
@@ -802,7 +1091,7 @@ def _q1_gate(sf, opts):
 
 
 DETECTORS = [
-    (lambda sf: "mcp" in sf.kinds, lambda sf, state, opts: detect_mcp(sf, state, opts)),
+    (lambda sf: "mcp" in sf.kinds, detect_mcp),
     (lambda sf: "sql" in sf.kinds, detect_sql),
     (lambda sf: "rules" in sf.kinds, detect_rules),
     (lambda sf: "supabase-config" in sf.kinds, detect_supabase_config),
@@ -822,28 +1111,23 @@ def layout_checks(rel, base, state):
     dirs = segments[:-1]
     b = base.lower()
     stem = b.rsplit(".", 1)[0] if "." in b else b
-    if any(lower.startswith(p) for p in API_ROUTE_PREFIXES):
+    app_rel = lower[4:] if lower.startswith("src/") else lower
+    if any(app_rel.startswith(p) for p in API_ROUTE_PREFIXES):
         state.add("api-route-dir", rel, 0, "")
     if FRAMEWORK_CONFIG_RE.match(b):
         state.add("framework-config", rel, 0, "")
     if any(d in AUTH_SEGMENTS for d in dirs) or stem in AUTH_SEGMENTS or "[...nextauth]" in lower:
         state.add("auth-path", rel, 0, "")
-    is_deploy = b in DEPLOY_CONFIG_BASENAMES or (len(dirs) >= 2 and dirs[0] == ".github" and dirs[1] == "workflows" and (b.endswith(".yml") or b.endswith(".yaml"))) or re.match(r"^fly\.[a-z0-9_-]+\.toml$", b)
+    fly = FLY_ENV_TOML_RE.match(b)
+    is_deploy = b in DEPLOY_CONFIG_BASENAMES or (len(dirs) >= 2 and dirs[0] == ".github" and dirs[1] == "workflows" and (b.endswith(".yml") or b.endswith(".yaml"))) or bool(fly)
     if is_deploy:
         state.deploy_configs.append(rel)
         state.add("deploy-config", rel, 0, "")
-    m = re.match(r"^fly\.([a-z0-9_-]+)\.toml$", b)
-    if m:
-        name = m.group(1)
-        if name not in IGNORED_ENV_NAMES:
-            state.env_names.add(name)
-            state.add("env-name", rel, 0, name)
+    if fly:
+        _env_name(state, rel, fly.group(1), 0)
     m = re.match(r"^\.env\.([a-z0-9_-]+)$", b)
-    if m and b not in ENV_TEMPLATE_NAMES:
-        name = m.group(1)
-        if name not in IGNORED_ENV_NAMES and ENV_NAME_RE.match(name):
-            state.env_names.add(name)
-            state.add("env-name", rel, 0, name)
+    if m and not is_env_template(b):
+        _env_name(state, rel, m.group(1), 0)
     if any(d in ("migrations", "migration") for d in dirs) or "migrat" in b:
         state.add("migration-path", rel, 0, "")
     if "backup" in b:
@@ -862,7 +1146,7 @@ def layout_checks(rel, base, state):
 
 def _darwin_git_ready():
     try:
-        r = subprocess.run(["xcode-select", "-p"], capture_output=True, timeout=5)
+        r = subprocess.run(["/usr/bin/xcode-select", "-p"], capture_output=True, timeout=5)
         return r.returncode == 0
     except Exception:
         return True
@@ -870,11 +1154,15 @@ def _darwin_git_ready():
 
 def _git_dir(toplevel):
     dot = os.path.join(toplevel, ".git")
+    if os.path.islink(dot):
+        return dot
     if os.path.isdir(dot):
         return dot
     try:
+        if os.path.getsize(dot) > 4096:
+            return dot  # git itself rejects gitfiles this large; never read one into memory
         with open(dot, "r", encoding="utf-8", errors="replace") as fh:
-            first = fh.readline().strip()
+            first = fh.readline(4096).strip()
         if first.startswith("gitdir:"):
             target = first[len("gitdir:"):].strip()
             return target if os.path.isabs(target) else os.path.join(toplevel, target)
@@ -883,23 +1171,193 @@ def _git_dir(toplevel):
     return dot
 
 
+GIT_CONFIG_POINTER_RE = re.compile(r"(?im)^[ \t]*(?:worktree|gitdir|partialclone|promisor|uploadpack|fsmonitor|hookspath|sshcommand|askpass)[ \t]*=|^[ \t]*\[include")
+GIT_SECTION_TRAILING_RE = re.compile(r"(?m)^[ \t]*\[[^\]\n]*\][ \t]*[^ \t\r\n#;]")  # `[core]worktree=/x` on one line
+GIT_DIR_ENTRIES = ("HEAD", "config", "shallow", "packed-refs", "index", "objects", "refs", "hooks", "info", "logs", "commondir", "gitdir")
+GIT_CONFIG_MAX_BYTES = 65536
+
+
+def _read_small_regular(path, limit):
+    """Read a plain regular file of at most `limit` bytes without following symlinks or blocking on a fifo; None otherwise."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0))
+    except OSError:
+        return None
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_size > limit:
+            return None
+        return read_bytes(fd, st.st_size)
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+
+
+def _git_pointer_ok(real_repo):
+    """Refuse any .git that could make git read, write, or run something outside the scanned tree.
+
+    A symlinked .git, a gitfile pointing outside the tree (worktrees included) or larger than git itself
+    accepts, a git directory carrying commondir / gitdir / alternates pointers, any symlink or special file
+    among the entries git touches, and a config that is unreadable, oversized, or carries worktree /
+    include / promisor / hook / helper directives all mean "not a repository we will ask git about".
+    The gitfile's target is checked the same way, so one level of indirection buys nothing.
+    """
+    dot = os.path.join(real_repo, ".git")
+    try:
+        st = os.lstat(dot)
+    except OSError:
+        return True  # no .git here at all; git may still find an enclosing repository (subdir mode)
+    if stat.S_ISLNK(st.st_mode):
+        return False
+    if stat.S_ISREG(st.st_mode):
+        if st.st_size > 4096:
+            return False
+        target = os.path.realpath(_git_dir(real_repo))
+        if not (target == real_repo or target.startswith(real_repo + os.sep)):
+            return False
+        gitdir = target
+    elif stat.S_ISDIR(st.st_mode):
+        gitdir = dot
+    else:
+        return False
+    if os.path.islink(gitdir) or not os.path.isdir(gitdir):
+        return False
+    for pointer in ("commondir", "gitdir", os.path.join("objects", "info", "alternates")):
+        if os.path.lexists(os.path.join(gitdir, pointer)):
+            return False
+    for entry in GIT_DIR_ENTRIES:
+        try:
+            est = os.lstat(os.path.join(gitdir, entry))
+        except OSError:
+            continue
+        if not (stat.S_ISREG(est.st_mode) or stat.S_ISDIR(est.st_mode)):
+            return False
+    cfg = os.path.join(gitdir, "config")
+    if os.path.lexists(cfg):
+        data = _read_small_regular(cfg, GIT_CONFIG_MAX_BYTES)
+        if data is None:
+            return False  # unreadable, symlinked, special, or oversized: never fail open
+        config = data.decode("utf-8", errors="replace")
+        if GIT_CONFIG_POINTER_RE.search(config) or GIT_SECTION_TRAILING_RE.search(config):
+            return False
+    return True
+
+
+def _trusted_git(real_repo):
+    """The first git on PATH that does not live inside the scanned tree or the current directory."""
+    try:
+        cwd = os.path.realpath(os.getcwd())
+    except OSError:
+        cwd = ""
+    for entry in os.environ.get("PATH", "").split(os.pathsep):
+        # relative PATH entries ("." included) resolve against the launch folder, which sits next to the untrusted app
+        if not entry or not os.path.isabs(entry):
+            continue
+        for name in ("git", "git.exe"):
+            candidate = os.path.join(entry, name)
+            if not (os.path.isfile(candidate) and os.access(candidate, os.X_OK)):
+                continue
+            real = os.path.realpath(candidate)
+            if real.startswith(real_repo + os.sep):
+                continue
+            if cwd and os.path.dirname(real) == cwd:
+                continue  # a git sitting in the launch folder itself is not a system git
+            return real
+    return None
+
+
 def git_facts(repo, state):
     real_repo = os.path.realpath(repo)
-    if shutil.which("git") is None:
+    if not _git_pointer_ok(real_repo):
+        state.add("git-not-a-repo", "", 0, "not a git repository")
+        return
+    git_bin = _trusted_git(real_repo)
+    if git_bin is None:
         state.add("git-unavailable", "", 0, "git is not installed")
         return
-    if sys.platform == "darwin" and not _darwin_git_ready():
+    if sys.platform == "darwin" and git_bin == "/usr/bin/git" and not _darwin_git_ready():
         state.add("git-unavailable", "", 0, "git needs the Xcode Command Line Tools")
         return
-    base = ["git", "-c", "core.fsmonitor=", "-c", "core.hooksPath=/dev/null", "-c", "core.pager=cat", "-c", "core.sshCommand=", "-c", "credential.helper=", "-C", real_repo]
-    env = dict(os.environ, GIT_TERMINAL_PROMPT="0", GIT_OPTIONAL_LOCKS="0")
+    base = [git_bin, "-c", "core.fsmonitor=", "-c", "core.hooksPath=/dev/null", "-c", "core.pager=cat", "-c", "core.sshCommand=", "-c", "credential.helper=", "-C", real_repo]
+    env = dict((k, v) for k, v in os.environ.items() if not k.startswith("GIT_"))
+    env.update(GIT_TERMINAL_PROMPT="0", GIT_OPTIONAL_LOCKS="0", GIT_NO_LAZY_FETCH="1", GIT_CONFIG_NOSYSTEM="1")
     started = time.monotonic()
 
+    class _Result(object):
+        def __init__(self, returncode, stdout, truncated):
+            self.returncode = returncode
+            self.stdout = stdout
+            self.truncated = truncated
+
     def run(args):
+        """Run git with a shared time budget and a hard cap on captured output."""
         remaining = GIT_BUDGET_S - (time.monotonic() - started)
         if remaining <= 0:
             raise subprocess.TimeoutExpired(args, GIT_BUDGET_S)
-        return subprocess.run(base + args, capture_output=True, text=True, env=env, timeout=max(1.0, remaining), stdin=subprocess.DEVNULL)
+        proc = subprocess.Popen(base + args, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, env=env,
+                                start_new_session=_HAS_NONBLOCK)
+
+        def kill_tree():
+            if _HAS_NONBLOCK:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)  # grandchildren (a fetch git spawned) die with it
+                except Exception:
+                    pass
+            try:
+                proc.kill()
+            except Exception:
+                pass
+
+        try:
+            chunks = []
+            got = 0
+            truncated = False
+            end_at = time.monotonic() + max(1.0, remaining)
+            if not _HAS_NONBLOCK:  # Windows: no non-blocking pipes before 3.12, so use the bounded communicate path
+                try:
+                    out, _ = proc.communicate(timeout=max(1.0, remaining))
+                except subprocess.TimeoutExpired:
+                    kill_tree()
+                    proc.wait(timeout=2)
+                    raise subprocess.TimeoutExpired(args, GIT_BUDGET_S)
+                truncated = len(out) > GIT_OUTPUT_LIMIT
+                return _Result(proc.returncode, out[:GIT_OUTPUT_LIMIT].decode("utf-8", errors="replace"), truncated)
+            fd = proc.stdout.fileno()
+            os.set_blocking(fd, False)
+            while True:
+                wait = end_at - time.monotonic()
+                if wait <= 0:
+                    kill_tree()
+                    raise subprocess.TimeoutExpired(args, GIT_BUDGET_S)
+                ready, _, _ = select.select([fd], [], [], min(wait, 0.5))
+                if not ready:
+                    continue
+                try:
+                    chunk = os.read(fd, min(65536, GIT_OUTPUT_LIMIT))
+                except BlockingIOError:
+                    continue
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                got += len(chunk)
+                if got >= GIT_OUTPUT_LIMIT:
+                    truncated = True
+                    kill_tree()
+                    break
+            proc.wait(timeout=max(1.0, end_at - time.monotonic()))
+        finally:
+            try:
+                proc.stdout.close()
+            except Exception:
+                pass
+            if proc.poll() is None:
+                kill_tree()
+                try:
+                    proc.wait(timeout=2)
+                except Exception:
+                    pass
+        return _Result(proc.returncode, b"".join(chunks)[:GIT_OUTPUT_LIMIT].decode("utf-8", errors="replace"), truncated)
 
     try:
         top = run(["rev-parse", "--show-toplevel"])
@@ -907,6 +1365,10 @@ def git_facts(repo, state):
             state.add("git-not-a-repo", "", 0, "not a git repository")
             return
         toplevel = os.path.realpath(top.stdout.strip())
+        if not _git_pointer_ok(toplevel):
+            # the repository git discovered above us points outside the tree; never read it
+            state.add("git-not-a-repo", "", 0, "not a git repository")
+            return
         subdir = False
         if toplevel != real_repo:
             if real_repo.startswith(toplevel + os.sep):
@@ -918,50 +1380,76 @@ def git_facts(repo, state):
             else:
                 state.add("git-not-a-repo", "", 0, "not a git repository")
                 return
-        commits = run(["rev-list", "--count", "HEAD"])
-        state.git["commits"] = int(commits.stdout.strip()) if commits.returncode == 0 and commits.stdout.strip().isdigit() else 0
-        tags = run(["tag", "--list"])
-        state.git["tags"] = len([t for t in tags.stdout.splitlines() if t.strip()]) if tags.returncode == 0 else 0
-        shallow = run(["rev-parse", "--is-shallow-repository"])
-        state.git["shallow"] = shallow.stdout.strip() == "true" or os.path.exists(os.path.join(_git_dir(toplevel), "shallow"))
-        tracked = run(["ls-files", "-z", "--", ".env*", "*/.env*"])
+        tracked = run(["ls-files", "-z", "--", ".env*", "*/.env*"])  # index-only and decisive: first inside the budget
         names = []
-        if tracked.returncode == 0:
+        if tracked.truncated:
+            state.partial = True
+        if tracked.returncode == 0 or tracked.truncated:
             for p in tracked.stdout.split("\0"):
                 if not p:
                     continue
                 b = p.rsplit("/", 1)[-1]
-                if re.match(r"^\.env(\..+)?$", b) and b not in ENV_TEMPLATE_NAMES:
+                if ENV_FILE_RE.match(b) and not is_env_template(b):
                     names.append(p)
-        state.git["tracked_env_files"] = sorted(names)
-        for p in state.git["tracked_env_files"]:
-            state.add("tracked-env-file", p, 0, "")
+        names = sorted(names)
+        if tracked.returncode != 0 and not tracked.truncated:
+            state.git["tracked_env_files"] = None  # the index could not be read: fall back to the on-disk check
+            state.partial = True
+        else:
+            state.git["tracked_env_files"] = [sanitize_path(p) for p in names[:MAX_TRACKED_ENV_FILES]]
+        for p in names:
+            stem = p.rsplit("/", 1)[-1].lower()[len(".env"):].lstrip(".")
+            check = "tracked-env-file-nonprod" if stem in NONPROD_ENV_STEMS else "tracked-env-file"
+            state.add(check, p, 0, "")
+        tags = run(["for-each-ref", "--count=1000", "--format=%(refname)", "refs/tags"])
+        state.git["tags"] = len([t for t in tags.stdout.splitlines() if t.strip()]) if tags.returncode == 0 else 0
+        shallow = run(["rev-parse", "--is-shallow-repository"])
+        state.git["shallow"] = shallow.stdout.strip() == "true" or _read_small_regular(os.path.join(_git_dir(toplevel), "shallow"), 4096) is not None
+        commits = run(["rev-list", "--count", "--exclude-promisor-objects", "HEAD"])  # the only object walk: last, never lazy-fetching
+        state.git["commits"] = int(commits.stdout.strip()) if commits.returncode == 0 and commits.stdout.strip().isdigit() else 0
         if subdir:
             state.add("git-subdir", "", 0, "the app folder is inside a larger repository")
         if state.git["shallow"]:
             state.add("git-shallow", "", 0, "shallow clone")
         state.add("git-history", "", 0, "%d commits, %d tags" % (state.git["commits"], state.git["tags"]))
     except subprocess.TimeoutExpired:
-        state.git = {"commits": None, "tags": None, "shallow": None, "tracked_env_files": None}
+        state.git["commits"] = None  # keep the index facts already gathered; history stays unknown
+        state.git["tags"] = None
+        state.git["shallow"] = None
         state.add("git-timeout", "", 0, "git did not answer in time")
-    except OSError:
-        state.git = {"commits": None, "tags": None, "shallow": None, "tracked_env_files": None}
+    except Exception:
+        state.git = _empty_git()
         state.add("git-unavailable", "", 0, "git could not be run")
 
 
 # --------------------------------------------------------------------- walk
 
+def _walk_key(name):
+    """Known source roots are walked first so a file cap never runs out on assets before src/ is read."""
+    return (0 if name.lower() in SOURCE_ROOTS else 1, name)
+
+
 def run_scan(repo, state, opts):
     state.stats["config"] = {"exclude_dirs_added": list(opts.exclude_dirs_added), "browser_prefixes_added": list(opts.browser_prefixes_added)}
     real_repo = os.path.realpath(repo)
     deadline = time.monotonic() + opts.deadline_s
+    state.deadline = deadline
     total_bytes = 0
     candidates = 0
     stop = False
     git_facts(repo, state)
     git_present = state.git["tracked_env_files"] is not None
-    for dirpath, dirnames, filenames in os.walk(real_repo, topdown=True, followlinks=False, onerror=lambda e: None):
+
+    def unreadable(err):
+        state.stats["dirs_unreadable"] += 1
+        state.partial = True
+
+    for dirpath, dirnames, filenames in os.walk(real_repo, topdown=True, followlinks=False, onerror=unreadable):
         if stop:
+            break
+        if time.monotonic() > deadline:
+            state.stats["deadline_hit"] = True
+            state.partial = True
             break
         rel_dir = os.path.relpath(dirpath, real_repo).replace(os.sep, "/")
         if rel_dir == ".":
@@ -971,8 +1459,14 @@ def run_scan(repo, state, opts):
         if real_dir != real_repo and not real_dir.startswith(real_repo + os.sep):
             dirnames[:] = []
             continue
+        if len(dirnames) + len(filenames) > MAX_DIR_ENTRIES:
+            # subdirectories keep priority (an api/ folder matters more than the 50,001st file)
+            state.partial = True
+            state.stats["dirs_truncated"] += 1
+            dirnames[:] = sorted(dirnames, key=_walk_key)[:MAX_DIR_ENTRIES]
+            filenames = sorted(filenames)[:max(0, MAX_DIR_ENTRIES - len(dirnames))]
         keep = []
-        for d in sorted(dirnames):
+        for d in sorted(dirnames, key=_walk_key):
             full = os.path.join(dirpath, d)
             try:
                 if os.path.islink(full):
@@ -981,7 +1475,7 @@ def run_scan(repo, state, opts):
             except OSError:
                 continue
             if is_never_open_dir(d, parent_name):
-                state.stats["files_never_open"] += count_files(full)
+                state.stats["files_never_open"] += count_files(full, deadline)
                 continue
             if d.lower() in opts.excluded:
                 continue
@@ -1003,8 +1497,14 @@ def run_scan(repo, state, opts):
             try:
                 st = os.lstat(full)
             except OSError:
+                state.stats["files_errored"] += 1
+                state.partial = True
                 continue
-            if not stat.S_ISREG(st.st_mode) or st.st_nlink > 1:
+            if stat.S_ISREG(st.st_mode) and st.st_nlink > 1:
+                state.stats["files_skipped_hardlink"] += 1
+                state.partial = True
+                continue
+            if not stat.S_ISREG(st.st_mode):
                 state.stats["files_skipped_special"] += 1
                 continue
             if candidates >= opts.max_files:
@@ -1012,17 +1512,17 @@ def run_scan(repo, state, opts):
                 state.partial = True
                 stop = True
                 break
-            candidates += 1
             base = name
             ext = os.path.splitext(name)[1].lower()
             layout_checks(rel, base, state)
-            if not git_present and re.match(r"^\.env(\..+)?$", name) and name not in ENV_TEMPLATE_NAMES:
+            if not git_present and ENV_FILE_RE.match(name) and not is_env_template(name):
                 state.add("env-file-on-disk", rel, 0, "")
             if is_generated(name):
                 state.stats["files_skipped_generated"] += 1
                 continue
             if st.st_size > opts.max_file_bytes:
                 state.stats["files_skipped_oversize"] += 1
+                state.partial = True
                 continue
             opened = open_regular(full)
             if opened is None:
@@ -1032,6 +1532,7 @@ def run_scan(repo, state, opts):
             try:
                 if size > opts.max_file_bytes:
                     state.stats["files_skipped_oversize"] += 1
+                    state.partial = True
                     continue
                 if total_bytes + size > opts.max_total_bytes:
                     state.stats["max_total_bytes_hit"] = True
@@ -1041,14 +1542,22 @@ def run_scan(repo, state, opts):
                 data = read_bytes(fd, size)
             finally:
                 os.close(fd)
+            if len(data) < size:  # the file shrank or was swapped after fstat: never treat a short read as the whole file
+                state.stats["files_errored"] += 1
+                state.partial = True
+                continue
             total_bytes += len(data)
+            candidates += 1
             text = decode_text(data)
             if text is None:
                 state.stats["files_skipped_binary"] += 1
+                lb = base.lower()
+                if ext in CODE_EXTS or ext in HTML_EXTS or ENV_FILE_RE.match(lb) or lb.endswith(".env"):
+                    state.partial = True  # a source or env file that looks binary is itself worth a look
                 continue
             try:
-                top, segments, cls, kinds = classify(rel, base, ext, text)
-                sf = ScanFile(rel, full, base, ext, top, segments, cls, kinds, text)
+                cls, kinds = classify(rel, base, ext, text)
+                sf = ScanFile(rel, base, ext, cls, kinds, text)
                 if _q1_gate(sf, opts):
                     claimed = []
                     detect_browser_prefix(sf, state, opts, claimed)
@@ -1057,13 +1566,14 @@ def run_scan(repo, state, opts):
                     if predicate(sf):
                         detector(sf, state, opts)
                 state.files_scanned += 1
+            except Deadline:
+                state.stats["deadline_hit"] = True
+                state.partial = True
+                stop = True
+                break
             except Exception:
                 state.stats["files_errored"] += 1
                 state.partial = True
-            finally:
-                sf = None
-                text = None
-                data = None
     return state
 
 
@@ -1121,13 +1631,43 @@ def scan(repo, **kwargs):
     return build_result(state, repo)
 
 
+def _fit_output(result):
+    """Keep the JSON under the acceptance cap: drop evidence-only rows anywhere before any decisive `no` row anywhere."""
+    dropped = 0
+    while len(json.dumps(result, ensure_ascii=True, separators=(",", ":")).encode("utf-8")) > MAX_OUTPUT_BYTES:
+        victim = None
+        fallback = None
+        for q in iter_questions(result):
+            rows = q["evidence"]
+            for i in range(len(rows) - 1, -1, -1):
+                if CHECKS[rows[i]["check"]][1] != "no":
+                    if victim is None or len(rows) > len(victim[0]):
+                        victim = (rows, i)
+                    break
+            if rows and fallback is None:
+                fallback = (rows, len(rows) - 1)
+        target = victim or fallback
+        if target is None:
+            break
+        del target[0][target[1]]
+        dropped += 1
+    if dropped:
+        result["stats"]["output_trimmed"] = dropped
+        result["partial"] = True
+    return result
+
+
 def build_result(state, repo):
     try:
-        if os.path.realpath(repo) == os.path.realpath(os.getcwd()):
+        real_repo = os.path.realpath(repo)
+        cwd = os.path.realpath(os.getcwd())
+        if real_repo == cwd:
             state.warnings.append("repo-is-cwd")
+        elif cwd.startswith(real_repo + os.sep):
+            state.warnings.append("repo-contains-cwd")
     except OSError:
         pass
-    return {
+    return _fit_output({
         "ok": True,
         "partial": bool(state.partial),
         "version": __version__,
@@ -1136,7 +1676,7 @@ def build_result(state, repo):
         "warnings": list(state.warnings),
         "git": state.git,
         "questions": resolve(state),
-    }
+    })
 
 
 # ---------------------------------------------------------------------- CLI
@@ -1161,13 +1701,14 @@ def emit(obj, pretty=False):
 
 
 def main(argv=None):
+    warnings.simplefilter("ignore")  # stderr carries exactly one summary line
     argv = list(sys.argv[1:] if argv is None else argv)
     parser = _Parser(prog="custody_scan.py", add_help=True, description="Read-only evidence gatherer for the eleven custody questions.")
     parser.add_argument("--repo", help="the app folder (run from the folder that contains it)")
-    parser.add_argument("--max-files", type=int, default=20000)
-    parser.add_argument("--max-file-bytes", type=int, default=524288)
-    parser.add_argument("--max-total-bytes", type=int, default=268435456)
-    parser.add_argument("--deadline-s", type=float, default=120.0)
+    parser.add_argument("--max-files", type=int, default=DEFAULT_MAX_FILES)
+    parser.add_argument("--max-file-bytes", type=int, default=DEFAULT_MAX_FILE_BYTES)
+    parser.add_argument("--max-total-bytes", type=int, default=DEFAULT_MAX_TOTAL_BYTES)
+    parser.add_argument("--deadline-s", type=float, default=DEFAULT_DEADLINE_S)
     parser.add_argument("--exclude-dir", action="append", default=[])
     parser.add_argument("--browser-prefix", action="append", default=[])
     parser.add_argument("--pretty", action="store_true")
@@ -1184,7 +1725,14 @@ def main(argv=None):
         if not args.repo:
             sys.stderr.write("Missing --repo. Try: python3 custody_scan.py --repo my-app\n")
             raise UsageError("--repo is required")
-        repo = os.path.realpath(os.path.expanduser(args.repo.rstrip("/") or "/"))
+        if args.max_files < 1 or args.max_file_bytes < 1 or args.max_total_bytes < 1 or not args.deadline_s > 0:
+            sys.stderr.write("Limits must be positive: --max-files, --max-file-bytes, --max-total-bytes, --deadline-s\n")
+            raise UsageError("non-positive limit")
+        raw_repo = os.path.expanduser(args.repo.rstrip("/") or "/")
+        if os.path.islink(raw_repo):
+            emit(envelope("repo-is-symlink"), pretty)
+            return 2 if exit_code else 0
+        repo = os.path.realpath(raw_repo)
         if not os.path.exists(repo):
             emit(envelope("repo-not-found"), pretty)
             return 2 if exit_code else 0
@@ -1193,6 +1741,13 @@ def main(argv=None):
             return 2 if exit_code else 0
         if not os.access(repo, os.R_OK | os.X_OK):
             emit(envelope("repo-unreadable"), pretty)
+            return 2 if exit_code else 0
+        try:
+            real_cwd = os.path.realpath(os.getcwd())
+        except OSError:
+            real_cwd = ""
+        if real_cwd and real_cwd != repo and real_cwd.startswith(repo + os.sep):
+            emit(envelope("repo-contains-cwd"), pretty)  # `..` from inside the app would walk everything above it
             return 2 if exit_code else 0
         opts = Options(max_files=args.max_files, max_file_bytes=args.max_file_bytes, max_total_bytes=args.max_total_bytes,
                        deadline_s=args.deadline_s, exclude_dirs=args.exclude_dir, browser_prefixes=args.browser_prefix)
@@ -1210,7 +1765,10 @@ def main(argv=None):
     except SystemExit:
         raise
     except Exception as exc:  # last resort: never a traceback, never a path
-        emit(envelope("internal:" + type(exc).__name__), pretty)
+        try:
+            emit(envelope("internal:" + type(exc).__name__), pretty)
+        except Exception:
+            pass
         return 2 if exit_code else 0
 
 

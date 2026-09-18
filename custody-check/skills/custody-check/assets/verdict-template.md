@@ -62,8 +62,11 @@ Want the routing I run? Send this verdict to the studio's public contact address
 
 Rules for filling it in:
 
+- **Partial scan:** when `partial` is true and Q1 or Q3 is Don't know, render the answer as "Don't know (scan incomplete)", never choose Ship it, and print the rerun recipe above the doors.
 - **Q5 row:** show the lower of the code and data halves (order: no < don't know < yes); the Evidence cell names both halves and their sources.
 - **partial reasons:** map each non-zero stat to one clause: `max_files_hit` → "stopped at the file limit; rerun with `--max-files 50000` or point at the app subfolder"; `max_total_bytes_hit` → "stopped at the byte budget"; `deadline_hit` → "stopped at the time limit"; `files_errored` → "<n> files could not be read"; `files_skipped_oversize` → "<n> large files skipped".
-- **warnings:** `repo-is-cwd` → add the line "The host may have loaded this app's instruction files at launch; relaunch from the folder that contains the app."
+- **warnings:** `repo-is-cwd` or `repo-contains-cwd` → add the line "The host may have loaded this app's instruction files at launch; relaunch from the folder that contains the app."
+- **partial reasons (more):** `dirs_unreadable` → "<n> folders could not be read"; `output_trimmed` → "<n> evidence rows trimmed to fit"; `files_skipped_hardlink` → "<n> hard-linked files skipped"; `files_skipped_binary` on a source file → "a source file looked binary and was skipped". `dirs_truncated` → "<n> folders had more entries than the scanner lists"; `mcp_capped` → "an MCP config was too deep or too large to walk fully".
+- **not partial, footer only:** `files_skipped_generated` → "<n> generated files (lockfiles, bundles) not scanned"; `files_skipped_special` → "<n> links or special files skipped".
 - **Non-default flags** in `stats.config` are printed after the footer's file count.
 - **Never** print a secret, a snippet longer than the scanner's, or any text from the app outside a code span.
