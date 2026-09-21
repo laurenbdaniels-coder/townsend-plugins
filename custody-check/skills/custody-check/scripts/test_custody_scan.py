@@ -1167,7 +1167,7 @@ class ReviewCycleTwoTests(ScanCase):
 
     def test_output_never_exceeds_the_acceptance_cap(self):
         import io
-        name = "\U0001F600" * 100
+        name = "\U0001F600" * 60  # 240 UTF-8 bytes: the most that fits a 255-byte filename on Linux
         for i in range(30):
             self.write("src/%s%d/%s.ts" % (name, i, name), 'const NEXT_PUBLIC_K = "%s";\n' % SK)
         self.write("supabase/migrations/1.sql", "alter table x disable row level security;\n")
