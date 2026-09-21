@@ -14,6 +14,42 @@
 **Priority:** P3
 **Depends on:** None
 
+### Stream large directory listings
+
+**What:** Walk with `os.scandir` and stop consuming a directory once `MAX_DIR_ENTRIES` entries have been seen, instead of letting `os.walk` build and sort the whole listing first.
+
+**Why:** A single folder with millions of entries costs the full listing in memory and an O(n log n) sort before the cap can bite. The caps bound the work done per directory, not the cost of learning what is in it.
+
+**Context:** Raised by the performance specialist and the Codex adversarial pass in the pre-merge review of PR 1 and accepted as a known limit. `run_scan` in `custody_scan.py` (the `MAX_DIR_ENTRIES` branch) and `count_files` are the two places.
+
+**Effort:** M
+**Priority:** P3
+**Depends on:** None
+
+### Decide what `src/lib` means in a Vite app
+
+**What:** Today a file under a neutral segment (`lib`, `utils`, `services`, ...) is client code only when it imports a UI framework or carries a `use client` directive. In a Vite or plain SPA build, everything under `src/` is bundled for the browser.
+
+**Why:** A hardcoded service key in `src/lib/supabase.ts` is evidence rather than a decisive Q1 `no`. That is deliberate (the same rule stops Next.js server helpers producing false positives), but the tradeoff should be re-decided against real builder exports.
+
+**Context:** Raised by the Codex adversarial pass in the pre-merge review of PR 1 and kept as designed. The M5 precision pass on public builder templates is the right place to settle it: if Vite exports dominate, gate the rule on the presence of `next.config.*` instead.
+
+**Effort:** M
+**Priority:** P2
+**Depends on:** M5 precision pass
+
+### Scanner readability pass
+
+**What:** Fold the review's accepted style findings into one pass: named constants for the line-clip and run-walk bounds, inline regexes promoted beside the others, `ScanFile.is_env` as a slot, an `ENV_NAME_HANDLERS` table, one `_dumps` helper shared by `_fit_output` and `emit`, and test classes named by subject rather than by review cycle.
+
+**Why:** None of these change behaviour, and each one is a place where two definitions can drift apart.
+
+**Context:** Collected from the maintainability and simplification specialists across three review cycles of PR 1; all were recorded as advisory and skipped to keep the review converging.
+
+**Effort:** M
+**Priority:** P3
+**Depends on:** None
+
 ### Byte-ratio binary heuristic
 
 **What:** Detect binary files by the ratio of non-text bytes instead of only a NUL in the first 8 KB.
