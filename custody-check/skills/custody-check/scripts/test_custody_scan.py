@@ -2355,6 +2355,16 @@ class RedTeamTests(ScanCase):
         self.assertTrue(rows)
         self.assertNotIn("IGNORE", rows[0]["snippet"])
 
+    def test_ci_workflow_is_parseable_yaml(self):
+        """A single-line `run:` whose value holds ": " is a YAML mapping error, and the workflow never runs."""
+        with open(os.path.join(REPO_ROOT, ".github", "workflows", "ci.yml"), encoding="utf-8") as fh:
+            for n, line in enumerate(fh, 1):
+                body = line.split("run:", 1)[1] if re.match(r"^\s+run:\s*\S", line) else None
+                if body is None:
+                    continue
+                self.assertNotIn(": ", body, "ci.yml:%d needs a block scalar (run: |)" % n)
+                self.assertNotRegex(body.rstrip(), r":$", "ci.yml:%d needs a block scalar (run: |)" % n)
+
     def test_ci_jobs_have_timeouts(self):
         with open(os.path.join(REPO_ROOT, ".github", "workflows", "ci.yml"), encoding="utf-8") as fh:
             ci = fh.read()

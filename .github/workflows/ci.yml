@@ -41,7 +41,8 @@ jobs:
           claude plugin validate --strict ./custody-check
           claude plugin validate --strict .
       - name: Validation outcome
-        run: echo "claude plugin validate outcome: ${{ steps.validate.outcome }}"
+        run: |
+          echo "claude plugin validate outcome: ${{ steps.validate.outcome }}"
 
   custody-check-windows:
     runs-on: windows-latest
