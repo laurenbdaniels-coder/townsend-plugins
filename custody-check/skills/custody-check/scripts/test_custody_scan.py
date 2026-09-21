@@ -637,13 +637,13 @@ class Q5Tests(ScanCase):
         os.symlink(os.path.join(victim, ".git"), os.path.join(self.repo, ".git"))
         r = self.scan()
         self.assertIsNone(r["git"]["commits"])
-        self.assertIn("git-not-a-repo", evidence_checks(r["questions"]["q5"]["code"]))
+        self.assertIn("git-config-not-vouched", evidence_checks(r["questions"]["q5"]["code"]))
         os.remove(os.path.join(self.repo, ".git"))
         with open(os.path.join(self.repo, ".git"), "w") as fh:
             fh.write("gitdir: %s\n" % os.path.join(victim, ".git"))
         r = self.scan()
         self.assertIsNone(r["git"]["commits"])
-        self.assertIn("git-not-a-repo", evidence_checks(r["questions"]["q5"]["code"]))
+        self.assertIn("git-config-not-vouched", evidence_checks(r["questions"]["q5"]["code"]))
 
     def test_worktree_pointer_outside_the_tree_is_not_a_repo(self):
         self.init_repo(commits=12)
@@ -651,7 +651,7 @@ class Q5Tests(ScanCase):
         self.git("worktree", "add", "-q", wt, "-b", "wt-branch")
         r = self.scan(repo=wt)
         self.assertIsNone(r["git"]["commits"])
-        self.assertIn("git-not-a-repo", evidence_checks(r["questions"]["q5"]["code"]))
+        self.assertIn("git-config-not-vouched", evidence_checks(r["questions"]["q5"]["code"]))
 
     def test_git_subdir(self):
         self.write("apps/web/vercel.json", "{}\n")
@@ -688,9 +688,18 @@ class Q5Tests(ScanCase):
 
     def test_darwin_without_command_line_tools(self):
         self.init_repo(commits=2)
-        with mock.patch.object(cs, "_darwin_git_ready", return_value=False), mock.patch.object(cs.sys, "platform", "darwin"):
+        # pin the guard's input: the probe only runs for the system git, whatever the host's PATH order
+        with mock.patch.object(cs, "_darwin_git_ready", return_value=False), mock.patch.object(cs.sys, "platform", "darwin"), \
+                mock.patch.object(cs, "_trusted_git", return_value="/usr/bin/git"):
             r = self.scan()
         self.assertIn("git-unavailable", evidence_checks(r["questions"]["q5"]["code"]))
+        probe = mock.Mock(return_value=False)
+        with mock.patch.object(cs, "_darwin_git_ready", probe), mock.patch.object(cs.sys, "platform", "darwin"), \
+                mock.patch.object(cs, "_trusted_git", return_value=shutil.which("git")):
+            if shutil.which("git") != "/usr/bin/git":
+                r = self.scan()
+                probe.assert_not_called()
+                self.assertIn("git-history", evidence_checks(r["questions"]["q5"]["code"]))
 
 
 class Q6Tests(ScanCase):
@@ -837,7 +846,7 @@ class SeededAppGoldenTest(ScanCase):
 class ContractTests(ScanCase):
     TOP_KEYS = ["ok", "partial", "version", "files_scanned", "stats", "warnings", "git", "questions"]
     STATS_KEYS = ["files_skipped_oversize", "files_skipped_binary", "files_skipped_generated", "files_never_open",
-                  "files_skipped_special", "files_skipped_hardlink", "files_errored", "dirs_unreadable", "dirs_truncated", "mcp_capped", "output_trimmed", "max_files_hit", "max_total_bytes_hit", "deadline_hit", "config"]
+                  "files_skipped_special", "files_skipped_hardlink", "files_errored", "dirs_unreadable", "dirs_truncated", "mcp_capped", "git_index_partial", "output_trimmed", "max_files_hit", "max_total_bytes_hit", "deadline_hit", "config"]
 
     def test_json_shape(self):
         self.write("src/a.ts", "export const a = 1;\n")
@@ -868,7 +877,7 @@ class ContractTests(ScanCase):
             self.assertIn(effect, ("evidence", "hint", "yes-part", "no"))
             self.assertRegex(question, r"^q(\d+)(\.code|\.data)?$")
 
-    def test_evidence_cap_25(self):
+    def test_evidence_is_capped_at_max_evidence(self):
         for i in range(30):
             self.write("pages/api/r%d.ts" % i, "export default () => 1;\n")
         q2 = self.scan()["questions"]["q2"]
@@ -1495,13 +1504,17 @@ class ReviewCycleThreeAdversarialTests(ScanCase):
         with open(os.path.join(bindir, "git"), "w") as fh:
             fh.write("#!/bin/sh\n/bin/sleep 30\n")
         os.chmod(os.path.join(bindir, "git"), 0o755)
+        if HAVE_GIT:
+            self.init_repo(commits=1)  # git only runs where a repository exists
+        else:
+            self.skipTest("git not installed")
         self.write("src/a.ts", "x\n")
         t0 = time.monotonic()
         with mock.patch.dict(os.environ, {"PATH": bindir}), mock.patch.object(cs, "GIT_BUDGET_S", 2.0), mock.patch.object(cs, "_darwin_git_ready", lambda: True):
             r = self.scan()
         self.assertLess(time.monotonic() - t0, 6.0)
         self.assertIn("git-timeout", evidence_checks(r["questions"]["q5"]["code"]))
-        self.assertEqual(r["files_scanned"], 1)
+        self.assertEqual(r["files_scanned"], 2)  # src/a.ts and the commit file init_repo writes
 
     def test_single_long_whitespace_line_is_linear(self):
         line = " " * 400000
@@ -1975,7 +1988,7 @@ class ShipReviewTests(ScanCase):
                 fh.write(content)
             r = self.scan()
             self.assertIsNone(r["git"]["commits"], pointer)
-            self.assertIn("git-not-a-repo", evidence_checks(r["questions"]["q5"]["code"]), pointer)
+            self.assertIn("git-config-not-vouched", evidence_checks(r["questions"]["q5"]["code"]), pointer)
             self.assertNotEqual(r["questions"]["q5"]["code"]["answer"], "yes", pointer)
             os.remove(path)
         with open(os.path.join(self.repo, ".git", "config"), "a") as fh:
@@ -2032,6 +2045,10 @@ class ShipReviewTests(ScanCase):
         with open(os.path.join(bindir, "git"), "w") as fh:
             fh.write("#!/bin/sh\n/bin/sleep 30\n")
         os.chmod(os.path.join(bindir, "git"), 0o755)
+        if HAVE_GIT:
+            self.init_repo(commits=1)  # git only runs where a repository exists
+        else:
+            self.skipTest("git not installed")
         self.write("src/a.ts", "x\n")
         with _w.catch_warnings(record=True) as caught:
             _w.simplefilter("always")
@@ -2214,7 +2231,7 @@ class RedTeamTests(ScanCase):
                 fh.write(stanza)
             r = self.scan()
             self.assertIsNone(r["git"]["commits"], stanza)
-            self.assertIn("git-not-a-repo", evidence_checks(r["questions"]["q5"]["code"]), stanza)
+            self.assertIn("git-config-not-vouched", evidence_checks(r["questions"]["q5"]["code"]), stanza)
             self.git("config", "--local", "--remove-section", stanza.split("]")[0][1:].replace('"', "").split(" ")[0] if stanza.startswith("[extensions") else 'remote.origin')
 
     def test_huge_gitfile_is_rejected_without_being_read(self):
@@ -2224,7 +2241,7 @@ class RedTeamTests(ScanCase):
         t0 = time.perf_counter()
         r = self.scan()
         self.assertLess(time.perf_counter() - t0, 2.0)
-        self.assertIn("git-not-a-repo", evidence_checks(r["questions"]["q5"]["code"]))
+        self.assertIn("git-config-not-vouched", evidence_checks(r["questions"]["q5"]["code"]))
         self.assertEqual(r["files_scanned"], 1)
 
     def test_source_roots_are_walked_before_the_file_cap_bites(self):
@@ -2367,7 +2384,7 @@ class SecurityRetryTests(ScanCase):
         t0 = time.perf_counter()
         r = self.scan()
         self.assertLess(time.perf_counter() - t0, 3.0)
-        self.assertIn("git-not-a-repo", self._q5(r))
+        self.assertIn("git-config-not-vouched", self._q5(r))
 
     @unittest.skipUnless(HAVE_GIT, "git not installed")
     def test_gitfile_target_inside_the_tree_is_checked_for_pointers(self):
@@ -2383,7 +2400,7 @@ class SecurityRetryTests(ScanCase):
         self.write("vercel.json", "{}\n")
         r = self.scan()
         self.assertIsNone(r["git"]["commits"])
-        self.assertIn("git-not-a-repo", self._q5(r))
+        self.assertIn("git-config-not-vouched", self._q5(r))
 
     @unittest.skipUnless(HAVE_GIT, "git not installed")
     def test_symlinked_or_oversize_or_one_line_config_is_not_trusted(self):
@@ -2395,14 +2412,14 @@ class SecurityRetryTests(ScanCase):
         self.write("evil.cfg", "[core]\n\tworktree = %s\n" % self.tmp)
         os.remove(cfg)
         os.symlink(os.path.join(self.repo, "evil.cfg"), cfg)
-        self.assertIn("git-not-a-repo", self._q5(self.scan()))
+        self.assertIn("git-config-not-vouched", self._q5(self.scan()))
         os.remove(cfg)
         with open(cfg, "w") as fh:
             fh.write(good + "# pad\n" * 20000 + "[core]\n\tworktree = %s\n" % self.tmp)
-        self.assertIn("git-not-a-repo", self._q5(self.scan()))
+        self.assertIn("git-config-not-vouched", self._q5(self.scan()))
         with open(cfg, "w") as fh:
             fh.write(good + "[core]worktree=%s\n" % self.tmp)
-        self.assertIn("git-not-a-repo", self._q5(self.scan()))
+        self.assertIn("git-config-not-vouched", self._q5(self.scan()))
         with open(cfg, "w") as fh:
             fh.write(good)
         self.assertEqual(self.scan()["git"]["commits"], 2)
@@ -2419,13 +2436,13 @@ class SecurityRetryTests(ScanCase):
             fh.write("x")
         os.symlink(secret, os.path.join(self.repo, ".git", "shallow"))
         r = self.scan()
-        self.assertIn("git-not-a-repo", self._q5(r))
+        self.assertIn("git-config-not-vouched", self._q5(r))
         self.assertIsNone(r["git"]["shallow"])
         os.remove(os.path.join(self.repo, ".git", "shallow"))
         shutil.rmtree(os.path.join(self.repo, ".git", "objects"))
         os.symlink(os.path.join(other, ".git", "objects"), os.path.join(self.repo, ".git", "objects"))
         r = self.scan()
-        self.assertIn("git-not-a-repo", self._q5(r))
+        self.assertIn("git-config-not-vouched", self._q5(r))
         self.assertIsNone(r["git"]["commits"])
 
     def test_more_agent_instruction_locations_are_never_opened(self):
@@ -2441,6 +2458,497 @@ class SecurityRetryTests(ScanCase):
         with open(os.path.join(SKILL_DIR, "SKILL.md"), encoding="utf-8") as fh:
             skill = fh.read()
         self.assertIn("absolute path", skill.split("**Find the script.**")[1].split("**Run it**")[0])
+
+
+class ReviewCycleTwoShipTests(ScanCase):
+    """Ship review cycle 2: findings on the review-fix commit itself."""
+
+    # --- codex adversarial + structured
+
+    def test_bearer_wrapped_generic_mcp_token_is_decisive(self):
+        token = "abcDEF1234567890abcDEF1234567890abcDEF12"
+        self.write(".mcp.json", json.dumps({"mcpServers": {"x": {"headers": {"Authorization": "Bearer " + token}}}}))
+        q1 = self.scan()["questions"]["q1"]
+        self.assertEqual(q1["answer"], "no")
+        self.assertIn("mcp-token", evidence_checks(q1))
+        self.assertNotIn(token[:12], json.dumps(q1))
+
+    def test_generic_tokens_without_digits_still_count(self):
+        token = "AbCdEfGhIjKlMnOpQrStUvWxYzAaBbCc_--"
+        self.write(".env", "NEXT_PUBLIC_SERVICE_TOKEN=%s\n" % token)
+        q1 = self.scan()["questions"]["q1"]
+        # the approved placeholder guard (no digit -> placeholder-shaped) still decides the answer; the token rule itself holds
+        self.assertIn("placeholder-key-literal", evidence_checks(q1))
+        self.assertTrue(cs.is_generic_token(token))
+        self.assertFalse(cs.is_generic_token("abcdefabcdefabcdefabcdefabcdefabcdef", 2))  # two classes need a digit
+
+    def test_yaml_and_toml_snippets_are_the_name_only(self):
+        self.write("src/config.yaml", "apiSecret: %s db_password: correct horse battery staple\n" % SK)
+        out = json.dumps(self.scan())
+        self.assertNotIn("correct horse", out)
+        self.write("src/config.yaml", "x: 1\n")
+        self.write("config/app.toml", 'secret_key = "%s" # hunter2 plain\n' % GENERIC)
+        out = json.dumps(self.scan())
+        self.assertNotIn("hunter2", out)
+
+    def test_using_true_variants_are_open(self):
+        for clause in ("using ((true))", "using (true::boolean)", "using ( ( TRUE ) )", "using (true::bool)"):
+            self.write("supabase/migrations/1.sql", "create policy p on t for all %s;\n" % clause)
+            q3 = self.scan()["questions"]["q3"]
+            self.assertEqual(q3["answer"], "no", clause)
+
+    def test_env_filenames_in_fixtures_or_docs_are_not_environments(self):
+        self.write("docs/examples/.env.production", "A=1\n")
+        self.write("tests/fixtures/.env.staging", "A=1\n")
+        self.write("examples/.env.preview", "A=1\n")
+        q6 = self.scan()["questions"]["q6"]
+        self.assertNotEqual(q6["answer"], "yes")
+        self.write(".env.production", "A=1\n")
+        self.write(".env.staging", "A=1\n")
+        self.assertEqual(self.scan()["questions"]["q6"]["answer"], "yes")
+
+    def test_platforms_without_o_nonblock_still_scan(self):
+        with open(SCRIPT, encoding="utf-8") as fh:
+            src = fh.read()
+        self.assertNotIn("os.O_NONBLOCK", src)  # every use goes through getattr(os, "O_NONBLOCK", 0)
+        self.assertIn('getattr(os, "O_NONBLOCK", 0)', src)
+
+    def test_readme_does_not_overstate_privacy(self):
+        with open(os.path.join(PLUGIN_DIR, "README.md"), encoding="utf-8") as fh:
+            head = fh.read().split("\n## ")[0]
+        self.assertNotIn("never sends anything anywhere", head)
+        self.assertIn("scanner makes no network calls", head)
+
+    # --- performance
+
+    def test_jwt_decoding_stops_once_the_decisive_checks_are_capped(self):
+        line = ", ".join('"%s"' % ANON_JWT for _ in range(2500))
+        self.write("src/components/a.tsx", '"use client";\nconst ks = [%s];\n' % line)
+        calls = {"n": 0}
+        real = cs.decode_jwt_role
+
+        def counting(token):
+            calls["n"] += 1
+            return real(token)
+        t0 = time.perf_counter()
+        with mock.patch.object(cs, "decode_jwt_role", counting):
+            r = self.scan()
+        self.assertLess(time.perf_counter() - t0, 5.0)
+        self.assertIn("client-anon-jwt", evidence_checks(r["questions"]["q1"]))
+        self.assertLessEqual(len([e for e in r["questions"]["q1"]["evidence"] if e["check"] == "client-anon-jwt"]), cs.MAX_HITS_PER_FILE_PER_CHECK)
+
+
+    # --- testing specialist
+
+    def test_huge_gitfile_is_never_opened(self):
+        with open(os.path.join(self.repo, ".git"), "wb") as fh:
+            fh.write(b"gitdir: x\n" + b"g" * 5000)
+        self.write("src/a.ts", "x\n")
+        with mock.patch.object(cs, "_git_dir", side_effect=AssertionError("gitfile was read")):
+            r = self.scan()
+        self.assertIn("git-config-not-vouched", evidence_checks(r["questions"]["q5"]["code"]))
+        self.assertEqual(cs._git_dir(self.repo), os.path.join(self.repo, ".git"))
+
+    def test_utf16_big_endian_and_short_nul_files(self):
+        self.write(".env", ("VITE_SERVICE_KEY=%s\n" % SK).encode("utf-16-be"), binary=True)
+        r = self.scan()
+        self.assertEqual(r["questions"]["q1"]["answer"], "no")
+        self.assertEqual(r["stats"]["files_skipped_binary"], 0)
+        self.assertIsNone(cs.decode_text(b"a\x00b\x00c"))
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_communicate_path_marks_truncation_partial(self):
+        self.init_repo(commits=1)
+        for i in range(60):
+            self.write(".env.%03d" % i, "A=1\n")
+        self.git("add", "-A")
+        self.git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "envs")
+        with mock.patch.object(cs, "_HAS_NONBLOCK", False), mock.patch.object(cs, "GIT_OUTPUT_LIMIT", 256):
+            r = self.scan()
+        self.assertTrue(r["partial"])
+        self.assertTrue(r["git"]["tracked_env_files"])
+        self.assertGreater(r["stats"]["git_index_partial"], 0)
+
+    def test_all_form_input_mappings(self):
+        self.write("src/components/F.tsx", '<input name="cc-name" /><input name="tel" /><input name="cc-number" />\n')
+        snippets = sorted(e["snippet"] for e in self.scan()["questions"]["q10"]["evidence"] if e["check"] == "pii-form-input")
+        self.assertEqual(snippets, ["card_number", "credit_card", "phone"])
+
+    def test_stop_line_fields_have_their_own_cap(self):
+        fields = sorted(cs.STOPLINE_FIELDS) + ["email", "phone", "address", "street"]
+        self.write("supabase/migrations/1.sql", "create table p (%s);\n" % ", ".join("%s text" % f for f in fields))
+        rows = [e for e in self.scan()["questions"]["q10"]["evidence"] if e["check"] == "pii-field"]
+        self.assertEqual(len(rows), cs.MAX_HITS_PER_FILE_PER_CHECK + 3)
+
+    def test_env_name_rows_carry_the_right_line(self):
+        self.write("netlify.toml", "# top\n\n[context.production]\n  a = 1\n# x\n\n[context.staging]\n")
+        rows = sorted((e["snippet"], e["line"]) for e in self.scan()["questions"]["q6"]["evidence"] if e["check"] == "env-name")
+        self.assertEqual(rows, [("production", 3), ("staging", 7)])
+
+    def test_env_file_served_from_public_is_client(self):
+        self.write("public/.env", "X=%s\n" % SK)
+        q1 = self.scan()["questions"]["q1"]
+        self.assertEqual(q1["answer"], "no")
+        self.assertIn("client-key-literal", evidence_checks(q1))
+        shutil.rmtree(os.path.join(self.repo, "public"))
+        self.write(".env", "X=%s\n" % SK)
+        self.assertIn("non-client-key-literal", evidence_checks(self.scan()["questions"]["q1"]))
+
+    @unittest.skipIf(sys.platform == "win32", "no fifos or hard links")
+    def test_read_small_regular_refuses_everything_but_small_plain_files(self):
+        plain = os.path.join(self.tmp, "plain")
+        with open(plain, "wb") as fh:
+            fh.write(b"abc")
+        self.assertEqual(cs._read_small_regular(plain, 10), b"abc")
+        self.assertIsNone(cs._read_small_regular(plain, 2))
+        fifo = os.path.join(self.tmp, "fifo")
+        os.mkfifo(fifo)
+        t0 = time.perf_counter()
+        self.assertIsNone(cs._read_small_regular(fifo, 10))
+        self.assertLess(time.perf_counter() - t0, 1.0)
+        os.link(plain, os.path.join(self.tmp, "linked"))
+        self.assertIsNone(cs._read_small_regular(plain, 10))
+        self.assertIsNone(cs._read_small_regular(os.path.join(self.tmp, "nope"), 10))
+
+    # --- maintainability
+
+    def test_env_file_predicate_is_shared(self):
+        for base in (".env", ".env.local", "prod.env", ".envrc"):
+            self.assertTrue(cs.is_env_file(base), base)
+        for base in (".env.example", "environment.ts"):
+            self.assertFalse(cs.is_env_file(base), base)
+
+    def test_mcp_key_rule_is_shared(self):
+        for key in ("Authorization", "password", "auth", "API_TOKEN", "service_role_key"):
+            self.assertEqual(cs._mcp_check_for(key), "mcp-token", key)
+        self.assertEqual(cs._mcp_check_for("region"), "mcp-token-shaped")
+
+    def test_docs_match_the_scanner(self):
+        with open(os.path.join(PLUGIN_DIR, "README.md"), encoding="utf-8") as fh:
+            readme = fh.read()
+        self.assertNotIn("The only file it opens under `.cursor/` is `mcp.json`", readme)
+        with open(os.path.join(SKILL_DIR, "references", "questions.md"), encoding="utf-8") as fh:
+            questions = fh.read()
+        self.assertIn("`mcp_config.json`", questions)
+        self.assertNotIn("contains SERVICE or SECRET", questions)
+        with open(os.path.join(REPO_ROOT, "docs", "specs", "custody-check-pr1.md"), encoding="utf-8") as fh:
+            spec = fh.read()
+        for code in ("repo-is-symlink", "repo-contains-cwd"):
+            self.assertIn("`%s`" % code, spec.split("## Appendix B")[1])
+        self.assertIn("--exclude-promisor-objects", spec)
+        with open(os.path.join(SKILL_DIR, "SKILL.md"), encoding="utf-8") as fh:
+            skill = fh.read()
+        self.assertNotIn("sits under your working directory", skill)
+        self.assertIn("per script location", skill)
+
+
+class GitConfigAllowlistTests(ScanCase):
+    """Ship review cycle 2, security: git config is judged by an allowlist, never a blocklist."""
+
+    def _q5(self, r):
+        return evidence_checks(r["questions"]["q5"]["code"])
+
+    def _append_config(self, text, binary=False):
+        path = os.path.join(self.repo, ".git", "config")
+        with open(path, "ab") as fh:
+            fh.write(text if binary else text.encode("utf-8"))
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_ordinary_repository_configs_are_trusted(self):
+        self.init_repo(commits=3)
+        self.git("remote", "add", "origin", "https://github.com/example/app.git")
+        self._append_config('[branch "main"]\n\tremote = origin\n\tmerge = refs/heads/main\n[user]\n\tname = Founder\n\temail = f@example.com\n[pull]\n\trebase = false\n')
+        self.write("vercel.json", "{}\n")
+        r = self.scan()
+        self.assertEqual(r["git"]["commits"], 3)
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_carriage_return_before_a_key_is_refused(self):
+        self.init_repo(commits=2)
+        self._append_config(b"[core]\n\rworktree = /tmp\n", binary=True)
+        self.assertIn("git-config-not-vouched", self._q5(self.scan()))
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_bare_boolean_keys_and_unknown_sections_are_refused(self):
+        self.init_repo(commits=2)
+        self.write("vercel.json", "{}\n")
+        cfg = os.path.join(self.repo, ".git", "config")
+        with open(cfg) as fh:
+            good = fh.read()
+        for extra in ('[remote "origin"]\n\turl = /tmp/x\n\tpromisor\n', '[alias]\n\tx = !sh\n', '[includeIf "gitdir:/"]\n\tpath = /etc/x\n',
+                      '[core]\n\tfsmonitor = true\n', "[core]\n\teditor = vi \\\n\tworktree = /tmp\n"):
+            with open(cfg, "w") as fh:
+                fh.write(good + extra)
+            self.assertIn("git-config-not-vouched", self._q5(self.scan()), extra)
+        with open(cfg, "w") as fh:
+            fh.write(good)
+        self.assertEqual(self.scan()["git"]["commits"], 2)
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_per_worktree_config_is_refused(self):
+        self.init_repo(commits=2)
+        with open(os.path.join(self.repo, ".git", "config.worktree"), "w") as fh:
+            fh.write("[core]\n\tworktree = /tmp\n")
+        self.assertIn("git-config-not-vouched", self._q5(self.scan()))
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_enclosing_repository_is_guarded_before_git_runs(self):
+        outer = os.path.join(self.tmp, "outer")
+        os.makedirs(outer)
+        self.init_repo(commits=1, cwd=outer)
+        with open(os.path.join(outer, ".git", "config"), "a") as fh:
+            fh.write("[include]\n\tpath = /etc/hosts\n")
+        app = os.path.join(outer, "app")
+        os.makedirs(app)
+        with open(os.path.join(app, "a.ts"), "w") as fh:
+            fh.write("x\n")
+        with mock.patch.object(cs.subprocess, "Popen", side_effect=AssertionError("git ran")):
+            r = self.scan(repo=app)
+        self.assertIn("git-config-not-vouched", self._q5(r))
+
+    def test_no_git_anywhere_means_no_git_call(self):
+        self.write("src/a.ts", "x\n")
+        with mock.patch.object(cs, "_enclosing_git_root", return_value=None), \
+                mock.patch.object(cs.subprocess, "Popen", side_effect=AssertionError("git ran")):
+            r = self.scan()
+        self.assertIn("git-not-a-repo", self._q5(r))
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    @unittest.skipIf(sys.platform == "win32", "no fifos")
+    def test_special_or_linked_entries_under_refs_are_refused(self):
+        self.init_repo(commits=1, tag="v1")
+        tags = os.path.join(self.repo, ".git", "refs", "tags")
+        os.makedirs(tags, exist_ok=True)
+        os.mkfifo(os.path.join(tags, "fifo"))
+        t0 = time.perf_counter()
+        r = self.scan()
+        self.assertLess(time.perf_counter() - t0, 5.0)
+        self.assertIn("git-config-not-vouched", self._q5(r))
+        os.remove(os.path.join(tags, "fifo"))
+        secret = os.path.join(self.tmp, "outside")
+        with open(secret, "w") as fh:
+            fh.write("x")
+        os.symlink(secret, os.path.join(tags, "v2"))
+        self.assertIn("git-config-not-vouched", self._q5(self.scan()))
+
+    def test_policy_named_for_select_is_still_open(self):
+        self.write("supabase/migrations/001.sql", 'create policy "for select" on public.orders for all using (true);\n')
+        q3 = self.scan()["questions"]["q3"]
+        self.assertEqual(q3["answer"], "no")
+        self.assertIn("policy-using-true", evidence_checks(q3))
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_fallback_reader_stops_at_the_byte_cap(self):
+        self.init_repo(commits=1)
+        for i in range(80):
+            self.write(".env.%03d" % i, "A=1\n")
+        self.git("add", "-A")
+        self.git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "envs")
+        with mock.patch.object(cs, "_HAS_NONBLOCK", False), mock.patch.object(cs, "GIT_OUTPUT_LIMIT", 128):
+            r = self.scan()
+        self.assertTrue(r["partial"])
+        self.assertLessEqual(sum(len(p) + 1 for p in r["git"]["tracked_env_files"]), 128)
+        with open(SCRIPT, encoding="utf-8") as fh:
+            self.assertNotIn(".communicate(", fh.read())
+
+
+class ReviewCycleThreeShipTests(ScanCase):
+    """Ship review cycle 3: the adversarial pass on the cycle-2 fixes themselves."""
+
+    def _q5(self, r):
+        return evidence_checks(r["questions"]["q5"]["code"])
+
+    def _append_config(self, text):
+        with open(os.path.join(self.repo, ".git", "config"), "a") as fh:
+            fh.write(text)
+
+    # F1: ordinary configs must pass; a refusal must be honest and must mark the scan partial
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_real_world_configs_are_still_repositories(self):
+        self.init_repo(commits=1)
+        self.write("vercel.json", "{}\n")
+        for extra in ('[remote "origin"]\n\tgh-resolved = base\n', '[submodule "vendor/x"]\n\turl = ../x.git\n\tactive = true\n',
+                      '[lfs]\n\trepositoryformatversion = 0\n', '[gui]\n\tencoding = utf-8\n',
+                      '[filter "lfs"]\n\tclean = git-lfs clean -- %f\n\tsmudge = git-lfs smudge -- %f\n\tprocess = git-lfs filter-process\n\trequired = true\n',
+                      '[diff "astextplain"]\n\ttextconv = astextplain\n', '[credential]\n\thelper = osxkeychain\n'):
+            self._append_config(extra)
+        r = self.scan()
+        self.assertEqual(r["git"]["commits"], 1, "an ordinary repository must not be refused")
+        self.assertIn("git-history", self._q5(r))
+        self.assertNotIn("git-config-not-vouched", self._q5(r))
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_escape_directives_are_still_refused_and_reported_honestly(self):
+        self.init_repo(commits=1)
+        cfg = os.path.join(self.repo, ".git", "config")
+        with open(cfg) as fh:
+            good = fh.read()
+        for extra in ("[core]\n\tworktree = /tmp\n", "[include]\n\tpath = /etc/hosts\n", '[includeIf "gitdir:/"]\n\tpath = /etc/hosts\n',
+                      "[extensions]\n\tpartialClone = origin\n", '[remote "origin"]\n\tpromisor = true\n',
+                      '[remote "origin"]\n\tuploadpack = ./x.sh\n', "[core]\n\talternateRefsCommand = ./x.sh\n", "[core]\n\tgitProxy = ./x.sh\n"):
+            with open(cfg, "w") as fh:
+                fh.write(good + extra)
+            r = self.scan()
+            checks = self._q5(r)
+            self.assertIn("git-config-not-vouched", checks, extra)
+            self.assertNotIn("git-not-a-repo", checks, extra)
+            self.assertTrue(r["partial"], extra)
+            self.assertGreater(r["stats"]["git_index_partial"], 0, extra)
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_a_refused_repository_never_leaves_q1_looking_clean(self):
+        self.init_repo(commits=1)
+        self.write(".env", "A=1\n")
+        self.git("add", ".env")
+        self.git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "env")
+        os.remove(os.path.join(self.repo, ".env"))
+        self.assertEqual(self.scan()["questions"]["q1"]["answer"], "no")
+        self._append_config("[core]\n\tworktree = /tmp\n")
+        r = self.scan()
+        self.assertTrue(r["partial"])
+        self.assertIn("git-index-unread", evidence_checks(r["questions"]["q1"]))
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    @unittest.skipIf(sys.platform == "win32", "shell fake git")
+    def test_git_timeout_and_unavailable_mark_the_scan_partial(self):
+        self.init_repo(commits=1)
+        bindir = os.path.join(self.tmp, "bin")
+        os.makedirs(bindir)
+        with open(os.path.join(bindir, "git"), "w") as fh:
+            fh.write("#!/bin/sh\n/bin/sleep 30\n")
+        os.chmod(os.path.join(bindir, "git"), 0o755)
+        with mock.patch.dict(os.environ, {"PATH": bindir}), mock.patch.object(cs, "GIT_BUDGET_S", 2.0), mock.patch.object(cs, "_darwin_git_ready", lambda: True):
+            r = self.scan()
+        self.assertTrue(r["partial"])
+        self.assertIn("git-index-unread", evidence_checks(r["questions"]["q1"]))
+        with mock.patch.object(cs, "_trusted_git", return_value=None):
+            r = self.scan()
+        self.assertTrue(r["partial"])
+
+    # F2: padding must not hide the decisive JWT
+
+    def test_many_benign_jwts_cannot_hide_a_service_role_key(self):
+        benign = ", ".join('"%s"' % ANON_JWT for _ in range(210))
+        self.write("src/components/a.tsx", '"use client";\nconst ks = [%s, "%s"];\n' % (benign, SERVICE_JWT))
+        q1 = self.scan()["questions"]["q1"]
+        self.assertEqual(q1["answer"], "no")
+        self.assertIn("client-privileged-jwt", evidence_checks(q1))
+
+    # F3: a value the prefix detector declined must not hide a key inside it
+
+    def test_oversize_browser_prefix_value_does_not_hide_a_key(self):
+        self.write("src/a.ts", 'const NEXT_PUBLIC_BLOB = "%s.%s";\n' % ("a" * 8400, SK))
+        q1 = self.scan()["questions"]["q1"]
+        self.assertEqual(q1["answer"], "no")
+        self.assertIn("client-key-literal", evidence_checks(q1))
+
+    # F4: scheme-wrapped credentials
+
+    def test_scheme_wrapped_values_are_judged_by_the_credential(self):
+        self.write(".env.production", 'NEXT_PUBLIC_SUPABASE_KEY="Bearer %s"\n' % SERVICE_JWT)
+        q1 = self.scan()["questions"]["q1"]
+        self.assertEqual(q1["answer"], "no")
+        self.assertIn("browser-prefix-privileged-jwt", evidence_checks(q1))
+        self.write(".env.production", "x=1\n")
+        self.write(".mcp.json", json.dumps({"mcpServers": {"a": {"headers": {"X-Api-Key": "ApiKey " + GENERIC}}}}))
+        q1 = self.scan()["questions"]["q1"]
+        self.assertEqual(q1["answer"], "no")
+        self.assertIn("mcp-token", evidence_checks(q1))
+
+    # F5: a URL in a JSON rules file is not a comment
+
+    def test_url_in_a_json_rules_file_does_not_hide_the_rule(self):
+        self.write("database.rules.json", '{"rules":{"doc":"see http://example.com", ".write": true}}\n')
+        q3 = self.scan()["questions"]["q3"]
+        self.assertEqual(q3["answer"], "no")
+        self.assertIn("firebase-rules-open", evidence_checks(q3))
+
+    # F6: alter policy and wrapped FOR SELECT
+
+    def test_alter_policy_and_wrapped_for_select(self):
+        self.write("supabase/migrations/1.sql", 'alter policy "public read" on public.docs using (true);\n')
+        q3 = self.scan()["questions"]["q3"]
+        self.assertNotEqual(q3["answer"], "no")
+        self.assertIn("policy-altered-true", evidence_checks(q3))
+        self.write("supabase/migrations/1.sql", 'create policy p on t for\n  select using (true);\n')
+        q3 = self.scan()["questions"]["q3"]
+        self.assertNotEqual(q3["answer"], "no")
+        self.assertIn("policy-select-true", evidence_checks(q3))
+
+    # F7: one env-file definition
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_tracked_production_dot_env_and_uppercase_names(self):
+        self.init_repo(commits=1)
+        self.write("production.env", "A=1\n")
+        self.git("add", "production.env")
+        self.git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "env")
+        q1 = self.scan()["questions"]["q1"]
+        self.assertEqual(q1["answer"], "no")
+        self.assertIn("tracked-env-file", evidence_checks(q1))
+        self.assertTrue(cs.is_env_file(".ENV.production"))
+
+    def test_uppercase_env_file_on_disk_is_evidence(self):
+        self.write(".ENV.production", "A=%s\n" % SK)
+        self.assertIn("env-file-on-disk", evidence_checks(self.scan()["questions"]["q1"]))
+
+    # F8: redaction must not eat the name that carries the finding
+
+    def test_screaming_snake_names_survive_redaction(self):
+        self.assertEqual(cs._redact_piece("NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY"), "NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY")
+        self.assertEqual(cs.sanitize_path("src/supabase_service_role_key_helpers/index.ts"), "src/supabase_service_role_key_helpers/index.ts")
+        self.write(".env", "NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY=%s\n" % SERVICE_JWT)
+        q1 = self.scan()["questions"]["q1"]
+        self.assertEqual(q1["answer"], "no")
+        self.assertIn("NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY", json.dumps(q1))
+        self.assert_no_secret(json.dumps(q1))
+
+    # F9 / F10 / F12: reader hygiene, bounded walks, stable sort
+
+    def test_fallback_reader_closes_cleanly(self):
+        with open(SCRIPT, encoding="utf-8") as fh:
+            src = fh.read()
+        reader = src[src.index("def reader():"):src.index("worker = threading.Thread")]
+        self.assertIn("except Exception:", reader)
+        self.assertIn("worker.join", src[src.index("worker = threading.Thread"):src.index("return _Result", src.index("worker = threading.Thread"))])
+
+    def test_git_tree_walk_respects_the_deadline(self):
+        gitdir = os.path.join(self.repo, ".git", "objects", "ab")
+        os.makedirs(gitdir)
+        for i in range(30):
+            with open(os.path.join(gitdir, "%02d" % i), "w") as fh:
+                fh.write("x")
+        state = cs.ScanState()
+        state.deadline = time.monotonic() - 1
+        self.assertFalse(cs._git_tree_plain(os.path.join(self.repo, ".git"), state))
+
+    def test_enclosing_search_stops_at_the_home_directory(self):
+        with mock.patch.dict(os.environ, {"HOME": self.tmp}):
+            self.assertIsNone(cs._enclosing_git_root(os.path.realpath(self.repo)))
+        deep = os.path.join(self.repo, "a", "b")
+        os.makedirs(deep)
+        os.makedirs(os.path.join(self.repo, ".git"))
+        with mock.patch.dict(os.environ, {"HOME": self.tmp}):
+            self.assertEqual(cs._enclosing_git_root(os.path.realpath(deep)), os.path.realpath(self.repo))
+
+    def test_hits_sort_is_stable_without_comparing_none(self):
+        with open(SCRIPT, encoding="utf-8") as fh:
+            self.assertIn("hits.sort(key=lambda h: (h[0], h[1]))", fh.read())
+
+    # F11: a committed .env.local is the real thing
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_tracked_env_local_is_decisive(self):
+        self.init_repo(commits=1)
+        self.write(".env.local", "A=1\n")
+        self.write(".env.test", "A=1\n")
+        self.git("add", ".env.local", ".env.test")
+        self.git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "env")
+        q1 = self.scan()["questions"]["q1"]
+        self.assertEqual(q1["answer"], "no")
+        self.assertIn("tracked-env-file", evidence_checks(q1))
+        self.assertIn("tracked-env-file-nonprod", evidence_checks(q1))
 
 
 if __name__ == "__main__":

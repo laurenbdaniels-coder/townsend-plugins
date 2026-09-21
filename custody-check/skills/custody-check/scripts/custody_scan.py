@@ -47,6 +47,7 @@ import os
 import re
 import select
 import signal
+import threading
 import stat
 import subprocess
 import time
@@ -71,7 +72,7 @@ NEUTRAL_SEGMENTS = {"lib", "utils", "services", "db", "scripts", "workers", "job
 SERVER_FILE_RE = re.compile(r"^middleware\.[^/]+$|\.server\.[^./]+$|^route\.[jt]s$|^\+server\.[jt]s$")
 DEPLOY_CONFIG_BASENAMES = {"vercel.json", "netlify.toml", "fly.toml", "render.yaml", "render.yml", "railway.json", "dockerfile", "procfile"}
 IGNORED_ENV_NAMES = {"development", "dev", "local", "test", "testing", "default", "example", "sample", "template"}
-NONPROD_ENV_STEMS = IGNORED_ENV_NAMES | {"ci", "vault", "enc", "sops", "age"}  # tracked on purpose in most scaffolds
+NONPROD_ENV_STEMS = (IGNORED_ENV_NAMES - {"local"}) | {"ci", "vault", "enc", "sops", "age"}  # .env.local holds the real secrets  # tracked on purpose in most scaffolds
 SOURCE_ROOTS = {"src", "app", "pages", "api", "server", "supabase", "prisma", "functions", "lib", "components", "netlify", "workers"}
 _HAS_NONBLOCK = hasattr(os, "set_blocking") and sys.platform != "win32"
 CONFIG_VALUE_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
@@ -99,6 +100,7 @@ DEFAULT_DEADLINE_S = 120.0
 ENV_FILE_RE = re.compile(r"^\.env(\..+)?$")
 FLY_ENV_TOML_RE = re.compile(r"^fly\.([a-z0-9_-]+)\.toml$")
 DEADLINE_TICK = 256
+MAX_JWT_HITS_PER_FILE = 200
 MAX_ENV_NAME_MATCHES = 200
 MAX_DIR_ENTRIES = 50000
 GIT_OUTPUT_LIMIT = 1 << 20
@@ -125,12 +127,12 @@ CHECKS = {
     "placeholder-key-literal": ("q1", "evidence"), "test-path-key-literal": ("q1", "evidence"),
     "scan-summary": ("q1", "evidence"),
     "api-route-dir": ("q2", "hint"), "framework-config": ("q2", "hint"),
-    "rls-disabled": ("q3", "no"), "policy-using-true": ("q3", "no"), "policy-select-true": ("q3", "evidence"), "policy-with-check-true": ("q3", "evidence"),
+    "rls-disabled": ("q3", "no"), "policy-using-true": ("q3", "no"), "policy-select-true": ("q3", "evidence"), "policy-altered-true": ("q3", "evidence"), "policy-with-check-true": ("q3", "evidence"),
     "policy-to-anon": ("q3", "evidence"), "storage-bucket-public-sql": ("q3", "evidence"),
     "firebase-rules-open": ("q3", "no"), "firebase-rules-public-read": ("q3", "evidence"), "storage-bucket-public": ("q3", "evidence"),
     "auth-path": ("q4", "evidence"), "auth-dependency": ("q4", "evidence"),
     "deploy-config": ("q5.code", "yes-part"), "migration-path": ("q5.code", "evidence"), "backup-script": ("q5.code", "evidence"),
-    "git-history": ("q5.code", "evidence"), "git-not-a-repo": ("q5.code", "evidence"), "git-unavailable": ("q5.code", "evidence"),
+    "git-history": ("q5.code", "evidence"), "git-not-a-repo": ("q5.code", "evidence"), "git-config-not-vouched": ("q5.code", "evidence"), "git-index-unread": ("q1", "evidence"), "git-unavailable": ("q5.code", "evidence"),
     "git-timeout": ("q5.code", "evidence"), "git-subdir": ("q5.code", "evidence"), "git-shallow": ("q5.code", "evidence"),
     "env-name": ("q6", "yes-part"),
     "model-env-var": ("q8", "hint"), "model-literal": ("q8", "hint"), "spend-cap-word": ("q8", "hint"), "ai-sdk-dependency": ("q8", "hint"),
@@ -154,6 +156,7 @@ RUN_RE = re.compile(r"[A-Za-z0-9_\-+/=.]{20,}")
 PUBLIC_KEY_RE = re.compile(r"sb_publishable_[A-Za-z0-9_-]+|pk_(?:live|test)_[A-Za-z0-9]+|AIza[0-9A-Za-z_-]{35}")
 MAX_VALUE_CHARS = 8192
 PUBLIC_PREFIX_RE = re.compile(r"^(?:sb_publishable_|pk_live_|pk_test_|AIza[0-9A-Za-z_-]{35})")
+WORDY_NAME_RE = re.compile(r"^(?:[A-Z][A-Z0-9]*|[a-z][a-z0-9]*)(?:_(?:[A-Z][A-Z0-9]*|[a-z][a-z0-9]*)){1,15}$")
 GENERIC_TOKEN_RE = re.compile(r"[A-Za-z0-9_\-+/=]{32,}")
 PLACEHOLDER_RE = re.compile(r"your|xxx+|placeholder|example|replace|changeme|dummy", re.I)
 IDENT_SENSITIVE_RE = re.compile(r"secret|service[_-]?(?:role|key|token)", re.I)
@@ -167,7 +170,7 @@ ANGULAR_IMPORT_RE = re.compile(r"(?m)^[ \t]*import\b[^\n]{0,200}\bfrom[ \t]+[\"'
 PAGES_DATA_FN_RE = re.compile(r"\b(?:getServerSideProps|getStaticProps|getStaticPaths)\b")
 TEST_PATH_RE = re.compile(r"(?:^|/)(?:__tests__|tests?|fixtures?)/|\.(?:test|spec|stories)\.[^/]+$")
 RLS_DISABLED_RE = re.compile(r"disable\s{1,20}row\s{1,20}level\s{1,20}security", re.I)
-USING_TRUE_RE = re.compile(r"\busing\s{0,20}\(\s{0,20}true\s{0,20}\)", re.I)
+USING_TRUE_RE = re.compile(r"\busing\s{0,20}\((?:\s{0,20}\(){0,3}\s{0,20}true(?:\s{0,5}::\s{0,5}bool(?:ean)?)?(?:\s{0,20}\)){1,4}", re.I)
 WITH_CHECK_TRUE_RE = re.compile(r"\bwith\s{1,20}check\s{0,20}\(\s{0,20}true\s{0,20}\)", re.I)
 POLICY_TO_ANON_RE = re.compile(r"\bcreate\s+policy\b[^\n]{0,300}?\bto\s+anon\b", re.I)
 STORAGE_BUCKET_TRUE_RE = re.compile(r"storage\.buckets\b[^\n]{0,300}?\btrue\b", re.I)
@@ -182,8 +185,9 @@ TOML_PUBLIC_TRUE_RE = re.compile(r"^[ \t]*public[ \t]*=[ \t]*true\b", re.I | re.
 NETLIFY_CONTEXT_RE = re.compile(r"^[ \t]*\[context\.([A-Za-z0-9_-]{1,32})(?:\.[^\]\n]{0,80})?\]", re.M)
 WRANGLER_ENV_RE = re.compile(r"^[ \t]*\[env\.([A-Za-z0-9_-]{1,32})(?:\.[^\]\n]{0,80})?\]", re.M)
 VERCEL_ENV_RE = re.compile(r"\"(production|preview|staging)\"\s*:")
-MODEL_PROVIDER_RE = re.compile(r"(?:OPENAI|ANTHROPIC|CLAUDE|GEMINI|GOOGLE_AI|GOOGLE_GENERATIVE_AI|MISTRAL|COHERE|GROQ|TOGETHER|REPLICATE|HUGGINGFACE|AZURE_OPENAI|OPENROUTER|XAI|DEEPSEEK|PERPLEXITY|FIREWORKS)_", re.I)
-MODEL_ENV_RE = re.compile(r"\b((?:OPENAI|ANTHROPIC|CLAUDE|GEMINI|GOOGLE_AI|GOOGLE_GENERATIVE_AI|MISTRAL|COHERE|GROQ|TOGETHER|REPLICATE|HUGGINGFACE|HF|AZURE_OPENAI|OPENROUTER|XAI|DEEPSEEK|PERPLEXITY|FIREWORKS)_[A-Z0-9_]*(?:KEY|TOKEN|SECRET))\b")
+MODEL_PROVIDER_ALT = "OPENAI|ANTHROPIC|CLAUDE|GEMINI|GOOGLE_AI|GOOGLE_GENERATIVE_AI|MISTRAL|COHERE|GROQ|TOGETHER|REPLICATE|HUGGINGFACE|AZURE_OPENAI|OPENROUTER|XAI|DEEPSEEK|PERPLEXITY|FIREWORKS"
+MODEL_PROVIDER_RE = re.compile(r"(?:" + MODEL_PROVIDER_ALT + r")_", re.I)
+MODEL_ENV_RE = re.compile(r"\b((?:" + MODEL_PROVIDER_ALT + r"|HF)_[A-Z0-9_]*(?:KEY|TOKEN|SECRET))\b")  # HF_ is too short to trust as a provider prefix on a Google key
 MODEL_LITERAL_RE = re.compile(r"(?<![A-Za-z0-9])(?:gpt-[0-9][A-Za-z0-9.-]*|claude-[a-z0-9.-]+|gemini-[a-z0-9.-]+|llama[-_]?[0-9][A-Za-z0-9.-]*|mistral-[a-z0-9.-]+|o[134]-mini|o3)(?![A-Za-z0-9])")
 SPEND_CAP_RE = re.compile(r"\b(?:max_tokens|maxTokens|rate_limit|rateLimit|spend_cap|budget_limit|maxDuration)\b")
 HEALTH_ROUTE_RE = re.compile(r"[\"'`]/(?:api/)?health(?:z|check|-check)?[\"'`]")
@@ -193,7 +197,7 @@ CRON_WRANGLER_RE = re.compile(r"^[ \t]*crons[ \t]*=", re.M)
 CRON_SQL_RE = re.compile(r"cron\.schedule\(", re.I)
 PII_FIELD_RE = re.compile(r"(?<![a-z0-9])(email|phone|tel|ssn|social_security|dob|date_of_birth|birthdate|address|street|postal_code|zip_code|passport|credit_card|card_number|cc_number|iban|medical|diagnosis|salary)(?![a-z0-9])", re.I)
 CAMEL_SPLIT_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
-POLICY_SELECT_RE = re.compile(r"\bfor[ \t]{1,20}select\b", re.I)
+POLICY_SELECT_RE = re.compile(r"\bfor\s{1,20}select\b", re.I)
 PII_INPUT_RE = re.compile(r"name=[\"'](email|tel|phone|address|street|cc-[a-z-]+|bday|ssn|dob)[\"']", re.I)
 BUILDER_URL_RE = re.compile(r"lovable\.(?:dev|app)|replit\.com|bolt\.new|base44\.com|v0\.(?:dev|app)", re.I)
 DEP_NAME_RE = re.compile(r"\"(@?[A-Za-z0-9_./-]+)\"\s*:")
@@ -242,6 +246,8 @@ def _redact_piece(piece):
         # and mixes lower, upper and digits, which a path rarely does
         alpha_classes = sum(1 for test in (str.islower, str.isupper, str.isdigit) if any(test(c) for c in piece))
         return redact_value(piece) if alpha_classes >= 3 else piece
+    if WORDY_NAME_RE.match(piece):
+        return piece  # an ordinary variable or path name (NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY), not a value
     if _classes(piece) >= 2:
         return redact_value(piece)
     return piece
@@ -357,9 +363,7 @@ def make_snippet(text, start, end):
     Sweeping before windowing matters: a window cut through a neighbouring secret would
     leave a fragment too short for any pattern to catch.
     """
-    lo = max(0, start - 2048)
-    ls = text.rfind("\n", lo, start)
-    line_start = ls + 1 if ls >= 0 else lo
+    line_start = _line_start(text, start)
     hi = min(len(text), end + 2048)
     le = text.find("\n", end, hi)
     line_end = le if le >= 0 else hi
@@ -402,7 +406,10 @@ def _line_start(text, pos):
 def is_generic_token(value, min_classes=3):
     if len(value) < 32 or len(value) > MAX_VALUE_CHARS or not GENERIC_TOKEN_RE.fullmatch(value.rstrip(".")):
         return False
-    return _classes(value) >= min_classes and any(c.isdigit() for c in value)
+    classes = _classes(value)
+    if classes >= 3:
+        return True
+    return min_classes <= 2 and classes >= 2 and any(c.isdigit() for c in value)  # hex secrets under a sensitive name
 
 
 def is_placeholder(value, is_jwt):
@@ -449,14 +456,14 @@ class Options(object):
         self.browser_prefixes_added = []
         for p in browser_prefixes:
             p = str(p).strip()
-            if not re.fullmatch(r"[A-Za-z0-9_]{1,%d}" % MAX_CONFIG_CHARS, p) or not CONFIG_VALUE_RE.match(p):
+            if not re.fullmatch(r"[A-Za-z0-9_]{1,%d}" % MAX_CONFIG_CHARS, p):
                 continue
             if p not in BROWSER_PREFIXES and p not in self.browser_prefixes_added and len(self.browser_prefixes_added) < MAX_CONFIG_ENTRIES:
                 self.browser_prefixes_added.append(p)
         self.excluded = EXCLUDED_DIRS | set(self.exclude_dirs_added)
         self.prefixes = tuple(BROWSER_PREFIXES) + tuple(self.browser_prefixes_added)
         alt = "|".join(re.escape(p) for p in self.prefixes)
-        self.browser_assign_re = re.compile(r"[\"']?\b(?P<name>(?:" + alt + r")[A-Za-z0-9_]+)[\"']?\s*[=:]\s*[\"'`]?(?P<value>[A-Za-z0-9_\-+/=.]{16,})")
+        self.browser_assign_re = re.compile(r"[\"']?\b(?P<name>(?:" + alt + r")[A-Za-z0-9_]+)[\"']?\s*[=:]\s*[\"'`]?(?:[A-Za-z][A-Za-z-]{1,20}[ \t]+)?(?P<value>[A-Za-z0-9_\-+/=.]{16,})")
         self.prefilter_re = re.compile(PREFILTER_RE.pattern + ("|" + alt if self.browser_prefixes_added else ""))
 
 
@@ -494,7 +501,7 @@ class ScanState(object):
         self.seen = set()
         self.warnings = []
         self.stats = {"files_skipped_oversize": 0, "files_skipped_binary": 0, "files_skipped_generated": 0, "files_never_open": 0,
-                      "files_skipped_special": 0, "files_skipped_hardlink": 0, "files_errored": 0, "dirs_unreadable": 0, "dirs_truncated": 0, "mcp_capped": 0, "output_trimmed": 0, "max_files_hit": False,
+                      "files_skipped_special": 0, "files_skipped_hardlink": 0, "files_errored": 0, "dirs_unreadable": 0, "dirs_truncated": 0, "mcp_capped": 0, "git_index_partial": 0, "output_trimmed": 0, "max_files_hit": False,
                       "max_total_bytes_hit": False, "deadline_hit": False, "config": {"exclude_dirs_added": [], "browser_prefixes_added": []}}
 
     def tick(self):
@@ -534,6 +541,12 @@ def iter_questions(result):
 
 
 # ---------------------------------------------------------------- filesystem
+
+def is_env_file(base):
+    """One definition of an env file: `.env`, `.env.<name>`, `<name>.env`, `.envrc`; templates are not env files."""
+    b = base.lower()
+    return (bool(ENV_FILE_RE.match(b)) or b.endswith(".env") or b == ".envrc") and not is_env_template(b)
+
 
 def is_env_template(base):
     b = base.lower()
@@ -624,7 +637,7 @@ def classify(rel, base, ext, text):
     top = app_dirs[0] if app_dirs else ""
     kinds = set()
     b = base.lower()
-    if ENV_FILE_RE.match(b) or b.endswith(".env") or b == ".envrc":
+    if is_env_file(b) or is_env_template(b):
         kinds.add("env-template" if is_env_template(b) else "env")
     if b in (".mcp.json", "mcp.json", "mcp_config.json"):
         kinds.add("mcp")
@@ -689,13 +702,14 @@ def detect_browser_prefix(sf, state, opts, claimed):
     text = sf.text
     counter = {}
     is_env = "env" in sf.kinds or "env-template" in sf.kinds
+    name_only = is_env or "yaml" in sf.kinds or "toml" in sf.kinds  # unquoted neighbours (passphrases) cannot be masked
     is_test = bool(TEST_PATH_RE.search(sf.rel))
     for m in opts.browser_assign_re.finditer(text):
-        name, value = m.group("name"), m.group("value").rstrip(".")
-        value_start = m.start("value")
-        claimed.append((value_start, value_start + len(value)))
+        name, value = m.group("name"), _strip_scheme(m.group("value").rstrip("."))
+        value_start = m.end("value") - len(value)
         if len(value) > MAX_VALUE_CHARS:
-            continue
+            continue  # not judged here, so its span stays open for the key-literal pass
+        claimed.append((value_start, value_start + len(value)))
         named = bool(NAMED_KEY_FULL_RE.match(value))
         jwt = is_jwt(value)
         generic = is_generic_token(value)
@@ -728,7 +742,7 @@ def detect_browser_prefix(sf, state, opts, claimed):
         if not _cap(counter, check):
             continue
         line = line_of(text, m.start())
-        snippet = name if is_env else make_snippet(text, m.start(), m.end())
+        snippet = name if name_only else make_snippet(text, m.start(), m.end())
         state.add(check, sf.rel, line, snippet)
 
 
@@ -736,6 +750,7 @@ def detect_key_literals(sf, state, opts, claimed):
     text = sf.text
     counter = {}
     is_env = "env" in sf.kinds or "env-template" in sf.kinds
+    name_only = is_env or "yaml" in sf.kinds or "toml" in sf.kinds  # unquoted neighbours (passphrases) cannot be masked
     is_test = bool(TEST_PATH_RE.search(sf.rel))
 
     starts = [c[0] for c in claimed]
@@ -761,10 +776,16 @@ def detect_key_literals(sf, state, opts, claimed):
         if not is_generic_token(value.rstrip("."), classes_needed):
             continue
         hits.append((m.start("value"), m.end("value"), "generic", m.group("ident")))
-    hits.sort()
+    hits.sort(key=lambda h: (h[0], h[1]))
+    jwt_seen = 0
     for start, end, kind, ident in hits:
         if overlaps(start, end):
             continue
+        if kind == "jwt":
+            jwt_seen += 1
+            if jwt_seen > MAX_JWT_HITS_PER_FILE and counter.get("client-privileged-jwt", 0) >= MAX_HITS_PER_FILE_PER_CHECK \
+                    and counter.get("client-secret-name-token", 0) >= MAX_HITS_PER_FILE_PER_CHECK:
+                continue  # only once the decisive JWT checks are themselves capped is more decoding pointless
         state.tick()
         value = text[start:end]
         check = None
@@ -802,12 +823,28 @@ def detect_key_literals(sf, state, opts, claimed):
         if not check or not _cap(counter, check):
             continue
         line = line_of(text, start)
-        if is_env:
+        if name_only:
             lstart = _line_start(text, start)
             snippet = re.split(r"[=:\s]", text[lstart:start].strip(), 1)[0][:60]
         else:
             snippet = make_snippet(text, start, end)
         state.add(check, sf.rel, line, snippet)
+
+
+def _mcp_check_for(key):
+    """A generic token under an auth-shaped key is decisive; under any other key it is evidence."""
+    lk = key.lower()
+    if IDENT_SENSITIVE_RE.search(key) or IDENT_KEYISH_RE.search(key) or lk in ("authorization", "password", "auth"):
+        return "mcp-token"
+    return "mcp-token-shaped"
+
+
+def _strip_scheme(value):
+    """`Bearer <token>` / `Basic <token>` / `token <token>`: judge the credential, not the header."""
+    parts = value.split()
+    if len(parts) == 2 and re.match(r"^[A-Za-z][A-Za-z-]{1,20}$", parts[0]):
+        return parts[1]  # `Bearer <token>`, `ApiKey <token>`, `token <token>`: judge the credential
+    return value
 
 
 def detect_mcp(sf, state, opts):
@@ -830,11 +867,10 @@ def detect_mcp(sf, state, opts):
                 state.add("mcp-token", sf.rel, line_of(text, start), make_snippet(text, start, end))
         for m in MCP_PAIR_RE.finditer(text):  # JSONC / trailing commas: still read "key": "value" pairs
             state.tick()
-            key, value = m.group(1), m.group(2)
+            key, value = m.group(1), _strip_scheme(m.group(2))
             if NAMED_KEY_RE.search(value) or any(True for _ in find_jwts(value)) or not is_generic_token(value):
                 continue
-            lk = key.lower()
-            check = "mcp-token" if (IDENT_SENSITIVE_RE.search(key) or IDENT_KEYISH_RE.search(key) or lk in ("authorization", "password", "auth")) else "mcp-token-shaped"
+            check = _mcp_check_for(key)
             if _cap(counter, check):
                 state.add(check, sf.rel, line_of(text, m.start()), key)
         return
@@ -859,12 +895,8 @@ def detect_mcp(sf, state, opts):
                 continue
             if NAMED_KEY_RE.search(value) or any(True for _ in find_jwts(value)):
                 check = "mcp-token"
-            elif is_generic_token(value):
-                lk = key.lower()
-                if IDENT_SENSITIVE_RE.search(key) or IDENT_KEYISH_RE.search(key) or lk in ("authorization", "password", "auth"):
-                    check = "mcp-token"
-                else:
-                    check = "mcp-token-shaped"
+            elif is_generic_token(_strip_scheme(value)):
+                check = _mcp_check_for(key)
             else:
                 continue
             if _cap(counter, check):
@@ -892,9 +924,15 @@ def detect_sql(sf, state, opts):
         state.tick()
         # a public-read policy (`for select using (true)`) is a design choice the by-hand test decides;
         # `for all`, insert/update/delete, or no FOR clause opens writes and is a no
-        window = text[max(0, m.start() - 2000):m.start()].lower()
+        window = QUOTED_SQL_RE.sub(lambda q: " " * len(q.group(0)), text[max(0, m.start() - 2000):m.start()]).lower()
         cp = window.rfind("create policy")
-        check = "policy-select-true" if cp >= 0 and POLICY_SELECT_RE.search(window[cp:]) else "policy-using-true"
+        ap = window.rfind("alter policy")
+        if ap > cp:
+            check = "policy-altered-true"  # the statement being altered may well be read-only; the by-hand test decides
+        elif cp >= 0 and POLICY_SELECT_RE.search(window[cp:]):
+            check = "policy-select-true"
+        else:
+            check = "policy-using-true"
         if _cap(counter, check):
             state.add(check, sf.rel, line_of(text, m.start()), _clause(m))
     _finditer_lines(WITH_CHECK_TRUE_RE, text, sf, state, "policy-with-check-true", counter, _clause)
@@ -904,6 +942,7 @@ def detect_sql(sf, state, opts):
 
 
 SQL_LINE_COMMENT_RE = re.compile(r"--[^\n]*")
+QUOTED_SQL_RE = re.compile(r"\"[^\"\n]*\"|'[^'\n]*'")  # identifiers and strings never name a FOR clause
 MCP_PAIR_RE = re.compile(r'"([^"\n]{1,80})"[ \t]*:[ \t]*"([^"\n]{32,8192})"')
 
 
@@ -943,7 +982,8 @@ def _strip_slash_comments(text):
 
 def detect_rules(sf, state, opts):
     counter = {}
-    text = _strip_slash_comments(sf.text)
+    # JSON rules files have no // comments, and a URL inside a string would eat the rest of the line
+    text = _blank_block_comments(sf.text) if sf.base.lower().endswith(".json") else _strip_slash_comments(sf.text)
     for regex in (FIREBASE_ALLOW_TRUE_RE, FIREBASE_ALLOW_ALL_RE):
         for m in regex.finditer(text):
             state.tick()
@@ -1126,7 +1166,8 @@ def layout_checks(rel, base, state):
     if fly:
         _env_name(state, rel, fly.group(1), 0)
     m = re.match(r"^\.env\.([a-z0-9_-]+)$", b)
-    if m and not is_env_template(b):
+    in_examples = bool(TEST_PATH_RE.search(rel)) or any(d.lower() in ("docs", "doc", "examples", "example", "samples", "sample") for d in dirs)
+    if m and not is_env_template(b) and not in_examples:
         _env_name(state, rel, m.group(1), 0)
     if any(d in ("migrations", "migration") for d in dirs) or "migrat" in b:
         state.add("migration-path", rel, 0, "")
@@ -1171,16 +1212,102 @@ def _git_dir(toplevel):
     return dot
 
 
-GIT_CONFIG_POINTER_RE = re.compile(r"(?im)^[ \t]*(?:worktree|gitdir|partialclone|promisor|uploadpack|fsmonitor|hookspath|sshcommand|askpass)[ \t]*=|^[ \t]*\[include")
-GIT_SECTION_TRAILING_RE = re.compile(r"(?m)^[ \t]*\[[^\]\n]*\][ \t]*[^ \t\r\n#;]")  # `[core]worktree=/x` on one line
-GIT_DIR_ENTRIES = ("HEAD", "config", "shallow", "packed-refs", "index", "objects", "refs", "hooks", "info", "logs", "commondir", "gitdir")
+# A repository's own config is attacker-controlled, so it is parsed strictly (a stray carriage return,
+# a continuation line, or a key sharing its section header's line means "cannot be read safely") and then
+# judged against the directives that let git read, write or run something outside the scanned tree.
+# Everything else is ordinary repository furniture: submodules, LFS, GUI settings and the like all pass.
+GIT_DENY_SECTIONS = {"include", "includeif", "alias", "uploadpack", "receive", "protocol", "url", "safe", "advice"}
+GIT_DENY_KEYS = {
+    "core": {"worktree", "alternaterefscommand", "gitproxy", "sshcommand", "hookspath", "fsmonitor", "askpass",
+             "pager", "editor", "externaldiff", "commitgraph", "sharedrepository"},
+    "extensions": {"worktreeconfig", "partialclone", "objectformat", "refstorage", "compatobjectformat"},
+    "remote": {"promisor", "partialclonefilter", "uploadpack", "receivepack", "proxy", "vcs", "gitproxy"},
+    "http": {"proxy", "sslcainfo", "sslcert", "sslkey"},
+    "gpg": {"program"},
+    "ssh": {"variant"},
+    "sequence": {"editor"},
+}
+GIT_TREE_MAX_ENTRIES = 100000
+
+
+def _git_config_safe(text):
+    """True when the config parses cleanly and names no directive that could send git outside the tree."""
+    text = text.replace("\r\n", "\n")
+    if "\r" in text:
+        return False  # git treats a lone CR as whitespace; a line-based check cannot
+    section = None
+    for raw in text.split("\n"):
+        line = raw.strip(" \t")
+        if not line or line[0] in "#;":
+            continue
+        if line.endswith("\\"):
+            return False  # a continuation hides the next physical line from this parser
+        if line.startswith("["):
+            close = line.find("]")
+            if close < 0:
+                return False
+            rest = line[close + 1:].strip(" \t")
+            if rest and rest[0] not in "#;":
+                return False  # `[core]worktree=/x` on one line
+            header = line[1:close].strip()
+            name = header.split(None, 1)[0].split(".", 1)[0].lower() if header else ""
+            if not name or name in GIT_DENY_SECTIONS:
+                return False
+            section = name
+            continue
+        if section is None:
+            return False
+        key = re.split(r"[ \t=]", line, 1)[0].lower()
+        if key in GIT_DENY_KEYS.get(section, ()):
+            return False
+    return True
+
+
+def _git_tree_plain(gitdir, state=None):
+    """Everything git will open under refs/, logs/ and objects/ is a plain file or directory (no fifo, no link)."""
+    seen = 0
+    for sub in ("refs", "logs", "objects"):
+        top = os.path.join(gitdir, sub)
+        if not os.path.isdir(top):
+            continue
+        for root, dirs, files in os.walk(top, followlinks=False, onerror=lambda e: None):
+            if state is not None and state.deadline is not None and time.monotonic() > state.deadline:
+                return False
+            for name in dirs + files:
+                seen += 1
+                if seen > GIT_TREE_MAX_ENTRIES:
+                    return False
+                try:
+                    st = os.lstat(os.path.join(root, name))
+                except OSError:
+                    return False
+                if not (stat.S_ISREG(st.st_mode) or stat.S_ISDIR(st.st_mode)):
+                    return False
+    return True
+
+
+def _enclosing_git_root(real_repo):
+    """The nearest folder at or above the app that holds a .git entry, found without running git."""
+    home = os.path.realpath(os.path.expanduser("~"))
+    d = real_repo
+    while True:
+        if os.path.lexists(os.path.join(d, ".git")):
+            return d
+        parent = os.path.dirname(d)
+        # never climb past the home directory: a dotfiles repo at ~ is not this app's history
+        if parent == d or d == home or parent == home:
+            return None
+        d = parent
+
+
+GIT_DIR_ENTRIES = ("HEAD", "config", "shallow", "packed-refs", "index", "objects", "refs", "hooks", "info", "logs")
 GIT_CONFIG_MAX_BYTES = 65536
 
 
 def _read_small_regular(path, limit):
     """Read a plain regular file of at most `limit` bytes without following symlinks or blocking on a fifo; None otherwise."""
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0))
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0))
     except OSError:
         return None
     try:
@@ -1194,7 +1321,7 @@ def _read_small_regular(path, limit):
         os.close(fd)
 
 
-def _git_pointer_ok(real_repo):
+def _git_pointer_ok(real_repo, state=None):
     """Refuse any .git that could make git read, write, or run something outside the scanned tree.
 
     A symlinked .git, a gitfile pointing outside the tree (worktrees included) or larger than git itself
@@ -1223,7 +1350,7 @@ def _git_pointer_ok(real_repo):
         return False
     if os.path.islink(gitdir) or not os.path.isdir(gitdir):
         return False
-    for pointer in ("commondir", "gitdir", os.path.join("objects", "info", "alternates")):
+    for pointer in ("commondir", "gitdir", "config.worktree", os.path.join("objects", "info", "alternates")):
         if os.path.lexists(os.path.join(gitdir, pointer)):
             return False
     for entry in GIT_DIR_ENTRIES:
@@ -1238,10 +1365,9 @@ def _git_pointer_ok(real_repo):
         data = _read_small_regular(cfg, GIT_CONFIG_MAX_BYTES)
         if data is None:
             return False  # unreadable, symlinked, special, or oversized: never fail open
-        config = data.decode("utf-8", errors="replace")
-        if GIT_CONFIG_POINTER_RE.search(config) or GIT_SECTION_TRAILING_RE.search(config):
+        if not _git_config_safe(data.decode("utf-8", errors="replace")):
             return False
-    return True
+    return _git_tree_plain(gitdir, state)
 
 
 def _trusted_git(real_repo):
@@ -1267,21 +1393,34 @@ def _trusted_git(real_repo):
     return None
 
 
+def _git_unread(state, check, text):
+    """Git was not consulted: say why, mark the scan partial, and make sure Q1 cannot look clean."""
+    state.add(check, "", 0, text)
+    state.add("git-index-unread", "", 0, "git's file index was not read, so committed secrets could not be checked")
+    state.partial = True
+    state.stats["git_index_partial"] += 1
+
+
 def git_facts(repo, state):
     real_repo = os.path.realpath(repo)
-    if not _git_pointer_ok(real_repo):
+    root = _enclosing_git_root(real_repo)
+    if root is None:
         state.add("git-not-a-repo", "", 0, "not a git repository")
+        return
+    if not _git_pointer_ok(root, state):
+        _git_unread(state, "git-config-not-vouched", "this repository's git settings could not be vouched for, so git was not run")
         return
     git_bin = _trusted_git(real_repo)
     if git_bin is None:
-        state.add("git-unavailable", "", 0, "git is not installed")
+        _git_unread(state, "git-unavailable", "git is not installed")
         return
     if sys.platform == "darwin" and git_bin == "/usr/bin/git" and not _darwin_git_ready():
-        state.add("git-unavailable", "", 0, "git needs the Xcode Command Line Tools")
+        _git_unread(state, "git-unavailable", "git needs the Xcode Command Line Tools")
         return
     base = [git_bin, "-c", "core.fsmonitor=", "-c", "core.hooksPath=/dev/null", "-c", "core.pager=cat", "-c", "core.sshCommand=", "-c", "credential.helper=", "-C", real_repo]
     env = dict((k, v) for k, v in os.environ.items() if not k.startswith("GIT_"))
-    env.update(GIT_TERMINAL_PROMPT="0", GIT_OPTIONAL_LOCKS="0", GIT_NO_LAZY_FETCH="1", GIT_CONFIG_NOSYSTEM="1")
+    env.update(GIT_TERMINAL_PROMPT="0", GIT_OPTIONAL_LOCKS="0", GIT_NO_LAZY_FETCH="1", GIT_CONFIG_NOSYSTEM="1",
+               GIT_CEILING_DIRECTORIES=os.path.dirname(root))  # discovery can never pass the folder guarded above
     started = time.monotonic()
 
     class _Result(object):
@@ -1314,15 +1453,33 @@ def git_facts(repo, state):
             got = 0
             truncated = False
             end_at = time.monotonic() + max(1.0, remaining)
-            if not _HAS_NONBLOCK:  # Windows: no non-blocking pipes before 3.12, so use the bounded communicate path
-                try:
-                    out, _ = proc.communicate(timeout=max(1.0, remaining))
-                except subprocess.TimeoutExpired:
+            if not _HAS_NONBLOCK:  # Windows before 3.12: no non-blocking pipes, so read on a thread under the same caps
+                box = {"got": 0, "truncated": False}
+
+                def reader():
+                    try:
+                        while True:
+                            chunk = proc.stdout.read1(65536)
+                            if not chunk:
+                                return
+                            chunks.append(chunk)
+                            box["got"] += len(chunk)
+                            if box["got"] >= GIT_OUTPUT_LIMIT:
+                                box["truncated"] = True
+                                kill_tree()
+                                return
+                    except Exception:
+                        return  # a closed pipe is the caller giving up, never a traceback on stderr
+
+                worker = threading.Thread(target=reader, daemon=True)
+                worker.start()
+                worker.join(max(1.0, remaining))
+                if worker.is_alive():
                     kill_tree()
-                    proc.wait(timeout=2)
+                    worker.join(2)  # let the reader leave the pipe before the caller closes it
                     raise subprocess.TimeoutExpired(args, GIT_BUDGET_S)
-                truncated = len(out) > GIT_OUTPUT_LIMIT
-                return _Result(proc.returncode, out[:GIT_OUTPUT_LIMIT].decode("utf-8", errors="replace"), truncated)
+                proc.wait(timeout=2)
+                return _Result(proc.returncode, b"".join(chunks)[:GIT_OUTPUT_LIMIT].decode("utf-8", errors="replace"), box["truncated"])
             fd = proc.stdout.fileno()
             os.set_blocking(fd, False)
             while True:
@@ -1365,9 +1522,8 @@ def git_facts(repo, state):
             state.add("git-not-a-repo", "", 0, "not a git repository")
             return
         toplevel = os.path.realpath(top.stdout.strip())
-        if not _git_pointer_ok(toplevel):
-            # the repository git discovered above us points outside the tree; never read it
-            state.add("git-not-a-repo", "", 0, "not a git repository")
+        if not _git_pointer_ok(toplevel, state):
+            _git_unread(state, "git-config-not-vouched", "this repository's git settings could not be vouched for, so git was not run")
             return
         subdir = False
         if toplevel != real_repo:
@@ -1380,21 +1536,23 @@ def git_facts(repo, state):
             else:
                 state.add("git-not-a-repo", "", 0, "not a git repository")
                 return
-        tracked = run(["ls-files", "-z", "--", ".env*", "*/.env*"])  # index-only and decisive: first inside the budget
+        tracked = run(["ls-files", "-z", "--", ".env*", "*/.env*", "*.env", "*/*.env"])  # index-only and decisive: first inside the budget
         names = []
         if tracked.truncated:
             state.partial = True
+            state.stats["git_index_partial"] += 1
         if tracked.returncode == 0 or tracked.truncated:
             for p in tracked.stdout.split("\0"):
                 if not p:
                     continue
                 b = p.rsplit("/", 1)[-1]
-                if ENV_FILE_RE.match(b) and not is_env_template(b):
+                if is_env_file(b) and b.lower() != ".envrc":  # .envrc (direnv) is committed on purpose
                     names.append(p)
         names = sorted(names)
         if tracked.returncode != 0 and not tracked.truncated:
             state.git["tracked_env_files"] = None  # the index could not be read: fall back to the on-disk check
             state.partial = True
+            state.stats["git_index_partial"] += 1
         else:
             state.git["tracked_env_files"] = [sanitize_path(p) for p in names[:MAX_TRACKED_ENV_FILES]]
         for p in names:
@@ -1416,10 +1574,13 @@ def git_facts(repo, state):
         state.git["commits"] = None  # keep the index facts already gathered; history stays unknown
         state.git["tags"] = None
         state.git["shallow"] = None
-        state.add("git-timeout", "", 0, "git did not answer in time")
+        if state.git["tracked_env_files"] is None:
+            _git_unread(state, "git-timeout", "git did not answer in time")
+        else:
+            state.add("git-timeout", "", 0, "git did not answer in time")
     except Exception:
         state.git = _empty_git()
-        state.add("git-unavailable", "", 0, "git could not be run")
+        _git_unread(state, "git-unavailable", "git could not be run")
 
 
 # --------------------------------------------------------------------- walk
@@ -1515,7 +1676,7 @@ def run_scan(repo, state, opts):
             base = name
             ext = os.path.splitext(name)[1].lower()
             layout_checks(rel, base, state)
-            if not git_present and ENV_FILE_RE.match(name) and not is_env_template(name):
+            if not git_present and is_env_file(name) and name.lower() != ".envrc":
                 state.add("env-file-on-disk", rel, 0, "")
             if is_generated(name):
                 state.stats["files_skipped_generated"] += 1
@@ -1552,7 +1713,7 @@ def run_scan(repo, state, opts):
             if text is None:
                 state.stats["files_skipped_binary"] += 1
                 lb = base.lower()
-                if ext in CODE_EXTS or ext in HTML_EXTS or ENV_FILE_RE.match(lb) or lb.endswith(".env"):
+                if ext in CODE_EXTS or ext in HTML_EXTS or is_env_file(lb):
                     state.partial = True  # a source or env file that looks binary is itself worth a look
                 continue
             try:

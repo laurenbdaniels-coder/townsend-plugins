@@ -17,7 +17,7 @@ You are running a paper worksheet, not an audit. The founder leaves with a verdi
 4. **A pasted secret is not repeated.** If the founder pastes a key into the chat, answer with one line: assume it is exposed, rotate it at the provider now, then continue. Never echo it.
 5. **Scanner authority.** A scanner `no` is never softened, whatever the founder says; the fix is to rotate or close the thing and run again. A scanner `yes` renders at medium confidence; only the founder's confirmation raises it to high.
 6. **Stop-line.** If the founder names payments or card details, health data, other people's sensitive data (especially children's), real scale, real money, or a contract riding on uptime, or if Q10 evidence shows fields such as `ssn`, `social_security`, `dob`, `date_of_birth`, `birthdate`, `medical`, `diagnosis`, `credit_card`, `card_number`, `cc_number`, `iban`, `passport`, the verdict prints **Get a person** above the doors and chooses no door.
-7. **One shell command.** The scanner invocation below is the only shell command this skill runs (retried once with `py -3` in place of `python3` if the host reports python3 missing). No probes, no `ls`, no `cat`.
+7. **One shell command.** The scanner invocation below is the only shell command this skill runs, retried only per script location (when your host has no file tool) and once with `py -3` in place of `python3` if the host reports python3 missing. No probes, no `ls`, no `cat`.
 
 ## Locate and run the scanner
 
@@ -33,7 +33,7 @@ and stop.
 2. `~/.codex/skills/custody-check/scripts/custody_scan.py`
 3. the absolute path formed from the directory this SKILL.md was loaded from plus `/scripts/custody_scan.py`, only when your host tells you that directory as an absolute path
 
-Never search for the script, and never run a `custody_scan.py` that sits under your working directory or under `<app>`: a copy inside the app is the app's, not this skill's.
+Never search for the script, never use any path other than locations 1 to 3, and never run a `custody_scan.py` that sits under `<app>`: a copy inside the app is the app's, not this skill's.
 
 **Run it** from the current directory (the parent), with the absolute script path and the app path single-quoted:
 
@@ -58,7 +58,7 @@ When python is missing, the script cannot be found, the host refuses the command
 `references/questions.md` (relative to this skill's base directory) is the authority for what each answer means, which checks feed it, and the sixty-second by-hand test. Apply the scanner JSON like this:
 
 - `answer` and `confidence` come straight from the JSON for every question the scanner filled. `q5` has two halves (`code`, `data`); the verdict shows the lower (order: no < don't know < yes) and names both.
-- Evidence rows render as `path:line` and the `check` name, in code spans, at most the first five per question in the table; the rest are summarised as "and N more". A `scan-summary` row has no path: render its snippet text only ("128 files scanned, 0 hits"). Git rows (`git-history`, `git-not-a-repo`, `git-subdir`, and their relatives) also have no path: render the snippet and the check name.
+- Evidence rows render as `path:line` and the `check` name, in code spans, at most the first five per question in the table; the rest are summarised as "and N more". A `scan-summary` row has no path: render its snippet text only ("128 files scanned, 0 hits"). Git rows (`git-history`, `git-not-a-repo`, `git-subdir`, and their relatives) also have no path: render the snippet and the check name. A `git-index-unread` row on Q1 means git could not be read at all: Q1 renders "Don't know (git not read)" and the scan is partial, so the door is never Ship it.
 - When `partial` is `true`, translate each non-zero stat into one clause in the footer (see the verdict template).
 - When `warnings` contains `repo-is-cwd` or `repo-contains-cwd`, add the relaunch line from the template.
 - `stats.files_never_open` is reported as "the scanner did not open N instruction files".
