@@ -36,4 +36,4 @@ For quick local testing without installing: `claude --plugin-dir /path/to/townse
 
 ## Updating
 
-Bump the plugin's `version` in its `.claude-plugin/plugin.json` and this file's table, commit, push — installed copies update from the marketplace.
+Bump the plugin's `version` in the three places that have to agree: its own `.claude-plugin/plugin.json`, its entry in the marketplace manifest `.claude-plugin/marketplace.json`, and this file's table. custody-check has a fourth: `__version__` in `custody-check/skills/custody-check/scripts/custody_scan.py`, which prints in every verdict footer and which CI checks against `plugin.json`. Then commit and push — installed copies update from the marketplace.
