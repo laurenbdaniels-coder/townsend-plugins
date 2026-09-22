@@ -25,7 +25,9 @@ jobs:
         run: python3 -m unittest discover -s custody-check/skills/custody-check/scripts -p 'test_*.py' -v
       - name: IP grep (the giveaway must contain nothing from the paid method)
         run: |
-          if grep -rniE "routing table|office-hours|three-pillar|/review|/ship" custody-check/; then
+          # source only: the unit-test step above leaves __pycache__ behind, and a .pyc is not shipped text
+          if grep -rniE --binary-files=without-match --exclude-dir=__pycache__ \
+               "routing table|office-hours|three-pillar|/review|/ship" custody-check/; then
             echo "paid-method vocabulary found in custody-check/"; exit 1
           fi
       - name: Version guard (plugin.json must match __version__)
