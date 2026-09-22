@@ -1,0 +1,1 @@
+NEVEROPENMARKER_.aider/h.md

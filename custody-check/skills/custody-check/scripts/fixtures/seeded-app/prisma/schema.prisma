@@ -1,0 +1,6 @@
+model User {
+  id    Int    @id
+  email String
+  ssn   String
+  dob   DateTime
+}

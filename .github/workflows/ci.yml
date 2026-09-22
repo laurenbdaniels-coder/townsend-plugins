@@ -1,0 +1,62 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  custody-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+      - name: Scanner unit tests (python 3.9, git required)
+        env:
+          CUSTODY_SLOW: "1"
+          CUSTODY_REQUIRE_GIT: "1"
+          CUSTODY_PERF_BUDGET_S: "60"
+        run: python3 -m unittest discover -s custody-check/skills/custody-check/scripts -p 'test_*.py' -v
+      - name: IP grep (the giveaway must contain nothing from the paid method)
+        run: |
+          # source only: the unit-test step above leaves __pycache__ behind, and a .pyc is not shipped text
+          if grep -rniE --binary-files=without-match --exclude-dir=__pycache__ \
+               "routing table|office-hours|three-pillar|/review|/ship" custody-check/; then
+            echo "paid-method vocabulary found in custody-check/"; exit 1
+          fi
+      - name: Version guard (plugin.json must match __version__)
+        run: |
+          v=$(python3 -c "import json;print(json.load(open('custody-check/.claude-plugin/plugin.json'))['version'])")
+          s=$(python3 -c "import re;print(re.search(r'__version__ = \"([^\"]+)\"', open('custody-check/skills/custody-check/scripts/custody_scan.py').read()).group(1))")
+          test "$v" = "$s" || { echo "plugin.json $v != __version__ $s"; exit 1; }
+      - name: Plugin validation (best effort; the CLI may not run headless here)
+        id: validate
+        continue-on-error: true
+        run: |
+          npm i -g --ignore-scripts @anthropic-ai/claude-code@2.1.273
+          claude plugin validate --strict ./custody-check
+          claude plugin validate --strict .
+      - name: Validation outcome
+        run: |
+          echo "claude plugin validate outcome: ${{ steps.validate.outcome }}"
+
+  custody-check-windows:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+      - name: Scanner unit tests on Windows (informational until the first green run)
+        env:
+          CUSTODY_SLOW: "1"
+          CUSTODY_PERF_BUDGET_S: "60"
+        run: python -m unittest discover -s custody-check/skills/custody-check/scripts -p "test_*.py"
