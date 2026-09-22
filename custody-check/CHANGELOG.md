@@ -2,6 +2,13 @@
 
 The footer of every verdict names the version that produced it. Later entries carry a "What changed since the workshop" line so an attendee can tell whether an answer would come out differently today.
 
+## 0.2.0 (2026-09-22)
+
+What changed since the workshop build: if your app calls a model, the check now asks five more questions.
+
+- **Added.** Five questions that apply only when the app calls a model: how slow is too slow and what happens past it, where your prompts live and which version produced an answer, how you know a change made things better rather than just different, what a user sees when the model is wrong or refuses or is down, and whether you would notice the provider swapping the model under you. Plus a gating question for the few founders who train or fine-tune their own model, covering time-based splits, training and serving parity, and label freshness.
+- They are interview questions. The scanner does not answer them, the JSON contract is unchanged, and they never change the door: the door is still the eleven. What they change is the list of things you leave knowing you cannot yet answer.
+
 ## 0.1.1 (2026-09-22)
 
 What changed since the workshop build: a repository that sets `core.hooksPath` is no longer refused.

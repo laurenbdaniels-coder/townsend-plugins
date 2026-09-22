@@ -3009,5 +3009,54 @@ class GitConfigOverriddenKeysTests(ScanCase):
             self.assertIn("git-config-not-vouched", self._q5(self.scan()), stanza)
 
 
+class ModelQuestionsTests(ScanCase):
+    """The five model questions are interview-only: they must exist in every file that renders them,
+    and they must never reach the scanner's JSON contract or the door rule."""
+
+    def _read(self, *parts):
+        with open(os.path.join(*parts), encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_the_five_are_defined_with_their_by_hand_tests(self):
+        q = self._read(SKILL_DIR, "references", "questions.md")
+        for n in range(1, 6):
+            self.assertIn("## A%d." % n, q)
+        section = q.split("# If your app calls a model")[1].split("## All check names")[0]
+        self.assertEqual(section.count("**By hand (60 s):**"), 5, "every model question needs its sixty-second test")
+        for phrase in ("Split by time", "Serve what you trained", "Refresh the answer key"):
+            self.assertIn(phrase, section, phrase)
+
+    def test_the_skill_gates_them_on_the_scanner_evidence(self):
+        k = self._read(SKILL_DIR, "SKILL.md")
+        section = k.split("## If the app calls a model")[1].split("## Tier the next change")[0]
+        for check in ("ai-sdk-dependency", "model-env-var", "model-literal"):
+            self.assertIn(check, section, check)
+            self.assertIn(check, cs.CHECKS, check + " must be a real check name")
+        self.assertIn("train or fine-tune", section)
+        self.assertIn("never change the door", section)
+
+    def test_the_verdict_renders_them_conditionally(self):
+        v = self._read(SKILL_DIR, "assets", "verdict-template.md")
+        self.assertIn("## If your app calls a model", v)
+        self.assertIn("only when the app calls a model", v)
+        for n in range(1, 6):
+            self.assertIn("| A%d |" % n, v)
+
+    def test_they_never_enter_the_scanner_contract(self):
+        self.write("package.json", json.dumps({"dependencies": {"@ai-sdk/anthropic": "^1.0.0"}}))
+        r = self.scan()
+        self.assertEqual(list(r["questions"].keys()), ["q%d" % i for i in range(1, 12)])
+        self.assertIn("ai-sdk-dependency", evidence_checks(r["questions"]["q8"]))
+        for name, (question, _) in cs.CHECKS.items():
+            self.assertNotIn("a", question.split(".")[0][1:], "no check may answer a model question: " + name)
+
+    def test_the_door_rule_is_still_only_the_eleven(self):
+        doors = self._read(SKILL_DIR, "references", "tiers-and-doors.md")
+        rule = doors.split("### Door rule")[1].split("###")[0]
+        for n in range(1, 6):
+            self.assertNotIn("A%d" % n, rule, "the door rule must name only the eleven")
+        self.assertIn("do not change the tier and they do not change the door", doors)
+
+
 if __name__ == "__main__":
     unittest.main()

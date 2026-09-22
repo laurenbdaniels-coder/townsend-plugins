@@ -12,9 +12,17 @@ The tier is a property of the **next change**, not of the app. Blast radius, not
 | **Standard** | a feature, two or more files, or anything with a UI | Define, Audit, Plan, Plan review, Build, Verify, Diff review |
 | **Gated** | touches any escalation trigger below | everything in Standard plus a security review |
 
-**Escalation triggers (any one makes the change Gated):** auth or sessions; user data; payments; secrets; dependencies; deploy; the schema or a migration; webhooks; background jobs; file uploads; security rules; email; AI prompts or tools; the model or provider.
+**Escalation triggers (any one makes the change Gated):** auth or sessions; user data; payments; secrets; dependencies; deploy; the schema or a migration; webhooks; background jobs; file uploads; security rules; email; AI prompts or tools; the model or provider (including swapping a model version, changing a prompt that is in production, or turning on training of any kind).
 
 The nine gates, names only: Define, Audit, Plan, Plan review, Build, Verify, Diff review, Ship, Watch.
+
+## If the app calls a model
+
+Five more failure modes live in `questions.md` (A1 to A5): the latency budget, where prompts live, whether an eval exists, what the user sees when the model is wrong, and whether you would notice the provider swapping the model under you. They bite at Plan, Diff review, Verify, Build and Watch respectively.
+
+They do not change the tier and they do not change the door. The door is the eleven. What they change is the Don't-know list, which is the part the founder leaves with.
+
+Three more apply only to a founder who trains or fine-tunes their own model: split the data by time rather than at random, prepare inputs the same way in training and in production, and refresh the labels an eval set is scored against. Ask the gating question out loud; a clear "no, I just call an API" is a real answer and most of the room will give it.
 
 ## The stop-line
 

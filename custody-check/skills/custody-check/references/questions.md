@@ -91,6 +91,68 @@ Two halves, scored separately; the verdict shows the lower one.
 - Scanner evidence: `builder-file`, `builder-dependency`, `builder-readme`, `container-config` name the platform; the defaults are the question.
 - **By hand (60 s):** find the export or download button for both the code and the data. Click the data one and open the file.
 
+# If your app calls a model: five more
+
+Ask these **only when the app calls a model** (the scanner's Q8 evidence says whether it does: `ai-sdk-dependency`, `model-env-var`, `model-literal`). They are the failure modes that belong to the model, not to the code, and none of them shows up as a red light. Same rules as the eleven: Yes and No come from you, Don't know is the next thing to find out, and each has a sixty-second test.
+
+The eleven already cover the ones that are really software questions wearing an AI hat: rollback is Q5, the bill is Q8, would-you-notice is Q9, and who-can-read-this is Q1, Q3, Q4 and Q10. These five are what is left.
+
+## A1. How slow is too slow, and what happens then? (Plan)
+
+Slow is not just annoying. Past a few seconds a user assumes it is broken, refreshes, and you pay twice for the same answer.
+
+- **Yes** only from you: you can say the number ("four seconds") and what the app does when it is exceeded (a timeout, a cached answer, a smaller model, a queue with a progress state).
+- **No** only from you: there is no timeout, so a hung provider call hangs the user.
+- **Don't know** otherwise, which is where most prototypes sit.
+- Scanner hints: `spend-cap-word` picks up `maxDuration` and its relatives; it shows a limit exists somewhere, never that it is the right one.
+- **By hand (60 s):** use the slowest real path in your app and count out loud. Then turn your wifi off mid-request and watch what the user sees.
+
+## A2. Where do your prompts live, and which version produced this answer? (Diff review)
+
+Prompts pasted into three files and edited in place are the AI version of code with no source control. When an answer goes wrong you cannot tell which wording caused it.
+
+- **Yes** only from you: prompts live in one place, in version control, and you can tell which version produced a given answer.
+- **No** only from you: the same instruction is copy-pasted in more than one place, or prompts are edited live in a dashboard with no history.
+- Scanner hints: none that are decisive. A prompt is just a string, and the scanner will not read your app's instruction files by design.
+- **By hand (60 s):** search your repository for a distinctive sentence from your main prompt. If it appears more than once, that is the answer.
+
+## A3. How do you know a change made it better, not just different? (Verify)
+
+"It looked good" is not a signal. It is the same green light the rest of this handout is about, with a human being the checkmark.
+
+- **Yes** only from you: a set of saved examples with expected outcomes, run before and after a change, with a number that moves.
+- **No** only from you: changes ship on a read-through of one or two outputs.
+- **Don't know** if you have examples but never run them the same way twice.
+- **By hand (60 s):** take the last prompt change you made. Can you say what got better, in a number? If not, save ten real inputs now, with what a good answer looks like. That is an eval set, and ten is enough to start.
+
+## A4. When the model is wrong, refuses, or is down, what does the user see? (Build)
+
+It will be wrong. The question is only whether the wrongness has somewhere to go.
+
+- **Yes** only from you: there is a defined path (a retry, a cached or default answer, a human to escalate to, or an honest error that says what to do next), and you have seen it happen.
+- **No** only from you: the failure path is a spinner, a blank screen, or a made-up answer presented as fact.
+- Scanner hints: none. A fallback is behaviour, not a file.
+- **By hand (60 s):** put a wrong API key in your non-live copy and use the app as a user. Whatever you see is your fallback.
+
+## A5. The provider changes the model under you. Would you notice? (Watch)
+
+You did not change anything and the answers changed anyway. This is Q9 pointed at quality instead of uptime: an app can be perfectly up and quietly worse.
+
+- **Yes** only from you: the model name is pinned to a specific version, and you re-run the examples from A3 when you change it.
+- **No** only from you: the model is a floating alias and nothing re-runs.
+- Scanner hints: `model-literal` shows which model names appear in the code; a name without a version is worth a look.
+- **By hand (60 s):** find the model name in your code. If it has no date or version in it, you are on whatever the provider ships today.
+
+## Only if you train or fine-tune your own model
+
+Most founders with a prototype answer no to this and stop here, which is the right answer and worth saying out loud. If you do train, three more, and they are the ones that fail silently:
+
+- **Split by time, not at random.** If yesterday's data can teach the model about today, your test scores are fiction. Sort by date and cut; never shuffle first.
+- **Serve what you trained.** The same input must be prepared the same way in training and in production. When those drift apart the model is quietly answering a different question than the one you tested.
+- **Refresh the answer key.** Labels made a year ago describe a world that has moved. An eval set nobody refreshes stops measuring reality and starts measuring the past.
+
+Each is a Yes/No/Don't know like the rest, and the sixty-second test for all three is the same: open your training script and find the line where the data is split. If it shuffles, or if you cannot find it, that is your answer.
+
 ## All check names
 
 Every `check` the scanner can emit, by question. The skill accepts scanner output only when every check is on this list; `scan-summary` is the placeholder row for a question with zero hits. Effect: **no** flips the answer to no; **yes-part** contributes to a yes; **hint** and **evidence** never change the answer.
