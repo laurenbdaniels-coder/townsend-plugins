@@ -26,6 +26,18 @@
 **Priority:** P3
 **Depends on:** None
 
+### Test fixtures use real .env filenames
+
+**What:** `scripts/fixtures/env_names/*/` contain files literally named `.env.production` and `.env.staging`. A tightened agent sandbox that denies reading `~/**/.env*` (a sensible default) makes `copy_fixture` fail with "Operation not permitted", and four tests error for a reason that has nothing to do with the code.
+
+**Why:** The suite should not need the sandbox switched off to run.
+
+**Context:** Hit on 2026-09-22 while scanning a corpus of local apps. Fix by storing the fixtures under a neutral name (`dotenv.production`) and renaming them during `copy_fixture`, so the bytes on disk never match an `.env*` deny rule.
+
+**Effort:** S
+**Priority:** P2
+**Depends on:** None
+
 ### Stream large directory listings
 
 **What:** Walk with `os.scandir` and stop consuming a directory once `MAX_DIR_ENTRIES` entries have been seen, instead of letting `os.walk` build and sort the whole listing first.

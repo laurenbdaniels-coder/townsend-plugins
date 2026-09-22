@@ -8,38 +8,72 @@
     {
       "name": "product-flow",
       "source": "./product-flow",
-      "description": "Stage-by-stage product management workflow: discovery, positioning, strategy, prioritization, PRD, delivery, launch, and measurement — with framework menus, fill-in templates with quality bars, evidence rules, a shared project workspace, and a built-in critique gate.",
+      "description": "Stage-by-stage product management workflow: discovery, positioning, strategy, prioritization, PRD, delivery, launch, and measurement \u2014 with framework menus, fill-in templates with quality bars, evidence rules, a shared project workspace, and a built-in critique gate.",
       "version": "1.2.0",
-      "author": { "name": "Lauren Daniels" },
+      "author": {
+        "name": "Lauren Daniels"
+      },
       "category": "productivity",
-      "keywords": ["product-management", "pm", "prd", "roadmap", "discovery", "launch", "strategy"]
+      "keywords": [
+        "product-management",
+        "pm",
+        "prd",
+        "roadmap",
+        "discovery",
+        "launch",
+        "strategy"
+      ]
     },
     {
       "name": "pm-growth-coach",
       "source": "./pm-growth-coach",
       "description": "A self-development coach for product managers: competency baseline against a behavioral rubric, growth plan with weekly deliberate-practice reps, and evidence-based progress tracking using your real work artifacts.",
       "version": "0.1.0",
-      "author": { "name": "Lauren Daniels" },
+      "author": {
+        "name": "Lauren Daniels"
+      },
       "category": "productivity",
-      "keywords": ["product-management", "coaching", "career-growth", "competency"]
+      "keywords": [
+        "product-management",
+        "coaching",
+        "career-growth",
+        "competency"
+      ]
     },
     {
       "name": "prompt-coach",
       "source": "./prompt-coach",
       "description": "Uplevel prompts with the right guardrails, verify AI answers before they ship, teach staff to prompt better, and keep the guidance current via a human-approved refresh cycle. Built for Habitat for Humanity Seattle-King & Kittitas Counties.",
       "version": "0.3.0",
-      "author": { "name": "Habitat for Humanity Seattle-King & Kittitas Counties" },
+      "author": {
+        "name": "Habitat for Humanity Seattle-King & Kittitas Counties"
+      },
       "category": "productivity",
-      "keywords": ["prompting", "guardrails", "hallucination", "verification", "coaching"]
+      "keywords": [
+        "prompting",
+        "guardrails",
+        "hallucination",
+        "verification",
+        "coaching"
+      ]
     },
     {
       "name": "custody-check",
       "source": "./custody-check",
       "description": "Run the eleven gut-check questions from 'It Said It Was Fine' on your own AI-built app, read-only, and get a verdict: what you can prove, what you can't, and whether to ship it, patch it, or shelve it. Works in Claude Code and Codex.",
-      "version": "0.1.0",
-      "author": { "name": "Lauren Daniels" },
+      "version": "0.1.1",
+      "author": {
+        "name": "Lauren Daniels"
+      },
       "category": "productivity",
-      "keywords": ["vibe-coding", "custody", "verdict", "audit", "founders", "read-only"]
+      "keywords": [
+        "vibe-coding",
+        "custody",
+        "verdict",
+        "audit",
+        "founders",
+        "read-only"
+      ]
     }
   ]
 }

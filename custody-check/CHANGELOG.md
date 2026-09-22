@@ -2,6 +2,12 @@
 
 The footer of every verdict names the version that produced it. Later entries carry a "What changed since the workshop" line so an attendee can tell whether an answer would come out differently today.
 
+## 0.1.1 (2026-09-22)
+
+What changed since the workshop build: a repository that sets `core.hooksPath` is no longer refused.
+
+- **Fixed.** The git guard refused any repository setting `core.hooksPath`, which husky and many JavaScript projects do, and a refused repository loses every git fact: the commit count, the tag count, and the committed-secrets check behind question one. That key, and four others, are already blanked on every git command this tool runs, so a repository setting them cannot reach us. The guard now holds only the directives a command-line override cannot neutralise.
+
 ## 0.1.0 (2026-09-17)
 
 First release, the Seattle AI Week giveaway.
