@@ -1218,14 +1218,13 @@ def _git_dir(toplevel):
 # Everything else is ordinary repository furniture: submodules, LFS, GUI settings and the like all pass.
 GIT_DENY_SECTIONS = {"include", "includeif", "alias", "uploadpack", "receive", "protocol", "url", "safe", "advice"}
 GIT_DENY_KEYS = {
-    "core": {"worktree", "alternaterefscommand", "gitproxy", "sshcommand", "hookspath", "fsmonitor", "askpass",
-             "pager", "editor", "externaldiff", "commitgraph", "sharedrepository"},
+    # Only what a `-c` override on the command line cannot already neutralise, and only what could make
+    # one of our four read-only commands touch something outside the folder. core.hooksPath, fsmonitor,
+    # pager, sshCommand and credential.helper are blanked on every call, so a repo setting them (husky
+    # does) is ordinary furniture and must not cost the founder their git facts.
+    "core": {"worktree", "alternaterefscommand", "gitproxy", "askpass"},
     "extensions": {"worktreeconfig", "partialclone", "objectformat", "refstorage", "compatobjectformat"},
     "remote": {"promisor", "partialclonefilter", "uploadpack", "receivepack", "proxy", "vcs", "gitproxy"},
-    "http": {"proxy", "sslcainfo", "sslcert", "sslkey"},
-    "gpg": {"program"},
-    "ssh": {"variant"},
-    "sequence": {"editor"},
 }
 GIT_TREE_MAX_ENTRIES = 100000
 

@@ -2685,8 +2685,9 @@ class GitConfigAllowlistTests(ScanCase):
         cfg = os.path.join(self.repo, ".git", "config")
         with open(cfg) as fh:
             good = fh.read()
+        # core.fsmonitor is deliberately absent here: we blank it with -c on every call, so a repo setting it is ordinary
         for extra in ('[remote "origin"]\n\turl = /tmp/x\n\tpromisor\n', '[alias]\n\tx = !sh\n', '[includeIf "gitdir:/"]\n\tpath = /etc/x\n',
-                      '[core]\n\tfsmonitor = true\n', "[core]\n\teditor = vi \\\n\tworktree = /tmp\n"):
+                      '[core]\n\tworktree = /tmp\n', "[core]\n\teditor = vi \\\n\tworktree = /tmp\n"):
             with open(cfg, "w") as fh:
                 fh.write(good + extra)
             self.assertIn("git-config-not-vouched", self._q5(self.scan()), extra)
@@ -2959,6 +2960,53 @@ class ReviewCycleThreeShipTests(ScanCase):
         self.assertEqual(q1["answer"], "no")
         self.assertIn("tracked-env-file", evidence_checks(q1))
         self.assertIn("tracked-env-file-nonprod", evidence_checks(q1))
+
+
+class GitConfigOverriddenKeysTests(ScanCase):
+    """Keys we already neutralise on every git command line must not cost the founder their git facts."""
+
+    def _q5(self, r):
+        return evidence_checks(r["questions"]["q5"]["code"])
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_keys_we_override_on_the_command_line_are_not_a_refusal(self):
+        self.init_repo(commits=2)
+        self.write("vercel.json", "{}\n")
+        hooks = os.path.join(self.repo, ".git", "hooks")
+        for stanza in ("[core]\n\thooksPath = %s\n" % hooks,          # husky and friends set this
+                       "[core]\n\tfsmonitor = true\n",
+                       "[core]\n\tpager = less\n",
+                       "[core]\n\teditor = vi\n",
+                       "[core]\n\tsshCommand = ssh -i /dev/null\n"):
+            with open(os.path.join(self.repo, ".git", "config"), "a") as fh:
+                fh.write(stanza)
+        r = self.scan()
+        self.assertEqual(r["git"]["commits"], 2)
+        self.assertIn("git-history", self._q5(r))
+        self.assertNotIn("git-config-not-vouched", self._q5(r))
+
+    def test_the_denylist_only_holds_what_the_command_line_cannot_neutralise(self):
+        overridden = {"hookspath", "fsmonitor", "pager", "sshcommand", "editor"}
+        denied = set()
+        for keys in cs.GIT_DENY_KEYS.values():
+            denied |= set(keys)
+        self.assertEqual(denied & overridden, set(), "these keys are already blanked with -c on every call")
+        for key in ("worktree", "alternaterefscommand"):
+            self.assertIn(key, cs.GIT_DENY_KEYS["core"], key)
+        for key in ("promisor", "uploadpack"):
+            self.assertIn(key, cs.GIT_DENY_KEYS["remote"], key)
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_the_directives_that_actually_escape_are_still_refused(self):
+        self.init_repo(commits=2)
+        cfg = os.path.join(self.repo, ".git", "config")
+        with open(cfg) as fh:
+            good = fh.read()
+        for stanza in ("[core]\n\tworktree = /tmp\n", "[core]\n\talternateRefsCommand = ./x.sh\n",
+                       "[include]\n\tpath = /etc/hosts\n", "[extensions]\n\tpartialClone = origin\n"):
+            with open(cfg, "w") as fh:
+                fh.write(good + stanza)
+            self.assertIn("git-config-not-vouched", self._q5(self.scan()), stanza)
 
 
 if __name__ == "__main__":
