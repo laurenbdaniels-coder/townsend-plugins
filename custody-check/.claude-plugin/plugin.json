@@ -1,8 +1,17 @@
 {
   "name": "custody-check",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Run the eleven gut-check questions from 'It Said It Was Fine' on your own AI-built app, read-only, and get a verdict: what you can prove, what you can't, and whether to ship it, patch it, or shelve it. Works in Claude Code and Codex.",
-  "author": { "name": "Lauren Daniels" },
+  "author": {
+    "name": "Lauren Daniels"
+  },
   "license": "MIT",
-  "keywords": ["vibe-coding", "custody", "verdict", "audit", "founders", "read-only"]
+  "keywords": [
+    "vibe-coding",
+    "custody",
+    "verdict",
+    "audit",
+    "founders",
+    "read-only"
+  ]
 }
