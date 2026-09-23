@@ -45,8 +45,9 @@ The founder ticks the stop-line in the answers block (`stop_line:`). Scanner evi
 
 1. Stop-line ticked → print **Get a person** above the doors; choose no door.
 2. Q1 = no, Q2 = no, or Q3 = no → **Patch it** (a founder who says the browser calls the database or the AI provider with a privileged key has answered Q1's question).
-3. Two or more of Q4, Q5, Q6, Q9 are no or Don't know → **Patch it**.
-4. Otherwise → **Ship it**.
+3. The scan was partial and Q1 or Q3 is still Don't know → never **Ship it**; the verdict prints the rerun recipe above the doors and the door is **Patch it**.
+4. Two or more of Q4, Q5, Q6, Q9 are no or Don't know → **Patch it**.
+5. Otherwise → **Ship it**.
 
 Nothing found counts as Don't know in every step above: it says the scanner looked properly, not that the running app is safe.
 
