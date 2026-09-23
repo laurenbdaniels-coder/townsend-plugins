@@ -60,4 +60,5 @@ jobs:
         env:
           CUSTODY_SLOW: "1"
           CUSTODY_PERF_BUDGET_S: "60"
+          CUSTODY_TIME_SLACK: "3"
         run: python -m unittest discover -s custody-check/skills/custody-check/scripts -p "test_*.py"

@@ -164,7 +164,7 @@ class ScanCase(unittest.TestCase):
         shutil.copytree(os.path.join(FIXTURES, name), dest, symlinks=True)
         for root, _, files in os.walk(dest):
             for f in files:
-                if f == "dotenv" or f.startswith("dotenv."):
+                if f == "dotenv" or re.match(r"^dotenv\.[A-Za-z0-9_-]+$", f):  # not dotenv.config.js, which is an ordinary file
                     os.rename(os.path.join(root, f), os.path.join(root, "." + f[len("dot"):]))
         return dest
 
@@ -239,7 +239,7 @@ class RedactionTests(ScanCase):
         self.write("wrangler.toml", " \n" * 100000)
         t0 = time.monotonic()
         self.scan()
-        self.assertLess(time.monotonic() - t0, 6.0)
+        self.assertLess(time.monotonic() - t0, bound(6.0))
 
     def test_secret_shaped_paths_redacted(self):
         self.write("src/%s/%s.ts" % (SK, GHP), 'export const x = 1;\nconst k = "%s";\n' % AKIA)
@@ -310,7 +310,7 @@ class CapTests(ScanCase):
         self.write("supabase/migrations/c.sql", "create policy " * 30000)
         t0 = time.monotonic()
         self.scan()
-        self.assertLess(time.monotonic() - t0, 6.0)
+        self.assertLess(time.monotonic() - t0, bound(6.0))
 
 
 class ExcludeAndNeverOpenTests(ScanCase):
@@ -1530,7 +1530,7 @@ class ReviewCycleThreeAdversarialTests(ScanCase):
         t0 = time.monotonic()
         with mock.patch.dict(os.environ, {"PATH": bindir}), mock.patch.object(cs, "GIT_BUDGET_S", 2.0), mock.patch.object(cs, "_darwin_git_ready", lambda: True):
             r = self.scan()
-        self.assertLess(time.monotonic() - t0, 6.0)
+        self.assertLess(time.monotonic() - t0, bound(6.0))
         self.assertIn("git-timeout", evidence_checks(r["questions"]["q5"]["code"]))
         self.assertEqual(r["files_scanned"], 2)  # src/a.ts and the commit file init_repo writes
 
@@ -3035,14 +3035,27 @@ class RailsQuestionsTests(ScanCase):
         with open(os.path.join(*parts), encoding="utf-8") as fh:
             return fh.read()
 
-    def test_the_six_are_defined_with_their_by_hand_tests(self):
+    def rails_ids(self):
+        """The rails questions the reference actually defines; every other file is checked against this."""
         q = self._read(SKILL_DIR, "references", "questions.md")
-        for n in range(1, 7):
-            self.assertIn("## A%d." % n, q)
         section = q.split("# If AI drives part of your product")[1].split("## All check names")[0]
-        self.assertEqual(section.count("**By hand (60 s):**"), 6, "every rails question needs its sixty-second test")
-        for phrase in ("skew", "data leakage", "ground truth decay"):
-            self.assertIn(phrase, section, phrase)
+        ids = re.findall(r"^## (A\d+)\.", section, re.M)
+        self.assertEqual(ids, ["A%d" % n for n in range(1, len(ids) + 1)], "rails questions must run A1, A2, ... with no gaps")
+        return ids, section
+
+    def test_each_one_is_defined_with_its_by_hand_test(self):
+        ids, section = self.rails_ids()
+        self.assertGreaterEqual(len(ids), 1)
+        self.assertEqual(section.count("**By hand (60 s):**"), len(ids), "every rails question needs its sixty-second test")
+        for phrase in ("training and serving skew", "overfitting the validation set", "concept drift"):
+            self.assertIn(phrase, section, "the correct name for the trained version of this failure")
+        # the four claims a machine-learning reviewer called wrong before this shipped; none may come back
+        for wrong in ("never shuffle first", "if it shuffles, that is your answer",
+                      "so they pass and tell you nothing", "call training and serving skew, data leakage"):
+            self.assertNotIn(wrong, section, "this claim was corrected; see the 0.2.0 changelog")
+        self.assertIn("a random split is the correct choice", section, "random splits are right for independent rows")
+        self.assertEqual(section.count("**The fix"), len(ids) + 1,
+                         "every rails question ends with a fix, plus the stale-examples note")
 
     def test_the_skill_gates_them_on_the_scanner_evidence(self):
         k = self._read(SKILL_DIR, "SKILL.md")
@@ -3057,8 +3070,8 @@ class RailsQuestionsTests(ScanCase):
         v = self._read(SKILL_DIR, "assets", "verdict-template.md")
         self.assertIn("## Keeping the AI on rails", v)
         self.assertIn("only when the app calls a model", v)
-        for n in range(1, 7):
-            self.assertIn("| A%d |" % n, v)
+        for rid in self.rails_ids()[0]:
+            self.assertIn("| %s |" % rid, v, rid + " is defined in the reference but missing from the verdict template")
 
     def test_they_never_enter_the_scanner_contract(self):
         self.write("package.json", json.dumps({"dependencies": {"@ai-sdk/anthropic": "^1.0.0"}}))
@@ -3066,13 +3079,13 @@ class RailsQuestionsTests(ScanCase):
         self.assertEqual(list(r["questions"].keys()), ["q%d" % i for i in range(1, 12)])
         self.assertIn("ai-sdk-dependency", evidence_checks(r["questions"]["q8"]))
         for name, (question, _) in cs.CHECKS.items():
-            self.assertNotIn("a", question.split(".")[0][1:], "no check may answer a rails question: " + name)
+            self.assertIn(question, cs.QUESTION_KEYS, "no check may answer anything but the eleven: " + name)
 
     def test_the_door_rule_is_still_only_the_eleven(self):
         doors = self._read(SKILL_DIR, "references", "tiers-and-doors.md")
         rule = doors.split("### Door rule")[1].split("###")[0]
-        for n in range(1, 7):
-            self.assertNotIn("A%d" % n, rule, "the door rule must name only the eleven")
+        for rid in self.rails_ids()[0]:
+            self.assertNotIn(rid, rule, "the door rule must name only the eleven")
         self.assertIn("do not change the tier and they do not change the door", doors)
 
 

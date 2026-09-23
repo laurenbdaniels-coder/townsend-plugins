@@ -18,11 +18,11 @@ The nine gates, names only: Define, Audit, Plan, Plan review, Build, Verify, Dif
 
 ## If AI drives part of the product
 
-Six more failure modes live in `questions.md` (A1 to A6): the latency budget, where prompts live, whether production is running what was actually tested, whether an eval exists and is judged on examples nobody tuned against, what the user sees when the model is wrong, and whether anyone would notice the model or the product moving underneath. They bite at Plan, Diff review, Ship, Verify, Build and Watch respectively.
+Six more failure modes live in `questions.md` (A1 to A6): the latency budget, where prompts live, whether production is running what was actually tested, whether a change made things better rather than different, what the user sees when the model is wrong, and whether the provider is about to move them off their model version. They bite at Plan, Diff review, Verify, Verify, Build and Watch respectively, and each one ends with a fix the founder can start in the room.
 
 They do not change the tier and they do not change the door. The door is the eleven. What they change is the Don't-know list, which is the part the founder leaves with.
 
-Three of them have a training-shaped version (skew, leakage, label decay) for the rare founder who trains or fine-tunes. The concern is the same either way: a model is a moving part inside the product, and nothing turns red when it wanders.
+Three have a training-shaped version for the rare founder who trains or fine-tunes: skew, leakage, and stale labels. The concern is the same either way. A model is a moving part inside the product, and nothing turns red when it wanders. A seventh note covers the twin of the eval question, which is what happens when the product moves and the examples do not.
 
 ## The stop-line
 

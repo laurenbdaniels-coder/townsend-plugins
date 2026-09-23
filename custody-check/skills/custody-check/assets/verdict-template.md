@@ -48,10 +48,11 @@ Answers marked (scanner) came from the file tree; answers marked (you) came from
 | A1 | How slow is too slow, and what then | <yes/no/don't know> | <high/med/low> | <`check`> or "(you)" |
 | A2 | Where prompts live, which version answered | … | … | … |
 | A3 | Is production running what was tested | … | … | … |
-| A4 | Better or just different, and judged on untouched examples | … | … | … |
+| A4 | Did the change actually help | … | … | … |
 | A5 | When the model is wrong, refuses, or is down | … | … | … |
-| A6 | The model changed, or the product did | … | … | … |
+| A6 | Is the model pinned | … | … | … |
 
+Examples still describe the product as it is today: <yes | no | don't know>
 Trains or fine-tunes their own model: <no | yes, and then the training-shaped versions of A3, A4 and A6>
 
 ## Five, if you'll only do five

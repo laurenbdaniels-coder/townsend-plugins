@@ -75,7 +75,7 @@ If there is no block, ask **one question at a time**, only for questions still a
 
 ## If AI drives part of the product
 
-When the scanner's Q8 evidence contains `ai-sdk-dependency`, `model-env-var` or `model-literal`, the app calls a model, and `references/questions.md` has six more (A1 latency, A2 where prompts live, A3 is production running what was tested, A4 evals and whether the examples were tuned on, A5 fallback, A6 the model or the product moving under them). Ask them after the eleven, one at a time, same rules: the founder answers, "don't know" is accepted immediately, each carries its sixty-second test.
+When the scanner's Q8 evidence contains `ai-sdk-dependency`, `model-env-var` or `model-literal`, the app calls a model, and `references/questions.md` has six more (A1 latency, A2 where prompts live, A3 is production running what was tested, A4 did the change actually help, A5 fallback, A6 is the model pinned), plus a note on what happens when the product moves and the examples do not. Offer the founder's own AI tool as the way to run A2, A3 and A6: it can search their project and print what their code actually sends faster than they can. Read them the fix line for every question they answer No or Don't know to; a founder handed a finding and no fix stops reading. Ask them after the eleven, one at a time, same rules: the founder answers, "don't know" is accepted immediately, each carries its sixty-second test.
 
 None is scanner-answered. `spend-cap-word` hints at A1 and `model-literal` at A3 and A6, and neither decides anything. If the scanner did not run, ask whether the app calls a model and go from there.
 
