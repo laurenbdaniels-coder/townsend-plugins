@@ -1013,14 +1013,18 @@ def detect_sql(sf, state, opts):
 
 
 def _public_table(raw):
-    """`public.profiles`, `"Notes"`, `profiles` -> the bare lower-case name; tables in other schemas -> None."""
-    parts = [p.strip().strip('"') for p in raw.split(".")]
+    """`public.profiles`, `"Notes"`, `profiles` -> the name Postgres stores; tables in other schemas -> None.
+
+    Each part folds on its own: unquoted to lower case, quoted kept exactly (`"public".Profiles` is `profiles`)."""
+    parts = []
+    for p in raw.split("."):
+        p = p.strip()
+        parts.append(p[1:-1] if len(p) >= 2 and p[0] == p[-1] == '"' else p.lower())
     if len(parts) == 2:
-        if parts[0].lower() != "public":
+        if parts[0] != "public":
             return None
         parts = parts[1:]
-    name = parts[0]
-    return name if raw.count('"') else name.lower()
+    return parts[0] or None
 
 
 SQL_LINE_COMMENT_RE = re.compile(r"--[^\n]*")

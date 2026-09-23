@@ -3526,6 +3526,16 @@ class NothingFoundGapTests(ScanCase):
         self.write("supabase/migrations/3.sql", "ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;\n")
         self.assertEqual(self.q("q3")["answer"], "nothing-found")
 
+    def test_q3_table_names_fold_case_the_way_postgres_does(self):
+        self.base_app()
+        # unquoted names fold to lower case, quoted ones keep theirs: these are two different tables
+        self.write("db/1.sql", 'create table "public".Profiles (id int);\ncreate table public."Profiles" (id int);\n'
+                               'alter table public."Profiles" enable row level security;\n')
+        rows = [e["snippet"] for e in self.q("q3")["evidence"] if e["check"] == "table-without-rls"]
+        self.assertEqual(rows, ["profiles"])
+        self.write("db/2.sql", "alter table PROFILES enable row level security;\n")
+        self.assertEqual(self.q("q3")["answer"], "nothing-found")
+
     def test_q3_supabase_config_alone_is_not_a_rule_file(self):
         self.base_app()
         self.write("supabase/config.toml", "[api]\nport = 1\n")
