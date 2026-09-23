@@ -3432,11 +3432,16 @@ class NothingFoundGapTests(ScanCase):
     def test_output_trimmed_after_resolve_downgrades_nothing_found(self):
         self.base_app()
         self.write("db/1.sql", "create table t (id int);\nalter table t enable row level security;\n")
-        long = "é" * 150  # six bytes each once JSON-escaped, so a dozen rows per question exceed the cap
+        # six bytes each once JSON-escaped, so a dozen rows per question exceed the cap; split over two
+        # segments because Linux refuses a single name over 255 bytes and each character is two in UTF-8
+        long = "é" * 75 + "/" + "é" * 75
         for i in range(12):  # enough evidence on Q2, Q4 and Q5 to push the JSON over the cap
             self.write("src/auth/%s%02d.txt" % (long, i), "x\n")
             self.write("api/%s%02d.txt" % (long, i), "x\n")
             self.write("db/migrations/%s%02d.txt" % (long, i), "x\n")
+        for root, dirs, files in os.walk(self.repo):
+            for n in dirs + files:
+                self.assertLessEqual(len(n.encode("utf-8")), 255, "a name Linux would refuse")
         r = self.scan()
         self.assertTrue(r["stats"]["output_trimmed"])
         self.assertTrue(r["partial"])
