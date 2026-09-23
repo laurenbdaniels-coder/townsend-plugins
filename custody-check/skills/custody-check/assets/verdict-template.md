@@ -41,6 +41,22 @@ Date: <YYYY-MM-DD> · Repo: `<app folder name>` · Mode: local, read-only · Sca
 
 Answers marked (scanner) came from the file tree; answers marked (you) came from your answers block. A scanner "yes" is medium confidence until you confirm it.
 
+## Keeping the AI on rails
+(include this section only when the app calls a model; omit it entirely otherwise)
+| # | Question | Answer | Confidence | Evidence |
+|---|---|---|---|---|
+| A1 | How slow is too slow, and what then | <yes/no/don't know> | <high/med/low> | (you) |
+| A2 | Where prompts live, which version answered | … | … | … |
+| A3 | Is production running what was tested | … | … | … |
+| A4 | Did the change actually help | … | … | … |
+| A5 | When the model is wrong, refuses, or is down | … | … | … |
+| A6 | Is the model pinned | … | … | … |
+
+Examples still describe the product as it is today: <yes | no | don't know>
+
+<when the door above is **Ship it** and any row here is No, print this line: "The door is about whether a stranger can hurt you, and these are about whether your product quietly gets worse. Shipping is still the call. These are the next things to fix, and each one has a fix beside it.">
+Trains or fine-tunes their own model: <no | yes, and then the training-shaped versions of A3, A4 and A6>
+
 ## Five, if you'll only do five
 1. Classify the next change against the Gated list.
 2. Boundary test: logged out, wrong user, right user; API, database, files. (drop only if Q3 and Q4 are yes)
@@ -63,6 +79,7 @@ Want the routing I run? Send this verdict to the studio's public contact address
 Rules for filling it in:
 
 - **Partial scan:** when `partial` is true and Q1 or Q3 is Don't know, render the answer as "Don't know (scan incomplete)", never choose Ship it, and print the rerun recipe above the doors.
+- **The rails section:** the founder's answer to "does your app call a model?" decides whether this section appears. The scanner cannot: it misses a plain HTTP call to a provider and it fires on a model name in a comment. Q8 evidence (`ai-sdk-dependency`, `model-env-var`, `model-literal`) is a reason to ask, never the answer, and on a partial scan its absence means nothing. None of A1 to A6 is scanner-answered, so their source is always "(you)". They never change the door; they add rows here and entries to the Don't-know list.
 - **Q5 row:** show the lower of the code and data halves (order: no < don't know < yes); the Evidence cell names both halves and their sources.
 - **partial reasons:** map each non-zero stat to one clause: `max_files_hit` → "stopped at the file limit; rerun with `--max-files 50000` or point at the app subfolder"; `max_total_bytes_hit` → "stopped at the byte budget"; `deadline_hit` → "stopped at the time limit"; `files_errored` → "<n> files could not be read"; `files_skipped_oversize` → "<n> large files skipped".
 - **warnings:** `repo-is-cwd` or `repo-contains-cwd` → add the line "The host may have loaded this app's instruction files at launch; relaunch from the folder that contains the app."

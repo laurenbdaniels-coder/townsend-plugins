@@ -91,6 +91,96 @@ Two halves, scored separately; the verdict shows the lower one.
 - Scanner evidence: `builder-file`, `builder-dependency`, `builder-readme`, `container-config` name the platform; the defaults are the question.
 - **By hand (60 s):** find the export or download button for both the code and the data. Click the data one and open the file.
 
+# If AI drives part of your product: keeping it on rails
+
+Ask these **only when the app calls a model**, and ask the founder that question rather than inferring it. The scanner's Q8 hints (`ai-sdk-dependency`, `model-env-var`, `model-literal`) are worth leading with, but they miss a plain HTTP call to a provider and they fire on an unused dependency or a model name in a comment. A model is not a library that does the same thing every time. It is a moving part inside the product, and these are the six ways it wanders off without anything turning red.
+
+The eleven already cover the ones that are really software questions wearing an AI hat: rollback is Q5, the bill is Q8, would-you-notice-it-is-down is Q9, and who-can-read-this is Q1, Q3, Q4 and Q10. These six are what is left.
+
+Two rules of thumb when you ask them. **The founder's own AI tool can run most of these tests** (it can search their project, print what their code actually sends, and find a model name faster than they can), so offer that phrasing first. And **every one ends with a fix**, not an observation: a founder who learns they are broken and is handed nothing puts the paper down.
+
+## A1. How slow is too slow, and what happens then? (Plan)
+
+Past a few seconds a user assumes it is broken and refreshes. Unless the server cancels the first call when the browser goes away, and most do not by default, you now pay for both. And because the model is not deterministic, the second answer is not even the same one.
+
+- **Yes** only from you: you can say the number ("four seconds") and what the app does when it is exceeded (a timeout, a cached answer, a smaller model, or a waiting state that tells the user what is happening).
+- **No** only from you: there is no timeout, so a stuck call to the provider leaves the user staring at a spinner.
+- Scanner hints: `spend-cap-word` picks up `maxDuration` and its relatives; it shows a limit exists somewhere, never that it is the right one.
+- **By hand (60 s):** use the slowest real path in your app and count out loud. Then turn your wifi off mid-request and watch what a user would see.
+- **The fix:** if it spins forever, set a timeout and show a message when it trips. One line and one sentence of copy.
+
+## A2. Where do your prompts live? (Diff review)
+
+The same instruction pasted into three files and edited in place is the AI version of code with no source control. When an answer comes out wrong you cannot tell which wording caused it, and you cannot go back.
+
+- **Yes** only from you: prompts live in one place, in version control.
+- **No** only from you: the same instruction is copy-pasted in more than one place, or prompts are edited live in a dashboard and nothing ties the version to the answer it produced.
+- Scanner hints: none that are decisive. A prompt is just a string, and the scanner will not read your app's instruction files by design.
+- **By hand (60 s):** copy one distinctive sentence out of your main prompt and ask your AI tool: "find every place in this project that contains this sentence." More than one hit is your answer. No project it can search is also your answer.
+- **The fix:** move the instruction to one file and import it everywhere else. Then, when you can, log which prompt version produced each answer, which is what makes "why did it say that?" answerable at all. Doing it is a change to a prompt that is in production, which is an escalation trigger: tier that change Gated and run its gates, the same as any other.
+
+## A3. Is production running what you actually tested? (Verify)
+
+The prompt you tried in the playground is not the prompt your code sends. Your code wraps it in other text, adds settings you never saw (including the creativity setting, temperature), and fills it with real user input you did not have in front of you.
+
+- **Yes** only from you: you have seen the exact final text and settings one real request sent, and it matches what you evaluated.
+- **No** only from you: you tuned it in a playground, shipped something your code assembles, and have never compared the two.
+- Scanner hints: `model-literal` shows which model names appear in the code. Two different model names in two places is worth a look.
+- **By hand (60 s):** ask your AI tool: "show me the exact final text and settings you send to the model for one request, printed in full, not summarised." Read it next to what you tested. People are usually surprised.
+- **The fix:** whatever differs, make the tested version the shipped one. If you cannot tell them apart, that is the finding.
+- *If you also train a model, this one has a name: training and serving skew. Without training, it is the same shape with a smaller blast radius, because only the input differs and the fix is a diff rather than a retrain.*
+
+## A4. Did that change actually make it better? (Verify)
+
+"It looked good" is one person being the green light. And if you kept editing the prompt until your saved examples passed, those examples stopped telling you anything: you were steering against them, a few bits at a time, which is what makes a test set stop being a test set.
+
+- **Yes** only from you: a set of real inputs with a note on what a good answer looks like, run before and after a change, with a count you write down, and some of them you never edit the prompt against.
+- **No** only from you: changes ship on a read-through of one or two outputs, or every example you have is one you tuned until it passed.
+- Scanner hints: none, and there cannot be any. Whether you judged a change on examples you did not tune against is a fact about how you worked, not about your files.
+- **By hand (60 s):** open a document. Paste five real things users have typed into your app, and next to each, one line on what a good answer looks like. Next time you change the prompt, paste those five back in by hand and count how many still look right. Four out of five is your number. Keep two you never tune against.
+- **The fix:** the document is the fix. Five examples in a doc beats nothing, and you can write it in the session.
+- *Two honest caveats to say out loud. Five or ten examples is a smoke alarm, not a measurement: one flipped answer moves the number a long way, so it catches a disaster and nothing smaller. And because the model is not deterministic, running each example once measures the dice as well as the change.*
+- *If you also train a model, the trained version of this is called overfitting the validation set. Their term "data leakage" means something narrower: information that will not be there at answer time getting into the input. You can have that too, and the common shape is an eval whose retrieved context already contains the answer.*
+
+## A5. When the model is wrong, refuses, or is down, what does the user see? (Build)
+
+It will be wrong. The question is only whether the wrongness has somewhere to go.
+
+- **Yes** only from you: there is a defined path (a retry with a delay, a cached or default answer, a human to escalate to, or an honest error that says what to do next), and you have seen it happen.
+- **No** only from you: the failure path is a spinner, a blank screen, or a made-up answer presented as fact.
+- Scanner hints: none. A fallback is behaviour, not a file.
+- **By hand (60 s):** no non-live copy? Turn your wifi off mid-request, which is a provider being down and costs you nothing. If you do have a non-live copy, put a wrong API key in it and use your own app as a user. Whatever you see is your fallback.
+- **The fix:** whatever you saw, replace it with a sentence that tells the user what happened and what to do next. That is the smallest honest fallback and it takes minutes.
+- *A bad key tests "down", and only its fastest form. The two you will actually meet are a rate limit or an overloaded provider, which needs a retry with a delay, and a call that times out halfway. "Wrong" no key can fake: write a confidently wrong answer into the response by hand and see where it goes.*
+
+## A6. Is your model pinned, and is the provider about to move you? (Watch)
+
+You changed nothing and the answers changed anyway. If the model name in your code carries no date or version, you are on whatever the provider ships today.
+
+- **Yes** only from you: the model name names a specific version, you re-run the examples from A4 when you change it, and you know when that version is scheduled to go away.
+- **No** only from you: the name has no version in it and nothing re-runs when the answers move.
+- Scanner hints: `model-literal` shows which model names appear in the code; a name without a date or version is worth a look.
+- **By hand (60 s):** find the model name in your code. No date or version means you are on today's. Better still, read the `model` field the provider sends back on one real response, which names what actually served rather than what you asked for.
+- **The fix:** pin the version. It is a one-line edit, and then subscribe to your provider's deprecation notices. Swapping a model version is an escalation trigger, so tier that one-line edit Gated and run its gates; "small diff" is exactly how this one gets shipped unwatched.
+- *A pin is a dated lease, not a freeze. Versions are retired on a schedule, so pinning buys you notice and a planned re-run rather than permanence. Pinning is straightforward on Anthropic and OpenAI, where dated names are the normal shape; on some other providers the stable names roll forward and you cannot pin the same way.*
+
+## When your product moves and your examples do not
+
+This is A4's twin and it belongs to whoever owns the product, not the model. You change your pricing, your policy or your copy, and the examples you check against still describe the old version.
+
+Usually they start failing for the wrong reason, and the danger is that you "fix" the product back toward last quarter's answer. Sometimes they are loose enough to keep passing while measuring something you no longer sell. Either way they have stopped being evidence.
+
+- **The fix:** update the examples in the same change that moves the product. It is a habit, not a tool.
+- *People who train models meet this as concept drift, or plainly a stale eval set.*
+
+## If you do train or fine-tune your own model
+
+Most founders with a prototype do not, and everything above still applies to them, which is the point. If you do train, three of these have a training-shaped version, and each has its own test.
+
+- **Skew (A3).** Find the two places your inputs are prepared, once for training and once for serving. If that is two separate pieces of code, assume they differ until you have checked.
+- **Leakage (A4).** Open your training script and find the line where the data is split. If it shuffles data that has a time order, or if rows belonging to the same user or document land on both sides, that is your answer. Note that shuffling is not itself the problem: for rows that are genuinely independent of each other and of time, a random split is the correct choice rather than a shortcut.
+- **Stale labels (A6's twin).** Find the date your labels were last reviewed. If you cannot find one, that is your answer.
+
 ## All check names
 
 Every `check` the scanner can emit, by question. The skill accepts scanner output only when every check is on this list; `scan-summary` is the placeholder row for a question with zero hits. Effect: **no** flips the answer to no; **yes-part** contributes to a yes; **hint** and **evidence** never change the answer.

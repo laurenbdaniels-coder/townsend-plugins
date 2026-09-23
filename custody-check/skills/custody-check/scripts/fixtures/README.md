@@ -8,3 +8,5 @@ Static, secret-free trees used by `test_custody_scan.py`:
 - `seeded-app/`: a small app tree with `{{SK}}`-style placeholders; the tests substitute runtime-generated secrets before scanning, so no key-shaped string is ever committed.
 
 Everything else (secrets, git repos, binaries, oversize files, symlinks, FIFOs) is generated at runtime in temporary directories.
+
+Env files are committed as `dotenv.production` and friends, not `.env.production`. `copy_fixture` restores the dot-name when it copies a tree into a temp directory. An agent sandbox that denies reading `~/**/.env*` is a sensible default, and the suite should not need it switched off.

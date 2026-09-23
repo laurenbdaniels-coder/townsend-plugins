@@ -78,6 +78,39 @@ GIT_ENV = dict(
     GIT_TERMINAL_PROMPT="0",
 )
 HAVE_GIT = shutil.which("git") is not None
+# Linearity bounds are wall-clock, so a loaded machine can miss them without anything being wrong.
+# They assert linearity, not a speed target: the quadratic cases they guard take minutes, not tenths.
+# Clamped on purpose. `CUSTODY_TIME_SLACK=inf` parses, makes every bound infinite and every
+# assertLess vacuous, and nothing would report it; CI already sets this var, so raising it reads
+# like routine flake-fixing. Above the ceiling the suite refuses to run rather than assert nothing.
+_SLACK_CEILING = 5.0
+TIME_SLACK = float(os.environ.get("CUSTODY_TIME_SLACK", "1"))
+if not (1.0 <= TIME_SLACK <= _SLACK_CEILING):
+    raise RuntimeError(
+        "CUSTODY_TIME_SLACK must be between 1 and %g, got %r: a larger value silently disables "
+        "every wall-clock assertion in this suite. If a runner needs more than %gx, the bound is "
+        "wrong, not the runner." % (_SLACK_CEILING, os.environ.get("CUSTODY_TIME_SLACK"), _SLACK_CEILING))
+
+
+# Below this a timing is scheduler noise, not a measurement, and a ratio built from it means nothing.
+_RATIO_FLOOR_S = 0.002
+
+
+def _fastest(fn, runs=3):
+    """Best of N. A loaded machine inflates any single timing; a quadratic path is quadratic in every run,
+    so taking the minimum removes scheduler noise without hiding a real regression."""
+    best = None
+    for _ in range(runs):
+        t0 = time.perf_counter()
+        fn()
+        el = time.perf_counter() - t0
+        best = el if best is None else min(best, el)
+    return best
+
+
+def bound(seconds):
+    return seconds * TIME_SLACK
+
 REQUIRE_GIT = os.environ.get("CUSTODY_REQUIRE_GIT") == "1"
 if REQUIRE_GIT and not HAVE_GIT:
     raise SystemExit("CUSTODY_REQUIRE_GIT=1 but git is not installed")
@@ -145,9 +178,26 @@ class ScanCase(unittest.TestCase):
                 self.assertNotIn(s[i:i + 12], text, "leaked substring of a secret")
 
     def copy_fixture(self, name, dest=None):
+        """Copy a fixture tree, restoring the dot-names it is stored without.
+
+        Env fixtures are committed as `dotenv.production` rather than `.env.production`: an agent
+        sandbox that denies reading `~/**/.env*` (a sensible default) would otherwise make these
+        tests fail for a reason that has nothing to do with the scanner.
+        """
         dest = dest or self.repo
         shutil.rmtree(dest)
         shutil.copytree(os.path.join(FIXTURES, name), dest, symlinks=True)
+        for root, _, files in os.walk(dest):
+            for f in files:
+                # only at a fixture tree's root, and only exact env shapes: a nested src/dotenv.production
+                # is an ordinary filename a future fixture may want to assert on, and must survive the copy
+                if root == dest and (f == "dotenv" or re.match(r"^dotenv\.[A-Za-z0-9_-]+$", f)):
+                    os.rename(os.path.join(root, f), os.path.join(root, "." + f[len("dot"):]))
+        # A fixture the pattern above does not match (say `dotenv.local.example`) would be copied through
+        # under its stored name, classify as neither env nor env-template, and the test would quietly
+        # measure something other than what it says. Fail here instead of passing for the wrong reason.
+        left = sorted(f for f in os.listdir(dest) if f.startswith("dotenv"))
+        self.assertEqual(left, [], "fixture env files were not restored to their dot-names: %s" % left)
         return dest
 
 
@@ -221,7 +271,7 @@ class RedactionTests(ScanCase):
         self.write("wrangler.toml", " \n" * 100000)
         t0 = time.monotonic()
         self.scan()
-        self.assertLess(time.monotonic() - t0, 6.0)
+        self.assertLess(time.monotonic() - t0, bound(6.0))
 
     def test_secret_shaped_paths_redacted(self):
         self.write("src/%s/%s.ts" % (SK, GHP), 'export const x = 1;\nconst k = "%s";\n' % AKIA)
@@ -292,7 +342,7 @@ class CapTests(ScanCase):
         self.write("supabase/migrations/c.sql", "create policy " * 30000)
         t0 = time.monotonic()
         self.scan()
-        self.assertLess(time.monotonic() - t0, 6.0)
+        self.assertLess(time.monotonic() - t0, bound(6.0))
 
 
 class ExcludeAndNeverOpenTests(ScanCase):
@@ -1081,12 +1131,47 @@ class ResilienceTests(ScanCase):
 
 
 class LinearityTests(unittest.TestCase):
+    def test_growth_is_linear_not_just_fast(self):
+        """A wall-clock bound only catches a slow regression. This catches a quadratic one that is still fast.
+
+        Doubling the input must roughly double the work. A quadratic path quadruples it, which stays under
+        any generous bound on a small input and blows up on a real file. CUSTODY_TIME_SLACK cannot mask
+        this, because a ratio does not care how loaded the machine is.
+        """
+        cases = (
+            ("prefilter keyword", cs.PREFILTER_RE, "secret:"),
+            ("run sweep", cs.RUN_RE, "A1b2C3d4" * 4 + " "),
+            ("client import", cs.CLIENT_IMPORT_RE, "import x from 'y'\n"),
+            ("firebase allow", cs.FIREBASE_ALLOW_TRUE_RE, "allow read, write: if x;\n"),
+        )
+        # Sized so the fastest case still takes ~6x the floor below. At 20k units the two hottest
+        # regexes measured 0.0021s and 0.0024s against a 0.002s floor, so a faster runner would have
+        # dropped them under it and they would have stopped asserting with the test still green.
+        for name, regex, unit in cases:
+            t_small = _fastest(lambda: regex.findall(unit * 100000))
+            t_big = _fastest(lambda: regex.findall(unit * 200000))
+            self.assertGreater(t_small, _RATIO_FLOOR_S,
+                               "%s ran in %.4fs, too fast to time: raise the unit count or this case "
+                               "asserts nothing" % (name, t_small))
+            self.assertLess(t_big / t_small, 3.0,
+                            "%s grew %.1fx when the input doubled; linear is about 2x, quadratic about 4x" % (name, t_big / t_small))
+
+    def test_block_comment_stripping_growth_is_linear(self):
+        # Sized against the SLOWEST measurement, not this machine's. At 400k units it ran in 2.01ms
+        # here and 1.32ms on a CI runner, i.e. either side of the floor below: it failed CI loudly and
+        # had already flaked once locally. 3M units gives the faster runner ~5x the floor.
+        # The quadratic version this replaced grows 4.5x on the same inputs.
+        t_small = _fastest(lambda: cs._blank_block_comments("/* a" * 3000000))
+        t_big = _fastest(lambda: cs._blank_block_comments("/* a" * 6000000))
+        self.assertGreater(t_small, _RATIO_FLOOR_S, "input too small to time; the ratio would assert nothing")
+        self.assertLess(t_big / t_small, 3.0, "unclosed block comments must stay linear")
+
     def test_prefilter_repeated_keyword_is_linear(self):
         opts = cs.Options()
         t0 = time.perf_counter()
         opts.prefilter_re.search("key" * 170000)
         opts.prefilter_re.search("key " * 100000)
-        self.assertLess(time.perf_counter() - t0, 1.0)
+        self.assertLess(time.perf_counter() - t0, bound(1.0))
 
     def test_multiline_patterns_are_linear_on_blank_lines(self):
         blank = "\n" * 524288
@@ -1095,14 +1180,14 @@ class LinearityTests(unittest.TestCase):
             t0 = time.perf_counter()
             regex.search(blank)
             regex.search(spaced)
-            self.assertLess(time.perf_counter() - t0, 1.0, regex.pattern)
+            self.assertLess(time.perf_counter() - t0, bound(1.0), regex.pattern)
 
     def test_firebase_and_sql_patterns_are_linear(self):
         t0 = time.perf_counter()
         cs.FIREBASE_ALLOW_TRUE_RE.search("allow " * 80000)
         cs.RLS_DISABLED_RE.search("disable " + " " * 400000)
         cs.RLS_DISABLED_RE.search("disable \n" * 60000)
-        self.assertLess(time.perf_counter() - t0, 1.0)
+        self.assertLess(time.perf_counter() - t0, bound(1.0))
 
     def test_single_line_many_hits_is_fast(self):
         unit = 'NEXT_PUBLIC_A="%s" ' % SK
@@ -1115,7 +1200,7 @@ class LinearityTests(unittest.TestCase):
         claimed = []
         cs.detect_browser_prefix(sf, state, opts, claimed)
         cs.detect_key_literals(sf, state, opts, claimed)
-        self.assertLess(time.perf_counter() - t0, 2.0)
+        self.assertLess(time.perf_counter() - t0, bound(2.0))
         self.assertLessEqual(len(state.evidence["q1"]), cs.MAX_EVIDENCE)
 
     def test_deadline_is_checked_inside_a_file(self):
@@ -1152,7 +1237,7 @@ class ReviewCycleTwoTests(ScanCase):
         t0 = time.perf_counter()
         opts.prefilter_re.search("key" * 170000)
         opts.prefilter_re.search("apiKey" * 80000)
-        self.assertLess(time.perf_counter() - t0, 1.5)
+        self.assertLess(time.perf_counter() - t0, bound(1.5))
 
     @unittest.skipUnless(HAVE_GIT, "git not installed")
     def test_non_utf8_git_metadata_does_not_abort_the_scan(self):
@@ -1512,7 +1597,7 @@ class ReviewCycleThreeAdversarialTests(ScanCase):
         t0 = time.monotonic()
         with mock.patch.dict(os.environ, {"PATH": bindir}), mock.patch.object(cs, "GIT_BUDGET_S", 2.0), mock.patch.object(cs, "_darwin_git_ready", lambda: True):
             r = self.scan()
-        self.assertLess(time.monotonic() - t0, 6.0)
+        self.assertLess(time.monotonic() - t0, bound(6.0))
         self.assertIn("git-timeout", evidence_checks(r["questions"]["q5"]["code"]))
         self.assertEqual(r["files_scanned"], 2)  # src/a.ts and the commit file init_repo writes
 
@@ -1522,7 +1607,7 @@ class ReviewCycleThreeAdversarialTests(ScanCase):
             t0 = time.perf_counter()
             regex.search(line)
             regex.search("\t" * 400000)
-            self.assertLess(time.perf_counter() - t0, 1.0, regex.pattern)
+            self.assertLess(time.perf_counter() - t0, bound(1.0), regex.pattern)
 
     @unittest.skipUnless(HAVE_GIT, "git not installed")
     def test_inherited_git_environment_is_ignored(self):
@@ -1905,7 +1990,7 @@ class ShipReviewTests(ScanCase):
         self.write("src/components/a.ts", "a" * 200000 + '"' + ANON_JWT + '"')
         t0 = time.perf_counter()
         r = self.scan(deadline_s=30)
-        self.assertLess(time.perf_counter() - t0, 2.0)
+        self.assertLess(time.perf_counter() - t0, bound(2.0))
         self.assertIn("client-anon-jwt", evidence_checks(r["questions"]["q1"]))
 
     def test_block_comment_stripping_is_linear_on_unclosed_openers(self):
@@ -1913,11 +1998,11 @@ class ShipReviewTests(ScanCase):
         t0 = time.perf_counter()
         cs._strip_sql_comments(text)
         cs._strip_slash_comments(text)
-        self.assertLess(time.perf_counter() - t0, 1.0)
+        self.assertLess(time.perf_counter() - t0, bound(1.0))
         self.write("supabase/migrations/1.sql", "/* a" * 50000 + "\nalter table t disable row level security;\n")
         t0 = time.perf_counter()
         r = self.scan()
-        self.assertLess(time.perf_counter() - t0, 2.0)
+        self.assertLess(time.perf_counter() - t0, bound(2.0))
         self.assertEqual(r["questions"]["q3"]["answer"], "no")
 
     def test_block_comments_still_hide_decisive_lines(self):
@@ -1928,7 +2013,7 @@ class ShipReviewTests(ScanCase):
         self.write("netlify.toml", "[context.a]\n" * 40000)
         t0 = time.perf_counter()
         r = self.scan()
-        self.assertLess(time.perf_counter() - t0, 1.5)
+        self.assertLess(time.perf_counter() - t0, bound(1.5))
         self.assertLessEqual(len(r["questions"]["q6"]["evidence"]), cs.MAX_EVIDENCE)
 
     # --- codex adversarial
@@ -2240,7 +2325,7 @@ class RedTeamTests(ScanCase):
         self.write("src/a.ts", "x\n")
         t0 = time.perf_counter()
         r = self.scan()
-        self.assertLess(time.perf_counter() - t0, 2.0)
+        self.assertLess(time.perf_counter() - t0, bound(2.0))
         self.assertIn("git-config-not-vouched", evidence_checks(r["questions"]["q5"]["code"]))
         self.assertEqual(r["files_scanned"], 1)
 
@@ -2393,7 +2478,7 @@ class SecurityRetryTests(ScanCase):
         self.write("src/a.ts", "x\n")
         t0 = time.perf_counter()
         r = self.scan()
-        self.assertLess(time.perf_counter() - t0, 3.0)
+        self.assertLess(time.perf_counter() - t0, bound(3.0))
         self.assertIn("git-config-not-vouched", self._q5(r))
 
     @unittest.skipUnless(HAVE_GIT, "git not installed")
@@ -2543,7 +2628,7 @@ class ReviewCycleTwoShipTests(ScanCase):
         t0 = time.perf_counter()
         with mock.patch.object(cs, "decode_jwt_role", counting):
             r = self.scan()
-        self.assertLess(time.perf_counter() - t0, 5.0)
+        self.assertLess(time.perf_counter() - t0, bound(5.0))
         self.assertIn("client-anon-jwt", evidence_checks(r["questions"]["q1"]))
         self.assertLessEqual(len([e for e in r["questions"]["q1"]["evidence"] if e["check"] == "client-anon-jwt"]), cs.MAX_HITS_PER_FILE_PER_CHECK)
 
@@ -2615,7 +2700,7 @@ class ReviewCycleTwoShipTests(ScanCase):
         os.mkfifo(fifo)
         t0 = time.perf_counter()
         self.assertIsNone(cs._read_small_regular(fifo, 10))
-        self.assertLess(time.perf_counter() - t0, 1.0)
+        self.assertLess(time.perf_counter() - t0, bound(1.0))
         os.link(plain, os.path.join(self.tmp, "linked"))
         self.assertIsNone(cs._read_small_regular(plain, 10))
         self.assertIsNone(cs._read_small_regular(os.path.join(self.tmp, "nope"), 10))
@@ -2733,7 +2818,7 @@ class GitConfigAllowlistTests(ScanCase):
         os.mkfifo(os.path.join(tags, "fifo"))
         t0 = time.perf_counter()
         r = self.scan()
-        self.assertLess(time.perf_counter() - t0, 5.0)
+        self.assertLess(time.perf_counter() - t0, bound(5.0))
         self.assertIn("git-config-not-vouched", self._q5(r))
         os.remove(os.path.join(tags, "fifo"))
         secret = os.path.join(self.tmp, "outside")
@@ -3007,6 +3092,108 @@ class GitConfigOverriddenKeysTests(ScanCase):
             with open(cfg, "w") as fh:
                 fh.write(good + stanza)
             self.assertIn("git-config-not-vouched", self._q5(self.scan()), stanza)
+
+
+class RailsQuestionsTests(ScanCase):
+    """The six rails questions are interview-only: they must exist in every file that renders them,
+    and they must never reach the scanner's JSON contract or the door rule."""
+
+    def _read(self, *parts):
+        with open(os.path.join(*parts), encoding="utf-8") as fh:
+            return fh.read()
+
+    def rails_ids(self):
+        """The rails questions the reference actually defines; every other file is checked against this."""
+        q = self._read(SKILL_DIR, "references", "questions.md")
+        section = q.split("# If AI drives part of your product")[1].split("## All check names")[0]
+        ids = re.findall(r"^## (A\d+)\.", section, re.M)
+        # the shipped contract, not whatever the reference happens to say: deleting a question must fail here
+        self.assertEqual(ids, ["A1", "A2", "A3", "A4", "A5", "A6"],
+                         "the rails set is A1-A6; changing it is a contract change and must be deliberate")
+        return ids, section
+
+    def test_each_one_is_defined_with_its_by_hand_test(self):
+        ids, section = self.rails_ids()
+        self.assertGreaterEqual(len(ids), 1)
+        # Per question, not a section-wide count: counting lets a body be emptied as long as another
+        # question carries two, which a mutation confirmed passes the old assertion 5/5.
+        blocks = re.split(r"^## (A\d+)\.", section, flags=re.M)[1:]
+        pairs = list(zip(blocks[0::2], blocks[1::2]))
+        self.assertEqual([rid for rid, _ in pairs], ids)
+        for rid, body in pairs:
+            for required, why in (("**By hand (60 s):**", "its own sixty-second test"),
+                                  ("**The fix:**", "its own fix line"),
+                                  ("**Yes**", "what a Yes means"),
+                                  ("**No**", "what a No means"),
+                                  ("Scanner hints:", "whether the scanner can help")):
+                self.assertIn(required, body, "%s must carry %s" % (rid, why))
+            self.assertGreater(len(body.strip()), 400, rid + " has a heading and almost no question under it")
+        for phrase in ("training and serving skew", "overfitting the validation set", "concept drift"):
+            self.assertIn(phrase, section, "the correct name for the trained version of this failure")
+        # the four claims a machine-learning reviewer called wrong before this shipped; none may come back
+        for wrong in ("never shuffle first", "if it shuffles, that is your answer",
+                      "so they pass and tell you nothing", "call training and serving skew, data leakage"):
+            self.assertNotIn(wrong, section, "this claim was corrected; see the 0.2.0 changelog")
+        self.assertIn("a random split is the correct choice", section, "random splits are right for independent rows")
+        self.assertEqual(section.count("**The fix"), len(ids) + 1,
+                         "every rails question ends with a fix, plus the stale-examples note")
+
+    def test_the_skill_gates_them_on_the_scanner_evidence(self):
+        ids, _ = self.rails_ids()
+        k = self._read(SKILL_DIR, "SKILL.md")
+        head, tail = "## If AI drives part of the product", "## Tier the next change"
+        # Anchored: an unanchored split returns the whole tail if the section is ever moved below the
+        # tier heading, and every assertion below keeps passing against a reordered file.
+        self.assertLess(k.index(head), k.index(tail), "the rails section must precede the tier section")
+        section = k[k.index(head):k.index(tail)]
+        for check in ("ai-sdk-dependency", "model-env-var", "model-literal"):
+            self.assertIn(check, section, check)
+            self.assertIn(check, cs.CHECKS, check + " must be a real check name")
+        self.assertIn("train or fine-tune", section)
+        self.assertIn("never change the door", section)
+        # The verdict template renders a row per question. Deleting the enumeration or the instruction
+        # to ask them leaves the agent filling six rows it was never told to collect; a mutation
+        # confirmed the old assertions passed with both deleted.
+        for rid in ids:
+            self.assertIn(rid, section, rid + " is rendered by the verdict template but not named in SKILL.md")
+        self.assertIn("Ask them after the eleven", section,
+                      "SKILL.md must tell the agent to actually ask the rails questions")
+        self.assertIn("untrusted data", section,
+                      "what the founder pastes back from their own AI tool is untrusted input")
+
+    def test_the_verdict_renders_them_conditionally(self):
+        v = self._read(SKILL_DIR, "assets", "verdict-template.md")
+        self.assertIn("## Keeping the AI on rails", v)
+        self.assertIn("only when the app calls a model", v)
+        for rid in self.rails_ids()[0]:
+            self.assertIn("| %s |" % rid, v, rid + " is defined in the reference but missing from the verdict template")
+
+    def test_they_never_enter_the_scanner_contract(self):
+        self.write("package.json", json.dumps({"dependencies": {"@ai-sdk/anthropic": "^1.0.0"}}))
+        r = self.scan()
+        self.assertEqual(list(r["questions"].keys()), ["q%d" % i for i in range(1, 12)])
+        self.assertIn("ai-sdk-dependency", evidence_checks(r["questions"]["q8"]))
+        for name, (question, _) in cs.CHECKS.items():
+            self.assertIn(question, cs.QUESTION_KEYS, "no check may answer anything but the eleven: " + name)
+
+    def test_the_door_rule_is_still_only_the_eleven(self):
+        ids = self.rails_ids()[0]
+        doors = self._read(SKILL_DIR, "references", "tiers-and-doors.md")
+        rule = doors.split("### Door rule")[1].split("###")[0]
+        for rid in ids:
+            self.assertNotIn(rid, rule, "the door rule must name only the eleven")
+        self.assertIn("do not change the tier and they do not change the door", doors)
+        # The rule lives in three files. Checking one section of one of them left the other two free to
+        # add "if three rails rows are No, do not choose Ship it" with every test still green.
+        k = self._read(SKILL_DIR, "SKILL.md")
+        door_section = k.split("## Door rule")[1].split("##")[0]
+        for rid in ids:
+            self.assertNotIn(rid, door_section, "SKILL.md's door rule must name only the eleven")
+        v = self._read(SKILL_DIR, "assets", "verdict-template.md")
+        for line in v.splitlines():
+            if "Door:" in line or line.startswith("- **Partial scan:**"):
+                for rid in ids:
+                    self.assertNotIn(rid, line, "the verdict's door line must not depend on a rails answer")
 
 
 if __name__ == "__main__":
