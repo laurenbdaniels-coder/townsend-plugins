@@ -441,7 +441,7 @@ class TrackedEnvTests(ScanCase):
         self.init_repo()
         q1 = self.scan()["questions"]["q1"]
         self.assertNotIn("tracked-env-file", evidence_checks(q1))
-        self.assertEqual(q1["answer"], "dont-know")
+        self.assertEqual(q1["answer"], "nothing-found")
 
     def test_tracked_env_is_no_and_envrc_ignored(self):
         self.write(".env", "A=b\n")
@@ -778,6 +778,8 @@ class Q6Tests(ScanCase):
         q6 = self.scan()["questions"]["q6"]
         for e in q6["evidence"]:
             self.assertLessEqual(len(e["snippet"]), 40)
+            if e["check"] != "env-name":
+                continue  # the fixed preview-deployment sentence is the scanner's text, not the app's
             self.assertTrue(re.fullmatch(r"[a-z0-9_-]{1,32}", e["snippet"]), e["snippet"])
 
 
@@ -895,7 +897,7 @@ class SeededAppGoldenTest(ScanCase):
 
 class ContractTests(ScanCase):
     TOP_KEYS = ["ok", "partial", "version", "files_scanned", "stats", "warnings", "git", "questions"]
-    STATS_KEYS = ["files_skipped_oversize", "files_skipped_binary", "files_skipped_generated", "files_never_open",
+    STATS_KEYS = ["files_skipped_oversize", "files_skipped_oversize_relevant", "files_skipped_binary", "files_skipped_generated", "files_never_open",
                   "files_skipped_special", "files_skipped_hardlink", "files_errored", "dirs_unreadable", "dirs_truncated", "mcp_capped", "git_index_partial", "output_trimmed", "max_files_hit", "max_total_bytes_hit", "deadline_hit", "config"]
 
     def test_json_shape(self):
@@ -908,7 +910,7 @@ class ContractTests(ScanCase):
         self.assertEqual(r["version"], cs.__version__)
         for q in cs.iter_questions(r):
             self.assertEqual(list(q.keys()), ["answer", "confidence", "evidence"])
-            self.assertIn(q["answer"], ("yes", "no", "dont-know"))
+            self.assertIn(q["answer"], ("yes", "no", "dont-know", "nothing-found"))
             self.assertIn(q["confidence"], ("high", "med", "low"))
             for e in q["evidence"]:
                 self.assertEqual(list(e.keys()), ["path", "line", "snippet", "check"])
@@ -1532,7 +1534,7 @@ class ReviewCycleThreeGateTests(ScanCase):
     def test_sql_comments_never_decide_q3(self):
         self.write("supabase/migrations/1.sql", "-- do not use: alter table users disable row level security;\n/* create policy p on t using (true); */\nselect 1;\n")
         q3 = self.scan()["questions"]["q3"]
-        self.assertEqual(q3["answer"], "dont-know")
+        self.assertEqual(q3["answer"], "nothing-found")  # read, and a commented-out line is not a finding
         self.write("supabase/migrations/2.sql", "alter table users disable row level security; -- oops\n")
         self.assertEqual(self.scan()["questions"]["q3"]["answer"], "no")
 
@@ -1848,7 +1850,7 @@ class ShipCoverageTests(ScanCase):
         self.write(".mcp.json", json.dumps({"TOKEN": "x" * 9000}))
         r = self.scan()
         self.assertFalse(r["partial"])
-        self.assertEqual(evidence_checks(r["questions"]["q1"]), ["scan-summary"])
+        self.assertEqual(evidence_checks(r["questions"]["q1"]), ["nothing-found-keys"])
 
     def test_content_hits_are_capped_at_five_per_file_per_check(self):
         self.write("src/ai.ts", "".join('const m%d = "gpt-4o";\n' % i for i in range(7)))
@@ -3195,6 +3197,212 @@ class RailsQuestionsTests(ScanCase):
                 for rid in ids:
                     self.assertNotIn(rid, line, "the verdict's door line must not depend on a rails answer")
 
+
+
+class OversizeRelevanceTests(ScanCase):
+    """Issue #10: a skipped photo is not an incomplete scan. Only a file a Q1 or Q3 detector would have
+    read can hide a key or an open rule, so only that kind of oversize skip may set `partial`."""
+
+    BIG = 600000
+
+    def test_oversize_photos_and_media_do_not_mark_partial(self):
+        for name in ("public/hero.jpeg", "public/team.JPG", "assets/demo.mp4", "docs/deck.pdf", "fonts/a.woff2", "data/export.csv"):
+            self.write(name, b"\xff\xd8" + b"\x01" * self.BIG, binary=True)
+        self.write("src/a.ts", "export const a = 1;\n")
+        r = self.scan()
+        self.assertEqual(r["stats"]["files_skipped_oversize"], 6)
+        self.assertFalse(r["partial"], "a large photo cannot hold a key or an access rule")
+
+    def test_oversize_files_a_q1_or_q3_detector_reads_still_mark_partial(self):
+        for name in ("src/big.ts", "public/app.html", "config/seed.json", "deploy.yaml", "wrangler.toml",
+                     "supabase/migrations/1.sql", "firestore.rules", ".env.production", "prod.env"):
+            with self.subTest(name=name):
+                shutil.rmtree(self.repo)
+                os.makedirs(self.repo)
+                self.write(name, "x" * self.BIG)
+                r = self.scan()
+                self.assertEqual(r["stats"]["files_skipped_oversize"], 1)
+                self.assertTrue(r["partial"], name)
+
+    def test_grown_photo_after_lstat_does_not_mark_partial(self):
+        self.write("public/hero.jpeg", b"\xff\xd8\x01", binary=True)
+        real_open = cs.open_regular
+
+        def grown(path):
+            opened = real_open(path)
+            return None if opened is None else (opened[0], 10 ** 9)
+
+        with mock.patch.object(cs, "open_regular", side_effect=grown):
+            r = self.scan()
+        self.assertEqual(r["stats"]["files_skipped_oversize"], 1)
+        self.assertFalse(r["partial"])
+
+    def test_a_photo_heavy_clean_app_can_reach_nothing_found_on_q1(self):
+        # the inkling-app shape: 99 large photos and nothing wrong, which used to render "scan incomplete"
+        for i in range(5):
+            self.write("public/p%d.jpeg" % i, b"\xff\xd8" + b"\x01" * self.BIG, binary=True)
+        self.write("src/a.ts", "export const a = 1;\n")
+        r = self.scan()
+        self.assertEqual(r["questions"]["q1"]["answer"], "nothing-found")
+
+
+class NothingFoundTests(ScanCase):
+    """Issue #7: "looked hard and found nothing" must read differently from "did not look"."""
+
+    def clean_app(self):
+        self.write("src/components/A.tsx", "export const A = () => null;\n")
+        self.write("pages/index.tsx", "export default function P() { return null; }\n")
+
+    def rows(self, q, check):
+        return [e for e in q["evidence"] if e["check"] == check]
+
+    def test_q1_clean_complete_scan_is_nothing_found_with_what_was_checked(self):
+        self.clean_app()
+        q1 = self.scan()["questions"]["q1"]
+        self.assertEqual((q1["answer"], q1["confidence"]), ("nothing-found", "med"))
+        self.assertEqual(evidence_checks(q1), ["nothing-found-keys"])
+        snippet = q1["evidence"][0]["snippet"]
+        self.assertIn("2 files read", snippet)
+        self.assertIn("no env file", snippet)
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_q1_nothing_found_names_the_git_index_when_it_was_read(self):
+        self.clean_app()
+        self.init_repo()
+        q1 = self.scan()["questions"]["q1"]
+        self.assertEqual(q1["answer"], "nothing-found")
+        self.assertIn("no tracked env file", q1["evidence"][0]["snippet"])
+
+    def test_q1_partial_scan_stays_dont_know(self):
+        self.clean_app()
+        self.write("src/big.ts", "x" * 600000)
+        r = self.scan()
+        self.assertTrue(r["partial"])
+        self.assertEqual(r["questions"]["q1"]["answer"], "dont-know")
+        self.assertEqual(evidence_checks(r["questions"]["q1"]), ["scan-summary"])
+
+    def test_q1_with_any_evidence_row_stays_dont_know(self):
+        self.write("src/components/S.tsx", 'const c = createClient(url, "%s");\n' % ANON_JWT)
+        self.assertEqual(self.scan()["questions"]["q1"]["answer"], "dont-know")
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.write(".env", "A=b\n")  # not a git repo: an env file on disk is worth a look, not "nothing"
+        self.assertEqual(self.scan()["questions"]["q1"]["answer"], "dont-know")
+
+    def test_q1_nothing_read_is_not_nothing_found(self):
+        self.write("public/a.png", b"\x89PNG\x00\x00", binary=True)
+        q1 = self.scan()["questions"]["q1"]
+        self.assertEqual(q1["answer"], "dont-know")
+
+    def test_q3_needs_an_access_rule_file_before_it_can_say_nothing_found(self):
+        self.clean_app()
+        self.write("README.md", "never write using (true) in a policy\n")
+        q3 = self.scan()["questions"]["q3"]
+        self.assertEqual(q3["answer"], "dont-know", "no rule file read: the scanner did not look")
+        self.assertIn("no SQL", q3["evidence"][0]["snippet"])
+        self.write("supabase/migrations/1.sql", "create policy p on t for select using (auth.uid() = owner);\n")
+        self.write("firestore.rules", "match /x { allow read: if request.auth != null; }\n")
+        q3 = self.scan()["questions"]["q3"]
+        self.assertEqual((q3["answer"], q3["confidence"]), ("nothing-found", "med"))
+        self.assertEqual(evidence_checks(q3), ["nothing-found-rules"])
+        self.assertIn("2 rule files read", q3["evidence"][0]["snippet"])
+        os.remove(os.path.join(self.repo, "firestore.rules"))
+        self.assertIn("1 rule file read", self.scan()["questions"]["q3"]["evidence"][0]["snippet"])
+
+    def test_q3_evidence_or_partial_keeps_dont_know(self):
+        self.write("db/p.sql", 'create policy "p" on t for select to anon using (auth.uid() is not null);\n')
+        self.assertEqual(self.scan()["questions"]["q3"]["answer"], "dont-know")
+        self.write("db/p.sql", "create policy p on t for select using (auth.uid() = owner);\n")
+        self.write("db/big.sql", "x" * 600000)
+        self.assertEqual(self.scan()["questions"]["q3"]["answer"], "dont-know")
+
+    def test_q9_manifest_with_no_monitoring_is_nothing_found(self):
+        self.clean_app()
+        self.write("package.json", json.dumps({"dependencies": {"next": "15", "react": "19", "zod": "3"}}))
+        q9 = self.scan()["questions"]["q9"]
+        self.assertEqual((q9["answer"], q9["confidence"]), ("nothing-found", "med"))
+        self.assertEqual(evidence_checks(q9), ["nothing-found-monitoring"])
+        self.assertIn("3 dependencies", q9["evidence"][0]["snippet"])
+
+    def test_q9_without_a_manifest_or_on_a_partial_scan_stays_dont_know(self):
+        self.clean_app()
+        q9 = self.scan()["questions"]["q9"]
+        self.assertEqual((q9["answer"], q9["confidence"]), ("dont-know", "low"))
+        self.write("package.json", json.dumps({"dependencies": {"next": "15"}}))
+        self.write("src/big.ts", "x" * 600000)
+        self.assertEqual(self.scan()["questions"]["q9"]["answer"], "dont-know")
+        os.remove(os.path.join(self.repo, "src", "big.ts"))
+        self.write("package.json", json.dumps({"dependencies": {"@sentry/nextjs": "8"}}))
+        self.assertEqual(self.scan()["questions"]["q9"]["answer"], "dont-know")
+
+    def test_q2_reports_the_client_server_split_it_already_computed(self):
+        self.clean_app()
+        self.write("middleware.ts", "export function middleware() {}\n")
+        q2 = self.scan()["questions"]["q2"]
+        self.assertEqual((q2["answer"], q2["confidence"]), ("dont-know", "med"))
+        row = self.rows(q2, "client-server-split")
+        self.assertEqual(len(row), 1)
+        self.assertIn("2 as browser code", row[0]["snippet"])
+        self.assertIn("1 as server code", row[0]["snippet"])
+
+    def test_q6_names_default_preview_deployments(self):
+        self.write("vercel.json", "{}\n")
+        q6 = self.scan()["questions"]["q6"]
+        self.assertEqual(q6["answer"], "dont-know", "a preview that exists by default is not one the founder has opened")
+        self.assertEqual(len(self.rows(q6, "preview-deploys-default")), 1)
+        self.write("netlify.toml", "[build]\n")
+        self.assertEqual(len(self.rows(self.scan()["questions"]["q6"], "preview-deploys-default")), 2)
+
+    def test_q7_sees_a_review_workflow(self):
+        self.write(".github/workflows/claude-code-review.yml", "on: pull_request\n")
+        self.write(".github/workflows/ci.yml", "on: pull_request\njobs:\n  r:\n    steps:\n      - uses: coderabbitai/ai-pr-reviewer@latest\n")
+        self.write(".github/workflows/deploy.yml", "on: push\n")
+        q = self.scan()["questions"]
+        self.assertEqual(q["q7"]["answer"], "dont-know", "a review bot is not the founder reading the diff")
+        paths = sorted(e["path"] for e in self.rows(q["q7"], "review-workflow"))
+        self.assertEqual(paths, [".github/workflows/ci.yml", ".github/workflows/claude-code-review.yml"])
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_q11_names_the_code_half_when_git_holds_history(self):
+        self.clean_app()
+        self.init_repo(commits=3)
+        q11 = self.scan()["questions"]["q11"]
+        self.assertEqual(q11["answer"], "dont-know", "the data half is still the founder's")
+        row = self.rows(q11, "code-history-local")
+        self.assertEqual(len(row), 1)
+        self.assertIn("3 commits", row[0]["snippet"])
+
+    def test_q11_without_git_has_no_history_row(self):
+        self.clean_app()
+        self.assertEqual(self.rows(self.scan()["questions"]["q11"], "code-history-local"), [])
+
+    def test_nothing_found_is_never_a_no_and_never_on_a_partial_scan(self):
+        self.clean_app()
+        self.write("package.json", json.dumps({"dependencies": {"next": "15"}}))
+        self.write("supabase/migrations/1.sql", "select 1;\n")
+        full = self.scan()
+        self.write("src/big.ts", "x" * 600000)
+        part = self.scan()
+        self.assertTrue(part["partial"])
+        self.assertEqual({k for k, v in full["questions"].items() if k != "q5" and v["answer"] == "nothing-found"}, {"q1", "q3", "q9"})
+        for q in cs.iter_questions(part):
+            self.assertNotEqual(q["answer"], "nothing-found")
+
+    def test_docs_define_nothing_found_as_dont_know_for_the_door(self):
+        def read(*parts):
+            with open(os.path.join(SKILL_DIR, *parts), encoding="utf-8") as fh:
+                return fh.read()
+        skill = read("SKILL.md")
+        door = skill.split("## Door rule")[1].split("\n## ")[0]
+        self.assertIn("Nothing found counts as Don't know", door)
+        doors = read("references", "tiers-and-doors.md")
+        self.assertIn("Nothing found counts as Don't know", doors.split("### Door rule")[1].split("###")[0])
+        template = read("assets", "verdict-template.md")
+        eleven_first_row = template.split("## The eleven")[1].split("\n")[3]
+        self.assertIn("nothing found", eleven_first_row.lower())
+        self.assertIn("- **Nothing found:**", template)
+        self.assertIn("`nothing-found`", read("references", "questions.md"))
+        self.assertIn("nothing-found", skill.split("**Accept the output only if**")[1].split("\n\n")[0])
 
 if __name__ == "__main__":
     unittest.main()

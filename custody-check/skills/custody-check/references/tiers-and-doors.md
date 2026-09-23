@@ -48,6 +48,8 @@ The founder ticks the stop-line in the answers block (`stop_line:`). Scanner evi
 3. Two or more of Q4, Q5, Q6, Q9 are no or Don't know → **Patch it**.
 4. Otherwise → **Ship it**.
 
+Nothing found counts as Don't know in every step above: it says the scanner looked properly, not that the running app is safe.
+
 Shelve it is never chosen by the tool; it is the founder's call, and the verdict says so when the Patch list would be longer than three items.
 
 ### Patch-list order

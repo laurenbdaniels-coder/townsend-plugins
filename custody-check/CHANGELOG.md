@@ -2,6 +2,14 @@
 
 The footer of every verdict names the version that produced it. Later entries carry a "What changed since the workshop" line so an attendee can tell whether an answer would come out differently today.
 
+## 0.3.0 (2026-09-23)
+
+What changed since the workshop build: "looked hard and found nothing" now reads differently from "did not look", and a folder of photos no longer makes the scan count as incomplete.
+
+- **Added.** A fourth answer, **Nothing found** (`nothing-found`), for Q1, Q3 and Q9. It means the scanner read the files that could hold the answer, ran every check, and came back empty, and the row says what it read ("214 files read: no key in browser code, no MCP token, no tracked env file"). It is only claimed on a complete scan, never for a question the scanner had nothing to read for (Q3 with no SQL or rules file stays Don't know), and it is never a yes: for the door it counts as Don't know, so no door changes. It stays on the Don't-know list with its by-hand test, because a file tree cannot see the running app.
+- **Added.** Evidence the scanner already had and did not show: Q2 now says how many code files it classified as browser, server or unclear; Q6 notes that a `vercel.json` or `netlify.toml` means preview deployments exist by default; Q7 sees a review bot on pull requests; Q11 says the code and its git history are on this machine. None of these changes an answer. They turn a bare "don't know" into one with something to look at.
+- **Fixed.** A large file only makes the scan partial when it is a kind that could hold a key or an access rule (code, HTML, JSON, YAML, TOML, SQL, rules, env). Before, one ordinary app with 99 large photos came back "scan incomplete" by default, and the verdict rule never lets an incomplete scan reach Ship it, so a healthy app was steered off the door for containing pictures. The footer still counts the skipped files, and a new stat, `files_skipped_oversize_relevant`, counts the ones that matter.
+
 ## 0.2.0 (2026-09-23)
 
 What changed since the workshop build: if AI drives part of your product, the check now asks six more questions about keeping it on rails.

@@ -10,7 +10,7 @@ Run it from the folder that CONTAINS the app:  python3 -I custody_scan.py --repo
 """
 import sys
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 _DOCS = "README.md#when-it-goes-wrong"
 HINTS = {
@@ -126,19 +126,21 @@ CHECKS = {
     "server-path-key-literal": ("q1", "evidence"), "non-client-key-literal": ("q1", "evidence"),
     "placeholder-key-literal": ("q1", "evidence"), "test-path-key-literal": ("q1", "evidence"),
     "scan-summary": ("q1", "evidence"),
-    "api-route-dir": ("q2", "hint"), "framework-config": ("q2", "hint"),
+    "nothing-found-keys": ("q1", "evidence"),
+    "api-route-dir": ("q2", "hint"), "framework-config": ("q2", "hint"), "client-server-split": ("q2", "hint"),
     "rls-disabled": ("q3", "no"), "policy-using-true": ("q3", "no"), "policy-select-true": ("q3", "evidence"), "policy-altered-true": ("q3", "evidence"), "policy-with-check-true": ("q3", "evidence"),
-    "policy-to-anon": ("q3", "evidence"), "storage-bucket-public-sql": ("q3", "evidence"),
+    "policy-to-anon": ("q3", "evidence"), "storage-bucket-public-sql": ("q3", "evidence"), "nothing-found-rules": ("q3", "evidence"),
     "firebase-rules-open": ("q3", "no"), "firebase-rules-public-read": ("q3", "evidence"), "storage-bucket-public": ("q3", "evidence"),
     "auth-path": ("q4", "evidence"), "auth-dependency": ("q4", "evidence"),
     "deploy-config": ("q5.code", "yes-part"), "migration-path": ("q5.code", "evidence"), "backup-script": ("q5.code", "evidence"),
     "git-history": ("q5.code", "evidence"), "git-not-a-repo": ("q5.code", "evidence"), "git-config-not-vouched": ("q5.code", "evidence"), "git-index-unread": ("q1", "evidence"), "git-unavailable": ("q5.code", "evidence"),
     "git-timeout": ("q5.code", "evidence"), "git-subdir": ("q5.code", "evidence"), "git-shallow": ("q5.code", "evidence"),
-    "env-name": ("q6", "yes-part"),
+    "env-name": ("q6", "yes-part"), "preview-deploys-default": ("q6", "evidence"),
+    "review-workflow": ("q7", "evidence"),
     "model-env-var": ("q8", "hint"), "model-literal": ("q8", "hint"), "spend-cap-word": ("q8", "hint"), "ai-sdk-dependency": ("q8", "hint"),
-    "monitoring-dependency": ("q9", "hint"), "sentry-config": ("q9", "hint"), "health-route": ("q9", "hint"), "cron-schedule": ("q9", "hint"),
+    "monitoring-dependency": ("q9", "hint"), "sentry-config": ("q9", "hint"), "health-route": ("q9", "hint"), "cron-schedule": ("q9", "hint"), "nothing-found-monitoring": ("q9", "evidence"),
     "pii-field": ("q10", "evidence"), "pii-form-input": ("q10", "evidence"),
-    "builder-file": ("q11", "evidence"), "builder-dependency": ("q11", "evidence"), "builder-readme": ("q11", "evidence"), "container-config": ("q11", "evidence"),
+    "builder-file": ("q11", "evidence"), "builder-dependency": ("q11", "evidence"), "builder-readme": ("q11", "evidence"), "container-config": ("q11", "evidence"), "code-history-local": ("q11", "evidence"),
 }
 QUESTION_KEYS = ["q1", "q2", "q3", "q4", "q5.code", "q5.data", "q6", "q7", "q8", "q9", "q10", "q11"]
 for _name, (_q, _e) in CHECKS.items():
@@ -214,6 +216,11 @@ API_ROUTE_PREFIXES = ("pages/api/", "app/api/", "api/", "server/", "netlify/func
 AUTH_SEGMENTS = {"auth", "authorize", "permissions", "rbac", "guards", "policy", "policies", "middleware", "proxy"}
 MONITOR_CONFIG_RE = re.compile(r"^(?:sentry\.[a-z.]*config\.[a-z]+|sentry\.properties|checkly\.config\.[a-z]+|uptimerobot[^/]*)$", re.I)
 HEALTH_PATH_RE = re.compile(r"(?:^|/)health(?:z|check|-check)?(?:\.[a-z]+)?$", re.I)
+REVIEW_ACTION_RE = re.compile(r"^[ \t]*(?:-[ \t]*)?uses:[ \t]*[\"']?(anthropics/claude-code-action|coderabbitai/[A-Za-z0-9_.-]{1,60}|reviewdog/[A-Za-z0-9_.-]{1,60})", re.M)
+PREVIEW_DEFAULTS = {"vercel.json": "Vercel previews every branch by default", "netlify.toml": "Netlify deploy previews on by default"}
+# every extension a Q1 or Q3 detector reads; an oversize file of any other kind (a photo, a font, a video)
+# cannot hide a key or an open rule, so skipping it leaves the scan complete
+Q1_Q3_EXTS = CODE_EXTS | HTML_EXTS | SQL_LIKE_EXTS | {".json", ".toml", ".yml", ".yaml"}
 
 
 class UsageError(Exception):
@@ -498,9 +505,14 @@ class ScanState(object):
         self.effects = dict((k, set()) for k in QUESTION_KEYS)
         self.env_names = set()
         self.deploy_configs = []
+        self.cls_counts = {"client": 0, "server": 0, "other": 0}
+        self.q1_files = 0
+        self.rule_files = 0
+        self.manifests = 0
+        self.dependencies = 0
         self.seen = set()
         self.warnings = []
-        self.stats = {"files_skipped_oversize": 0, "files_skipped_binary": 0, "files_skipped_generated": 0, "files_never_open": 0,
+        self.stats = {"files_skipped_oversize": 0, "files_skipped_oversize_relevant": 0, "files_skipped_binary": 0, "files_skipped_generated": 0, "files_never_open": 0,
                       "files_skipped_special": 0, "files_skipped_hardlink": 0, "files_errored": 0, "dirs_unreadable": 0, "dirs_truncated": 0, "mcp_capped": 0, "git_index_partial": 0, "output_trimmed": 0, "max_files_hit": False,
                       "max_total_bytes_hit": False, "deadline_hit": False, "config": {"exclude_dirs_added": [], "browser_prefixes_added": []}}
 
@@ -561,6 +573,19 @@ def is_never_open_dir(name, parent):
 def is_never_open_file(base):
     b = base.lower()
     return b in NEVER_OPEN_FILES or bool(NEVER_OPEN_FILE_RE.match(b))
+
+
+def could_hold_q1_q3(base, ext):
+    """A file a Q1 or Q3 detector would have read. Only skipping one of these leaves the scan incomplete."""
+    b = base.lower()
+    return ext in Q1_Q3_EXTS or is_env_file(b) or is_env_template(b) or b.endswith(".rules")
+
+
+def skip_oversize(state, base, ext):
+    state.stats["files_skipped_oversize"] += 1
+    if could_hold_q1_q3(base, ext):
+        state.stats["files_skipped_oversize_relevant"] += 1
+        state.partial = True
 
 
 def is_generated(base):
@@ -850,8 +875,7 @@ def _strip_scheme(value):
 def detect_mcp(sf, state, opts):
     text = sf.text
     if len(text) > MCP_MAX_CHARS:
-        state.stats["files_skipped_oversize"] += 1
-        state.partial = True
+        skip_oversize(state, sf.base, ".json")
         return
     counter = {}
     try:
@@ -1054,6 +1078,8 @@ def detect_manifest(sf, state, opts):
             m = re.match(r"^([A-Za-z0-9_.@/-]+)", line)
             if m:
                 names.add(m.group(1).lower())
+    state.manifests += 1
+    state.dependencies += len(names)
     counter = {}
     for name in sorted(names):
         lname = name.lower()
@@ -1080,6 +1106,8 @@ def detect_model_hints(sf, state, opts):
 
 def detect_workflow(sf, state, opts):
     _finditer_lines(CRON_WORKFLOW_RE, sf.text, sf, state, "cron-schedule", {}, lambda m: "cron")
+    if "review" not in sf.base.lower():  # a file already named for review has its row from the layout pass
+        _finditer_lines(REVIEW_ACTION_RE, sf.text, sf, state, "review-workflow", {}, lambda m: m.group(1))
 
 
 def detect_pii_schema(sf, state, opts):
@@ -1163,6 +1191,11 @@ def layout_checks(rel, base, state):
     if is_deploy:
         state.deploy_configs.append(rel)
         state.add("deploy-config", rel, 0, "")
+    if b in PREVIEW_DEFAULTS and not dirs:
+        state.add("preview-deploys-default", rel, 0, PREVIEW_DEFAULTS[b])
+    if (len(dirs) >= 2 and dirs[0] == ".github" and dirs[1] == "workflows" and "review" in b and (b.endswith(".yml") or b.endswith(".yaml"))) \
+            or b in (".coderabbit.yaml", ".coderabbit.yml"):
+        state.add("review-workflow", rel, 0, "")
     if fly:
         _env_name(state, rel, fly.group(1), 0)
     m = re.match(r"^\.env\.([a-z0-9_-]+)$", b)
@@ -1681,8 +1714,7 @@ def run_scan(repo, state, opts):
                 state.stats["files_skipped_generated"] += 1
                 continue
             if st.st_size > opts.max_file_bytes:
-                state.stats["files_skipped_oversize"] += 1
-                state.partial = True
+                skip_oversize(state, base, ext)
                 continue
             opened = open_regular(full)
             if opened is None:
@@ -1691,8 +1723,7 @@ def run_scan(repo, state, opts):
             fd, size = opened
             try:
                 if size > opts.max_file_bytes:
-                    state.stats["files_skipped_oversize"] += 1
-                    state.partial = True
+                    skip_oversize(state, base, ext)
                     continue
                 if total_bytes + size > opts.max_total_bytes:
                     state.stats["max_total_bytes_hit"] = True
@@ -1718,6 +1749,12 @@ def run_scan(repo, state, opts):
             try:
                 cls, kinds = classify(rel, base, ext, text)
                 sf = ScanFile(rel, base, ext, cls, kinds, text)
+                if "code" in kinds or "html" in kinds:
+                    state.cls_counts[cls] += 1
+                if _pred_code_or_env(sf) or "mcp" in kinds:
+                    state.q1_files += 1
+                if kinds & {"sql", "rules", "supabase-config"}:
+                    state.rule_files += 1
                 if _q1_gate(sf, opts):
                     claimed = []
                     detect_browser_prefix(sf, state, opts, claimed)
@@ -1743,25 +1780,59 @@ def _q(answer, confidence, evidence):
     return {"answer": answer, "confidence": confidence, "evidence": list(evidence)}
 
 
+def _n(count, noun, plural=None):
+    return "%d %s" % (count, noun if count == 1 else (plural or noun + "s"))
+
+
+def _row(check, snippet):
+    """A row the resolver writes about the scan itself: no path, no line, never app text."""
+    return {"path": "", "line": 0, "snippet": sanitize(snippet), "check": check}
+
+
 def resolve(state):
+    """`nothing-found` means the scanner read the files that could answer and every check came back empty.
+    It is only ever claimed on a complete scan, never on a question the walk had nothing to read for, and
+    it is never a `no`: a founder told "nothing found" still has the by-hand test to run."""
     ev = state.evidence
     ef = state.effects
     out = {}
+    complete = not state.partial
 
-    def summary(key):
+    def summary(key, tail=""):
         if not ev[key]:
-            return [{"path": "", "line": 0, "snippet": "%d files scanned, 0 hits" % state.files_scanned, "check": "scan-summary"}]
+            return [_row("scan-summary", "%d files scanned, 0 hits%s" % (state.files_scanned, tail))]
         return ev[key]
 
-    for key in ("q1", "q3"):
-        if "no" in ef[key]:
-            out[key] = _q("no", "high", ev[key])
-        else:
-            out[key] = _q("dont-know", "med", summary(key))
-    for key in ("q2", "q8", "q9"):
-        out[key] = _q("dont-know", "med" if ev[key] else "low", ev[key])
-    for key in ("q4", "q7", "q10", "q11"):
+    if "no" in ef["q1"]:
+        out["q1"] = _q("no", "high", ev["q1"])
+    elif complete and not ev["q1"] and state.q1_files:
+        env = "no tracked env file" if state.git["tracked_env_files"] is not None else "no env file"
+        out["q1"] = _q("nothing-found", "med", [_row("nothing-found-keys", "%s read: no key in browser code, no MCP token, %s" % (_n(state.q1_files, "file"), env))])
+    else:
+        out["q1"] = _q("dont-know", "med", summary("q1"))
+    if "no" in ef["q3"]:
+        out["q3"] = _q("no", "high", ev["q3"])
+    elif complete and not ev["q3"] and state.rule_files:
+        out["q3"] = _q("nothing-found", "med", [_row("nothing-found-rules", "%s read: no RLS disabled, no using (true), no open Firebase rule" % _n(state.rule_files, "rule file"))])
+    else:
+        out["q3"] = _q("dont-know", "med", summary("q3", "" if state.rule_files else "; no SQL or security-rules file among them"))
+    q2 = list(ev["q2"])
+    code_files = sum(state.cls_counts.values())
+    if code_files:
+        c = state.cls_counts
+        q2.insert(0, _row("client-server-split", "%d code files: %d as browser code, %d as server code, %d unclear" % (code_files, c["client"], c["server"], c["other"])))
+    out["q2"] = _q("dont-know", "med" if q2 else "low", q2[:MAX_EVIDENCE])
+    out["q8"] = _q("dont-know", "med" if ev["q8"] else "low", ev["q8"])
+    if complete and not ev["q9"] and state.manifests:
+        out["q9"] = _q("nothing-found", "med", [_row("nothing-found-monitoring", "%s read: no error tracking, no Sentry config, no health route, no cron" % _n(state.dependencies, "dependency", "dependencies"))])
+    else:
+        out["q9"] = _q("dont-know", "med" if ev["q9"] else "low", ev["q9"])
+    for key in ("q4", "q7", "q10"):
         out[key] = _q("dont-know", "low", ev[key])
+    q11 = list(ev["q11"])
+    if state.git["commits"]:
+        q11.insert(0, _row("code-history-local", "the code is on this machine with %d commits; the data export is yours to check" % state.git["commits"]))
+    out["q11"] = _q("dont-know", "low", q11[:MAX_EVIDENCE])
     code_ev = ev["q5.code"]
     if state.git["commits"] is None:
         code = _q("dont-know", "low", code_ev)

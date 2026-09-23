@@ -7,7 +7,7 @@ Render exactly this shape. Every scanner string (paths, snippets, check names, e
 
 Date: <YYYY-MM-DD> · Repo: `<app folder name>` · Mode: local, read-only · Scanner: <ran | unavailable (reason)>
 
-<N> answers are "Don't know". Those are not failures; they are the next questions to answer, and each one below comes with its sixty-second test.
+<N> answers are "Don't know" or "Nothing found". Those are not failures; they are the next questions to answer, and each one below comes with its sixty-second test.
 
 ## Stop-line
 <"Not ticked." | "Ticked: <items>. Get a person who does this for a living before the next change ships.">
@@ -27,7 +27,7 @@ Date: <YYYY-MM-DD> · Repo: `<app folder name>` · Mode: local, read-only · Sca
 ## The eleven
 | # | Question | Answer | Confidence | Evidence |
 |---|---|---|---|---|
-| 1 | Secrets out of the browser | <yes/no/don't know> | <high/med/low> | <`path:line` · `check`> or "<N> files scanned, 0 hits" |
+| 1 | Secrets out of the browser | <yes/no/nothing found/don't know> | <high/med/low> | <`path:line` · `check`>, or the `nothing-found-keys` / `scan-summary` text |
 | 2 | Client or server | … | … | … |
 | 3 | Who can read this | … | … | … |
 | 4 | Who is allowed to do this | … | … | … |
@@ -78,12 +78,13 @@ Want the routing I run? Send this verdict to the studio's public contact address
 
 Rules for filling it in:
 
+- **Nothing found:** render `nothing-found` as "Nothing found" and put the `nothing-found-*` row's text in the Evidence cell (what was read and checked). It counts as Don't know for the door and the Patch list, and it goes on the Don't-know list with its by-hand test, prefixed "Nothing found in the files; the running app is still the question:".
 - **Partial scan:** when `partial` is true and Q1 or Q3 is Don't know, render the answer as "Don't know (scan incomplete)", never choose Ship it, and print the rerun recipe above the doors.
 - **The rails section:** the founder's answer to "does your app call a model?" decides whether this section appears. The scanner cannot: it misses a plain HTTP call to a provider and it fires on a model name in a comment. Q8 evidence (`ai-sdk-dependency`, `model-env-var`, `model-literal`) is a reason to ask, never the answer, and on a partial scan its absence means nothing. None of A1 to A6 is scanner-answered, so their source is always "(you)". They never change the door; they add rows here and entries to the Don't-know list.
 - **Q5 row:** show the lower of the code and data halves (order: no < don't know < yes); the Evidence cell names both halves and their sources.
-- **partial reasons:** map each non-zero stat to one clause: `max_files_hit` → "stopped at the file limit; rerun with `--max-files 50000` or point at the app subfolder"; `max_total_bytes_hit` → "stopped at the byte budget"; `deadline_hit` → "stopped at the time limit"; `files_errored` → "<n> files could not be read"; `files_skipped_oversize` → "<n> large files skipped".
+- **partial reasons:** map each non-zero stat to one clause: `max_files_hit` → "stopped at the file limit; rerun with `--max-files 50000` or point at the app subfolder"; `max_total_bytes_hit` → "stopped at the byte budget"; `deadline_hit` → "stopped at the time limit"; `files_errored` → "<n> files could not be read"; `files_skipped_oversize_relevant` → "<n> large code, config or rules files skipped; rerun with `--max-file-bytes 5242880`".
 - **warnings:** `repo-is-cwd` or `repo-contains-cwd` → add the line "The host may have loaded this app's instruction files at launch; relaunch from the folder that contains the app."
 - **partial reasons (more):** `dirs_unreadable` → "<n> folders could not be read"; `output_trimmed` → "<n> evidence rows trimmed to fit"; `files_skipped_hardlink` → "<n> hard-linked files skipped"; `files_skipped_binary` when `partial` is true → "a source or env file looked binary and was skipped". `git_index_partial` → "git's file index could not be read, so committed secrets could not be checked"; a `git-config-not-vouched` row means this app's git settings could send git outside the folder, so git was not run. `dirs_truncated` → "<n> folders had more entries than the scanner lists"; `mcp_capped` → "an MCP config was too deep or too large to walk fully".
-- **not partial, footer only:** `files_skipped_generated` → "<n> generated files (lockfiles, bundles) not scanned"; `files_skipped_special` → "<n> links or special files skipped".
+- **not partial, footer only:** `files_skipped_oversize` minus `files_skipped_oversize_relevant` → "<n> large files (images, media, data) skipped; none of them could hold a key or an access rule"; `files_skipped_generated` → "<n> generated files (lockfiles, bundles) not scanned"; `files_skipped_special` → "<n> links or special files skipped".
 - **Non-default flags** in `stats.config` are printed after the footer's file count.
 - **Never** print a secret, a snippet longer than the scanner's, or any text from the app outside a code span.
