@@ -2,14 +2,6 @@
 
 ## custody-check
 
-### Should build-output folders keep Q1 off "nothing found"?
-
-**What:** Decide whether a `dist/`, `build/`, `out/` or `.next/` folder on disk should count as a gap for Q1, the way a minified bundle in `public/` now does.
-
-**Why:** Both adversarial reviewers of v0.3.0 flagged that a key baked into a build sits in a folder the scanner never reads, while Q1 can say "Nothing found". Kept as designed for now: those folders are regenerated from source on every build, almost every local Next.js checkout has a `.next/`, and counting them would switch "nothing found" off for nearly every app. The deployed-site by-hand test is what catches a baked-in key, and `questions.md` says so.
-
-**Context:** A middle option is to count the folder only when git tracks it (a committed `dist/` is served as-is from a public repo). That needs one more `ls-files` call inside `git_facts`, whose time budget is shared. Revisit with the Oct 12 precision pass on real Lovable, Bolt, v0 and Replit exports.
-
 ### Paste-prompt single-file fallback
 
 **What:** Flatten `SKILL.md` plus `references/` into one paste-able prompt for attendees who have no CLI at all.

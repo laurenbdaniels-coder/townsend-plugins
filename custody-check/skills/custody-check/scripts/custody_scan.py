@@ -57,6 +57,7 @@ import warnings
 
 # ----------------------------------------------------------------- constants
 
+BUILD_OUTPUT_DIRS = {"dist", "build", "out"}  # skipped like the rest, but people also keep source under these names
 EXCLUDED_DIRS = {".git", "node_modules", "dist", "build", ".next", ".nuxt", "out", "vendor", "venv", ".venv", "__pycache__", "coverage"}
 NEVER_OPEN_DIRS = {".claude", ".codex", ".agents", ".windsurf", ".clinerules", ".gemini", ".kiro", ".roo", ".trae", ".augment", ".amazonq", ".junie", ".continue", ".aider", ".opencode"}
 NEVER_OPEN_DIR_PAIRS = {(".cursor", "rules"), (".github", "instructions"), (".github", "prompts"), (".github", "agents")}
@@ -126,7 +127,7 @@ CHECKS = {
     "server-path-key-literal": ("q1", "evidence"), "non-client-key-literal": ("q1", "evidence"),
     "placeholder-key-literal": ("q1", "evidence"), "test-path-key-literal": ("q1", "evidence"),
     "scan-summary": ("q1", "evidence"),
-    "nothing-found-keys": ("q1", "evidence"),
+    "nothing-found-keys": ("q1", "evidence"), "build-output-unread": ("q1", "evidence"),
     "api-route-dir": ("q2", "hint"), "framework-config": ("q2", "hint"), "client-server-split": ("q2", "hint"),
     "rls-disabled": ("q3", "no"), "policy-using-true": ("q3", "no"), "policy-select-true": ("q3", "evidence"), "policy-altered-true": ("q3", "evidence"), "policy-with-check-true": ("q3", "evidence"),
     "policy-to-anon": ("q3", "evidence"), "table-without-rls": ("q3", "evidence"), "storage-bucket-public-sql": ("q3", "evidence"), "nothing-found-rules": ("q3", "evidence"),
@@ -1725,6 +1726,8 @@ def run_scan(repo, state, opts):
         for d in sorted(dirnames, key=_walk_key):
             full = os.path.join(dirpath, d)
             if d.lower() in EXCLUDED_DIRS:
+                if d.lower() in BUILD_OUTPUT_DIRS:
+                    state.add("build-output-unread", (rel_dir + "/" + d) if rel_dir else d, 0, "")  # evidence, so Q1 stays Don't know
                 continue
             try:
                 if os.path.islink(full):

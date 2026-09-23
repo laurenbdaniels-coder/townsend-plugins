@@ -3483,6 +3483,21 @@ class NothingFoundGapTests(ScanCase):
         self.assertEqual(self.q("q1", exclude_dirs=["secret"])["answer"], "dont-know", "the founder excluded a folder")
         self.assertNotEqual(self.q("q1")["answer"], "nothing-found")  # read without the exclude: the key is evidence
 
+    def test_a_build_folder_can_hold_source_so_it_blocks_q1(self):
+        # found on a real app: a prototype whose whole source lived in build/part*.js
+        self.write("app.html", "<html></html>\n")
+        self.write("build/part2-data.js", "export const d = 1;\n")
+        self.write("packages/ui/dist/index.js", "export const e = 1;\n")
+        q1 = self.q("q1")
+        self.assertEqual(q1["answer"], "dont-know")
+        rows = sorted(e["path"] for e in q1["evidence"] if e["check"] == "build-output-unread")
+        self.assertEqual(rows, ["build", "packages/ui/dist"])
+        shutil.rmtree(os.path.join(self.repo, "build"))
+        shutil.rmtree(os.path.join(self.repo, "packages"))
+        self.write(".next/server/app.js", "x\n")  # a framework cache is never source
+        self.write("node_modules/x/index.js", "x\n")
+        self.assertEqual(self.q("q1")["answer"], "nothing-found")
+
     def test_overlong_values_block_q1(self):
         self.base_app()
         self.write(".mcp.json", json.dumps({"mcpServers": {"a": {"env": {"TOKEN": "sk-" + "a1" * 4600}}}}))
