@@ -73,15 +73,15 @@ Look for a fenced block headed `Founder answers` in the conversation (shape in `
 
 If there is no block, ask **one question at a time**, only for questions still at Don't know, in this order: `next_change` and `stop_line` first (they decide the tier and the door), then Q5 data half, then Q7, Q8, Q9, Q10, Q11, Q2, Q4, then Q1/Q3/Q5 code/Q6 only if the scanner did not run. Offer the by-hand test with each question. Accept "don't know" immediately and move on; never argue.
 
-## If the app calls a model
+## If AI drives part of the product
 
-When the scanner's Q8 evidence contains `ai-sdk-dependency`, `model-env-var` or `model-literal`, the app calls a model, and `references/questions.md` has five more questions (A1 latency, A2 prompt hygiene, A3 evals, A4 fallback, A5 the provider changing the model under you). Ask them after the eleven, one at a time, same rules: the founder answers, "don't know" is accepted immediately, each carries its sixty-second test.
+When the scanner's Q8 evidence contains `ai-sdk-dependency`, `model-env-var` or `model-literal`, the app calls a model, and `references/questions.md` has six more (A1 latency, A2 where prompts live, A3 is production running what was tested, A4 evals and whether the examples were tuned on, A5 fallback, A6 the model or the product moving under them). Ask them after the eleven, one at a time, same rules: the founder answers, "don't know" is accepted immediately, each carries its sixty-second test.
 
-None of the five is scanner-answered. `spend-cap-word` hints at A1 and `model-literal` at A5, and neither decides anything. If the scanner did not run, ask the founder whether the app calls a model and go from there.
+None is scanner-answered. `spend-cap-word` hints at A1 and `model-literal` at A3 and A6, and neither decides anything. If the scanner did not run, ask whether the app calls a model and go from there.
 
-Close with the training question: "do you train or fine-tune your own model?" Nearly every founder says no, and that is the answer, said out loud. Only on a yes, ask the three in the reference (split by time, serve what you trained, refresh the answer key).
+Ask about training last and only in passing: "do you train or fine-tune your own model?" Nearly every founder says no, which is the answer. On a yes, name the training-shaped version of A3, A4 and A6 from the reference.
 
-These five never change the door. The door rule is the eleven. They add rows to the verdict and items to the Don't-know list.
+These six never change the door. The door rule is the eleven. They add rows to the verdict and entries to the Don't-know list.
 
 ## Tier the next change
 

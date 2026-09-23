@@ -91,11 +91,11 @@ Two halves, scored separately; the verdict shows the lower one.
 - Scanner evidence: `builder-file`, `builder-dependency`, `builder-readme`, `container-config` name the platform; the defaults are the question.
 - **By hand (60 s):** find the export or download button for both the code and the data. Click the data one and open the file.
 
-# If your app calls a model: five more
+# If AI drives part of your product: keeping it on rails
 
-Ask these **only when the app calls a model** (the scanner's Q8 evidence says whether it does: `ai-sdk-dependency`, `model-env-var`, `model-literal`). They are the failure modes that belong to the model, not to the code, and none of them shows up as a red light. Same rules as the eleven: Yes and No come from you, Don't know is the next thing to find out, and each has a sixty-second test.
+Ask these **only when the app calls a model** (the scanner's Q8 evidence says whether it does: `ai-sdk-dependency`, `model-env-var`, `model-literal`). The model is not a library that does the same thing every time. It is a moving part inside your product, and these are the six ways it wanders off without anything turning red.
 
-The eleven already cover the ones that are really software questions wearing an AI hat: rollback is Q5, the bill is Q8, would-you-notice is Q9, and who-can-read-this is Q1, Q3, Q4 and Q10. These five are what is left.
+The eleven already cover the ones that are really software questions wearing an AI hat: rollback is Q5, the bill is Q8, would-you-notice-it-is-down is Q9, and who-can-read-this is Q1, Q3, Q4 and Q10. These six are what is left. Same rules: Yes and No come from you, "Don't know" is the next thing to find out, and each carries a sixty-second test.
 
 ## A1. How slow is too slow, and what happens then? (Plan)
 
@@ -103,29 +103,36 @@ Slow is not just annoying. Past a few seconds a user assumes it is broken, refre
 
 - **Yes** only from you: you can say the number ("four seconds") and what the app does when it is exceeded (a timeout, a cached answer, a smaller model, a queue with a progress state).
 - **No** only from you: there is no timeout, so a hung provider call hangs the user.
-- **Don't know** otherwise, which is where most prototypes sit.
 - Scanner hints: `spend-cap-word` picks up `maxDuration` and its relatives; it shows a limit exists somewhere, never that it is the right one.
 - **By hand (60 s):** use the slowest real path in your app and count out loud. Then turn your wifi off mid-request and watch what the user sees.
 
 ## A2. Where do your prompts live, and which version produced this answer? (Diff review)
 
-Prompts pasted into three files and edited in place are the AI version of code with no source control. When an answer goes wrong you cannot tell which wording caused it.
+Prompts pasted into three files and edited in place are the AI version of code with no source control. When an answer goes wrong you cannot tell which wording caused it, and you cannot go back.
 
 - **Yes** only from you: prompts live in one place, in version control, and you can tell which version produced a given answer.
 - **No** only from you: the same instruction is copy-pasted in more than one place, or prompts are edited live in a dashboard with no history.
 - Scanner hints: none that are decisive. A prompt is just a string, and the scanner will not read your app's instruction files by design.
 - **By hand (60 s):** search your repository for a distinctive sentence from your main prompt. If it appears more than once, that is the answer.
 
-## A3. How do you know a change made it better, not just different? (Verify)
+## A3. Is production running what you actually tested? (Ship)
 
-"It looked good" is not a signal. It is the same green light the rest of this handout is about, with a human being the checkmark.
+The version of this that bites people who train models is called training and serving skew: the data is prepared one way in training and another way in production, so the model is quietly answering a different question than the one you tested. You do not have to train anything to have exactly that problem. The prompt you tried in a playground is not the prompt your code assembles: different surrounding context, a different temperature, sometimes a different model, and in production it is built from user input you did not have in front of you.
 
-- **Yes** only from you: a set of saved examples with expected outcomes, run before and after a change, with a number that moves.
-- **No** only from you: changes ship on a read-through of one or two outputs.
-- **Don't know** if you have examples but never run them the same way twice.
-- **By hand (60 s):** take the last prompt change you made. Can you say what got better, in a number? If not, save ten real inputs now, with what a good answer looks like. That is an eval set, and ten is enough to start.
+- **Yes** only from you: you have seen the exact final prompt a real production request sent, with its model and settings, and it matches what you evaluated.
+- **No** only from you: you tuned it in a console and shipped something assembled in code, and you have never compared the two.
+- Scanner hints: `model-literal` shows which model names appear in the code. Two different model names in two places is worth a look.
+- **By hand (60 s):** log one real production request in full, the assembled prompt and the settings, and read it next to what you tested. People are usually surprised.
 
-## A4. When the model is wrong, refuses, or is down, what does the user see? (Build)
+## A4. Does a change make it better, and are you judging on examples you did not tune on? (Verify)
+
+"It looked good" is not a signal. It is the same green light as the rest of this handout with a person as the checkmark. And there is a trap underneath it: if you edited the prompt until your examples passed, those examples stopped measuring anything the moment you did. That is the same mistake as training a model on its own test data, and you can make it by hand in an afternoon.
+
+- **Yes** only from you: a set of saved examples with expected outcomes, run before and after a change, with a number that moves, and some of them held back from the ones you tuned against.
+- **No** only from you: changes ship on a read-through of one or two outputs, or every example you have is one you tweaked the prompt to pass.
+- **By hand (60 s):** take your examples. Were any of them used to decide the current wording? Those measure your memory, not your product. Hold ten back and never look at them while editing.
+
+## A5. When the model is wrong, refuses, or is down, what does the user see? (Build)
 
 It will be wrong. The question is only whether the wrongness has somewhere to go.
 
@@ -134,24 +141,24 @@ It will be wrong. The question is only whether the wrongness has somewhere to go
 - Scanner hints: none. A fallback is behaviour, not a file.
 - **By hand (60 s):** put a wrong API key in your non-live copy and use the app as a user. Whatever you see is your fallback.
 
-## A5. The provider changes the model under you. Would you notice? (Watch)
+## A6. The model changed, or your product did. Would you notice? (Watch)
 
-You did not change anything and the answers changed anyway. This is Q9 pointed at quality instead of uptime: an app can be perfectly up and quietly worse.
+Two ways the ground moves under a working app, and neither turns anything red. The provider ships a new model behind the name you are using, so you changed nothing and the answers changed anyway. Or your product moved (new pricing, new policy, new copy) and the examples you check against still describe the old one, so they pass and tell you nothing. The second is what people who train models call ground truth decay; you get it for free without training anything.
 
-- **Yes** only from you: the model name is pinned to a specific version, and you re-run the examples from A3 when you change it.
-- **No** only from you: the model is a floating alias and nothing re-runs.
-- Scanner hints: `model-literal` shows which model names appear in the code; a name without a version is worth a look.
-- **By hand (60 s):** find the model name in your code. If it has no date or version in it, you are on whatever the provider ships today.
+- **Yes** only from you: the model name is pinned to a specific version, you re-run the examples from A4 when you change it, and you can say when those examples were last refreshed against what the product does today.
+- **No** only from you: the model is a floating alias and nothing re-runs, or the examples have not been looked at since you wrote them.
+- Scanner hints: `model-literal` shows which model names appear in the code; a name without a date or version in it is worth a look.
+- **By hand (60 s):** find the model name in your code. If it has no version, you are on whatever the provider ships today. Then open your oldest saved example and ask whether it still describes the product you have.
 
-## Only if you train or fine-tune your own model
+## If you do train or fine-tune your own model
 
-Most founders with a prototype answer no to this and stop here, which is the right answer and worth saying out loud. If you do train, three more, and they are the ones that fail silently:
+Most founders with a prototype do not, and that is a real answer worth saying out loud. If you do, three of the questions above have a training-shaped version and one more joins them:
 
-- **Split by time, not at random.** If yesterday's data can teach the model about today, your test scores are fiction. Sort by date and cut; never shuffle first.
-- **Serve what you trained.** The same input must be prepared the same way in training and in production. When those drift apart the model is quietly answering a different question than the one you tested.
-- **Refresh the answer key.** Labels made a year ago describe a world that has moved. An eval set nobody refreshes stops measuring reality and starts measuring the past.
+- **A3 becomes training and serving skew:** prepare inputs the same way in training and in production.
+- **A4 becomes data leakage:** split by time and never shuffle first, or yesterday teaches the model about today and your scores are fiction.
+- **A6 becomes ground truth decay:** refresh the labels your eval is scored against.
 
-Each is a Yes/No/Don't know like the rest, and the sixty-second test for all three is the same: open your training script and find the line where the data is split. If it shuffles, or if you cannot find it, that is your answer.
+The sixty-second test for all three is the same: open your training script, find the line where the data is split, and if it shuffles, that is your answer.
 
 ## All check names
 

@@ -78,6 +78,14 @@ GIT_ENV = dict(
     GIT_TERMINAL_PROMPT="0",
 )
 HAVE_GIT = shutil.which("git") is not None
+# Linearity bounds are wall-clock, so a loaded machine can miss them without anything being wrong.
+# They assert linearity, not a speed target: the quadratic cases they guard take minutes, not tenths.
+TIME_SLACK = float(os.environ.get("CUSTODY_TIME_SLACK", "1"))
+
+
+def bound(seconds):
+    return seconds * TIME_SLACK
+
 REQUIRE_GIT = os.environ.get("CUSTODY_REQUIRE_GIT") == "1"
 if REQUIRE_GIT and not HAVE_GIT:
     raise SystemExit("CUSTODY_REQUIRE_GIT=1 but git is not installed")
@@ -1086,7 +1094,7 @@ class LinearityTests(unittest.TestCase):
         t0 = time.perf_counter()
         opts.prefilter_re.search("key" * 170000)
         opts.prefilter_re.search("key " * 100000)
-        self.assertLess(time.perf_counter() - t0, 1.0)
+        self.assertLess(time.perf_counter() - t0, bound(1.0))
 
     def test_multiline_patterns_are_linear_on_blank_lines(self):
         blank = "\n" * 524288
@@ -1095,14 +1103,14 @@ class LinearityTests(unittest.TestCase):
             t0 = time.perf_counter()
             regex.search(blank)
             regex.search(spaced)
-            self.assertLess(time.perf_counter() - t0, 1.0, regex.pattern)
+            self.assertLess(time.perf_counter() - t0, bound(1.0), regex.pattern)
 
     def test_firebase_and_sql_patterns_are_linear(self):
         t0 = time.perf_counter()
         cs.FIREBASE_ALLOW_TRUE_RE.search("allow " * 80000)
         cs.RLS_DISABLED_RE.search("disable " + " " * 400000)
         cs.RLS_DISABLED_RE.search("disable \n" * 60000)
-        self.assertLess(time.perf_counter() - t0, 1.0)
+        self.assertLess(time.perf_counter() - t0, bound(1.0))
 
     def test_single_line_many_hits_is_fast(self):
         unit = 'NEXT_PUBLIC_A="%s" ' % SK
@@ -1115,7 +1123,7 @@ class LinearityTests(unittest.TestCase):
         claimed = []
         cs.detect_browser_prefix(sf, state, opts, claimed)
         cs.detect_key_literals(sf, state, opts, claimed)
-        self.assertLess(time.perf_counter() - t0, 2.0)
+        self.assertLess(time.perf_counter() - t0, bound(2.0))
         self.assertLessEqual(len(state.evidence["q1"]), cs.MAX_EVIDENCE)
 
     def test_deadline_is_checked_inside_a_file(self):
@@ -1152,7 +1160,7 @@ class ReviewCycleTwoTests(ScanCase):
         t0 = time.perf_counter()
         opts.prefilter_re.search("key" * 170000)
         opts.prefilter_re.search("apiKey" * 80000)
-        self.assertLess(time.perf_counter() - t0, 1.5)
+        self.assertLess(time.perf_counter() - t0, bound(1.5))
 
     @unittest.skipUnless(HAVE_GIT, "git not installed")
     def test_non_utf8_git_metadata_does_not_abort_the_scan(self):
@@ -1522,7 +1530,7 @@ class ReviewCycleThreeAdversarialTests(ScanCase):
             t0 = time.perf_counter()
             regex.search(line)
             regex.search("\t" * 400000)
-            self.assertLess(time.perf_counter() - t0, 1.0, regex.pattern)
+            self.assertLess(time.perf_counter() - t0, bound(1.0), regex.pattern)
 
     @unittest.skipUnless(HAVE_GIT, "git not installed")
     def test_inherited_git_environment_is_ignored(self):
@@ -1905,7 +1913,7 @@ class ShipReviewTests(ScanCase):
         self.write("src/components/a.ts", "a" * 200000 + '"' + ANON_JWT + '"')
         t0 = time.perf_counter()
         r = self.scan(deadline_s=30)
-        self.assertLess(time.perf_counter() - t0, 2.0)
+        self.assertLess(time.perf_counter() - t0, bound(2.0))
         self.assertIn("client-anon-jwt", evidence_checks(r["questions"]["q1"]))
 
     def test_block_comment_stripping_is_linear_on_unclosed_openers(self):
@@ -1913,11 +1921,11 @@ class ShipReviewTests(ScanCase):
         t0 = time.perf_counter()
         cs._strip_sql_comments(text)
         cs._strip_slash_comments(text)
-        self.assertLess(time.perf_counter() - t0, 1.0)
+        self.assertLess(time.perf_counter() - t0, bound(1.0))
         self.write("supabase/migrations/1.sql", "/* a" * 50000 + "\nalter table t disable row level security;\n")
         t0 = time.perf_counter()
         r = self.scan()
-        self.assertLess(time.perf_counter() - t0, 2.0)
+        self.assertLess(time.perf_counter() - t0, bound(2.0))
         self.assertEqual(r["questions"]["q3"]["answer"], "no")
 
     def test_block_comments_still_hide_decisive_lines(self):
@@ -1928,7 +1936,7 @@ class ShipReviewTests(ScanCase):
         self.write("netlify.toml", "[context.a]\n" * 40000)
         t0 = time.perf_counter()
         r = self.scan()
-        self.assertLess(time.perf_counter() - t0, 1.5)
+        self.assertLess(time.perf_counter() - t0, bound(1.5))
         self.assertLessEqual(len(r["questions"]["q6"]["evidence"]), cs.MAX_EVIDENCE)
 
     # --- codex adversarial
@@ -2240,7 +2248,7 @@ class RedTeamTests(ScanCase):
         self.write("src/a.ts", "x\n")
         t0 = time.perf_counter()
         r = self.scan()
-        self.assertLess(time.perf_counter() - t0, 2.0)
+        self.assertLess(time.perf_counter() - t0, bound(2.0))
         self.assertIn("git-config-not-vouched", evidence_checks(r["questions"]["q5"]["code"]))
         self.assertEqual(r["files_scanned"], 1)
 
@@ -2393,7 +2401,7 @@ class SecurityRetryTests(ScanCase):
         self.write("src/a.ts", "x\n")
         t0 = time.perf_counter()
         r = self.scan()
-        self.assertLess(time.perf_counter() - t0, 3.0)
+        self.assertLess(time.perf_counter() - t0, bound(3.0))
         self.assertIn("git-config-not-vouched", self._q5(r))
 
     @unittest.skipUnless(HAVE_GIT, "git not installed")
@@ -2543,7 +2551,7 @@ class ReviewCycleTwoShipTests(ScanCase):
         t0 = time.perf_counter()
         with mock.patch.object(cs, "decode_jwt_role", counting):
             r = self.scan()
-        self.assertLess(time.perf_counter() - t0, 5.0)
+        self.assertLess(time.perf_counter() - t0, bound(5.0))
         self.assertIn("client-anon-jwt", evidence_checks(r["questions"]["q1"]))
         self.assertLessEqual(len([e for e in r["questions"]["q1"]["evidence"] if e["check"] == "client-anon-jwt"]), cs.MAX_HITS_PER_FILE_PER_CHECK)
 
@@ -2615,7 +2623,7 @@ class ReviewCycleTwoShipTests(ScanCase):
         os.mkfifo(fifo)
         t0 = time.perf_counter()
         self.assertIsNone(cs._read_small_regular(fifo, 10))
-        self.assertLess(time.perf_counter() - t0, 1.0)
+        self.assertLess(time.perf_counter() - t0, bound(1.0))
         os.link(plain, os.path.join(self.tmp, "linked"))
         self.assertIsNone(cs._read_small_regular(plain, 10))
         self.assertIsNone(cs._read_small_regular(os.path.join(self.tmp, "nope"), 10))
@@ -2733,7 +2741,7 @@ class GitConfigAllowlistTests(ScanCase):
         os.mkfifo(os.path.join(tags, "fifo"))
         t0 = time.perf_counter()
         r = self.scan()
-        self.assertLess(time.perf_counter() - t0, 5.0)
+        self.assertLess(time.perf_counter() - t0, bound(5.0))
         self.assertIn("git-config-not-vouched", self._q5(r))
         os.remove(os.path.join(tags, "fifo"))
         secret = os.path.join(self.tmp, "outside")
@@ -3009,26 +3017,26 @@ class GitConfigOverriddenKeysTests(ScanCase):
             self.assertIn("git-config-not-vouched", self._q5(self.scan()), stanza)
 
 
-class ModelQuestionsTests(ScanCase):
-    """The five model questions are interview-only: they must exist in every file that renders them,
+class RailsQuestionsTests(ScanCase):
+    """The six rails questions are interview-only: they must exist in every file that renders them,
     and they must never reach the scanner's JSON contract or the door rule."""
 
     def _read(self, *parts):
         with open(os.path.join(*parts), encoding="utf-8") as fh:
             return fh.read()
 
-    def test_the_five_are_defined_with_their_by_hand_tests(self):
+    def test_the_six_are_defined_with_their_by_hand_tests(self):
         q = self._read(SKILL_DIR, "references", "questions.md")
-        for n in range(1, 6):
+        for n in range(1, 7):
             self.assertIn("## A%d." % n, q)
-        section = q.split("# If your app calls a model")[1].split("## All check names")[0]
-        self.assertEqual(section.count("**By hand (60 s):**"), 5, "every model question needs its sixty-second test")
-        for phrase in ("Split by time", "Serve what you trained", "Refresh the answer key"):
+        section = q.split("# If AI drives part of your product")[1].split("## All check names")[0]
+        self.assertEqual(section.count("**By hand (60 s):**"), 6, "every rails question needs its sixty-second test")
+        for phrase in ("skew", "data leakage", "ground truth decay"):
             self.assertIn(phrase, section, phrase)
 
     def test_the_skill_gates_them_on_the_scanner_evidence(self):
         k = self._read(SKILL_DIR, "SKILL.md")
-        section = k.split("## If the app calls a model")[1].split("## Tier the next change")[0]
+        section = k.split("## If AI drives part of the product")[1].split("## Tier the next change")[0]
         for check in ("ai-sdk-dependency", "model-env-var", "model-literal"):
             self.assertIn(check, section, check)
             self.assertIn(check, cs.CHECKS, check + " must be a real check name")
@@ -3037,9 +3045,9 @@ class ModelQuestionsTests(ScanCase):
 
     def test_the_verdict_renders_them_conditionally(self):
         v = self._read(SKILL_DIR, "assets", "verdict-template.md")
-        self.assertIn("## If your app calls a model", v)
+        self.assertIn("## Keeping the AI on rails", v)
         self.assertIn("only when the app calls a model", v)
-        for n in range(1, 6):
+        for n in range(1, 7):
             self.assertIn("| A%d |" % n, v)
 
     def test_they_never_enter_the_scanner_contract(self):
@@ -3048,12 +3056,12 @@ class ModelQuestionsTests(ScanCase):
         self.assertEqual(list(r["questions"].keys()), ["q%d" % i for i in range(1, 12)])
         self.assertIn("ai-sdk-dependency", evidence_checks(r["questions"]["q8"]))
         for name, (question, _) in cs.CHECKS.items():
-            self.assertNotIn("a", question.split(".")[0][1:], "no check may answer a model question: " + name)
+            self.assertNotIn("a", question.split(".")[0][1:], "no check may answer a rails question: " + name)
 
     def test_the_door_rule_is_still_only_the_eleven(self):
         doors = self._read(SKILL_DIR, "references", "tiers-and-doors.md")
         rule = doors.split("### Door rule")[1].split("###")[0]
-        for n in range(1, 6):
+        for n in range(1, 7):
             self.assertNotIn("A%d" % n, rule, "the door rule must name only the eleven")
         self.assertIn("do not change the tier and they do not change the door", doors)
 

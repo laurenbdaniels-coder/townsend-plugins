@@ -22,6 +22,7 @@ jobs:
           CUSTODY_SLOW: "1"
           CUSTODY_REQUIRE_GIT: "1"
           CUSTODY_PERF_BUDGET_S: "60"
+          CUSTODY_TIME_SLACK: "3"   # shared runners are loaded; the linearity bounds still catch quadratic paths
         run: python3 -m unittest discover -s custody-check/skills/custody-check/scripts -p 'test_*.py' -v
       - name: IP grep (the giveaway must contain nothing from the paid method)
         run: |

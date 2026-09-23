@@ -2,12 +2,14 @@
 
 The footer of every verdict names the version that produced it. Later entries carry a "What changed since the workshop" line so an attendee can tell whether an answer would come out differently today.
 
-## 0.2.0 (2026-09-22)
+## 0.2.0 (2026-09-23)
 
-What changed since the workshop build: if your app calls a model, the check now asks five more questions.
+What changed since the workshop build: if AI drives part of your product, the check now asks six more questions about keeping it on rails.
 
-- **Added.** Five questions that apply only when the app calls a model: how slow is too slow and what happens past it, where your prompts live and which version produced an answer, how you know a change made things better rather than just different, what a user sees when the model is wrong or refuses or is down, and whether you would notice the provider swapping the model under you. Plus a gating question for the few founders who train or fine-tune their own model, covering time-based splits, training and serving parity, and label freshness.
+- **Added.** Six questions that apply only when the app calls a model: how slow is too slow and what happens past it; where your prompts live and which version produced an answer; whether production is running what you actually tested; whether a change made things better rather than just different, and whether you are judging on examples nobody tuned against; what a user sees when the model is wrong, refuses, or is down; and whether you would notice the model changing under you or your own product moving away from your examples.
+- The last three are the failure modes people who train models call training and serving skew, data leakage, and ground truth decay. You get all three without training anything, because a model is a moving part inside your product. The training-shaped versions are named for the few founders who do train.
 - They are interview questions. The scanner does not answer them, the JSON contract is unchanged, and they never change the door: the door is still the eleven. What they change is the list of things you leave knowing you cannot yet answer.
+- **Fixed.** Every wall-clock linearity bound in the test suite now scales with `CUSTODY_TIME_SLACK`, so a loaded machine cannot fail a test that is asserting linearity rather than speed. CI sets it to 3.
 
 ## 0.1.1 (2026-09-22)
 

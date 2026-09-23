@@ -41,17 +41,18 @@ Date: <YYYY-MM-DD> · Repo: `<app folder name>` · Mode: local, read-only · Sca
 
 Answers marked (scanner) came from the file tree; answers marked (you) came from your answers block. A scanner "yes" is medium confidence until you confirm it.
 
-## If your app calls a model
+## Keeping the AI on rails
 (include this section only when the app calls a model; omit it entirely otherwise)
 | # | Question | Answer | Confidence | Evidence |
 |---|---|---|---|---|
 | A1 | How slow is too slow, and what then | <yes/no/don't know> | <high/med/low> | <`check`> or "(you)" |
 | A2 | Where prompts live, which version answered | … | … | … |
-| A3 | Better, or just different | … | … | … |
-| A4 | When the model is wrong, refuses, or is down | … | … | … |
-| A5 | The provider changed the model under you | … | … | … |
+| A3 | Is production running what was tested | … | … | … |
+| A4 | Better or just different, and judged on untouched examples | … | … | … |
+| A5 | When the model is wrong, refuses, or is down | … | … | … |
+| A6 | The model changed, or the product did | … | … | … |
 
-Trains or fine-tunes their own model: <no | yes, and then the three splits/parity/labels answers>
+Trains or fine-tunes their own model: <no | yes, and then the training-shaped versions of A3, A4 and A6>
 
 ## Five, if you'll only do five
 1. Classify the next change against the Gated list.
@@ -75,7 +76,7 @@ Want the routing I run? Send this verdict to the studio's public contact address
 Rules for filling it in:
 
 - **Partial scan:** when `partial` is true and Q1 or Q3 is Don't know, render the answer as "Don't know (scan incomplete)", never choose Ship it, and print the rerun recipe above the doors.
-- **The model section:** include it only when the scanner's Q8 evidence names `ai-sdk-dependency`, `model-env-var` or `model-literal`, or the founder says the app calls a model. None of A1 to A5 is scanner-answered, so their source is always "(you)". They never change the door; they add rows here and entries to the Don't-know list.
+- **The rails section:** include it only when the scanner's Q8 evidence names `ai-sdk-dependency`, `model-env-var` or `model-literal`, or the founder says the app calls a model. None of A1 to A5 is scanner-answered, so their source is always "(you)". They never change the door; they add rows here and entries to the Don't-know list.
 - **Q5 row:** show the lower of the code and data halves (order: no < don't know < yes); the Evidence cell names both halves and their sources.
 - **partial reasons:** map each non-zero stat to one clause: `max_files_hit` → "stopped at the file limit; rerun with `--max-files 50000` or point at the app subfolder"; `max_total_bytes_hit` → "stopped at the byte budget"; `deadline_hit` → "stopped at the time limit"; `files_errored` → "<n> files could not be read"; `files_skipped_oversize` → "<n> large files skipped".
 - **warnings:** `repo-is-cwd` or `repo-contains-cwd` → add the line "The host may have loaded this app's instruction files at launch; relaunch from the folder that contains the app."

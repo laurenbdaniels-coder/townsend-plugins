@@ -16,13 +16,13 @@ The tier is a property of the **next change**, not of the app. Blast radius, not
 
 The nine gates, names only: Define, Audit, Plan, Plan review, Build, Verify, Diff review, Ship, Watch.
 
-## If the app calls a model
+## If AI drives part of the product
 
-Five more failure modes live in `questions.md` (A1 to A5): the latency budget, where prompts live, whether an eval exists, what the user sees when the model is wrong, and whether you would notice the provider swapping the model under you. They bite at Plan, Diff review, Verify, Build and Watch respectively.
+Six more failure modes live in `questions.md` (A1 to A6): the latency budget, where prompts live, whether production is running what was actually tested, whether an eval exists and is judged on examples nobody tuned against, what the user sees when the model is wrong, and whether anyone would notice the model or the product moving underneath. They bite at Plan, Diff review, Ship, Verify, Build and Watch respectively.
 
 They do not change the tier and they do not change the door. The door is the eleven. What they change is the Don't-know list, which is the part the founder leaves with.
 
-Three more apply only to a founder who trains or fine-tunes their own model: split the data by time rather than at random, prepare inputs the same way in training and in production, and refresh the labels an eval set is scored against. Ask the gating question out loud; a clear "no, I just call an API" is a real answer and most of the room will give it.
+Three of them have a training-shaped version (skew, leakage, label decay) for the rare founder who trains or fine-tunes. The concern is the same either way: a model is a moving part inside the product, and nothing turns red when it wanders.
 
 ## The stop-line
 
