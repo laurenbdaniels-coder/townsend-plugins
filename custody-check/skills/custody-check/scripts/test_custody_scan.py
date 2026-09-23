@@ -153,9 +153,19 @@ class ScanCase(unittest.TestCase):
                 self.assertNotIn(s[i:i + 12], text, "leaked substring of a secret")
 
     def copy_fixture(self, name, dest=None):
+        """Copy a fixture tree, restoring the dot-names it is stored without.
+
+        Env fixtures are committed as `dotenv.production` rather than `.env.production`: an agent
+        sandbox that denies reading `~/**/.env*` (a sensible default) would otherwise make these
+        tests fail for a reason that has nothing to do with the scanner.
+        """
         dest = dest or self.repo
         shutil.rmtree(dest)
         shutil.copytree(os.path.join(FIXTURES, name), dest, symlinks=True)
+        for root, _, files in os.walk(dest):
+            for f in files:
+                if f == "dotenv" or f.startswith("dotenv."):
+                    os.rename(os.path.join(root, f), os.path.join(root, "." + f[len("dot"):]))
         return dest
 
 
