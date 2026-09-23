@@ -93,7 +93,7 @@ Two halves, scored separately; the verdict shows the lower one.
 
 # If AI drives part of your product: keeping it on rails
 
-Ask these **only when the app calls a model** (the scanner's Q8 evidence says whether it does: `ai-sdk-dependency`, `model-env-var`, `model-literal`). A model is not a library that does the same thing every time. It is a moving part inside the product, and these are the six ways it wanders off without anything turning red.
+Ask these **only when the app calls a model**, and ask the founder that question rather than inferring it. The scanner's Q8 hints (`ai-sdk-dependency`, `model-env-var`, `model-literal`) are worth leading with, but they miss a plain HTTP call to a provider and they fire on an unused dependency or a model name in a comment. A model is not a library that does the same thing every time. It is a moving part inside the product, and these are the six ways it wanders off without anything turning red.
 
 The eleven already cover the ones that are really software questions wearing an AI hat: rollback is Q5, the bill is Q8, would-you-notice-it-is-down is Q9, and who-can-read-this is Q1, Q3, Q4 and Q10. These six are what is left.
 

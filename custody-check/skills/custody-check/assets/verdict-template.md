@@ -53,6 +53,8 @@ Answers marked (scanner) came from the file tree; answers marked (you) came from
 | A6 | Is the model pinned | … | … | … |
 
 Examples still describe the product as it is today: <yes | no | don't know>
+
+<when the door above is **Ship it** and any row here is No, print this line: "The door is about whether a stranger can hurt you, and these are about whether your product quietly gets worse. Shipping is still the call. These are the next things to fix, and each one has a fix beside it.">
 Trains or fine-tunes their own model: <no | yes, and then the training-shaped versions of A3, A4 and A6>
 
 ## Five, if you'll only do five
@@ -77,7 +79,7 @@ Want the routing I run? Send this verdict to the studio's public contact address
 Rules for filling it in:
 
 - **Partial scan:** when `partial` is true and Q1 or Q3 is Don't know, render the answer as "Don't know (scan incomplete)", never choose Ship it, and print the rerun recipe above the doors.
-- **The rails section:** include it only when the scanner's Q8 evidence names `ai-sdk-dependency`, `model-env-var` or `model-literal`, or the founder says the app calls a model. None of A1 to A5 is scanner-answered, so their source is always "(you)". They never change the door; they add rows here and entries to the Don't-know list.
+- **The rails section:** the founder's answer to "does your app call a model?" decides whether this section appears, not the scanner. Include it only when the scanner's Q8 evidence names `ai-sdk-dependency`, `model-env-var` or `model-literal`, or the founder says the app calls a model. None of A1 to A5 is scanner-answered, so their source is always "(you)". They never change the door; they add rows here and entries to the Don't-know list.
 - **Q5 row:** show the lower of the code and data halves (order: no < don't know < yes); the Evidence cell names both halves and their sources.
 - **partial reasons:** map each non-zero stat to one clause: `max_files_hit` → "stopped at the file limit; rerun with `--max-files 50000` or point at the app subfolder"; `max_total_bytes_hit` → "stopped at the byte budget"; `deadline_hit` → "stopped at the time limit"; `files_errored` → "<n> files could not be read"; `files_skipped_oversize` → "<n> large files skipped".
 - **warnings:** `repo-is-cwd` or `repo-contains-cwd` → add the line "The host may have loaded this app's instruction files at launch; relaunch from the folder that contains the app."

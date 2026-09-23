@@ -83,6 +83,18 @@ HAVE_GIT = shutil.which("git") is not None
 TIME_SLACK = float(os.environ.get("CUSTODY_TIME_SLACK", "1"))
 
 
+def _fastest(fn, runs=3):
+    """Best of N. A loaded machine inflates any single timing; a quadratic path is quadratic in every run,
+    so taking the minimum removes scheduler noise without hiding a real regression."""
+    best = None
+    for _ in range(runs):
+        t0 = time.perf_counter()
+        fn()
+        el = time.perf_counter() - t0
+        best = el if best is None else min(best, el)
+    return best
+
+
 def bound(seconds):
     return seconds * TIME_SLACK
 
@@ -164,7 +176,9 @@ class ScanCase(unittest.TestCase):
         shutil.copytree(os.path.join(FIXTURES, name), dest, symlinks=True)
         for root, _, files in os.walk(dest):
             for f in files:
-                if f == "dotenv" or re.match(r"^dotenv\.[A-Za-z0-9_-]+$", f):  # not dotenv.config.js, which is an ordinary file
+                # only at a fixture tree's root, and only exact env shapes: a nested src/dotenv.production
+                # is an ordinary filename a future fixture may want to assert on, and must survive the copy
+                if root == dest and (f == "dotenv" or re.match(r"^dotenv\.[A-Za-z0-9_-]+$", f)):
                     os.rename(os.path.join(root, f), os.path.join(root, "." + f[len("dot"):]))
         return dest
 
@@ -1099,6 +1113,38 @@ class ResilienceTests(ScanCase):
 
 
 class LinearityTests(unittest.TestCase):
+    def test_growth_is_linear_not_just_fast(self):
+        """A wall-clock bound only catches a slow regression. This catches a quadratic one that is still fast.
+
+        Doubling the input must roughly double the work. A quadratic path quadruples it, which stays under
+        any generous bound on a small input and blows up on a real file. CUSTODY_TIME_SLACK cannot mask
+        this, because a ratio does not care how loaded the machine is.
+        """
+        cases = (
+            ("prefilter keyword", cs.PREFILTER_RE, "secret:"),
+            ("run sweep", cs.RUN_RE, "A1b2C3d4" * 4 + " "),
+            ("client import", cs.CLIENT_IMPORT_RE, "import x from 'y'\n"),
+            ("firebase allow", cs.FIREBASE_ALLOW_TRUE_RE, "allow read, write: if x;\n"),
+        )
+        skipped = []
+        for name, regex, unit in cases:
+            t_small = _fastest(lambda: regex.findall(unit * 20000))
+            t_big = _fastest(lambda: regex.findall(unit * 40000))
+            if t_small < 0.002:
+                skipped.append(name)  # too fast to time reliably; the wall-clock bounds cover these
+                continue
+            self.assertLess(t_big / t_small, 3.0,
+                            "%s grew %.1fx when the input doubled; linear is about 2x, quadratic about 4x" % (name, t_big / t_small))
+        self.assertLess(len(skipped), len(cases), "every case was too fast to time: this test asserted nothing")
+
+    def test_block_comment_stripping_growth_is_linear(self):
+        # sized so the linear path is actually measurable: a skipped ratio test asserts nothing.
+        # The quadratic version this replaced takes about 4s on the smaller input and grows 4.5x.
+        t_small = _fastest(lambda: cs._blank_block_comments("/* a" * 400000))
+        t_big = _fastest(lambda: cs._blank_block_comments("/* a" * 800000))
+        self.assertGreater(t_small, 0, "input too small to time; the ratio would assert nothing")
+        self.assertLess(t_big / t_small, 3.0, "unclosed block comments must stay linear")
+
     def test_prefilter_repeated_keyword_is_linear(self):
         opts = cs.Options()
         t0 = time.perf_counter()
@@ -3040,7 +3086,9 @@ class RailsQuestionsTests(ScanCase):
         q = self._read(SKILL_DIR, "references", "questions.md")
         section = q.split("# If AI drives part of your product")[1].split("## All check names")[0]
         ids = re.findall(r"^## (A\d+)\.", section, re.M)
-        self.assertEqual(ids, ["A%d" % n for n in range(1, len(ids) + 1)], "rails questions must run A1, A2, ... with no gaps")
+        # the shipped contract, not whatever the reference happens to say: deleting a question must fail here
+        self.assertEqual(ids, ["A1", "A2", "A3", "A4", "A5", "A6"],
+                         "the rails set is A1-A6; changing it is a contract change and must be deliberate")
         return ids, section
 
     def test_each_one_is_defined_with_its_by_hand_test(self):
