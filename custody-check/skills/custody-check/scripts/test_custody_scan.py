@@ -1157,10 +1157,12 @@ class LinearityTests(unittest.TestCase):
                             "%s grew %.1fx when the input doubled; linear is about 2x, quadratic about 4x" % (name, t_big / t_small))
 
     def test_block_comment_stripping_growth_is_linear(self):
-        # sized so the linear path is actually measurable: a skipped ratio test asserts nothing.
-        # The quadratic version this replaced takes about 4s on the smaller input and grows 4.5x.
-        t_small = _fastest(lambda: cs._blank_block_comments("/* a" * 400000))
-        t_big = _fastest(lambda: cs._blank_block_comments("/* a" * 800000))
+        # Sized against the SLOWEST measurement, not this machine's. At 400k units it ran in 2.01ms
+        # here and 1.32ms on a CI runner, i.e. either side of the floor below: it failed CI loudly and
+        # had already flaked once locally. 3M units gives the faster runner ~5x the floor.
+        # The quadratic version this replaced grows 4.5x on the same inputs.
+        t_small = _fastest(lambda: cs._blank_block_comments("/* a" * 3000000))
+        t_big = _fastest(lambda: cs._blank_block_comments("/* a" * 6000000))
         self.assertGreater(t_small, _RATIO_FLOOR_S, "input too small to time; the ratio would assert nothing")
         self.assertLess(t_big / t_small, 3.0, "unclosed block comments must stay linear")
 
