@@ -107,7 +107,7 @@ Past a few seconds a user assumes it is broken and refreshes. Unless the server 
 - **No** only from you: there is no timeout, so a stuck call to the provider leaves the user staring at a spinner.
 - Scanner hints: `spend-cap-word` picks up `maxDuration` and its relatives; it shows a limit exists somewhere, never that it is the right one.
 - **By hand (60 s):** use the slowest real path in your app and count out loud. Then turn your wifi off mid-request and watch what a user would see.
-- **The fix, if it spins forever:** set a timeout and show a message when it trips. One line and one sentence of copy.
+- **The fix:** if it spins forever, set a timeout and show a message when it trips. One line and one sentence of copy.
 
 ## A2. Where do your prompts live? (Diff review)
 
@@ -117,7 +117,7 @@ The same instruction pasted into three files and edited in place is the AI versi
 - **No** only from you: the same instruction is copy-pasted in more than one place, or prompts are edited live in a dashboard and nothing ties the version to the answer it produced.
 - Scanner hints: none that are decisive. A prompt is just a string, and the scanner will not read your app's instruction files by design.
 - **By hand (60 s):** copy one distinctive sentence out of your main prompt and ask your AI tool: "find every place in this project that contains this sentence." More than one hit is your answer. No project it can search is also your answer.
-- **The fix:** move the instruction to one file and import it everywhere else. Then, when you can, log which prompt version produced each answer, which is what makes "why did it say that?" answerable at all.
+- **The fix:** move the instruction to one file and import it everywhere else. Then, when you can, log which prompt version produced each answer, which is what makes "why did it say that?" answerable at all. Doing it is a change to a prompt that is in production, which is an escalation trigger: tier that change Gated and run its gates, the same as any other.
 
 ## A3. Is production running what you actually tested? (Verify)
 
@@ -136,6 +136,7 @@ The prompt you tried in the playground is not the prompt your code sends. Your c
 
 - **Yes** only from you: a set of real inputs with a note on what a good answer looks like, run before and after a change, with a count you write down, and some of them you never edit the prompt against.
 - **No** only from you: changes ship on a read-through of one or two outputs, or every example you have is one you tuned until it passed.
+- Scanner hints: none, and there cannot be any. Whether you judged a change on examples you did not tune against is a fact about how you worked, not about your files.
 - **By hand (60 s):** open a document. Paste five real things users have typed into your app, and next to each, one line on what a good answer looks like. Next time you change the prompt, paste those five back in by hand and count how many still look right. Four out of five is your number. Keep two you never tune against.
 - **The fix:** the document is the fix. Five examples in a doc beats nothing, and you can write it in the session.
 - *Two honest caveats to say out loud. Five or ten examples is a smoke alarm, not a measurement: one flipped answer moves the number a long way, so it catches a disaster and nothing smaller. And because the model is not deterministic, running each example once measures the dice as well as the change.*
@@ -160,7 +161,7 @@ You changed nothing and the answers changed anyway. If the model name in your co
 - **No** only from you: the name has no version in it and nothing re-runs when the answers move.
 - Scanner hints: `model-literal` shows which model names appear in the code; a name without a date or version is worth a look.
 - **By hand (60 s):** find the model name in your code. No date or version means you are on today's. Better still, read the `model` field the provider sends back on one real response, which names what actually served rather than what you asked for.
-- **The fix:** pin the version. It is a one-line edit, and then subscribe to your provider's deprecation notices.
+- **The fix:** pin the version. It is a one-line edit, and then subscribe to your provider's deprecation notices. Swapping a model version is an escalation trigger, so tier that one-line edit Gated and run its gates; "small diff" is exactly how this one gets shipped unwatched.
 - *A pin is a dated lease, not a freeze. Versions are retired on a schedule, so pinning buys you notice and a planned re-run rather than permanence. Pinning is straightforward on Anthropic and OpenAI, where dated names are the normal shape; on some other providers the stable names roll forward and you cannot pin the same way.*
 
 ## When your product moves and your examples do not

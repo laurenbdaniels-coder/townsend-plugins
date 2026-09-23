@@ -80,7 +80,20 @@ GIT_ENV = dict(
 HAVE_GIT = shutil.which("git") is not None
 # Linearity bounds are wall-clock, so a loaded machine can miss them without anything being wrong.
 # They assert linearity, not a speed target: the quadratic cases they guard take minutes, not tenths.
+# Clamped on purpose. `CUSTODY_TIME_SLACK=inf` parses, makes every bound infinite and every
+# assertLess vacuous, and nothing would report it; CI already sets this var, so raising it reads
+# like routine flake-fixing. Above the ceiling the suite refuses to run rather than assert nothing.
+_SLACK_CEILING = 5.0
 TIME_SLACK = float(os.environ.get("CUSTODY_TIME_SLACK", "1"))
+if not (1.0 <= TIME_SLACK <= _SLACK_CEILING):
+    raise RuntimeError(
+        "CUSTODY_TIME_SLACK must be between 1 and %g, got %r: a larger value silently disables "
+        "every wall-clock assertion in this suite. If a runner needs more than %gx, the bound is "
+        "wrong, not the runner." % (_SLACK_CEILING, os.environ.get("CUSTODY_TIME_SLACK"), _SLACK_CEILING))
+
+
+# Below this a timing is scheduler noise, not a measurement, and a ratio built from it means nothing.
+_RATIO_FLOOR_S = 0.002
 
 
 def _fastest(fn, runs=3):
@@ -180,6 +193,11 @@ class ScanCase(unittest.TestCase):
                 # is an ordinary filename a future fixture may want to assert on, and must survive the copy
                 if root == dest and (f == "dotenv" or re.match(r"^dotenv\.[A-Za-z0-9_-]+$", f)):
                     os.rename(os.path.join(root, f), os.path.join(root, "." + f[len("dot"):]))
+        # A fixture the pattern above does not match (say `dotenv.local.example`) would be copied through
+        # under its stored name, classify as neither env nor env-template, and the test would quietly
+        # measure something other than what it says. Fail here instead of passing for the wrong reason.
+        left = sorted(f for f in os.listdir(dest) if f.startswith("dotenv"))
+        self.assertEqual(left, [], "fixture env files were not restored to their dot-names: %s" % left)
         return dest
 
 
@@ -1126,23 +1144,24 @@ class LinearityTests(unittest.TestCase):
             ("client import", cs.CLIENT_IMPORT_RE, "import x from 'y'\n"),
             ("firebase allow", cs.FIREBASE_ALLOW_TRUE_RE, "allow read, write: if x;\n"),
         )
-        skipped = []
+        # Sized so the fastest case still takes ~6x the floor below. At 20k units the two hottest
+        # regexes measured 0.0021s and 0.0024s against a 0.002s floor, so a faster runner would have
+        # dropped them under it and they would have stopped asserting with the test still green.
         for name, regex, unit in cases:
-            t_small = _fastest(lambda: regex.findall(unit * 20000))
-            t_big = _fastest(lambda: regex.findall(unit * 40000))
-            if t_small < 0.002:
-                skipped.append(name)  # too fast to time reliably; the wall-clock bounds cover these
-                continue
+            t_small = _fastest(lambda: regex.findall(unit * 100000))
+            t_big = _fastest(lambda: regex.findall(unit * 200000))
+            self.assertGreater(t_small, _RATIO_FLOOR_S,
+                               "%s ran in %.4fs, too fast to time: raise the unit count or this case "
+                               "asserts nothing" % (name, t_small))
             self.assertLess(t_big / t_small, 3.0,
                             "%s grew %.1fx when the input doubled; linear is about 2x, quadratic about 4x" % (name, t_big / t_small))
-        self.assertLess(len(skipped), len(cases), "every case was too fast to time: this test asserted nothing")
 
     def test_block_comment_stripping_growth_is_linear(self):
         # sized so the linear path is actually measurable: a skipped ratio test asserts nothing.
         # The quadratic version this replaced takes about 4s on the smaller input and grows 4.5x.
         t_small = _fastest(lambda: cs._blank_block_comments("/* a" * 400000))
         t_big = _fastest(lambda: cs._blank_block_comments("/* a" * 800000))
-        self.assertGreater(t_small, 0, "input too small to time; the ratio would assert nothing")
+        self.assertGreater(t_small, _RATIO_FLOOR_S, "input too small to time; the ratio would assert nothing")
         self.assertLess(t_big / t_small, 3.0, "unclosed block comments must stay linear")
 
     def test_prefilter_repeated_keyword_is_linear(self):
@@ -3094,7 +3113,19 @@ class RailsQuestionsTests(ScanCase):
     def test_each_one_is_defined_with_its_by_hand_test(self):
         ids, section = self.rails_ids()
         self.assertGreaterEqual(len(ids), 1)
-        self.assertEqual(section.count("**By hand (60 s):**"), len(ids), "every rails question needs its sixty-second test")
+        # Per question, not a section-wide count: counting lets a body be emptied as long as another
+        # question carries two, which a mutation confirmed passes the old assertion 5/5.
+        blocks = re.split(r"^## (A\d+)\.", section, flags=re.M)[1:]
+        pairs = list(zip(blocks[0::2], blocks[1::2]))
+        self.assertEqual([rid for rid, _ in pairs], ids)
+        for rid, body in pairs:
+            for required, why in (("**By hand (60 s):**", "its own sixty-second test"),
+                                  ("**The fix:**", "its own fix line"),
+                                  ("**Yes**", "what a Yes means"),
+                                  ("**No**", "what a No means"),
+                                  ("Scanner hints:", "whether the scanner can help")):
+                self.assertIn(required, body, "%s must carry %s" % (rid, why))
+            self.assertGreater(len(body.strip()), 400, rid + " has a heading and almost no question under it")
         for phrase in ("training and serving skew", "overfitting the validation set", "concept drift"):
             self.assertIn(phrase, section, "the correct name for the trained version of this failure")
         # the four claims a machine-learning reviewer called wrong before this shipped; none may come back
@@ -3106,13 +3137,27 @@ class RailsQuestionsTests(ScanCase):
                          "every rails question ends with a fix, plus the stale-examples note")
 
     def test_the_skill_gates_them_on_the_scanner_evidence(self):
+        ids, _ = self.rails_ids()
         k = self._read(SKILL_DIR, "SKILL.md")
-        section = k.split("## If AI drives part of the product")[1].split("## Tier the next change")[0]
+        head, tail = "## If AI drives part of the product", "## Tier the next change"
+        # Anchored: an unanchored split returns the whole tail if the section is ever moved below the
+        # tier heading, and every assertion below keeps passing against a reordered file.
+        self.assertLess(k.index(head), k.index(tail), "the rails section must precede the tier section")
+        section = k[k.index(head):k.index(tail)]
         for check in ("ai-sdk-dependency", "model-env-var", "model-literal"):
             self.assertIn(check, section, check)
             self.assertIn(check, cs.CHECKS, check + " must be a real check name")
         self.assertIn("train or fine-tune", section)
         self.assertIn("never change the door", section)
+        # The verdict template renders a row per question. Deleting the enumeration or the instruction
+        # to ask them leaves the agent filling six rows it was never told to collect; a mutation
+        # confirmed the old assertions passed with both deleted.
+        for rid in ids:
+            self.assertIn(rid, section, rid + " is rendered by the verdict template but not named in SKILL.md")
+        self.assertIn("Ask them after the eleven", section,
+                      "SKILL.md must tell the agent to actually ask the rails questions")
+        self.assertIn("untrusted data", section,
+                      "what the founder pastes back from their own AI tool is untrusted input")
 
     def test_the_verdict_renders_them_conditionally(self):
         v = self._read(SKILL_DIR, "assets", "verdict-template.md")
@@ -3130,11 +3175,23 @@ class RailsQuestionsTests(ScanCase):
             self.assertIn(question, cs.QUESTION_KEYS, "no check may answer anything but the eleven: " + name)
 
     def test_the_door_rule_is_still_only_the_eleven(self):
+        ids = self.rails_ids()[0]
         doors = self._read(SKILL_DIR, "references", "tiers-and-doors.md")
         rule = doors.split("### Door rule")[1].split("###")[0]
-        for rid in self.rails_ids()[0]:
+        for rid in ids:
             self.assertNotIn(rid, rule, "the door rule must name only the eleven")
         self.assertIn("do not change the tier and they do not change the door", doors)
+        # The rule lives in three files. Checking one section of one of them left the other two free to
+        # add "if three rails rows are No, do not choose Ship it" with every test still green.
+        k = self._read(SKILL_DIR, "SKILL.md")
+        door_section = k.split("## Door rule")[1].split("##")[0]
+        for rid in ids:
+            self.assertNotIn(rid, door_section, "SKILL.md's door rule must name only the eleven")
+        v = self._read(SKILL_DIR, "assets", "verdict-template.md")
+        for line in v.splitlines():
+            if "Door:" in line or line.startswith("- **Partial scan:**"):
+                for rid in ids:
+                    self.assertNotIn(rid, line, "the verdict's door line must not depend on a rails answer")
 
 
 if __name__ == "__main__":
