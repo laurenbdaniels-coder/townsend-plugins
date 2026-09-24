@@ -20,6 +20,9 @@
 # refuses the push. To push without the list on purpose: TOWNSEND_ALLOW_NO_TERMS=1.
 LC_ALL=C
 export LC_ALL
+# see what git push sends: pack-objects ignores refs/replace, so the hook must too
+GIT_NO_REPLACE_OBJECTS=1
+export GIT_NO_REPLACE_OBJECTS
 url="$2"
 terms="${TOWNSEND_PRIVATE_TERMS:-$HOME/Documents/townsend-ai-studio-workspace/private-terms.txt}"
 if [ ! -s "$terms" ]; then
@@ -61,12 +64,11 @@ check() {  # $1 = what, $2 = file to search
 # locally. Never local remote-tracking refs, which can be stale or unpruned.
 advertised=$(git ls-remote "$url") || { echo "pre-push: git ls-remote $url failed; refusing" >&2; exit 1; }
 printf '%s\n' "$advertised" | cut -f1 | sort -u | git cat-file --batch-check='%(objectname) %(objecttype)' \
-  | awk '$2 != "missing" { print "^" $1 }' > "$work/have" \
+  | awk 'NF == 2 && $2 != "missing" { print "^" $1 }' > "$work/have" \
   || { echo "pre-push: could not resolve the remote's tips; refusing" >&2; exit 1; }
 
-zero=0000000000000000000000000000000000000000
 while read -r local_ref local_sha remote_ref remote_sha; do
-  [ "$local_sha" = "$zero" ] && continue
+  case $local_sha in *[!0]*) ;; *) continue ;; esac  # all zeros = a delete (40 or 64 digits)
   printf '%s\n%s\n' "$local_ref" "$remote_ref" > "$work/refs"
   check "the ref name $remote_ref" "$work/refs"
   if ! { echo "$local_sha"; cat "$work/have"; } | git rev-list --objects --no-object-names --stdin > "$work/objs"; then

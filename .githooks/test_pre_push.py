@@ -220,7 +220,26 @@ class PrePushHookTests(unittest.TestCase):
     def test_unknown_local_object_refuses(self):
         self.assertRefused(self.push("1234567" + "0" * 33), "could not list")
 
+    def test_replace_ref_does_not_hide_a_dirty_commit(self):
+        dirty = self.commit({"secret": TERM + "\n"}, "dirty")
+        self.git("checkout", "-q", "-b", "other", self.base)
+        clean = self.commit({"b.md": "clean\n"}, "clean")
+        self.git("replace", dirty, clean)
+        self.assertRefused(self.push(dirty))
+
     # allowed
+    def test_first_push_to_an_empty_remote_passes(self):
+        empty = os.path.join(self.tmp, "empty.git")
+        subprocess.run(["git", "init", "-q", "--bare", empty], check=True)
+        env = dict(os.environ, TOWNSEND_PRIVATE_TERMS=self.terms)
+        env.pop("TOWNSEND_ALLOW_NO_TERMS", None)
+        r = subprocess.run(["sh", HOOK, "fresh", empty], cwd=self.repo, env=env, capture_output=True, text=True,
+                           input="refs/heads/main %s refs/heads/main %s\n" % (self.base, ZERO))
+        self.assertAllowed((r.returncode, r.stderr))
+
+    def test_sha256_delete_passes(self):
+        self.assertAllowed(self.push("0" * 64, "1" * 64, ref="refs/heads/old"))
+
     def test_clean_push_passes(self):
         self.assertAllowed(self.push(self.commit({"a.md": "clean\n"}, "add")))
 
