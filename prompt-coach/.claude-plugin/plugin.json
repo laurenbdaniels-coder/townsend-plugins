@@ -1,9 +1,9 @@
 {
   "name": "prompt-coach",
-  "version": "0.3.0",
-  "description": "Uplevel prompts with the right guardrails, verify AI answers before they ship, teach staff to prompt better, and keep the guidance current via a human-approved refresh cycle. Built for Habitat for Humanity Seattle-King & Kittitas Counties.",
+  "version": "0.3.1",
+  "description": "Uplevel prompts with the right guardrails, verify AI answers before they ship, teach staff to prompt better, and keep the guidance current via a human-approved refresh cycle.",
   "author": {
-    "name": "Habitat for Humanity Seattle-King & Kittitas Counties"
+    "name": "Lauren Townsend"
   },
   "keywords": [
     "prompting",

@@ -1,7 +1,7 @@
 {
   "name": "townsend-plugins",
   "owner": {
-    "name": "Lauren Daniels"
+    "name": "Lauren Townsend"
   },
   "description": "Townsend AI Studio plugins for Claude Code and Cowork: product-flow (stage-by-stage product management), pm-growth-coach (PM self-development), prompt-coach (prompt guardrails and answer verification), and custody-check (the eleven custody questions for AI-built apps, read-only).",
   "plugins": [
@@ -11,7 +11,7 @@
       "description": "Stage-by-stage product management workflow: discovery, positioning, strategy, prioritization, PRD, delivery, launch, and measurement \u2014 with framework menus, fill-in templates with quality bars, evidence rules, a shared project workspace, and a built-in critique gate.",
       "version": "1.2.0",
       "author": {
-        "name": "Lauren Daniels"
+        "name": "Lauren Townsend"
       },
       "category": "productivity",
       "keywords": [
@@ -30,7 +30,7 @@
       "description": "A self-development coach for product managers: competency baseline against a behavioral rubric, growth plan with weekly deliberate-practice reps, and evidence-based progress tracking using your real work artifacts.",
       "version": "0.1.0",
       "author": {
-        "name": "Lauren Daniels"
+        "name": "Lauren Townsend"
       },
       "category": "productivity",
       "keywords": [
@@ -43,10 +43,10 @@
     {
       "name": "prompt-coach",
       "source": "./prompt-coach",
-      "description": "Uplevel prompts with the right guardrails, verify AI answers before they ship, teach staff to prompt better, and keep the guidance current via a human-approved refresh cycle. Built for Habitat for Humanity Seattle-King & Kittitas Counties.",
-      "version": "0.3.0",
+      "description": "Uplevel prompts with the right guardrails, verify AI answers before they ship, teach staff to prompt better, and keep the guidance current via a human-approved refresh cycle.",
+      "version": "0.3.1",
       "author": {
-        "name": "Habitat for Humanity Seattle-King & Kittitas Counties"
+        "name": "Lauren Townsend"
       },
       "category": "productivity",
       "keywords": [
@@ -63,7 +63,7 @@
       "description": "Run the eleven gut-check questions from 'It Said It Was Fine' on your own AI-built app, read-only, and get a verdict: what you can prove, what you can't, and whether to ship it, patch it, or shelve it. Works in Claude Code and Codex.",
       "version": "0.3.0",
       "author": {
-        "name": "Lauren Daniels"
+        "name": "Lauren Townsend"
       },
       "category": "productivity",
       "keywords": [

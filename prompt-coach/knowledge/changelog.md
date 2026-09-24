@@ -1,8 +1,22 @@
 # Changelog
 
-Append-only. Every entry: date, version, what changed, sources, approver.
+Append-only. Every entry: date, version, what changed, sources, approver. Versions here are
+the knowledge base's own; the plugin version in plugin.json is numbered separately.
 
 ---
+
+## v0.5.1 — 2026-09-24 — General-purpose wording
+
+- CHANGED: examples and boundaries now say "nonprofit" or "your org", and the companion
+  handout is described generically. Author is Lauren Townsend.
+- CHANGED: the strict-tier stakes marker "homeowner-facing" is now "client- or
+  beneficiary-facing" in every skill and knowledge file. The other strict-tier markers
+  are unchanged.
+- REDACTED: one handout filename in the v0.1 entry below; the first edit to a past entry.
+- `Last reviewed` in current-guidance.md is unchanged: this was a wording edit, not a
+  review against sources. Its `Version` line now matches this changelog (it said 0.4).
+- Sources: none (wording only).
+- Approved by: Lauren Townsend, 2026-09-24.
 
 ## v0.5 — 2026-09-02 — check-answer: provenance-and-audience sweep
 
@@ -80,7 +94,7 @@ Append-only. Every entry: date, version, what changed, sources, approver.
 ## v0.1 — 2026-08-11 — Seed
 
 - Initial knowledge base created from the team guardrails research project
-  (Word doc: Claude_Guardrails_and_Prompt_Library.docx).
+  (Word doc: [filename redacted 2026-09-24]).
 - Sources: Anthropic reduce-hallucinations guide; Anthropic prompt engineering course
   ch. 8; Anthropic skill authoring best practices; Farquhar et al. (Nature 2024);
   Malmqvist (arXiv:2411.15287); lost-in-the-middle literature; legal citation benchmarks.
