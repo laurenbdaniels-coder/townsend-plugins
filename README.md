@@ -38,7 +38,7 @@ For quick local testing without installing: `claude --plugin-dir /path/to/townse
 
 Bump the plugin's `version` in the three places that have to agree: its own `.claude-plugin/plugin.json`, its entry in the marketplace manifest `.claude-plugin/marketplace.json`, and this file's table. custody-check has a fourth: `__version__` in `custody-check/skills/custody-check/scripts/custody_scan.py`, which prints in every verdict footer and which CI checks against `plugin.json`. Then commit and push — installed copies update from the marketplace.
 
-Before your first push from a clone, turn on the pre-push check: `git config core.hooksPath .githooks`. It refuses a push whose files or new commit messages contain a term from a private list kept outside this repo; without the list it skips with a warning.
+Maintainers: before your first push from a clone, turn on the pre-push check with `git config core.hooksPath .githooks`. For every commit a push sends, it refuses file contents, file names, messages or authors that contain a term from a private list kept outside this repo. It also checks annotated tag messages. It fails closed: with no list it refuses, unless you set `TOWNSEND_ALLOW_NO_TERMS=1`. Tests: `python3 -m unittest discover -s .githooks`.
 
 ## License
 

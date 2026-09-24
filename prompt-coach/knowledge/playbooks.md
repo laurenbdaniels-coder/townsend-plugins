@@ -23,7 +23,7 @@ Failure modes: invented statistics, misattributed quotes, off-brand claims.
 Apply: #2 Ground (build-on-my-facts-only), #1 Prevent (no gap-filling), #4 stakes
 declaration, #3 quote-or-retract on the draft. Always strict tier.
 If your org has its own content or fact-check skills installed, hand the *content* to
-them — this plugin owns prompting hygiene, not your org.s facts or brand voice.
+them — this plugin owns prompting hygiene, not your org's facts or brand voice.
 
 ### Data / numbers / analysis
 Failure modes: inline arithmetic errors, confident estimates presented as computation.

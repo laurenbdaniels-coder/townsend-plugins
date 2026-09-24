@@ -1,6 +1,6 @@
 # Prompt Coach — Current Guidance (Knowledge Base)
 
-Version: 0.4
+Version: 0.5.1
 Last reviewed: 2026-08-12
 Owner: Lauren Townsend
 

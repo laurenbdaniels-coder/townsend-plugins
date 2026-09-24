@@ -4,11 +4,14 @@ Append-only. Every entry: date, version, what changed, sources, approver.
 
 ---
 
-## v0.5.1 — 2026-09-24 — Generic authorship
+## v0.5.1 — 2026-09-24 — General-purpose wording
 
-- CHANGED: the plugin is published as a general-purpose tool. Author is Lauren Daniels;
-  org-specific names and the internal handout filename are gone from the skills and
-  README. Examples now say "nonprofit" or "your org" and behave as before.
+- CHANGED: examples and boundaries now say "nonprofit" or "your org", and the companion
+  handout is described generically. Author is Lauren Townsend. Behavior is unchanged.
+- REDACTED: one handout filename in the v0.1 entry below, the only edit ever made to a
+  past entry here.
+- `Last reviewed` in current-guidance.md is unchanged: this was a wording edit, not a
+  review against sources. Its `Version` line now matches this changelog (it said 0.4).
 - Sources: none (wording only).
 - Approved by: Lauren Townsend, 2026-09-24.
 
@@ -88,7 +91,7 @@ Append-only. Every entry: date, version, what changed, sources, approver.
 ## v0.1 — 2026-08-11 — Seed
 
 - Initial knowledge base created from the team guardrails research project
-  (Word doc: Claude_Guardrails_and_Prompt_Library.docx).
+  (Word doc: [filename redacted 2026-09-24]).
 - Sources: Anthropic reduce-hallucinations guide; Anthropic prompt engineering course
   ch. 8; Anthropic skill authoring best practices; Farquhar et al. (Nature 2024);
   Malmqvist (arXiv:2411.15287); lost-in-the-middle literature; legal citation benchmarks.

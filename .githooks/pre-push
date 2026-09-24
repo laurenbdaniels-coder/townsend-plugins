@@ -1,34 +1,68 @@
 #!/bin/sh
-# Refuse a push whose tree or new commit messages contain a private term
-# (client names and the like). The list lives OUTSIDE this public repo on
-# purpose: committing it would publish the names it protects.
-# ci.yml is skipped: it must spell the method vocabulary to grep for it.
+# Refuse a push that would publish a private term (client and prospect names).
+# Checked for every commit the push sends: file contents, file names, the
+# commit message, author and committer; and an annotated tag's own message.
+# The list lives OUTSIDE this public repo on purpose: committing it would
+# publish the names it protects. One term per line, case-insensitive, matched
+# as plain text inside words, so list distinctive terms only. Paid-method
+# vocabulary is CI's job (the Method grep step), not this list's.
 # Enable once per clone: git config core.hooksPath .githooks
+# Fails closed: a missing list or a git error refuses the push. To push from a
+# machine without the list on purpose, set TOWNSEND_ALLOW_NO_TERMS=1.
+remote="$1"
 terms="${TOWNSEND_PRIVATE_TERMS:-$HOME/Documents/townsend-ai-studio-workspace/private-terms.txt}"
 if [ ! -s "$terms" ]; then
-  echo "pre-push: no private-terms list at $terms; skipping the client-name check" >&2
-  exit 0
+  if [ "${TOWNSEND_ALLOW_NO_TERMS:-}" = 1 ]; then
+    echo "pre-push: no private-terms list at $terms; skipped (TOWNSEND_ALLOW_NO_TERMS=1)" >&2
+    exit 0
+  fi
+  echo "pre-push: no private-terms list at $terms; refusing. Set TOWNSEND_PRIVATE_TERMS, or TOWNSEND_ALLOW_NO_TERMS=1 to skip." >&2
+  exit 1
 fi
-clean=$(mktemp "${TMPDIR:-/tmp}/private-terms.XXXXXX")
+clean=$(mktemp "${TMPDIR:-/tmp}/private-terms.XXXXXX") || { echo "pre-push: mktemp failed; refusing" >&2; exit 1; }
 trap 'rm -f "$clean"' EXIT
-grep -v -e '^[[:space:]]*#' -e '^[[:space:]]*$' "$terms" > "$clean" || true
-[ -s "$clean" ] || exit 0
+# normalise hand-edited lists: BOM, CRLF, surrounding space, comments, blanks
+bom=$(printf '\357\273\277')
+sed -e "s/^$bom//" -e 's/\r$//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$terms" \
+  | grep -v -e '^#' -e '^$' > "$clean"
+if [ ! -s "$clean" ]; then
+  echo "pre-push: $terms has no terms; refusing (TOWNSEND_ALLOW_NO_TERMS=1 to skip)" >&2
+  exit 1
+fi
+
 zero=0000000000000000000000000000000000000000
 status=0
+fail() { echo "pre-push: $1" >&2; status=1; }
+# grep exits 0 on a hit, 1 on none, >1 on error; a hit or an error both refuse
+check() {  # $1 = what, $2 = text (an argument, not stdin: a pipe would run this in a subshell and lose status)
+  out=$(printf '%s\n' "$2" | grep -i -F -f "$clean"); rc=$?
+  if [ $rc -eq 0 ]; then fail "private term in $1:"; echo "$out" >&2
+  elif [ $rc -gt 1 ]; then fail "could not check $1 (grep exit $rc)"; fi
+}
+
 while read -r local_ref local_sha remote_ref remote_sha; do
   [ "$local_sha" = "$zero" ] && continue
-  if hits=$(git grep -n -i -F -f "$clean" "$local_sha" -- . ':!LICENSE' ':!.github/workflows/ci.yml'); then
-    echo "pre-push: private term in the tree of $local_ref:" >&2
-    echo "$hits" >&2
-    status=1
+  if [ "$(git cat-file -t "$local_sha" 2>/dev/null)" = tag ]; then
+    tagtext=$(git cat-file tag "$local_sha") || { fail "cat-file failed on tag $local_ref"; continue; }
+    check "the tag message of $local_ref" "$tagtext"
   fi
-  if [ "$remote_sha" = "$zero" ]; then range="$local_sha --not --remotes"; else range="$remote_sha..$local_sha"; fi
-  # shellcheck disable=SC2086
-  if msgs=$(git log --format='%h %B' $range | grep -i -F -f "$clean"); then
-    echo "pre-push: private term in a commit message on $local_ref:" >&2
-    echo "$msgs" >&2
-    status=1
+  # new commits only; a remote tip we do not have (force push, stale clone)
+  # falls back to "everything this remote has not seen"
+  if [ "$remote_sha" != "$zero" ] && git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
+    commits=$(git rev-list "$local_sha" --not "$remote_sha") || { fail "rev-list failed for $local_ref"; continue; }
+  else
+    commits=$(git rev-list "$local_sha" --not --remotes="$remote") || { fail "rev-list failed for $local_ref"; continue; }
   fi
+  for c in $commits; do
+    short=$(git rev-parse --short "$c")
+    hits=$(git grep -n -i -F -f "$clean" "$c" -- 2>&1); rc=$?
+    if [ $rc -eq 0 ]; then fail "private term in the files of $short ($local_ref):"; echo "$hits" >&2
+    elif [ $rc -gt 1 ]; then fail "git grep failed on $short: $hits"; fi
+    names=$(git ls-tree -r --name-only "$c") || { fail "ls-tree failed on $short"; continue; }
+    check "a file name in $short ($local_ref)" "$names"
+    meta=$(git log -1 --format='%an %ae%n%cn %ce%n%B' "$c") || { fail "log failed on $short"; continue; }
+    check "the message or author of $short ($local_ref)" "$meta"
+  done
 done
-[ $status -ne 0 ] && echo "pre-push: refused. Rename, reword (git commit --amend / rebase), then push again." >&2
+[ $status -ne 0 ] && echo "pre-push: refused. Remove the term (rewrite the commit if it is in history), then push again." >&2
 exit $status
