@@ -4,6 +4,14 @@ Append-only. Every entry: date, version, what changed, sources, approver.
 
 ---
 
+## v0.5.1 — 2026-09-24 — Generic authorship
+
+- CHANGED: the plugin is published as a general-purpose tool. Author is Lauren Daniels;
+  org-specific names and the internal handout filename are gone from the skills and
+  README. Examples now say "nonprofit" or "your org" and behave as before.
+- Sources: none (wording only).
+- Approved by: Lauren Townsend, 2026-09-24.
+
 ## v0.5 — 2026-09-02 — check-answer: provenance-and-audience sweep
 
 - CHANGED: check-answer gains step 2f, a provenance-and-audience sweep over every file

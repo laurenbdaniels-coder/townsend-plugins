@@ -31,9 +31,15 @@ For quick local testing without installing: `claude --plugin-dir /path/to/townse
 |---|---|---|
 | product-flow | 1.2.0 | Full product lifecycle: workflow guide, discovery, positioning, strategy (with the Insight → Data → Implication why-case), prioritization, PRD, delivery + validation, launch, metrics, and an artifact critique gate. Shared `product-workspace/` so every stage builds on the last. |
 | pm-growth-coach | 0.1.0 | Develops the PM, not the product: five-dimension competency baseline, leverage-based focus, weekly practice reps, evidence-based re-scoring. Reads the product-flow workspace as evidence when present. |
-| prompt-coach | 0.3.0 | Guardrails for AI work: `uplevel` rewrites a draft prompt for its task type and stakes tier, `check-answer` runs a verification battery over an answer or a whole multi-file package (claim audit, citation click-list, premise check, recomputed math, fold test, provenance-and-audience sweep) and returns "verify before use" plus "strip before send" lists, `coach` teaches the nine strategies, and `refresh` keeps the shared `knowledge/` base current against a pinned source allowlist. Built for Habitat for Humanity SKC. |
+| prompt-coach | 0.3.1 | Guardrails for AI work: `uplevel` rewrites a draft prompt for its task type and stakes tier, `check-answer` runs a verification battery over an answer or a whole multi-file package (claim audit, citation click-list, premise check, recomputed math, fold test, provenance-and-audience sweep) and returns "verify before use" plus "strip before send" lists, `coach` teaches the nine strategies, and `refresh` keeps the shared `knowledge/` base current against a pinned source allowlist. |
 | custody-check | 0.2.0 | The workshop giveaway: eleven custody questions for AI-built apps, answered read-only by a python scanner plus your own answers, rendered as a verdict with the tier of your next change, the stop-line, a door (ship, patch, shelve), and a sixty-second test for every "don't know". Also runs in Codex. See `custody-check/README.md`. |
 
 ## Updating
 
 Bump the plugin's `version` in the three places that have to agree: its own `.claude-plugin/plugin.json`, its entry in the marketplace manifest `.claude-plugin/marketplace.json`, and this file's table. custody-check has a fourth: `__version__` in `custody-check/skills/custody-check/scripts/custody_scan.py`, which prints in every verdict footer and which CI checks against `plugin.json`. Then commit and push — installed copies update from the marketplace.
+
+Before your first push from a clone, turn on the pre-push check: `git config core.hooksPath .githooks`. It refuses a push whose files or new commit messages contain a term from a private list kept outside this repo; without the list it skips with a warning.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

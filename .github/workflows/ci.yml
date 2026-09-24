@@ -31,6 +31,14 @@ jobs:
                "routing table|office-hours|three-pillar|/review|/ship" custody-check/; then
             echo "paid-method vocabulary found in custody-check/"; exit 1
           fi
+      - name: Method grep (no plugin ships the paid method's vocabulary)
+        run: |
+          # every published folder; client names are checked by .githooks/pre-push from a list kept outside this repo
+          if grep -rniE --binary-files=without-match --exclude-dir=__pycache__ \
+               "routing table|three-pillar|per-gate prompt|falsifier" \
+               README.md custody-check/ pm-growth-coach/ product-flow/ prompt-coach/ .claude-plugin/; then
+            echo "paid-method vocabulary found in a published folder"; exit 1
+          fi
       - name: Version guard (plugin.json must match __version__)
         run: |
           v=$(python3 -c "import json;print(json.load(open('custody-check/.claude-plugin/plugin.json'))['version'])")

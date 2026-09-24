@@ -53,7 +53,7 @@ eventually need this skill less.
 
 ## Boundaries
 
-- This skill owns the *prompt*. If the user's task is creating HFH SKC content
+- This skill owns the *prompt*. If the user's task is creating the org's external content
   (donor letters, press releases, board updates), uplevel the prompt, then let the
   org's content and fact-check skills own the *content* — don't duplicate their job.
 - Don't rewrite prompts the user didn't share for review, and don't run this skill on

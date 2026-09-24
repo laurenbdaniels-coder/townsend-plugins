@@ -2,11 +2,11 @@
 
 Version: 0.4
 Last reviewed: 2026-08-12
-Owner: Lauren Townsend, HFH SKC
+Owner: Lauren Townsend
 
 This is the living knowledge base the Prompt Coach plugin runs on. The refresh skill
 maintains it; the uplevel, check-answer, and coach skills read from it. Team-facing
-prose lives in the Word doc "Claude_Guardrails_and_Prompt_Library.docx"; this file is
+prose lives in your team handout, if you keep one; this file is
 the condensed operational version.
 
 Sibling files in this knowledge folder:

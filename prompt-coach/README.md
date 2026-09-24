@@ -1,6 +1,6 @@
 # Prompt Coach
 
-A plugin for Habitat for Humanity Seattle-King & Kittitas Counties that helps staff
+A plugin that helps nonprofit and small-team staff
 get reliable work out of AI: stronger prompts going in, verified answers coming out,
 skills that grow over time, and guidance that stays current.
 
@@ -10,7 +10,7 @@ skills that grow over time, and guidance that stays current.
 |---|---|---|
 | **uplevel** | Rewrites your draft prompt with the right guardrails for the task and stakes, and explains why | "Uplevel this prompt", "make this prompt better" |
 | **check-answer** | Audits an AI answer, draft, or whole multi-file package before you trust it: claims, citations, premises, math, plus a sweep for leftover AI and draft residue — ends with a "verify before use" list and a "strip before send" list | "Check this before I send it", "is this ready to send?" |
-| **coach** | Teaches prompting in short lessons with Habitat examples and practice rounds | "Teach me prompting", "quiz me", "why did that work?" |
+| **coach** | Teaches prompting in short lessons with nonprofit examples and practice rounds | "Teach me prompting", "quiz me", "why did that work?" |
 | **refresh** | Searches trusted sources for what's changed in best practice and proposes updates — nothing applies without your approval | "Is our prompting guidance still current?" |
 
 ## How it works
@@ -37,8 +37,8 @@ nag.
 ## Governance
 
 Owner: Lauren Townsend. Recommended cadence: a
-quarterly scheduled refresh. Companion handout: the team Word doc
-"Claude_Guardrails_and_Prompt_Library.docx".
+quarterly scheduled refresh. If your team keeps a prompting handout, point coach at it
+as the companion material.
 
 ## Note for installers
 

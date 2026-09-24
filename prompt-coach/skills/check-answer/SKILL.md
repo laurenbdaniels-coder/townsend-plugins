@@ -105,8 +105,8 @@ to fight.
 
 ## Boundaries
 
-- For HFH SKC external content, also run the org's fact-check skill if installed —
-  it owns canonical Habitat facts and wording; this skill owns general verification.
+- For your org.s external content, also run its own fact-check skill if one is installed —
+  it owns your canonical facts and wording; this skill owns general verification.
 - If the user pushes back on a finding, hold it unless they provide new evidence —
   this skill folding under pressure would be its own punchline.
 - **The 2f sweep is not tier-scaled and not optional.** Residue is cheap to remove
