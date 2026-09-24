@@ -15,7 +15,10 @@
 # zero-width characters, or inside a compressed or re-encoded file (zip, docx,
 # pdf, UTF-16). It catches accidents, not deliberate hiding.
 #
-# Enable once per clone: git config core.hooksPath .githooks
+# Install once per clone, and again after this file changes:
+#   cp .githooks/pre-push "$(git rev-parse --git-common-dir)/hooks/pre-push"
+# Not core.hooksPath .githooks: a relative path follows the checked-out branch,
+# so a branch without this file would push with no check at all.
 # Fails closed: a missing or empty list, a non-ASCII term, or any git error
 # refuses the push. To push without the list on purpose: TOWNSEND_ALLOW_NO_TERMS=1.
 LC_ALL=C
