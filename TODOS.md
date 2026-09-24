@@ -140,7 +140,7 @@
 
 **Why:** None changes an answer or the door; each is a wording or visibility nit worth one small PR together.
 
-**Context:** All from the Claude adversarial and maintainability passes on PR #11. (1) needs a bounded `[^;]{0,500}?` between the table name and `enable row level security` rather than an unbounded match. (2) either stop slicing after the insert (max 13 rows) or count the dropped row in `output_trimmed`; `test_json_shape` and the `MAX_EVIDENCE` assertions at test lines 936 and 1278 constrain the choice.
+**Context:** All from the Claude adversarial and maintainability passes on PR #11. (1) needs a bounded `[^;]{0,500}?` between the table name and `enable row level security` rather than an unbounded match. (2) either stop slicing after the insert (max 13 rows) or count the dropped row in `output_trimmed`; `test_json_shape` and the `MAX_EVIDENCE` assertions in `custody_scan_test.py` constrain the choice.
 
 **Effort:** S
 **Priority:** P3
