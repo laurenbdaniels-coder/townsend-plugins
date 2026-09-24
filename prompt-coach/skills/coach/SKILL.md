@@ -1,6 +1,6 @@
 ---
 name: coach
-description: Teaches prompting skills interactively — short lessons, before/after examples in Habitat contexts, and practice exercises with feedback. Use whenever the user asks to learn prompting, get better at prompts, understand why a prompt works, or train on AI guardrails; says "teach me", "give me a prompting lesson", "why did that prompt work better", "quiz me", "let me practice", or asks how to explain good prompting to a colleague. Also use when onboarding new staff to AI tools or preparing prompting training materials for the team.
+description: Teaches prompting skills interactively — short lessons, before/after examples in nonprofit contexts, and practice exercises with feedback. Use whenever the user asks to learn prompting, get better at prompts, understand why a prompt works, or train on AI guardrails; says "teach me", "give me a prompting lesson", "why did that prompt work better", "quiz me", "let me practice", or asks how to explain good prompting to a colleague. Also use when onboarding new staff to AI tools or preparing prompting training materials for the team.
 ---
 
 # Coach
@@ -27,7 +27,7 @@ practice, and coaching from stale memory is exactly the failure this plugin prev
 Before the nine strategies, teach the beginner frame every major vendor converges on —
 a complete prompt has four parts: **goal** (what you want), **context** (who it's for
 and why — "give the reason"), **source** (what material to use), and **expectations**
-(format, length, boundaries). Teach it in Habitat terms: "Draft a thank-you email
+(format, length, boundaries). Teach it in the user's own work terms: "Draft a thank-you email
 [goal] for first-time donors under $250 from last month's drive [context], using the
 attached campaign summary [source]; warm but brief, no statistics we haven't verified
 [expectations]." The nine strategies are the intermediate layer on top of this.
@@ -44,7 +44,7 @@ Pick based on what the user asked for; offer the menu if they were vague.
 
 **Quick lesson (default, ~2 minutes of reading).** One concept — e.g., "give it an
 out" — taught as: the failure it prevents (one sentence), a before/after example set
-in Habitat work (a grant deadline question, a donor letter, a board stat), and the
+in their real work (a grant deadline question, a donor letter, a board stat), and the
 one-line version to remember. **End every quick lesson with a one-prompt exercise by
 default** ("write the one-line version for a task on your plate right now") — practice
 is opt-out, not opt-in, because measured gains rise sharply with active engagement
@@ -70,9 +70,9 @@ the changes one at a time, each tied to the failure mode it prevents. Keep it ca
 ("without X, the model does Y") rather than rule-based ("best practice says").
 
 **Team training prep.** When the user is preparing to teach others, help them build
-the session: which three concepts matter most for that audience, Habitat-specific
-examples, and a handout drawn from the prompt library. The Word doc
-"Claude_Guardrails_and_Prompt_Library.docx" is the companion handout if they have it.
+the session: which three concepts matter most for that audience, org-specific
+examples, and a handout drawn from the prompt library (or their team's existing
+prompting handout, if they have one).
 Point to free official follow-ons: Anthropic's AI Fluency course (anthropic.com/learn)
 and OpenAI Academy's nonprofit track.
 

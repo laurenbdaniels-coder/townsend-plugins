@@ -9,7 +9,7 @@ guardrails listed. Strategy numbers refer to `current-guidance.md` section 3 and
 Read the user's draft prompt and pick the closest type below. If it spans two types,
 apply the union of their guardrails. Then determine the stakes tier (see
 `current-guidance.md` section 4) from the audience and the presence of high-stakes
-markers: donor, board, press, grant, homeowner-facing, legal, funder, media, public.
+markers: donor, board, press, grant, client- or beneficiary-facing, legal, funder, media, public.
 
 ## Playbooks
 
@@ -22,8 +22,8 @@ citation per claim. Strict tier adds: #6 uncertainty labels.
 Failure modes: invented statistics, misattributed quotes, off-brand claims.
 Apply: #2 Ground (build-on-my-facts-only), #1 Prevent (no gap-filling), #4 stakes
 declaration, #3 quote-or-retract on the draft. Always strict tier.
-For HFH SKC content, hand the *content* itself to the org's content/fact-check skills
-if installed — this plugin owns prompting hygiene, not Habitat facts or brand voice.
+If your org has its own content or fact-check skills installed, hand the *content* to
+them — this plugin owns prompting hygiene, not your org's facts or brand voice.
 
 ### Data / numbers / analysis
 Failure modes: inline arithmetic errors, confident estimates presented as computation.

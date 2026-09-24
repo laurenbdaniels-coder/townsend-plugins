@@ -165,5 +165,5 @@ coach skill uses them as teaching examples.
   declare the stakes.
 - Before trusting: click one citation, spot-check one number, push back once without
   evidence.
-- Before shipping: anything donor-, board-, press-, or homeowner-facing gets human
+- Before shipping: anything donor-, board-, press-, client- or beneficiary-facing gets human
   verification of every factual claim.

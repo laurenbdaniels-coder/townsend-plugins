@@ -2726,13 +2726,13 @@ class ReviewCycleTwoShipTests(ScanCase):
             questions = fh.read()
         self.assertIn("`mcp_config.json`", questions)
         self.assertNotIn("contains SERVICE or SECRET", questions)
-        with open(os.path.join(REPO_ROOT, "docs", "specs", "custody-check-pr1.md"), encoding="utf-8") as fh:
-            spec = fh.read()
-        for code in ("repo-is-symlink", "repo-contains-cwd"):
-            self.assertIn("`%s`" % code, spec.split("## Appendix B")[1])
-        self.assertIn("--exclude-promisor-objects", spec)
         with open(os.path.join(SKILL_DIR, "SKILL.md"), encoding="utf-8") as fh:
             skill = fh.read()
+        # every failure code the scanner can emit is one the skill will show the founder
+        known = skill.split("only for a known `error` code:")[1].split(")")[0]
+        for code in cs.HINTS:
+            shown = "internal:*" if code == "internal" else code  # internal errors carry a suffix
+            self.assertIn("`%s`" % shown, known, code)
         self.assertNotIn("sits under your working directory", skill)
         self.assertIn("per script location", skill)
 

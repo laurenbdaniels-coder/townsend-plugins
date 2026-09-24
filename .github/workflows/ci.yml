@@ -25,12 +25,27 @@ jobs:
           CUSTODY_TIME_SLACK: "3"   # shared runners are loaded; the linearity bounds still catch quadratic paths
         run: python3 -m unittest discover -s custody-check/skills/custody-check/scripts -p 'test_*.py' -v
       - name: IP grep (the giveaway must contain nothing from the paid method)
+        # custody-check-only terms; the repo-wide paid-method words are the Method grep below
         run: |
           # source only: the unit-test step above leaves __pycache__ behind, and a .pyc is not shipped text
           if grep -rniE --binary-files=without-match --exclude-dir=__pycache__ \
                "routing table|office-hours|three-pillar|/review|/ship" custody-check/; then
             echo "paid-method vocabulary found in custody-check/"; exit 1
           fi
+      - name: Method grep (no published file ships the paid method's vocabulary)
+        run: |
+          # every tracked file except this one, which has to spell the words; the custody-check-only
+          # terms stay in the IP grep above (prompt-coach's evals legitimately name /review).
+          # Client names are checked by .githooks/pre-push from a list kept outside this repo.
+          set +e
+          git grep -niE "routing table|three-pillar|per-gate prompt|falsifier" -- . ':!.github/workflows/ci.yml'
+          rc=$?
+          set -e
+          # git grep: 0 = found, 1 = clean, anything else = the check itself broke
+          if [ $rc -eq 0 ]; then echo "paid-method vocabulary found in a published file"; exit 1; fi
+          if [ $rc -ne 1 ]; then echo "method grep failed (exit $rc)"; exit 1; fi
+      - name: Pre-push hook tests
+        run: python3 -m unittest discover -s .githooks -p 'test_*.py' -v
       - name: Version guard (plugin.json must match __version__)
         run: |
           v=$(python3 -c "import json;print(json.load(open('custody-check/.claude-plugin/plugin.json'))['version'])")

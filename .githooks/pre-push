@@ -1,0 +1,90 @@
+#!/bin/sh
+# Refuse a push that would publish a private term (client and prospect names).
+#
+# What it checks: the ref names being pushed, and every object the push sends
+# that the remote does not already advertise. That covers file contents, file
+# and symlink names, full commit headers (author, committer, message, mergetag),
+# tag messages, and tags that point straight at a blob or tree.
+#
+# The list lives OUTSIDE this public repo on purpose: committing it would
+# publish the names it protects. One term per line, ASCII only, case-insensitive,
+# matched as plain text inside words, so list distinctive terms. A line starting
+# with "# " (or a bare "#") is a comment. Paid-method vocabulary is CI's job.
+#
+# What it cannot catch: a term split across lines, hidden with look-alike or
+# zero-width characters, or inside a compressed or re-encoded file (zip, docx,
+# pdf, UTF-16). It catches accidents, not deliberate hiding.
+#
+# Install once per clone, and again after this file changes:
+#   cp .githooks/pre-push "$(git rev-parse --git-common-dir)/hooks/pre-push"
+# Not core.hooksPath .githooks: a relative path follows the checked-out branch,
+# so a branch without this file would push with no check at all.
+# Fails closed: a missing or empty list, a non-ASCII term, or any git error
+# refuses the push. To push without the list on purpose: TOWNSEND_ALLOW_NO_TERMS=1.
+LC_ALL=C
+export LC_ALL
+# see what git push sends: pack-objects ignores refs/replace, so the hook must too
+GIT_NO_REPLACE_OBJECTS=1
+export GIT_NO_REPLACE_OBJECTS
+url="$2"
+terms="${TOWNSEND_PRIVATE_TERMS:-$HOME/Documents/townsend-ai-studio-workspace/private-terms.txt}"
+if [ ! -s "$terms" ]; then
+  if [ "${TOWNSEND_ALLOW_NO_TERMS:-}" = 1 ]; then
+    echo "pre-push: no private-terms list at $terms; skipped (TOWNSEND_ALLOW_NO_TERMS=1)" >&2
+    exit 0
+  fi
+  echo "pre-push: no private-terms list at $terms; refusing. Set TOWNSEND_PRIVATE_TERMS, or TOWNSEND_ALLOW_NO_TERMS=1 to skip." >&2
+  exit 1
+fi
+work=$(mktemp -d "${TMPDIR:-/tmp}/pre-push.XXXXXX") || { echo "pre-push: mktemp failed; refusing" >&2; exit 1; }
+trap 'rm -rf "$work"' EXIT
+clean="$work/terms"
+# normalise hand-edited lists: BOM, CRLF, surrounding space, comments, blanks
+bom=$(printf '\357\273\277')
+sed -e "s/^$bom//" -e 's/\r$//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$terms" > "$work/raw" \
+  || { echo "pre-push: could not read $terms; refusing" >&2; exit 1; }
+grep -v -e '^#[[:space:]]' -e '^#$' -e '^$' "$work/raw" > "$clean"
+if [ ! -s "$clean" ]; then
+  echo "pre-push: $terms has no terms; refusing (TOWNSEND_ALLOW_NO_TERMS=1 to skip)" >&2
+  exit 1
+fi
+if bad=$(grep -n '[^ -~]' "$clean"); then
+  echo "pre-push: $terms has a non-ASCII term; case-folding for those is unreliable, so refusing. Use an ASCII spelling:" >&2
+  echo "$bad" >&2
+  exit 1
+fi
+
+status=0
+fail() { echo "pre-push: $1" >&2; status=1; }
+# grep exits 0 on a hit, 1 on none, >1 on error; a hit or an error both refuse
+check() {  # $1 = what, $2 = file to search
+  out=$(grep -a -i -F -f "$clean" "$2"); rc=$?
+  if [ $rc -eq 0 ]; then fail "private term in $1:"; printf '%s\n' "$out" | tr -c '[:print:]\n' '?' | cut -c1-200 >&2
+  elif [ $rc -gt 1 ]; then fail "could not check $1 (grep exit $rc)"; fi
+}
+
+# git hands us the push URL already rewritten; ls-remote would apply insteadOf
+# rules again and could ask a different repo (a fetch mirror) what the target has
+if [ "$(git ls-remote --get-url "$url")" != "$url" ]; then
+  echo "pre-push: $url is rewritten by a url.*.insteadOf rule, so the hook cannot see what the push target has; refusing" >&2
+  exit 1
+fi
+# exclude only what the remote actually has: its advertised tips that we hold
+# locally. Never local remote-tracking refs, which can be stale or unpruned.
+advertised=$(git ls-remote "$url") || { echo "pre-push: git ls-remote $url failed; refusing" >&2; exit 1; }
+printf '%s\n' "$advertised" | cut -f1 | sort -u | git cat-file --batch-check='%(objectname) %(objecttype)' \
+  | awk 'NF == 2 && $2 != "missing" { print "^" $1 }' > "$work/have" \
+  || { echo "pre-push: could not resolve the remote's tips; refusing" >&2; exit 1; }
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case $local_sha in *[!0]*) ;; *) continue ;; esac  # all zeros = a delete (40 or 64 digits)
+  printf '%s\n%s\n' "$local_ref" "$remote_ref" > "$work/refs"
+  check "the ref name $remote_ref" "$work/refs"
+  if ! { echo "$local_sha"; cat "$work/have"; } | git rev-list --objects --no-object-names --stdin > "$work/objs"; then
+    fail "could not list the objects $local_ref sends"; continue
+  fi
+  git cat-file --batch < "$work/objs" > "$work/content" || { fail "could not read the objects $local_ref sends"; continue; }
+  check "an object $local_ref sends" "$work/content"
+done
+[ $status -ne 0 ] && echo "pre-push: refused. Remove the term (rewrite the commit if it is in history), then push again." >&2
+exit $status

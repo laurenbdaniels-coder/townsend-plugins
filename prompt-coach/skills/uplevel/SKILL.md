@@ -1,6 +1,6 @@
 ---
 name: uplevel
-description: Rewrites a draft prompt with the right guardrails for its task type and stakes, then teaches the user why each change was made. Use whenever the user asks to uplevel, improve, strengthen, fix, review, or coach a prompt; says "make this prompt better", "how should I ask this", "what's wrong with my prompt", or shares a prompt they're about to send and wants it checked. Also use proactively when the user is drafting a request for high-stakes work — anything mentioning donors, the board, press, grants, funders, homeowner-facing material, or legal matters — even if they don't ask for prompt help, because those are the tasks where a weak prompt produces confidently wrong output.
+description: Rewrites a draft prompt with the right guardrails for its task type and stakes, then teaches the user why each change was made. Use whenever the user asks to uplevel, improve, strengthen, fix, review, or coach a prompt; says "make this prompt better", "how should I ask this", "what's wrong with my prompt", or shares a prompt they're about to send and wants it checked. Also use proactively when the user is drafting a request for high-stakes work — anything mentioning donors, the board, press, grants, funders, client- or beneficiary-facing material, or legal matters — even if they don't ask for prompt help, because those are the tasks where a weak prompt produces confidently wrong output.
 ---
 
 # Uplevel
@@ -53,7 +53,7 @@ eventually need this skill less.
 
 ## Boundaries
 
-- This skill owns the *prompt*. If the user's task is creating HFH SKC content
+- This skill owns the *prompt*. If the user's task is creating the org's external content
   (donor letters, press releases, board updates), uplevel the prompt, then let the
   org's content and fact-check skills own the *content* — don't duplicate their job.
 - Don't rewrite prompts the user didn't share for review, and don't run this skill on
