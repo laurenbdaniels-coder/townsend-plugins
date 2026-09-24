@@ -152,7 +152,19 @@
 
 **Why:** Time-boxed test mode is the most common vibe-coded Firebase layout. Found by the Red Team pass in the v0.3.0 pre-merge review; the row wording was fixed there, the detectors were not.
 
-**Context:** Add `firebase-rules-test-mode` as an evidence row (`allow … : if request.time <`), and widen `USING_TRUE_RE` only as evidence (`policy-using-tautology`), never as a decisive `no`, until the workshop corpus shows no false positives. Also a judgement call from the same review: `.env-cmdrc` (env-cmd's rc file) is now a tracked env file for Q1 when committed; keep or exempt.
+**Context:** Add `firebase-rules-test-mode` as an evidence row (`allow … : if request.time <`), and widen `USING_TRUE_RE` only as evidence (`policy-using-tautology`), never as a decisive `no`, until the workshop corpus shows no false positives. Also from the same review: a committed `.env-cmdrc` (env-cmd's rc file) is reported as `tracked-env-file-nonprod` evidence, never a `no`; decide whether it should be evidence at all.
+
+**Effort:** S
+**Priority:** P2
+**Depends on:** None
+
+### Door rule when Q1 or Q3 is Don't know on a complete scan
+
+**What:** Step 3 of the door rule blocks Ship it only when the scan was partial. A build folder, a minified bundle, a precompressed bundle or an excluded folder withholds Nothing found (a gap) without making the scan partial, so Q1 can be an ordinary Don't know on a `partial: false` result and step 5 can still reach Ship it.
+
+**Why:** Raised by the Codex adversarial pass in the v0.3.0 pre-merge review. It is the v0.2.0 behaviour too (an excluded folder never set partial), so it is not a regression, but the gap counters now make the distinction visible and the door rule could use it.
+
+**Context:** Options: emit `stats.gaps` (see the leftovers entry) and let step 3 read "partial, or Q1/Q3 withheld by a gap"; or keep the door as is and have the verdict name the gap in the Q1 row. Decide against the workshop corpus so ordinary prototypes with a `build/` folder are not pushed to Patch it.
 
 **Effort:** S
 **Priority:** P2

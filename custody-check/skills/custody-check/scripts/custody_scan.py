@@ -58,8 +58,9 @@ import warnings
 # ----------------------------------------------------------------- constants
 
 BUILD_OUTPUT_DIRS = {"dist", "build", "out", ".next", ".nuxt"}  # skipped like the rest, but they hold browser bundles, and people keep source under the first three
-MEDIA_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".heic", ".ico", ".bmp", ".tif", ".tiff", ".psd", ".mp4", ".mov", ".webm", ".mkv", ".avi", ".mp3", ".wav", ".ogg", ".flac",
-              ".woff", ".woff2", ".ttf", ".otf", ".eot", ".pdf", ".zip", ".tar", ".tgz", ".7z", ".rar", ".dmg", ".exe", ".dll", ".so", ".dylib", ".wasm", ".pyc", ".class", ".jar"}  # never read: no detector wants them
+NEVER_READ_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".heic", ".ico", ".bmp", ".tif", ".tiff", ".psd", ".mp4", ".mov", ".webm", ".mkv", ".avi", ".mp3", ".wav", ".ogg", ".flac",
+              ".woff", ".woff2", ".ttf", ".otf", ".eot", ".pdf", ".zip", ".tar", ".tgz", ".7z", ".rar", ".dmg", ".exe", ".dll", ".so", ".dylib", ".wasm", ".pyc", ".class", ".jar"}  # media, fonts, archives, binaries: never opened, no detector wants them
+PRECOMPRESSED_EXTS = (".gz", ".br")  # app.js.gz is browser code no detector can read; data.json.gz is just data
 EXCLUDED_DIRS = {".git", "node_modules", "dist", "build", ".next", ".nuxt", "out", "vendor", "venv", ".venv", "__pycache__", "coverage"}
 NEVER_OPEN_DIRS = {".claude", ".codex", ".agents", ".windsurf", ".clinerules", ".gemini", ".kiro", ".roo", ".trae", ".augment", ".amazonq", ".junie", ".continue", ".aider", ".opencode"}
 NEVER_OPEN_DIR_PAIRS = {(".cursor", "rules"), (".github", "instructions"), (".github", "prompts"), (".github", "agents")}
@@ -100,7 +101,7 @@ DEFAULT_MAX_FILES = 20000
 DEFAULT_MAX_FILE_BYTES = 524288
 DEFAULT_MAX_TOTAL_BYTES = 268435456
 DEFAULT_DEADLINE_S = 120.0
-ENV_FILE_RE = re.compile(r"^\.env([._-].+)?$")
+ENV_FILE_RE = re.compile(r"^\.env(?:[._-](?!.{0,200}\.(?:js|cjs|mjs|ts|json|ya?ml|toml|md)$).+)?$")  # .env-schema.ts and .env-cmdrc.json are code, not env files
 FLY_ENV_TOML_RE = re.compile(r"^fly\.([a-z0-9_-]+)\.toml$")
 DEADLINE_TICK = 256
 MAX_JWT_HITS_PER_FILE = 200
@@ -223,7 +224,7 @@ FRAMEWORK_CONFIG_RE = re.compile(r"^(?:next|vite|nuxt|svelte|astro|remix|gatsby|
 API_ROUTE_PREFIXES = ("pages/api/", "app/api/", "api/", "server/", "netlify/functions/", "supabase/functions/", "functions/", "workers/")
 AUTH_SEGMENTS = {"auth", "authorize", "permissions", "rbac", "guards", "policy", "policies", "middleware", "proxy"}
 MONITOR_CONFIG_RE = re.compile(r"^(?:sentry\.[a-z.]*config\.[a-z]+|sentry\.properties|checkly\.config\.[a-z]+|uptimerobot[^/]*)$", re.I)
-HEALTH_PATH_RE = re.compile(r"(?:^|/)health(?:z|check|-check)?(?:\.[a-z]+)?$", re.I)
+HEALTH_PATH_RE = re.compile(r"(?:^|/)health(?:z|check|-check)?(?:\.[a-z]+|/(?:route|index|\+server)\.[a-z]+|\.(?:get|post)\.[a-z]+)?$", re.I)  # api/health.ts, app/api/health/route.ts, routes/health/+server.ts, server/api/health.get.ts
 REVIEW_ACTION_RE = re.compile(r"^[ \t]*(?:-[ \t]*)?uses:[ \t]*[\"']?(anthropics/claude-code-action|coderabbitai/[A-Za-z0-9_.-]{1,60}|reviewdog/[A-Za-z0-9_.-]{1,60})", re.M)
 REVIEW_NAME_RE = re.compile(r"(?:^|[-_.])review")  # pr-review.yml, claude-code-review.yml; never preview.yml
 _SQL_IDENT = r"(?:\"[^\"\n]{1,63}\"|[A-Za-z_][A-Za-z0-9_$]{0,62})"  # a Postgres identifier: quoted as written, or bare
@@ -233,12 +234,15 @@ ENABLE_RLS_RE = re.compile(r"\balter\s{1,20}table\s{1,20}(?:if\s{1,20}exists\s{1
 TABLE_PART_RE = re.compile(r'"[^"]*"|[^.\s]+')  # a dot inside quotes is part of the name, not a schema separator
 MANIFEST_BASENAMES = {"package.json", "requirements.txt", "pyproject.toml", "gemfile", "go.mod"}
 # manifest entry shapes; anchored whitespace never crosses a newline, so a file of blank lines stays linear
-PY_DEP_ENTRY_RE = re.compile(r'["\x27]([A-Za-z0-9][A-Za-z0-9_.-]{0,99})')  # one quoted entry of a PEP 621 / PEP 735 list
+PY_DEP_ENTRY_RE = re.compile(r'"((?:\\.|[^"\\\n]){1,300})"|\x27([^\x27\n]{1,300})\x27')  # one quoted list entry, escapes and markers included
+PY_DEP_NAME_RE = re.compile(r"^[ \t]*([A-Za-z0-9][A-Za-z0-9_.-]{0,99})")  # the name at the front of an entry, before extras, version or marker
+QUOTED_RE = re.compile(r'"(?:\\.|[^"\\\n])*"|\x27[^\x27\n]*\x27')  # blanked before looking for the `]` that ends a list
+GO_MAJOR_SUFFIX_RE = re.compile(r"/v[0-9]+$")  # github.com/newrelic/go-agent/v3 is the go-agent module
 TOML_KEY_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9_.-]{0,99})[ \t]*=[ \t]*(\[)?")
 GEM_RE = re.compile(r'^[ \t]*gem[ \t]+["\x27]([A-Za-z0-9][A-Za-z0-9_.-]{0,99})["\x27]', re.M)
 GO_REQUIRE_RE = re.compile(r'^[ \t]*(?:require[ \t]+)?([a-z0-9][a-z0-9.-]{0,99}/[^\s]{1,200})[ \t]+v[0-9]', re.M)
 REQ_INCLUDE_PREFIXES = ("-r", "-c", "--requirement", "--constraint", "-e", "--editable")  # lines that name dependencies the walk does not read
-REQ_URL_OR_PATH_RE = re.compile(r"^(?:[a-z][a-z0-9+.-]{0,20}://|\.{0,2}/|[A-Za-z]:\\)")  # git+https://…, https://…whl, ./vendor/pkg
+REQ_URL_OR_PATH_RE = re.compile(r"^(?:[a-z][a-z0-9+.-]{0,20}://|\.{0,2}/|[A-Za-z]:\\|[^=<>;\[ @]{0,200}/)", re.I)  # git+https://…, ./vendor/pkg, vendor/pkg
 GENERATED_CODE_SUFFIXES = (".min.js", ".bundle.js", ".map")  # browser code, or source maps that embed it
 PREVIEW_DEFAULTS = {"vercel.json": "Vercel previews every branch by default", "netlify.toml": "Netlify deploy previews on by default"}
 # every extension a Q1 or Q3 detector reads; an oversize file of any other kind (a photo, a font, a video)
@@ -602,18 +606,22 @@ def is_never_open_file(base):
 
 
 def could_hold_q1_q3(base, ext):
-    """A file a Q1 or Q3 detector would have read. Only skipping one of these leaves the scan incomplete."""
+    """A file whose contents could hold a Q1 or Q3 answer, including a precompressed one no detector can read.
+
+    Skipping one withholds "nothing found"; skipping one the scanner meant to read also makes the scan partial."""
     b = base.lower()
-    if ext in (".gz", ".br"):  # app.js.gz is the bundle the browser downloads, precompressed; data.json.gz is just data
-        return os.path.splitext(b[:-len(ext)])[1] in CODE_EXTS | HTML_EXTS
+    if ext in PRECOMPRESSED_EXTS:
+        inner = os.path.splitext(b[:-len(ext)])[1]
+        return inner in CODE_EXTS | HTML_EXTS | SQL_LIKE_EXTS or inner == ".rules"  # app.js.gz, dump.sql.gz; data.json.gz is just data
     env_shaped = b.startswith(".env") or b.endswith(".env")  # the template word list alone matches `hero-sample.png`
     return ext in Q1_Q3_EXTS or is_env_file(b) or (env_shaped and is_env_template(b)) or b.endswith(".rules")
 
 
 def note_unread(state, base, ext):
-    """A file skipped for any reason: "nothing found" is off for every question it could have answered.
+    """A file the walk could not stat, open, read or decode: charge the gaps it could have answered.
 
-    Returns whether a Q1 or Q3 detector would have read it."""
+    Generated, precompressed and never-read files charge their gaps inline in the walk. Returns whether the
+    file could hold a Q1 or Q3 answer, which is also whether skipping it makes the scan partial."""
     relevant = could_hold_q1_q3(base, ext)
     if relevant:
         state.gaps["q1"] += 1
@@ -1157,23 +1165,40 @@ def detect_env_names(sf, state, opts):
             state.add("cron-schedule", sf.rel, line_of(text, m.start()), _clause(m))
 
 
-def _pyproject_dependencies(text):
+def _pyproject_dependencies(text, state):
     """Names in `[project] dependencies`, `[project.optional-dependencies]`, `[dependency-groups]` lists and
-    `[tool.poetry.*dependencies]` tables. Classifiers, keywords and tool settings are lists too; they do not count."""
+    `[tool.poetry.*dependencies]` tables. Classifiers, keywords and tool settings are lists too; they do not count.
+    An entry that points somewhere else (`pkg @ git+https://…`, `{include-group = …}`) is a Q9 gap, not a name."""
     found = set()
     table = ""
     in_list = False
+
+    def entries(chunk):
+        for em in PY_DEP_ENTRY_RE.finditer(chunk):
+            entry = em.group(1) or em.group(2) or ""
+            if "@" in entry:
+                state.gaps["q9"] += 1  # a direct reference: the dependency lives at a URL or path this parser does not read
+                continue
+            m = PY_DEP_NAME_RE.match(entry)
+            if m:
+                found.add(m.group(1).lower())
+        if "include-group" in chunk:
+            state.gaps["q9"] += 1
+
+    def closes(chunk):
+        return "]" in QUOTED_RE.sub("", chunk)  # the `]` of `uvicorn[standard]` sits inside quotes and ends nothing
+
     for raw in text.splitlines():
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
         if line.startswith("["):
-            table = line.strip("[]").strip().strip('"').lower()
+            table = line[1:line.find("]")].strip().strip('"').lower() if "]" in line else ""  # `[project]  # main` is still `project`
             in_list = False
             continue
         if in_list:
-            found.update(n.lower() for n in PY_DEP_ENTRY_RE.findall(line))
-            if "]" in line:
+            entries(line)
+            if closes(line):
                 in_list = False
             continue
         poetry = table in ("tool.poetry.dependencies", "tool.poetry.dev-dependencies") or (table.startswith("tool.poetry.group.") and table.endswith(".dependencies"))
@@ -1188,16 +1213,18 @@ def _pyproject_dependencies(text):
         list_key = (table == "project" and key == "dependencies") or table in ("project.optional-dependencies", "dependency-groups")
         if list_key and m.group(2):
             rest = line[m.end():]
-            found.update(n.lower() for n in PY_DEP_ENTRY_RE.findall(rest))
-            in_list = "]" not in rest
+            entries(rest)
+            in_list = not closes(rest)
     return found
 
 
 def _read_dependencies(base, text, state):
-    """Names a parser actually read from a manifest, for hints, and how many of them count as "looked".
+    """Names a parser read from a manifest, for the hint matchers, and how many count as "looked".
 
-    Every line-shaped token still feeds the hint matchers, but only a real dependency entry counts
-    toward Q9's "N dependencies read": a TOML key, a `gem` keyword or a `-r` include is not one."""
+    package.json and requirements.txt yield only real entries. pyproject.toml, Gemfile and go.mod also pass every
+    leading line token to the hint matchers (harmless: a TOML key or the word `gem` never names a dependency) while
+    only parsed entries are counted toward Q9's "N dependencies read". A line that names a dependency somewhere
+    this parser cannot see (an include, an editable or direct reference, a path) is a Q9 gap instead."""
     names = set()
     counted = set()
     if base == "package.json":
@@ -1220,8 +1247,8 @@ def _read_dependencies(base, text, state):
                 continue
             if line.startswith("-"):
                 continue
-            if REQ_URL_OR_PATH_RE.match(line):
-                state.gaps["q9"] += 1  # a VCS, URL or path requirement names a package this parser cannot see
+            if REQ_URL_OR_PATH_RE.match(line) or " @ " in line:
+                state.gaps["q9"] += 1  # a VCS, URL, path or direct-reference requirement names a package this parser cannot see
                 continue
             m = re.match(r"^([A-Za-z0-9][A-Za-z0-9_.-]*)", line)
             if m:
@@ -1232,11 +1259,11 @@ def _read_dependencies(base, text, state):
             if m:
                 names.add(m.group(1).lower())
         if base == "pyproject.toml":
-            counted.update(_pyproject_dependencies(text))
+            counted.update(_pyproject_dependencies(text, state))
         elif base == "gemfile":
             counted.update(n.lower() for n in GEM_RE.findall(text))
         elif base == "go.mod":
-            counted.update(n.lower() for n in GO_REQUIRE_RE.findall(text))
+            counted.update(GO_MAJOR_SUFFIX_RE.sub("", n.lower()) for n in GO_REQUIRE_RE.findall(text))  # go-agent/v3 is go-agent
     names.update(counted)
     return names, len(counted)
 
@@ -1798,7 +1825,7 @@ def run_scan(repo, state, opts):
     stop = False
     git_facts(repo, state)
     git_present = state.git["tracked_env_files"] is not None
-    nested_repos = []
+    nested_repos = set()
 
     def unreadable(err):
         state.stats["dirs_unreadable"] += 1
@@ -1814,9 +1841,18 @@ def run_scan(repo, state, opts):
         rel_dir = os.path.relpath(dirpath, real_repo).replace(os.sep, "/")
         if rel_dir == ".":
             rel_dir = ""
-        if rel_dir and (".git" in dirnames or os.path.lexists(os.path.join(dirpath, ".git"))) and len(nested_repos) < MAX_SEEN:
-            nested_repos.append(rel_dir)  # a vendored clone or submodule: the parent index does not vouch for what is tracked here
-        in_nested = any(rel_dir == n or rel_dir.startswith(n + "/") for n in nested_repos)
+        if rel_dir and os.path.lexists(os.path.join(dirpath, ".git")):  # a vendored clone or submodule: the parent index does not vouch for what is tracked here
+            if len(nested_repos) < MAX_SEEN:
+                nested_repos.add(rel_dir)
+            else:
+                state.gaps["q1"] += 1  # a nested repo the registry could not hold: its env files go unreported
+        in_nested = False
+        ancestor = rel_dir
+        while ancestor:  # walk is top-down, so a nested repo is registered before any directory below it is visited
+            if ancestor in nested_repos:
+                in_nested = True
+                break
+            ancestor = ancestor.rpartition("/")[0]
         parent_name = os.path.basename(dirpath)
         real_dir = os.path.realpath(dirpath)
         if real_dir != real_repo and not real_dir.startswith(real_repo + os.sep):
@@ -1879,8 +1915,8 @@ def run_scan(repo, state, opts):
                 continue
             if stat.S_ISREG(st.st_mode) and st.st_nlink > 1:
                 state.stats["files_skipped_hardlink"] += 1
-                note_unread(state, base, ext)
-                state.partial = True
+                if note_unread(state, base, ext):  # a hard-linked logo is not missing coverage; a hard-linked source file is
+                    state.partial = True
                 continue
             if not stat.S_ISREG(st.st_mode):
                 state.stats["files_skipped_special"] += 1
@@ -1900,24 +1936,22 @@ def run_scan(repo, state, opts):
                     state.gaps["q1"] += 1  # a public bundle is exactly what the browser downloads
                     state.gaps["q9"] += 1
                 continue
-            if ext in (".gz", ".br"):
-                if could_hold_q1_q3(base, ext):  # app.js.gz: browser code the scanner cannot read, whatever its size
+            if ext in PRECOMPRESSED_EXTS:
+                if note_unread(state, base, ext):  # app.js.gz or dump.sql.gz: code or rules the scanner cannot read, whatever its size
                     state.stats["files_skipped_generated"] += 1
-                    state.gaps["q1"] += 1
-                    state.gaps["q9"] += 1
                     continue
             if st.st_size > opts.max_file_bytes:
                 skip_oversize(state, base, ext)
                 continue
-            if ext in MEDIA_EXTS or ext in (".gz", ".br"):
-                state.stats["files_skipped_binary"] += 1  # a photo, a font or an archive: not opened, not charged to the byte budget
+            if ext in NEVER_READ_EXTS or ext in PRECOMPRESSED_EXTS:
+                state.stats["files_skipped_binary"] += 1  # a photo, a font or an archive: not opened, not charged to the byte or file budgets
                 continue
             opened = open_regular(full)
             if opened is None:
                 # lstat vouched for a plain single-link file; if it still cannot be opened (permission denied, or
                 # swapped underneath us) it is a file the scan could not read, not a link or a pipe
                 state.stats["files_errored"] += 1
-                if note_unread(state, base, ext):  # a photo we could not open is not missing coverage
+                if note_unread(state, base, ext):  # a README or a CSV we could not open is not missing coverage; a source file is
                     state.partial = True
                 continue
             fd, size = opened
@@ -2001,9 +2035,15 @@ def resolve(state):
     out = {}
     complete = not state.partial  # a folder the founder excluded is a gap on every question (note_unread_dir)
     if state.build_dirs:
-        shown = sorted(state.build_dirs)[:5]
+        head = "%s not read: " % _n(len(state.build_dirs), "build folder")
+        shown = []
+        for d in sorted(state.build_dirs)[:5]:
+            tail = " and %d more" % (len(state.build_dirs) - len(shown) - 1)
+            if shown and len(head + ", ".join(shown + [d]) + tail) > MAX_SNIPPET:
+                break  # the count of what is hidden must survive the snippet cap
+            shown.append(d)
         more = len(state.build_dirs) - len(shown)
-        state.add("build-output-unread", "", 0, "%s not read: %s%s" % (_n(len(state.build_dirs), "build folder"), ", ".join(shown), " and %d more" % more if more else ""))
+        state.add("build-output-unread", "", 0, head + ", ".join(shown) + (" and %d more" % more if more else ""))
     for name in sorted(set(state.tables) - state.rls_enabled)[:MAX_TABLE_WITHOUT_RLS_ROWS]:
         path, line = state.tables[name]
         state.add("table-without-rls", path, line, name)  # a table no migration turns row level security on for

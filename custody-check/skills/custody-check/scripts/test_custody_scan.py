@@ -3440,6 +3440,7 @@ class NothingFoundGapTests(ScanCase):
     def q(self, key, **kw):
         return self.scan(**kw)["questions"][key]
 
+    @unittest.skipIf(sys.platform == "win32", "long paths")
     def test_output_trimmed_after_resolve_downgrades_nothing_found(self):
         self.base_app()
         self.write("db/1.sql", "create table t (id int);\nalter table t enable row level security;\n")
@@ -3482,6 +3483,7 @@ class NothingFoundGapTests(ScanCase):
                 self.write(name, body, binary=True)
                 self.assertTrue(self.scan()["partial"], name)
 
+    @unittest.skipUnless(hasattr(os, "symlink"), "symlinks")
     def test_generated_bundle_symlink_and_excluded_dir_block_q1(self):
         self.base_app()
         self.write("public/app.min.js", 'var k="%s";\n' % SK)
@@ -3573,6 +3575,7 @@ class NothingFoundGapTests(ScanCase):
         self.write("package.json", "{not json")
         self.assertEqual(self.q("q9")["answer"], "dont-know", "a manifest that would not parse was not read")
 
+    @unittest.skipUnless(hasattr(os, "symlink"), "symlinks")
     def test_q9_gap_is_as_wide_as_q9_readers(self):
         self.base_app()
         self.write("package.json", json.dumps({"dependencies": {"next": "15"}}))
@@ -3667,6 +3670,25 @@ class NothingFoundGapTests(ScanCase):
                 self.write(name, 'export const apiSecret = "%s";\n' % ("a1b2c3d4" * 8))
                 self.assertEqual(self.q("q1")["answer"], "no", name)
 
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_env_named_code_files_are_not_env_files(self):
+        self.base_app()
+        self.write(".env-schema.ts", "export const schema = {};\n")
+        self.write(".env-cmdrc.json", '{"development": {"PORT": "3000"}}\n')
+        self.write(".env.production", "A=b\n")
+        self.init_repo()
+        q1 = self.q("q1")
+        self.assertEqual(q1["answer"], "no")
+        self.assertEqual([e["path"] for e in q1["evidence"] if e["check"].startswith("tracked-env-file")], [".env.production"])
+
+    def test_nested_repo_registry_overflow_is_a_q1_gap(self):
+        self.base_app()
+        os.makedirs(os.path.join(self.repo, "a", ".git"))
+        os.makedirs(os.path.join(self.repo, "b", ".git"))
+        self.write("b/.env", "A=b\n")
+        with mock.patch.object(cs, "MAX_SEEN", 1):
+            self.assertNotEqual(self.q("q1")["answer"], "nothing-found")
+
     def test_env_cmdrc_is_not_an_environment_name(self):
         self.write(".env-cmdrc", '{"development": {"PORT": "3000"}}\n')
         self.write(".env-production", "A=b\n")
@@ -3680,9 +3702,12 @@ class NothingFoundGapTests(ScanCase):
         self.init_repo()
         os.makedirs(os.path.join(self.repo, "vendor2", "lib", ".git"))
         self.write("vendor2/lib/.env", "DATABASE_URL=postgres://admin:hunter2hunter2@db/x\n")
+        self.write("vendor2/lib2/.env", "A=b\n")  # a sibling that shares a prefix is not inside the nested repo
+        self.write("sub/.git", "gitdir: ../.git/modules/sub\n")  # a submodule keeps a gitdir pointer file
+        self.write("sub/deep/.env", "A=b\n")
         q1 = self.q("q1")
         self.assertEqual(q1["answer"], "dont-know")
-        self.assertEqual([e["path"] for e in q1["evidence"] if e["check"] == "env-file-on-disk"], ["vendor2/lib/.env"])
+        self.assertEqual(sorted(e["path"] for e in q1["evidence"] if e["check"] == "env-file-on-disk"), ["sub/deep/.env", "vendor2/lib/.env"])
 
     def test_unlogged_and_foreign_tables_are_tracked(self):
         self.base_app()
@@ -3712,6 +3737,94 @@ class NothingFoundGapTests(ScanCase):
         self.write(".github/workflows/ci.yml", "on: pull_request\njobs:\n  r:\n    steps:\n      - uses: anthropics/claude-code-action@v1\n      - uses: 'reviewdog/action-eslint@v1'\n      - uses: coderabbitai/ai-pr-reviewer@latest\n")
         rows = sorted(e["snippet"] for e in self.q("q7")["evidence"] if e["check"] == "review-workflow")
         self.assertEqual(rows, ["anthropics/claude-code-action", "coderabbitai/ai-pr-reviewer", "reviewdog/action-eslint"])
+
+    def test_extras_marker_does_not_end_the_dependency_list(self):
+        self.base_app()
+        self.write("pyproject.toml", '[project]\ndependencies = [\n  "uvicorn[standard]>=0.2",\n  "sentry-sdk>=1",\n]\n')
+        q9 = self.q("q9")
+        self.assertIn("monitoring-dependency", evidence_checks(q9))
+        self.assertNotEqual(q9["answer"], "nothing-found")
+        self.write("pyproject.toml", '[project]\ndependencies = ["a[x]",\n  "sentry-sdk"]\n')
+        self.assertIn("monitoring-dependency", evidence_checks(self.q("q9")))
+
+    def test_pyproject_headers_markers_and_references(self):
+        self.base_app()
+        self.write("pyproject.toml", '[project]  # main\ndependencies = ["requests; python_version >= \\"3.8\\"", "sentry-sdk"]\n')
+        q9 = self.q("q9")
+        self.assertIn("monitoring-dependency", evidence_checks(q9), "a trailing comment on the table header must not drop the table")
+        self.write("pyproject.toml", '[project]\ndependencies = ["requests; python_version >= \\"3.8\\""]\n')
+        q9 = self.q("q9")
+        self.assertEqual(q9["answer"], "nothing-found")
+        self.assertIn("1 dependency read", q9["evidence"][0]["snippet"], "an environment marker is not a second dependency")
+        self.write("pyproject.toml", '[project]\ndependencies = ["observability @ git+https://example.com/x.git", "requests"]\n')
+        self.assertEqual(self.q("q9")["answer"], "dont-know", "a direct reference names a package the parser did not read")
+        self.write("pyproject.toml", '[dependency-groups]\ntest = ["pytest", {include-group = "lint"}]\n')
+        self.assertEqual(self.q("q9")["answer"], "dont-know")
+
+    def test_requirements_direct_references_and_paths_are_gaps(self):
+        self.base_app()
+        for text in ("observability @ git+https://example.com/x.git\nrequests==2\n", "Git+https://github.com/x/y.git#egg=y\nrequests==2\n", "vendor/mypkg\nrequests==2\n"):
+            with self.subTest(text=text.split("\n")[0]):
+                self.write("requirements.txt", text)
+                self.assertEqual(self.q("q9")["answer"], "dont-know")
+        self.write("requirements.txt", "uvicorn[standard]>=0.2\nrequests==2 ; python_version >= '3.8'\n")
+        q9 = self.q("q9")
+        self.assertEqual(q9["answer"], "nothing-found")
+        self.assertIn("2 dependencies read", q9["evidence"][0]["snippet"])
+
+    def test_go_module_major_suffix_is_ignored(self):
+        self.base_app()
+        self.write("go.mod", "module x\n\nrequire github.com/newrelic/go-agent/v3 v3.30.0\n")
+        self.assertIn("monitoring-dependency", evidence_checks(self.q("q9")))
+
+    def test_health_routes_in_every_layout_are_seen(self):
+        for path in ("pages/api/health.ts", "app/api/health/route.ts", "src/app/api/healthz/route.ts", "src/routes/health/+server.ts", "server/api/health.get.ts", "api/health/index.ts"):
+            with self.subTest(path=path):
+                shutil.rmtree(self.repo)
+                os.makedirs(self.repo)
+                self.write(path, "export default () => 1;\n")
+                self.assertIn("health-route", evidence_checks(self.q("q9")), path)
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.write("src/healthy/index.ts", "x\n")
+        self.assertNotIn("health-route", evidence_checks(self.q("q9")))
+
+    def test_precompressed_rules_and_sql_are_q3_gaps(self):
+        self.base_app()
+        self.write("db/schema.sql", "select 1;\n")
+        self.assertEqual(self.q("q3")["answer"], "nothing-found")
+        self.write("db/dump.sql.gz", b"\x1f\x8b\x01", binary=True)
+        r = self.scan()
+        self.assertEqual(r["questions"]["q3"]["answer"], "dont-know")
+        self.assertFalse(r["partial"])
+
+    def test_hardlinked_asset_does_not_mark_partial(self):
+        self.base_app()
+        logo = self.write("public/logo.png", b"\x89PNG\x01", binary=True)
+        os.link(logo, os.path.join(self.repo, "public", "logo2.png"))
+        r = self.scan()
+        self.assertFalse(r["partial"])
+        self.assertEqual(r["stats"]["files_skipped_hardlink"], 2)
+        src = self.write("src/b.ts", "x\n")
+        os.link(src, os.path.join(self.repo, "src", "c.ts"))
+        self.assertTrue(self.scan()["partial"], "a hard-linked source file is missing coverage")
+
+    def test_build_summary_row_names_the_overflow_and_fits_the_snippet_cap(self):
+        self.write("app.html", "<html></html>\n")
+        for n in ("customer-portal", "design-system", "marketing-site", "admin-console", "notifications", "zeta"):
+            self.write("packages/%s/dist/x.js" % n, "x\n")
+        row = [e for e in self.q("q1")["evidence"] if e["check"] == "build-output-unread"][0]
+        self.assertLessEqual(len(row["snippet"]), cs.MAX_SNIPPET)
+        self.assertRegex(row["snippet"], r"^6 build folders not read: .* and \d+ more$")
+
+    def test_never_read_files_do_not_count_toward_the_file_budget(self):
+        self.base_app()
+        for i in range(3):
+            self.write("public/p%d.png" % i, b"\x89PNG\x01", binary=True)
+        r = self.scan(max_files=2)
+        self.assertFalse(r["stats"]["max_files_hit"], "a photo is neither opened nor charged to the budget")
+        self.assertEqual(r["stats"]["files_skipped_binary"], 3)
+        self.assertEqual(r["questions"]["q1"]["answer"], "nothing-found")
 
     def test_precompressed_bundle_is_browser_code(self):
         for name in ("public/app.js.gz", "public/app.js.br", "static/index.html.br"):
@@ -3767,6 +3880,7 @@ class NothingFoundGapTests(ScanCase):
         self.write("src/c.ts", 'export const NEXT_PUBLIC_CONFIG_BLOB = "%s";\n' % ("Ab1" * 3000))
         self.assertEqual(self.q("q1")["answer"], "dont-know")
 
+    @unittest.skipUnless(hasattr(os, "symlink"), "symlinks")
     def test_a_skipped_rule_file_blocks_q3_on_a_complete_scan(self):
         self.base_app()
         self.write("db/1.sql", "select 1;\n")
