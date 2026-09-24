@@ -1,15 +1,26 @@
 #!/bin/sh
 # Refuse a push that would publish a private term (client and prospect names).
-# Checked for every commit the push sends: file contents, file names, the
-# commit message, author and committer; and an annotated tag's own message.
+#
+# What it checks: the ref names being pushed, and every object the push sends
+# that the remote does not already advertise. That covers file contents, file
+# and symlink names, full commit headers (author, committer, message, mergetag),
+# tag messages, and tags that point straight at a blob or tree.
+#
 # The list lives OUTSIDE this public repo on purpose: committing it would
-# publish the names it protects. One term per line, case-insensitive, matched
-# as plain text inside words, so list distinctive terms only. Paid-method
-# vocabulary is CI's job (the Method grep step), not this list's.
+# publish the names it protects. One term per line, ASCII only, case-insensitive,
+# matched as plain text inside words, so list distinctive terms. A line starting
+# with "# " (or a bare "#") is a comment. Paid-method vocabulary is CI's job.
+#
+# What it cannot catch: a term split across lines, hidden with look-alike or
+# zero-width characters, or inside a compressed or re-encoded file (zip, docx,
+# pdf, UTF-16). It catches accidents, not deliberate hiding.
+#
 # Enable once per clone: git config core.hooksPath .githooks
-# Fails closed: a missing list or a git error refuses the push. To push from a
-# machine without the list on purpose, set TOWNSEND_ALLOW_NO_TERMS=1.
-remote="$1"
+# Fails closed: a missing or empty list, a non-ASCII term, or any git error
+# refuses the push. To push without the list on purpose: TOWNSEND_ALLOW_NO_TERMS=1.
+LC_ALL=C
+export LC_ALL
+url="$2"
 terms="${TOWNSEND_PRIVATE_TERMS:-$HOME/Documents/townsend-ai-studio-workspace/private-terms.txt}"
 if [ ! -s "$terms" ]; then
   if [ "${TOWNSEND_ALLOW_NO_TERMS:-}" = 1 ]; then
@@ -19,50 +30,50 @@ if [ ! -s "$terms" ]; then
   echo "pre-push: no private-terms list at $terms; refusing. Set TOWNSEND_PRIVATE_TERMS, or TOWNSEND_ALLOW_NO_TERMS=1 to skip." >&2
   exit 1
 fi
-clean=$(mktemp "${TMPDIR:-/tmp}/private-terms.XXXXXX") || { echo "pre-push: mktemp failed; refusing" >&2; exit 1; }
-trap 'rm -f "$clean"' EXIT
+work=$(mktemp -d "${TMPDIR:-/tmp}/pre-push.XXXXXX") || { echo "pre-push: mktemp failed; refusing" >&2; exit 1; }
+trap 'rm -rf "$work"' EXIT
+clean="$work/terms"
 # normalise hand-edited lists: BOM, CRLF, surrounding space, comments, blanks
 bom=$(printf '\357\273\277')
-sed -e "s/^$bom//" -e 's/\r$//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$terms" \
-  | grep -v -e '^#' -e '^$' > "$clean"
+sed -e "s/^$bom//" -e 's/\r$//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$terms" > "$work/raw" \
+  || { echo "pre-push: could not read $terms; refusing" >&2; exit 1; }
+grep -v -e '^#[[:space:]]' -e '^#$' -e '^$' "$work/raw" > "$clean"
 if [ ! -s "$clean" ]; then
   echo "pre-push: $terms has no terms; refusing (TOWNSEND_ALLOW_NO_TERMS=1 to skip)" >&2
   exit 1
 fi
+if bad=$(grep -n '[^ -~]' "$clean"); then
+  echo "pre-push: $terms has a non-ASCII term; case-folding for those is unreliable, so refusing. Use an ASCII spelling:" >&2
+  echo "$bad" >&2
+  exit 1
+fi
 
-zero=0000000000000000000000000000000000000000
 status=0
 fail() { echo "pre-push: $1" >&2; status=1; }
 # grep exits 0 on a hit, 1 on none, >1 on error; a hit or an error both refuse
-check() {  # $1 = what, $2 = text (an argument, not stdin: a pipe would run this in a subshell and lose status)
-  out=$(printf '%s\n' "$2" | grep -i -F -f "$clean"); rc=$?
-  if [ $rc -eq 0 ]; then fail "private term in $1:"; echo "$out" >&2
+check() {  # $1 = what, $2 = file to search
+  out=$(grep -a -i -F -f "$clean" "$2"); rc=$?
+  if [ $rc -eq 0 ]; then fail "private term in $1:"; printf '%s\n' "$out" | tr -c '[:print:]\n' '?' | cut -c1-200 >&2
   elif [ $rc -gt 1 ]; then fail "could not check $1 (grep exit $rc)"; fi
 }
 
+# exclude only what the remote actually has: its advertised tips that we hold
+# locally. Never local remote-tracking refs, which can be stale or unpruned.
+advertised=$(git ls-remote "$url") || { echo "pre-push: git ls-remote $url failed; refusing" >&2; exit 1; }
+printf '%s\n' "$advertised" | cut -f1 | sort -u | git cat-file --batch-check='%(objectname) %(objecttype)' \
+  | awk '$2 != "missing" { print "^" $1 }' > "$work/have" \
+  || { echo "pre-push: could not resolve the remote's tips; refusing" >&2; exit 1; }
+
+zero=0000000000000000000000000000000000000000
 while read -r local_ref local_sha remote_ref remote_sha; do
   [ "$local_sha" = "$zero" ] && continue
-  if [ "$(git cat-file -t "$local_sha" 2>/dev/null)" = tag ]; then
-    tagtext=$(git cat-file tag "$local_sha") || { fail "cat-file failed on tag $local_ref"; continue; }
-    check "the tag message of $local_ref" "$tagtext"
+  printf '%s\n%s\n' "$local_ref" "$remote_ref" > "$work/refs"
+  check "the ref name $remote_ref" "$work/refs"
+  if ! { echo "$local_sha"; cat "$work/have"; } | git rev-list --objects --no-object-names --stdin > "$work/objs"; then
+    fail "could not list the objects $local_ref sends"; continue
   fi
-  # new commits only; a remote tip we do not have (force push, stale clone)
-  # falls back to "everything this remote has not seen"
-  if [ "$remote_sha" != "$zero" ] && git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
-    commits=$(git rev-list "$local_sha" --not "$remote_sha") || { fail "rev-list failed for $local_ref"; continue; }
-  else
-    commits=$(git rev-list "$local_sha" --not --remotes="$remote") || { fail "rev-list failed for $local_ref"; continue; }
-  fi
-  for c in $commits; do
-    short=$(git rev-parse --short "$c")
-    hits=$(git grep -n -i -F -f "$clean" "$c" -- 2>&1); rc=$?
-    if [ $rc -eq 0 ]; then fail "private term in the files of $short ($local_ref):"; echo "$hits" >&2
-    elif [ $rc -gt 1 ]; then fail "git grep failed on $short: $hits"; fi
-    names=$(git ls-tree -r --name-only "$c") || { fail "ls-tree failed on $short"; continue; }
-    check "a file name in $short ($local_ref)" "$names"
-    meta=$(git log -1 --format='%an %ae%n%cn %ce%n%B' "$c") || { fail "log failed on $short"; continue; }
-    check "the message or author of $short ($local_ref)" "$meta"
-  done
+  git cat-file --batch < "$work/objs" > "$work/content" || { fail "could not read the objects $local_ref sends"; continue; }
+  check "an object $local_ref sends" "$work/content"
 done
 [ $status -ne 0 ] && echo "pre-push: refused. Remove the term (rewrite the commit if it is in history), then push again." >&2
 exit $status

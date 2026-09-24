@@ -1,6 +1,7 @@
 # Changelog
 
-Append-only. Every entry: date, version, what changed, sources, approver.
+Append-only. Every entry: date, version, what changed, sources, approver. Versions here are
+the knowledge base's own; the plugin version in plugin.json is numbered separately.
 
 ---
 
@@ -9,10 +10,9 @@ Append-only. Every entry: date, version, what changed, sources, approver.
 - CHANGED: examples and boundaries now say "nonprofit" or "your org", and the companion
   handout is described generically. Author is Lauren Townsend.
 - CHANGED: the strict-tier stakes marker "homeowner-facing" is now "client- or
-  beneficiary-facing" in every skill and knowledge file. Strict-tier routing is
-  otherwise unchanged: donor, board, press, grant, funder, legal still trigger it.
-- REDACTED: one handout filename in the v0.1 entry below, the only edit ever made to a
-  past entry here.
+  beneficiary-facing" in every skill and knowledge file. The other strict-tier markers
+  are unchanged.
+- REDACTED: one handout filename in the v0.1 entry below; the first edit to a past entry.
 - `Last reviewed` in current-guidance.md is unchanged: this was a wording edit, not a
   review against sources. Its `Version` line now matches this changelog (it said 0.4).
 - Sources: none (wording only).

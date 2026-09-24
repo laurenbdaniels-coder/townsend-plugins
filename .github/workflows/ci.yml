@@ -37,10 +37,13 @@ jobs:
           # every tracked file except this one, which has to spell the words; the custody-check-only
           # terms stay in the IP grep above (prompt-coach's evals legitimately name /review).
           # Client names are checked by .githooks/pre-push from a list kept outside this repo.
-          if git ls-files -z -- . ':!.github/workflows/ci.yml' | xargs -0 grep -niE --binary-files=without-match \
-               "routing table|three-pillar|per-gate prompt|falsifier"; then
-            echo "paid-method vocabulary found in a published file"; exit 1
-          fi
+          set +e
+          git grep -niE "routing table|three-pillar|per-gate prompt|falsifier" -- . ':!.github/workflows/ci.yml'
+          rc=$?
+          set -e
+          # git grep: 0 = found, 1 = clean, anything else = the check itself broke
+          if [ $rc -eq 0 ]; then echo "paid-method vocabulary found in a published file"; exit 1; fi
+          if [ $rc -ne 1 ]; then echo "method grep failed (exit $rc)"; exit 1; fi
       - name: Pre-push hook tests
         run: python3 -m unittest discover -s .githooks -p 'test_*.py' -v
       - name: Version guard (plugin.json must match __version__)
