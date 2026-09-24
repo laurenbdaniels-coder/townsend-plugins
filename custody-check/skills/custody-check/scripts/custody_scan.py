@@ -10,7 +10,7 @@ Run it from the folder that CONTAINS the app:  python3 -I custody_scan.py --repo
 """
 import sys
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 _DOCS = "README.md#when-it-goes-wrong"
 HINTS = {
@@ -57,6 +57,10 @@ import warnings
 
 # ----------------------------------------------------------------- constants
 
+BUILD_OUTPUT_DIRS = {"dist", "build", "out", ".next", ".nuxt"}  # skipped like the rest, but they hold browser bundles, and people keep source under the first three
+NEVER_READ_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".heic", ".ico", ".bmp", ".tif", ".tiff", ".psd", ".mp4", ".mov", ".webm", ".mkv", ".avi", ".mp3", ".wav", ".ogg", ".flac",
+              ".woff", ".woff2", ".ttf", ".otf", ".eot", ".pdf", ".zip", ".tar", ".tgz", ".7z", ".rar", ".dmg", ".exe", ".dll", ".so", ".dylib", ".wasm", ".pyc", ".class", ".jar"}  # media, fonts, archives, binaries: never opened, no detector wants them
+PRECOMPRESSED_EXTS = (".gz", ".br")  # app.js.gz is browser code no detector can read; data.json.gz is just data
 EXCLUDED_DIRS = {".git", "node_modules", "dist", "build", ".next", ".nuxt", "out", "vendor", "venv", ".venv", "__pycache__", "coverage"}
 NEVER_OPEN_DIRS = {".claude", ".codex", ".agents", ".windsurf", ".clinerules", ".gemini", ".kiro", ".roo", ".trae", ".augment", ".amazonq", ".junie", ".continue", ".aider", ".opencode"}
 NEVER_OPEN_DIR_PAIRS = {(".cursor", "rules"), (".github", "instructions"), (".github", "prompts"), (".github", "agents")}
@@ -66,12 +70,12 @@ SKIP_BASENAMES = {"package-lock.json", "yarn.lock", "pnpm-lock.yaml", "bun.lockb
 SKIP_EXT_SUFFIXES = (".map", ".min.js", ".min.css", ".bundle.js")
 BROWSER_PREFIXES = ("NEXT_PUBLIC_", "VITE_", "REACT_APP_", "EXPO_PUBLIC_", "PUBLIC_", "NUXT_PUBLIC_", "GATSBY_")
 ENV_TEMPLATE_NAMES = {".env.example", ".env.sample", ".env.template"}
-ENV_TEMPLATE_RE = re.compile(r"(?:^|[.-])(?:example|sample|template|dist|defaults)(?:$|[.-])", re.I)
+ENV_TEMPLATE_RE = re.compile(r"(?:^|[._-])(?:example|sample|template|dist|defaults)(?:$|[._-])", re.I)
 CLIENT_TOP_DIRS = {"src", "app", "pages", "components", "public", "static"}
 NEUTRAL_SEGMENTS = {"lib", "utils", "services", "db", "scripts", "workers", "jobs", "cron"}
 SERVER_FILE_RE = re.compile(r"^middleware\.[^/]+$|\.server\.[^./]+$|^route\.[jt]s$|^\+server\.[jt]s$")
 DEPLOY_CONFIG_BASENAMES = {"vercel.json", "netlify.toml", "fly.toml", "render.yaml", "render.yml", "railway.json", "dockerfile", "procfile"}
-IGNORED_ENV_NAMES = {"development", "dev", "local", "test", "testing", "default", "example", "sample", "template"}
+IGNORED_ENV_NAMES = {"development", "dev", "local", "test", "testing", "default", "example", "sample", "template", "cmdrc"}  # .env-cmdrc is env-cmd's rc file, not an environment
 NONPROD_ENV_STEMS = (IGNORED_ENV_NAMES - {"local"}) | {"ci", "vault", "enc", "sops", "age"}  # .env.local holds the real secrets  # tracked on purpose in most scaffolds
 SOURCE_ROOTS = {"src", "app", "pages", "api", "server", "supabase", "prisma", "functions", "lib", "components", "netlify", "workers"}
 _HAS_NONBLOCK = hasattr(os, "set_blocking") and sys.platform != "win32"
@@ -97,11 +101,13 @@ DEFAULT_MAX_FILES = 20000
 DEFAULT_MAX_FILE_BYTES = 524288
 DEFAULT_MAX_TOTAL_BYTES = 268435456
 DEFAULT_DEADLINE_S = 120.0
-ENV_FILE_RE = re.compile(r"^\.env(\..+)?$")
+ENV_FILE_RE = re.compile(r"^\.env(?:[._-](?!.{0,200}\.(?:js|cjs|mjs|ts|json|ya?ml|toml|md)$).+)?$")  # .env-schema.ts and .env-cmdrc.json are code, not env files
 FLY_ENV_TOML_RE = re.compile(r"^fly\.([a-z0-9_-]+)\.toml$")
 DEADLINE_TICK = 256
 MAX_JWT_HITS_PER_FILE = 200
 MAX_ENV_NAME_MATCHES = 200
+MAX_TABLE_MATCHES_PER_FILE = 200  # create table / enable row level security statements read per SQL file
+MAX_TABLE_WITHOUT_RLS_ROWS = 5  # tables named in the verdict when a migration never turns RLS on
 MAX_DIR_ENTRIES = 50000
 GIT_OUTPUT_LIMIT = 1 << 20
 MAX_CONFIG_ENTRIES = 20
@@ -126,19 +132,21 @@ CHECKS = {
     "server-path-key-literal": ("q1", "evidence"), "non-client-key-literal": ("q1", "evidence"),
     "placeholder-key-literal": ("q1", "evidence"), "test-path-key-literal": ("q1", "evidence"),
     "scan-summary": ("q1", "evidence"),
-    "api-route-dir": ("q2", "hint"), "framework-config": ("q2", "hint"),
+    "nothing-found-keys": ("q1", "evidence"), "build-output-unread": ("q1", "evidence"),
+    "api-route-dir": ("q2", "hint"), "framework-config": ("q2", "hint"), "client-server-split": ("q2", "hint"),
     "rls-disabled": ("q3", "no"), "policy-using-true": ("q3", "no"), "policy-select-true": ("q3", "evidence"), "policy-altered-true": ("q3", "evidence"), "policy-with-check-true": ("q3", "evidence"),
-    "policy-to-anon": ("q3", "evidence"), "storage-bucket-public-sql": ("q3", "evidence"),
+    "policy-to-anon": ("q3", "evidence"), "table-without-rls": ("q3", "evidence"), "storage-bucket-public-sql": ("q3", "evidence"), "nothing-found-rules": ("q3", "evidence"),
     "firebase-rules-open": ("q3", "no"), "firebase-rules-public-read": ("q3", "evidence"), "storage-bucket-public": ("q3", "evidence"),
     "auth-path": ("q4", "evidence"), "auth-dependency": ("q4", "evidence"),
     "deploy-config": ("q5.code", "yes-part"), "migration-path": ("q5.code", "evidence"), "backup-script": ("q5.code", "evidence"),
     "git-history": ("q5.code", "evidence"), "git-not-a-repo": ("q5.code", "evidence"), "git-config-not-vouched": ("q5.code", "evidence"), "git-index-unread": ("q1", "evidence"), "git-unavailable": ("q5.code", "evidence"),
     "git-timeout": ("q5.code", "evidence"), "git-subdir": ("q5.code", "evidence"), "git-shallow": ("q5.code", "evidence"),
-    "env-name": ("q6", "yes-part"),
+    "env-name": ("q6", "yes-part"), "preview-deploys-default": ("q6", "evidence"),
+    "review-workflow": ("q7", "evidence"),
     "model-env-var": ("q8", "hint"), "model-literal": ("q8", "hint"), "spend-cap-word": ("q8", "hint"), "ai-sdk-dependency": ("q8", "hint"),
-    "monitoring-dependency": ("q9", "hint"), "sentry-config": ("q9", "hint"), "health-route": ("q9", "hint"), "cron-schedule": ("q9", "hint"),
+    "monitoring-dependency": ("q9", "hint"), "sentry-config": ("q9", "hint"), "health-route": ("q9", "hint"), "cron-schedule": ("q9", "hint"), "nothing-found-monitoring": ("q9", "evidence"),
     "pii-field": ("q10", "evidence"), "pii-form-input": ("q10", "evidence"),
-    "builder-file": ("q11", "evidence"), "builder-dependency": ("q11", "evidence"), "builder-readme": ("q11", "evidence"), "container-config": ("q11", "evidence"),
+    "builder-file": ("q11", "evidence"), "builder-dependency": ("q11", "evidence"), "builder-readme": ("q11", "evidence"), "container-config": ("q11", "evidence"), "code-history-local": ("q11", "evidence"),
 }
 QUESTION_KEYS = ["q1", "q2", "q3", "q4", "q5.code", "q5.data", "q6", "q7", "q8", "q9", "q10", "q11"]
 for _name, (_q, _e) in CHECKS.items():
@@ -206,14 +214,40 @@ PREFILTER_RE = re.compile(NAMED_KEY_ALT + r"|eyJ[A-Za-z0-9_-]{8,}|(?:[Ss]ecret|S
 
 AUTH_DEPS = {"next-auth", "@auth/core", "@auth/nextjs", "@clerk/nextjs", "@clerk/clerk-react", "@clerk/clerk-sdk-node", "@supabase/auth-helpers-nextjs", "@supabase/auth-helpers-react", "@supabase/ssr", "@supabase/auth-ui-react", "passport", "lucia", "better-auth", "jsonwebtoken", "jose", "firebase-admin", "@kinde-oss/kinde-auth-nextjs", "@auth0/nextjs-auth0", "auth0", "django-allauth", "devise", "flask-login", "authlib", "pyjwt", "python-jose"}
 AI_DEPS = {"openai", "@anthropic-ai/sdk", "anthropic", "ai", "@ai-sdk/openai", "@ai-sdk/anthropic", "@ai-sdk/google", "langchain", "@langchain/core", "@langchain/openai", "@langchain/anthropic", "@google/generative-ai", "google-generativeai", "@google/genai", "cohere-ai", "cohere", "replicate", "@mistralai/mistralai", "mistralai", "groq-sdk", "groq", "together-ai", "litellm", "ollama", "openrouter", "@huggingface/inference", "transformers"}
-MONITORING_DEPS = {"@sentry/node", "@sentry/nextjs", "@sentry/react", "@sentry/browser", "@sentry/sveltekit", "@sentry/remix", "sentry-sdk", "dd-trace", "datadog", "@datadog/browser-rum", "@logtail/node", "@logtail/next", "newrelic", "@highlight-run/next", "@highlight-run/node", "@axiomhq/js", "next-axiom", "node-cron", "cron", "bull", "bullmq", "agenda", "@vercel/cron", "pino", "winston", "better-stack"}
+MONITORING_DEPS = {"@sentry/node", "@sentry/nextjs", "@sentry/react", "@sentry/browser", "@sentry/sveltekit", "@sentry/remix", "sentry-sdk", "dd-trace", "datadog", "@datadog/browser-rum", "@logtail/node", "@logtail/next", "newrelic", "@highlight-run/next", "@highlight-run/node", "@axiomhq/js", "next-axiom", "node-cron", "cron", "bull", "bullmq", "agenda", "@vercel/cron", "pino", "winston", "better-stack",
+                   "sentry-ruby", "sentry-rails", "honeybadger", "rollbar", "bugsnag", "airbrake", "scout_apm", "newrelic_rpm",  # Ruby
+                   "github.com/getsentry/sentry-go", "github.com/rollbar/rollbar-go", "github.com/bugsnag/bugsnag-go", "github.com/newrelic/go-agent",  # Go
+                   "sentry_sdk", "rollbar", "bugsnag", "structlog", "loguru"}
 BUILDER_DEPS_RE = re.compile(r"^(?:lovable-tagger|@base44/sdk|@replit/.+)$")
 BUILDER_BASENAMES = {".replit", "replit.nix", ".bolt", ".lovable", "base44.config.json", ".v0"}
 FRAMEWORK_CONFIG_RE = re.compile(r"^(?:next|vite|nuxt|svelte|astro|remix|gatsby|angular|vue)\.config\.[a-z]+$", re.I)
 API_ROUTE_PREFIXES = ("pages/api/", "app/api/", "api/", "server/", "netlify/functions/", "supabase/functions/", "functions/", "workers/")
 AUTH_SEGMENTS = {"auth", "authorize", "permissions", "rbac", "guards", "policy", "policies", "middleware", "proxy"}
 MONITOR_CONFIG_RE = re.compile(r"^(?:sentry\.[a-z.]*config\.[a-z]+|sentry\.properties|checkly\.config\.[a-z]+|uptimerobot[^/]*)$", re.I)
-HEALTH_PATH_RE = re.compile(r"(?:^|/)health(?:z|check|-check)?(?:\.[a-z]+)?$", re.I)
+HEALTH_PATH_RE = re.compile(r"(?:^|/)health(?:z|check|-check)?(?:\.[a-z]+|/(?:route|index|\+server)\.[a-z]+|\.(?:get|post)\.[a-z]+)?$", re.I)  # api/health.ts, app/api/health/route.ts, routes/health/+server.ts, server/api/health.get.ts
+REVIEW_ACTION_RE = re.compile(r"^[ \t]*(?:-[ \t]*)?uses:[ \t]*[\"']?(anthropics/claude-code-action|coderabbitai/[A-Za-z0-9_.-]{1,60}|reviewdog/[A-Za-z0-9_.-]{1,60})", re.M)
+REVIEW_NAME_RE = re.compile(r"(?:^|[-_.])review")  # pr-review.yml, claude-code-review.yml; never preview.yml
+_SQL_IDENT = r"(?:\"[^\"\n]{1,63}\"|[A-Za-z_][A-Za-z0-9_$]{0,62})"  # a Postgres identifier: quoted as written, or bare
+_SQL_TABLE = "(" + _SQL_IDENT + r"(?:\s{0,5}\.\s{0,5}" + _SQL_IDENT + ")?)"  # optionally schema-qualified
+CREATE_TABLE_RE = re.compile(r"\bcreate\s{1,20}(?:(?:unlogged|foreign)\s{1,20})?table\s{1,20}(?:if\s{1,20}not\s{1,20}exists\s{1,20})?" + _SQL_TABLE, re.I)
+ENABLE_RLS_RE = re.compile(r"\balter\s{1,20}table\s{1,20}(?:if\s{1,20}exists\s{1,20})?(?:only\s{1,20})?" + _SQL_TABLE + r"\s{1,20}enable\s{1,20}row\s{1,20}level\s{1,20}security", re.I)
+TABLE_PART_RE = re.compile(r'"[^"]*"|[^.\s]+')  # a dot inside quotes is part of the name, not a schema separator
+MANIFEST_BASENAMES = {"package.json", "requirements.txt", "pyproject.toml", "gemfile", "go.mod"}
+# manifest entry shapes; anchored whitespace never crosses a newline, so a file of blank lines stays linear
+PY_DEP_ENTRY_RE = re.compile(r'"((?:\\.|[^"\\\n]){1,300})"|\x27([^\x27\n]{1,300})\x27')  # one quoted list entry, escapes and markers included
+PY_DEP_NAME_RE = re.compile(r"^[ \t]*([A-Za-z0-9][A-Za-z0-9_.-]{0,99})")  # the name at the front of an entry, before extras, version or marker
+QUOTED_RE = re.compile(r'"(?:\\.|[^"\\\n])*"|\x27[^\x27\n]*\x27')  # blanked before looking for the `]` that ends a list
+GO_MAJOR_SUFFIX_RE = re.compile(r"/v[0-9]+$")  # github.com/newrelic/go-agent/v3 is the go-agent module
+TOML_KEY_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9_.-]{0,99})[ \t]*=[ \t]*(\[)?")
+GEM_RE = re.compile(r'^[ \t]*gem[ \t]+["\x27]([A-Za-z0-9][A-Za-z0-9_.-]{0,99})["\x27]', re.M)
+GO_REQUIRE_RE = re.compile(r'^[ \t]*(?:require[ \t]+)?([a-z0-9][a-z0-9.-]{0,99}/[^\s]{1,200})[ \t]+v[0-9]', re.M)
+REQ_INCLUDE_PREFIXES = ("-r", "-c", "--requirement", "--constraint", "-e", "--editable")  # lines that name dependencies the walk does not read
+REQ_URL_OR_PATH_RE = re.compile(r"^(?:[a-z][a-z0-9+.-]{0,20}://|\.{0,2}/|[A-Za-z]:\\|[^=<>;\[ @]{0,200}/)", re.I)  # git+https://…, ./vendor/pkg, vendor/pkg
+GENERATED_CODE_SUFFIXES = (".min.js", ".bundle.js", ".map")  # browser code, or source maps that embed it
+PREVIEW_DEFAULTS = {"vercel.json": "Vercel previews every branch by default", "netlify.toml": "Netlify deploy previews on by default"}
+# every extension a Q1 or Q3 detector reads; an oversize file of any other kind (a photo, a font, a video)
+# cannot hide a key or an open rule, so skipping it leaves the scan complete
+Q1_Q3_EXTS = CODE_EXTS | HTML_EXTS | SQL_LIKE_EXTS | {".json", ".toml", ".yml", ".yaml"}
 
 
 class UsageError(Exception):
@@ -498,9 +532,17 @@ class ScanState(object):
         self.effects = dict((k, set()) for k in QUESTION_KEYS)
         self.env_names = set()
         self.deploy_configs = []
+        self.cls_counts = {"client": 0, "server": 0, "other": 0}
+        self.q1_files = 0
+        self.rule_files = 0
+        self.dependencies = 0
+        self.gaps = {"q1": 0, "q3": 0, "q9": 0}  # things that could answer the question and were not looked at: files, folders, values too long to judge, tables past a cap
+        self.build_dirs = []  # skipped build folders, summarized in one Q1 row by resolve
+        self.tables = {}  # public table name -> (path, line) of its create table
+        self.rls_enabled = set()
         self.seen = set()
         self.warnings = []
-        self.stats = {"files_skipped_oversize": 0, "files_skipped_binary": 0, "files_skipped_generated": 0, "files_never_open": 0,
+        self.stats = {"files_skipped_oversize": 0, "files_skipped_oversize_relevant": 0, "files_skipped_binary": 0, "files_skipped_generated": 0, "files_never_open": 0,
                       "files_skipped_special": 0, "files_skipped_hardlink": 0, "files_errored": 0, "dirs_unreadable": 0, "dirs_truncated": 0, "mcp_capped": 0, "git_index_partial": 0, "output_trimmed": 0, "max_files_hit": False,
                       "max_total_bytes_hit": False, "deadline_hit": False, "config": {"exclude_dirs_added": [], "browser_prefixes_added": []}}
 
@@ -561,6 +603,45 @@ def is_never_open_dir(name, parent):
 def is_never_open_file(base):
     b = base.lower()
     return b in NEVER_OPEN_FILES or bool(NEVER_OPEN_FILE_RE.match(b))
+
+
+def could_hold_q1_q3(base, ext):
+    """A file whose contents could hold a Q1 or Q3 answer, including a precompressed one no detector can read.
+
+    Skipping one withholds "nothing found"; skipping one the scanner meant to read also makes the scan partial."""
+    b = base.lower()
+    if ext in PRECOMPRESSED_EXTS:
+        inner = os.path.splitext(b[:-len(ext)])[1]
+        return inner in CODE_EXTS | HTML_EXTS | SQL_LIKE_EXTS or inner == ".rules"  # app.js.gz, dump.sql.gz; data.json.gz is just data
+    env_shaped = b.startswith(".env") or b.endswith(".env")  # the template word list alone matches `hero-sample.png`
+    return ext in Q1_Q3_EXTS or is_env_file(b) or (env_shaped and is_env_template(b)) or b.endswith(".rules")
+
+
+def note_unread(state, base, ext):
+    """A file the walk could not stat, open, read or decode: charge the gaps it could have answered.
+
+    Generated, precompressed and never-read files charge their gaps inline in the walk. Returns whether the
+    file could hold a Q1 or Q3 answer, which is also whether skipping it makes the scan partial."""
+    relevant = could_hold_q1_q3(base, ext)
+    if relevant:
+        state.gaps["q1"] += 1
+        state.gaps["q3"] += 1
+        state.gaps["q9"] += 1  # the Q9 content readers (deploy config, workflow, code with a health route) all live in that set
+    if base.lower() in MANIFEST_BASENAMES or MONITOR_CONFIG_RE.match(base):  # the two Q9 signals matched by name alone
+        state.gaps["q9"] += 1
+    return relevant
+
+
+def note_unread_dir(state):
+    for key in state.gaps:
+        state.gaps[key] += 1
+
+
+def skip_oversize(state, base, ext):
+    state.stats["files_skipped_oversize"] += 1
+    if note_unread(state, base, ext):
+        state.stats["files_skipped_oversize_relevant"] += 1
+        state.partial = True
 
 
 def is_generated(base):
@@ -637,7 +718,7 @@ def classify(rel, base, ext, text):
     top = app_dirs[0] if app_dirs else ""
     kinds = set()
     b = base.lower()
-    if is_env_file(b) or is_env_template(b):
+    if is_env_file(b) or ((b.startswith(".env") or b.endswith(".env")) and is_env_template(b)):  # defaults_store.tsx is source, not a template
         kinds.add("env-template" if is_env_template(b) else "env")
     if b in (".mcp.json", "mcp.json", "mcp_config.json"):
         kinds.add("mcp")
@@ -647,7 +728,7 @@ def classify(rel, base, ext, text):
         kinds.add("rules")
     if b == "config.toml" and lower_dirs and lower_dirs[-1] == "supabase":
         kinds.add("supabase-config")
-    if b in ("package.json", "requirements.txt", "pyproject.toml", "gemfile", "go.mod"):
+    if b in MANIFEST_BASENAMES:
         kinds.add("manifest")
     if ext in CODE_EXTS:
         kinds.add("code")
@@ -708,6 +789,7 @@ def detect_browser_prefix(sf, state, opts, claimed):
         name, value = m.group("name"), _strip_scheme(m.group("value").rstrip("."))
         value_start = m.end("value") - len(value)
         if len(value) > MAX_VALUE_CHARS:
+            state.gaps["q1"] += 1  # too long to judge: a browser-prefixed value the scanner did not look at
             continue  # not judged here, so its span stays open for the key-literal pass
         claimed.append((value_start, value_start + len(value)))
         named = bool(NAMED_KEY_FULL_RE.match(value))
@@ -770,7 +852,11 @@ def detect_key_literals(sf, state, opts, claimed):
         hits.append((start, end, "jwt", None))
     for m in IDENT_ASSIGN_TOKEN_RE.finditer(text):
         value = m.group("value")
-        if len(value) > MAX_VALUE_CHARS or NAMED_KEY_FULL_RE.match(value) or is_jwt(value):
+        if len(value) > MAX_VALUE_CHARS:
+            if IDENT_SENSITIVE_RE.search(m.group("ident")) or IDENT_KEYISH_RE.search(m.group("ident")):
+                state.gaps["q1"] += 1  # a key-shaped name over a value too long to judge; an image's base64 is not
+            continue
+        if NAMED_KEY_FULL_RE.match(value) or is_jwt(value):
             continue
         classes_needed = 2 if IDENT_SENSITIVE_RE.search(m.group("ident")) else 3  # a hex secret under apiSecret still counts
         if not is_generic_token(value.rstrip("."), classes_needed):
@@ -850,7 +936,8 @@ def _strip_scheme(value):
 def detect_mcp(sf, state, opts):
     text = sf.text
     if len(text) > MCP_MAX_CHARS:
-        state.stats["files_skipped_oversize"] += 1
+        state.stats["mcp_capped"] += 1
+        state.gaps["q1"] += 1
         state.partial = True
         return
     counter = {}
@@ -880,6 +967,7 @@ def detect_mcp(sf, state, opts):
         key, node, depth = stack.pop()
         nodes += 1
         if nodes > MCP_MAX_NODES or depth > MCP_MAX_DEPTH:
+            state.gaps["q1"] += 1
             state.partial = True
             state.stats["mcp_capped"] += 1
             break
@@ -892,6 +980,7 @@ def detect_mcp(sf, state, opts):
         elif isinstance(node, str):
             value = node
             if len(value) > MAX_VALUE_CHARS:
+                state.gaps["q1"] += 1
                 continue
             if NAMED_KEY_RE.search(value) or any(True for _ in find_jwts(value)):
                 check = "mcp-token"
@@ -939,6 +1028,46 @@ def detect_sql(sf, state, opts):
     _finditer_lines(POLICY_TO_ANON_RE, text, sf, state, "policy-to-anon", counter, _clause)
     _finditer_lines(STORAGE_BUCKET_TRUE_RE, text, sf, state, "storage-bucket-public-sql", counter, _clause)
     _finditer_lines(CRON_SQL_RE, text, sf, state, "cron-schedule", counter, _clause)
+    pos = 0
+    line = 1
+    for n, m in enumerate(CREATE_TABLE_RE.finditer(text)):
+        if n >= MAX_TABLE_MATCHES_PER_FILE:
+            state.gaps["q3"] += 1  # a table past the cap was not looked at, so Q3 cannot claim "nothing found"
+            break
+        state.tick()
+        line += text.count("\n", pos, m.start())
+        pos = m.start()
+        name = _public_table(m.group(1))
+        if name and name not in state.tables:
+            if len(state.tables) < MAX_SEEN:
+                state.tables[name] = (sf.rel, line)
+            else:
+                state.gaps["q3"] += 1
+    for n, m in enumerate(ENABLE_RLS_RE.finditer(text)):
+        if n >= MAX_TABLE_MATCHES_PER_FILE:
+            state.gaps["q3"] += 1
+            break
+        state.tick()
+        name = _public_table(m.group(1))
+        if name:
+            if len(state.rls_enabled) < MAX_SEEN:
+                state.rls_enabled.add(name)
+            else:
+                state.gaps["q3"] += 1
+
+
+def _public_table(raw):
+    """`public.profiles`, `"Notes"`, `profiles` -> the name Postgres stores; tables in other schemas -> None.
+
+    Each part folds on its own: unquoted to lower case, quoted kept exactly (`"public".Profiles` is `profiles`)."""
+    parts = []
+    for p in TABLE_PART_RE.findall(raw):
+        parts.append(p[1:-1] if len(p) >= 2 and p[0] == p[-1] == '"' else p.lower())
+    if len(parts) == 2:
+        if parts[0] != "public":
+            return None
+        parts = parts[1:]
+    return parts[0] or None
 
 
 SQL_LINE_COMMENT_RE = re.compile(r"--[^\n]*")
@@ -1036,24 +1165,113 @@ def detect_env_names(sf, state, opts):
             state.add("cron-schedule", sf.rel, line_of(text, m.start()), _clause(m))
 
 
-def detect_manifest(sf, state, opts):
-    text = sf.text
+def _pyproject_dependencies(text, state):
+    """Names in `[project] dependencies`, `[project.optional-dependencies]`, `[dependency-groups]` lists and
+    `[tool.poetry.*dependencies]` tables. Classifiers, keywords and tool settings are lists too; they do not count.
+    An entry that points somewhere else (`pkg @ git+https://…`, `{include-group = …}`) is a Q9 gap, not a name."""
+    found = set()
+    table = ""
+    in_list = False
+
+    def entries(chunk):
+        for em in PY_DEP_ENTRY_RE.finditer(chunk):
+            entry = em.group(1) or em.group(2) or ""
+            if "@" in entry:
+                state.gaps["q9"] += 1  # a direct reference: the dependency lives at a URL or path this parser does not read
+                continue
+            m = PY_DEP_NAME_RE.match(entry)
+            if m:
+                found.add(m.group(1).lower())
+        if "include-group" in chunk:
+            state.gaps["q9"] += 1
+
+    def closes(chunk):
+        return "]" in QUOTED_RE.sub("", chunk)  # the `]` of `uvicorn[standard]` sits inside quotes and ends nothing
+
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("["):
+            table = line[1:line.find("]")].strip().strip('"').lower() if "]" in line else ""  # `[project]  # main` is still `project`
+            in_list = False
+            continue
+        if in_list:
+            entries(line)
+            if closes(line):
+                in_list = False
+            continue
+        poetry = table in ("tool.poetry.dependencies", "tool.poetry.dev-dependencies") or (table.startswith("tool.poetry.group.") and table.endswith(".dependencies"))
+        m = TOML_KEY_RE.match(line)
+        if not m:
+            continue
+        key = m.group(1).lower()
+        if poetry:
+            if key != "python":
+                found.add(key)
+            continue
+        list_key = (table == "project" and key == "dependencies") or table in ("project.optional-dependencies", "dependency-groups")
+        if list_key and m.group(2):
+            rest = line[m.end():]
+            entries(rest)
+            in_list = not closes(rest)
+    return found
+
+
+def _read_dependencies(base, text, state):
+    """Names a parser read from a manifest, for the hint matchers, and how many count as "looked".
+
+    package.json and requirements.txt yield only real entries. pyproject.toml, Gemfile and go.mod also pass every
+    leading line token to the hint matchers (harmless: a TOML key or the word `gem` never names a dependency) while
+    only parsed entries are counted toward Q9's "N dependencies read". A line that names a dependency somewhere
+    this parser cannot see (an include, an editable or direct reference, a path) is a Q9 gap instead."""
     names = set()
-    if sf.base.lower() == "package.json":
+    counted = set()
+    if base == "package.json":
         try:
             data = json.loads(text)
             for section in ("dependencies", "devDependencies", "peerDependencies", "optionalDependencies"):
                 sec = data.get(section) if isinstance(data, dict) else None
                 if isinstance(sec, dict):
-                    names.update(str(k) for k in sec.keys())
+                    counted.update(str(k) for k in sec.keys())
         except (ValueError, RecursionError):
             names.update(DEP_NAME_RE.findall(text))
-    else:
+            state.gaps["q9"] += 1  # a manifest that would not parse was not read properly
+    elif base == "requirements.txt":
         for line in text.splitlines():
             line = line.strip()
-            m = re.match(r"^([A-Za-z0-9_.@/-]+)", line)
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith(REQ_INCLUDE_PREFIXES):
+                state.gaps["q9"] += 1  # an included file or an editable checkout holds dependencies this walk does not read
+                continue
+            if line.startswith("-"):
+                continue
+            if REQ_URL_OR_PATH_RE.match(line) or " @ " in line:
+                state.gaps["q9"] += 1  # a VCS, URL, path or direct-reference requirement names a package this parser cannot see
+                continue
+            m = re.match(r"^([A-Za-z0-9][A-Za-z0-9_.-]*)", line)
+            if m:
+                counted.add(m.group(1).lower())
+    else:
+        for line in text.splitlines():
+            m = re.match(r"^([A-Za-z0-9_.@/-]+)", line.strip())
             if m:
                 names.add(m.group(1).lower())
+        if base == "pyproject.toml":
+            counted.update(_pyproject_dependencies(text, state))
+        elif base == "gemfile":
+            counted.update(n.lower() for n in GEM_RE.findall(text))
+        elif base == "go.mod":
+            counted.update(GO_MAJOR_SUFFIX_RE.sub("", n.lower()) for n in GO_REQUIRE_RE.findall(text))  # go-agent/v3 is go-agent
+    names.update(counted)
+    return names, len(counted)
+
+
+def detect_manifest(sf, state, opts):
+    text = sf.text
+    names, counted = _read_dependencies(sf.base.lower(), text, state)
+    state.dependencies += counted
     counter = {}
     for name in sorted(names):
         lname = name.lower()
@@ -1080,6 +1298,8 @@ def detect_model_hints(sf, state, opts):
 
 def detect_workflow(sf, state, opts):
     _finditer_lines(CRON_WORKFLOW_RE, sf.text, sf, state, "cron-schedule", {}, lambda m: "cron")
+    if not REVIEW_NAME_RE.search(sf.base.lower()):  # a file already named for review has its row from the layout pass
+        _finditer_lines(REVIEW_ACTION_RE, sf.text, sf, state, "review-workflow", {}, lambda m: m.group(1))
 
 
 def detect_pii_schema(sf, state, opts):
@@ -1159,13 +1379,18 @@ def layout_checks(rel, base, state):
     if any(d in AUTH_SEGMENTS for d in dirs) or stem in AUTH_SEGMENTS or "[...nextauth]" in lower:
         state.add("auth-path", rel, 0, "")
     fly = FLY_ENV_TOML_RE.match(b)
-    is_deploy = b in DEPLOY_CONFIG_BASENAMES or (len(dirs) >= 2 and dirs[0] == ".github" and dirs[1] == "workflows" and (b.endswith(".yml") or b.endswith(".yaml"))) or bool(fly)
+    is_workflow = len(dirs) >= 2 and dirs[0] == ".github" and dirs[1] == "workflows" and (b.endswith(".yml") or b.endswith(".yaml"))
+    is_deploy = b in DEPLOY_CONFIG_BASENAMES or is_workflow or bool(fly)
     if is_deploy:
         state.deploy_configs.append(rel)
         state.add("deploy-config", rel, 0, "")
+    if b in PREVIEW_DEFAULTS and not dirs:
+        state.add("preview-deploys-default", rel, 0, PREVIEW_DEFAULTS[b])
+    if (is_workflow and REVIEW_NAME_RE.search(b)) or b in (".coderabbit.yaml", ".coderabbit.yml"):
+        state.add("review-workflow", rel, 0, "")
     if fly:
         _env_name(state, rel, fly.group(1), 0)
-    m = re.match(r"^\.env\.([a-z0-9_-]+)$", b)
+    m = re.match(r"^\.env[._-]([a-z0-9_-]+)$", b)
     in_examples = bool(TEST_PATH_RE.search(rel)) or any(d.lower() in ("docs", "doc", "examples", "example", "samples", "sample") for d in dirs)
     if m and not is_env_template(b) and not in_examples:
         _env_name(state, rel, m.group(1), 0)
@@ -1535,7 +1760,7 @@ def git_facts(repo, state):
             else:
                 state.add("git-not-a-repo", "", 0, "not a git repository")
                 return
-        tracked = run(["ls-files", "-z", "--", ".env*", "*/.env*", "*.env", "*/*.env"])  # index-only and decisive: first inside the budget
+        tracked = run(["ls-files", "-z", "--", ":(icase).env*", ":(icase)*/.env*", ":(icase)*.env", ":(icase)*/*.env"])  # index-only and decisive: first inside the budget
         names = []
         if tracked.truncated:
             state.partial = True
@@ -1555,7 +1780,8 @@ def git_facts(repo, state):
         else:
             state.git["tracked_env_files"] = [sanitize_path(p) for p in names[:MAX_TRACKED_ENV_FILES]]
         for p in names:
-            stem = p.rsplit("/", 1)[-1].lower()[len(".env"):].lstrip(".")
+            b = p.rsplit("/", 1)[-1].lower()
+            stem = (b[:-len(".env")] if b.endswith(".env") and not b.startswith(".env") else b[len(".env"):]).strip("._-")
             check = "tracked-env-file-nonprod" if stem in NONPROD_ENV_STEMS else "tracked-env-file"
             state.add(check, p, 0, "")
         tags = run(["for-each-ref", "--count=1000", "--format=%(refname)", "refs/tags"])
@@ -1599,6 +1825,7 @@ def run_scan(repo, state, opts):
     stop = False
     git_facts(repo, state)
     git_present = state.git["tracked_env_files"] is not None
+    nested_repos = set()
 
     def unreadable(err):
         state.stats["dirs_unreadable"] += 1
@@ -1614,10 +1841,24 @@ def run_scan(repo, state, opts):
         rel_dir = os.path.relpath(dirpath, real_repo).replace(os.sep, "/")
         if rel_dir == ".":
             rel_dir = ""
+        if rel_dir and os.path.lexists(os.path.join(dirpath, ".git")):  # a vendored clone or submodule: the parent index does not vouch for what is tracked here
+            if len(nested_repos) < MAX_SEEN:
+                nested_repos.add(rel_dir)
+            else:
+                state.gaps["q1"] += 1  # a nested repo the registry could not hold: its env files go unreported
+        in_nested = False
+        ancestor = rel_dir
+        while ancestor:  # walk is top-down, so a nested repo is registered before any directory below it is visited
+            if ancestor in nested_repos:
+                in_nested = True
+                break
+            ancestor = ancestor.rpartition("/")[0]
         parent_name = os.path.basename(dirpath)
         real_dir = os.path.realpath(dirpath)
         if real_dir != real_repo and not real_dir.startswith(real_repo + os.sep):
             dirnames[:] = []
+            note_unread_dir(state)
+            state.partial = True
             continue
         if len(dirnames) + len(filenames) > MAX_DIR_ENTRIES:
             # subdirectories keep priority (an api/ folder matters more than the 50,001st file)
@@ -1628,16 +1869,25 @@ def run_scan(repo, state, opts):
         keep = []
         for d in sorted(dirnames, key=_walk_key):
             full = os.path.join(dirpath, d)
+            if d.lower() in EXCLUDED_DIRS:
+                if d.lower() in BUILD_OUTPUT_DIRS or (d.lower() == "vendor" and rel_dir):  # src/vendor/ is app code; a root vendor/ is dependencies
+                    if len(state.build_dirs) < MAX_SEEN:
+                        state.build_dirs.append((rel_dir + "/" + d) if rel_dir else d)  # summarized in one Q1 row by resolve
+                    note_unread_dir(state)  # it could hold browser code, a rules file or a manifest
+                continue
             try:
                 if os.path.islink(full):
                     state.stats["files_skipped_special"] += 1
+                    note_unread_dir(state)  # a linked folder is not read, so nothing in it was looked at
                     continue
             except OSError:
+                note_unread_dir(state)
                 continue
             if is_never_open_dir(d, parent_name):
                 state.stats["files_never_open"] += count_files(full, deadline)
                 continue
             if d.lower() in opts.excluded:
+                note_unread_dir(state)  # the founder asked for this folder to be skipped
                 continue
             keep.append(d)
         dirnames[:] = keep
@@ -1649,6 +1899,8 @@ def run_scan(repo, state, opts):
                 break
             rel = (rel_dir + "/" + name) if rel_dir else name
             full = os.path.join(dirpath, name)
+            base = name
+            ext = os.path.splitext(name)[1].lower()
             if is_never_open_file(name):
                 state.stats["files_never_open"] += 1
                 continue
@@ -1658,41 +1910,54 @@ def run_scan(repo, state, opts):
                 st = os.lstat(full)
             except OSError:
                 state.stats["files_errored"] += 1
-                state.partial = True
+                if note_unread(state, base, ext):
+                    state.partial = True
                 continue
             if stat.S_ISREG(st.st_mode) and st.st_nlink > 1:
                 state.stats["files_skipped_hardlink"] += 1
-                state.partial = True
+                if note_unread(state, base, ext):  # a hard-linked logo is not missing coverage; a hard-linked source file is
+                    state.partial = True
                 continue
             if not stat.S_ISREG(st.st_mode):
                 state.stats["files_skipped_special"] += 1
+                note_unread(state, base, ext)
                 continue
             if candidates >= opts.max_files:
                 state.stats["max_files_hit"] = True
                 state.partial = True
                 stop = True
                 break
-            base = name
-            ext = os.path.splitext(name)[1].lower()
             layout_checks(rel, base, state)
-            if not git_present and is_env_file(name) and name.lower() != ".envrc":
+            if (not git_present or in_nested) and is_env_file(name) and name.lower() != ".envrc":
                 state.add("env-file-on-disk", rel, 0, "")
             if is_generated(name):
                 state.stats["files_skipped_generated"] += 1
+                if name.lower().endswith(GENERATED_CODE_SUFFIXES):
+                    state.gaps["q1"] += 1  # a public bundle is exactly what the browser downloads
+                    state.gaps["q9"] += 1
                 continue
+            if ext in PRECOMPRESSED_EXTS:
+                if note_unread(state, base, ext):  # app.js.gz or dump.sql.gz: code or rules the scanner cannot read, whatever its size
+                    state.stats["files_skipped_generated"] += 1
+                    continue
             if st.st_size > opts.max_file_bytes:
-                state.stats["files_skipped_oversize"] += 1
-                state.partial = True
+                skip_oversize(state, base, ext)
+                continue
+            if ext in NEVER_READ_EXTS or ext in PRECOMPRESSED_EXTS:
+                state.stats["files_skipped_binary"] += 1  # a photo, a font or an archive: not opened, not charged to the byte or file budgets
                 continue
             opened = open_regular(full)
             if opened is None:
-                state.stats["files_skipped_special"] += 1
+                # lstat vouched for a plain single-link file; if it still cannot be opened (permission denied, or
+                # swapped underneath us) it is a file the scan could not read, not a link or a pipe
+                state.stats["files_errored"] += 1
+                if note_unread(state, base, ext):  # a README or a CSV we could not open is not missing coverage; a source file is
+                    state.partial = True
                 continue
             fd, size = opened
             try:
                 if size > opts.max_file_bytes:
-                    state.stats["files_skipped_oversize"] += 1
-                    state.partial = True
+                    skip_oversize(state, base, ext)
                     continue
                 if total_bytes + size > opts.max_total_bytes:
                     state.stats["max_total_bytes_hit"] = True
@@ -1711,13 +1976,18 @@ def run_scan(repo, state, opts):
             text = decode_text(data)
             if text is None:
                 state.stats["files_skipped_binary"] += 1
-                lb = base.lower()
-                if ext in CODE_EXTS or ext in HTML_EXTS or is_env_file(lb):
-                    state.partial = True  # a source or env file that looks binary is itself worth a look
+                if note_unread(state, base, ext):
+                    state.partial = True  # a source, config, rules or env file that looks binary is itself worth a look
                 continue
             try:
                 cls, kinds = classify(rel, base, ext, text)
                 sf = ScanFile(rel, base, ext, cls, kinds, text)
+                if "code" in kinds or "html" in kinds:
+                    state.cls_counts[cls] += 1
+                if _pred_code_or_env(sf) or "mcp" in kinds:
+                    state.q1_files += 1
+                if kinds & {"sql", "rules"}:
+                    state.rule_files += 1
                 if _q1_gate(sf, opts):
                     claimed = []
                     detect_browser_prefix(sf, state, opts, claimed)
@@ -1743,25 +2013,77 @@ def _q(answer, confidence, evidence):
     return {"answer": answer, "confidence": confidence, "evidence": list(evidence)}
 
 
+def _n(count, noun, plural=None):
+    return "%d %s" % (count, noun if count == 1 else (plural or noun + "s"))
+
+
+def _summary_row(files_scanned, tail=""):
+    return _row("scan-summary", "%d files scanned, 0 hits%s" % (files_scanned, tail))  # SKILL.md quotes this text
+
+
+def _row(check, snippet):
+    """A row the resolver writes about the scan itself: no path, no line, never app text."""
+    return {"path": "", "line": 0, "snippet": sanitize(snippet), "check": check}
+
+
 def resolve(state):
+    """`nothing-found` means the scanner read the files that could answer and every check came back empty.
+    It is only ever claimed on a complete scan, never on a question the walk had nothing to read for, and
+    it is never a `no`: a founder told "nothing found" still has the by-hand test to run."""
     ev = state.evidence
     ef = state.effects
     out = {}
+    complete = not state.partial  # a folder the founder excluded is a gap on every question (note_unread_dir)
+    if state.build_dirs:
+        head = "%s not read: " % _n(len(state.build_dirs), "build folder")
+        shown = []
+        for d in sorted(state.build_dirs)[:5]:
+            tail = " and %d more" % (len(state.build_dirs) - len(shown) - 1)
+            if shown and len(head + ", ".join(shown + [d]) + tail) > MAX_SNIPPET:
+                break  # the count of what is hidden must survive the snippet cap
+            shown.append(d)
+        more = len(state.build_dirs) - len(shown)
+        state.add("build-output-unread", "", 0, head + ", ".join(shown) + (" and %d more" % more if more else ""))
+    for name in sorted(set(state.tables) - state.rls_enabled)[:MAX_TABLE_WITHOUT_RLS_ROWS]:
+        path, line = state.tables[name]
+        state.add("table-without-rls", path, line, name)  # a table no migration turns row level security on for
 
-    def summary(key):
+    def summary(key, tail=""):
         if not ev[key]:
-            return [{"path": "", "line": 0, "snippet": "%d files scanned, 0 hits" % state.files_scanned, "check": "scan-summary"}]
+            return [_summary_row(state.files_scanned, tail)]
         return ev[key]
 
-    for key in ("q1", "q3"):
-        if "no" in ef[key]:
-            out[key] = _q("no", "high", ev[key])
-        else:
-            out[key] = _q("dont-know", "med", summary(key))
-    for key in ("q2", "q8", "q9"):
-        out[key] = _q("dont-know", "med" if ev[key] else "low", ev[key])
-    for key in ("q4", "q7", "q10", "q11"):
+    if "no" in ef["q1"]:
+        out["q1"] = _q("no", "high", ev["q1"])
+    elif complete and not ev["q1"] and state.q1_files and not state.gaps["q1"]:
+        env = "no tracked env file" if state.git["tracked_env_files"] is not None else "no env file"
+        agents = "; %s not opened" % _n(state.stats["files_never_open"], "agent file") if state.stats["files_never_open"] else ""
+        out["q1"] = _q("nothing-found", "med", [_row("nothing-found-keys", "%s read: no key in client code, no MCP token, %s%s" % (_n(state.q1_files, "file"), env, agents))])
+    else:
+        out["q1"] = _q("dont-know", "med", summary("q1"))
+    if "no" in ef["q3"]:
+        out["q3"] = _q("no", "high", ev["q3"])
+    elif complete and not ev["q3"] and state.rule_files and not state.gaps["q3"]:
+        out["q3"] = _q("nothing-found", "med", [_row("nothing-found-rules", "%s read: no RLS disabled, no using (true) policy, no if-true Firebase rule" % _n(state.rule_files, "rule file"))])
+    else:
+        out["q3"] = _q("dont-know", "med", summary("q3", "" if state.rule_files else "; no SQL or security-rules file among them"))
+    q2 = list(ev["q2"])
+    code_files = sum(state.cls_counts.values())
+    if code_files:
+        c = state.cls_counts
+        q2.insert(0, _row("client-server-split", "%d code files: %d as browser code, %d as server code, %d unclear" % (code_files, c["client"], c["server"], c["other"])))
+    out["q2"] = _q("dont-know", "med" if ev["q2"] else "low", q2[:MAX_EVIDENCE])  # the split alone is not a hint
+    out["q8"] = _q("dont-know", "med" if ev["q8"] else "low", ev["q8"])
+    if complete and not ev["q9"] and state.dependencies and not state.gaps["q9"]:
+        out["q9"] = _q("nothing-found", "med", [_row("nothing-found-monitoring", "%s read: no error tracking, no Sentry config, no health route, no cron" % _n(state.dependencies, "dependency", "dependencies"))])
+    else:
+        out["q9"] = _q("dont-know", "med" if ev["q9"] else "low", ev["q9"])
+    for key in ("q4", "q7", "q10"):
         out[key] = _q("dont-know", "low", ev[key])
+    q11 = list(ev["q11"])
+    if state.git["commits"]:
+        q11.insert(0, _row("code-history-local", "the code is on this machine with %d commits; the data export is yours to check" % state.git["commits"]))
+    out["q11"] = _q("dont-know", "low", q11[:MAX_EVIDENCE])
     code_ev = ev["q5.code"]
     if state.git["commits"] is None:
         code = _q("dont-know", "low", code_ev)
@@ -1777,7 +2099,8 @@ def resolve(state):
     if len(state.env_names) >= 2:
         out["q6"] = _q("yes", "med", ev["q6"])
     else:
-        out["q6"] = _q("dont-know", "med" if ev["q6"] else "low", ev["q6"])
+        hinted = [e for e in ev["q6"] if e["check"] != "preview-deploys-default"]
+        out["q6"] = _q("dont-know", "med" if hinted else "low", ev["q6"])
     ordered = {}
     for i in range(1, 12):
         ordered["q%d" % i] = out["q%d" % i]
@@ -1814,6 +2137,10 @@ def _fit_output(result):
     if dropped:
         result["stats"]["output_trimmed"] = dropped
         result["partial"] = True
+        for q in iter_questions(result):
+            if q["answer"] == "nothing-found":  # never claimed on a partial result, however it became partial
+                q["answer"] = "dont-know"
+                q["evidence"] = [_summary_row(result["files_scanned"])]
     return result
 
 

@@ -2,12 +2,13 @@
 
 The handout's eleven gut-check questions, what counts as Yes / No / Don't know, which scanner checks feed each one, and the by-hand test you can run in about sixty seconds when the answer is Don't know. Every question also names the gate where it bites (the nine gates: Define, Audit, Plan, Plan review, Build, Verify, Diff review, Ship, Watch).
 
-The scanner answers only what a file tree can prove. A scanner **no** is evidence of a real problem and is never softened. A scanner **yes** is an inference and renders at medium confidence. Everything else is Don't know until you answer it, and "Don't know" is the useful answer: it is the next thing to find out, not a failure.
+The scanner answers only what a file tree can prove. A scanner **no** is evidence of a real problem and is never softened. A scanner **yes** is an inference and renders at medium confidence. A scanner **Nothing found** (`nothing-found`) means it read the files that could hold the answer, ran every check, and came back empty; the row says what it read. It is only claimed on a complete scan, it is never a yes, and for the door it counts as Don't know, because a file tree cannot prove the running app is safe. Everything else is Don't know until you answer it, and "Don't know" is the useful answer: it is the next thing to find out, not a failure.
 
 ## Q1. Where do my secrets live? None in the browser. (Audit)
 
 - **No** when a key lives where the browser can see it: a value under a browser-exposed prefix (`NEXT_PUBLIC_`, `VITE_`, `REACT_APP_`, `EXPO_PUBLIC_`, `PUBLIC_`, `NUXT_PUBLIC_`, `GATSBY_`) that is a named key, a service-role JWT, or a token whose variable name contains SECRET or SERVICE_ROLE / SERVICE_KEY / SERVICE_TOKEN; a tracked `.env*` or `*.env` file in git (templates excluded; a committed `.env.test`/`.env.development`/`.env.vault` is evidence instead). When git cannot be read at all, `git-index-unread` says so and the scan is partial; a token in `.mcp.json`, any `mcp.json` or `mcp_config.json`; a named key or service-role JWT hardcoded in client code.
 - **Yes** only from you: every secret is server-side, in an environment variable or a secrets manager, and `.env` is ignored by git.
+- **Nothing found** when the scan was complete, at least one code, config or env file was read, nothing that could hold a key was skipped (a large or binary-looking file, an unreadable or linked file or folder, a minified bundle or source map, a folder you excluded, a value too long to judge), and no Q1 check fired, including the git index (or, outside git, no env file on disk). The `nothing-found-keys` row says how many files were read, and how many agent instruction files the scanner deliberately did not open. Build folders are never read. A `build`, `dist` or `out` folder keeps Q1 at Don't know with a `build-output-unread` row, because people also keep source under those names and a key baked into a build is still a key; `.next`, `.nuxt` and a `vendor` folder below the root count the same way, since they hold the bundle the browser downloads or app code. It does not see the deployed site, which is why the by-hand test still applies.
 - **Don't know** otherwise. Public-by-design values (Supabase anon key, `pk_live_`, `pk_test_`, `sb_publishable_`, Firebase web `apiKey`) are listed as evidence, never as a No.
 - Scanner checks: `browser-prefix-*`, `client-*`, `tracked-env-file`, `mcp-token` (No); `tracked-env-file-nonprod` (a committed `.env.test`, `.env.development`, `.env.ci` or an encrypted `.env.vault`/`.env.enc` is evidence, not a No: scaffolds commit those on purpose), `placeholder-key-literal`, `test-path-key-literal` (never change the answer).
 - **By hand (60 s):** open your deployed site, open the browser's developer tools, search the loaded sources and the network responses for `sk-`, `service_role`, `AKIA`, `ghp_`. Then run `git ls-files | grep -i env`. Anything found: rotate that key now, then move it server-side.
@@ -16,13 +17,14 @@ The scanner answers only what a file tree can prove. A scanner **no** is evidenc
 
 - **Yes** only from you: you can point at the line that separates what runs in the browser from what runs on your server, and every privileged call is on the server side of it.
 - **No** only from you: the browser calls the database, the AI provider, or a third-party API directly with a privileged key.
-- Scanner hints: `api-route-dir`, `framework-config` show that a server side exists; they prove nothing about what crosses the line.
+- Scanner hints: `client-server-split` counts the code files the scanner classified as browser code, server code, or unclear (a count with almost nothing on the server is worth saying out loud); `api-route-dir`, `framework-config` show that a server side exists. None of them proves what crosses the line.
 - **By hand (60 s):** list the three most sensitive things your app does (charge, write to the database, call the model). For each, say out loud whether the browser or your server makes that call. If you cannot say, the answer is Don't know.
 
 ## Q3. Who can read this: logged out, the wrong user, the right user? Files too. (Audit)
 
 - **No** when a table or bucket is open by construction: `disable row level security`, a policy `using (true)`, Firebase or Realtime Database rules that allow writes `if true` (`allow read, write: if true`, `".write": true`). A rule that only allows public reads (`allow read: if true`) is evidence, not a No: some collections are meant to be public.
 - **Yes** only from you, after the boundary test below passes for the API, the database, and file storage.
+- **Nothing found** when the scan was complete, at least one SQL or security-rules file was read, none was skipped, every public table a migration creates also has row level security turned on in some migration, and none of the checks below fired (`nothing-found-rules`). A table with no `enable row level security` is `table-without-rls` evidence: on Supabase that is the most common open table, and on a server-only database it is expected, so the by-hand test decides. With no such file in the app, the scanner had nothing to look at and the answer stays Don't know: your access rules live in a dashboard it cannot read.
 - Scanner checks: `rls-disabled`, `policy-using-true`, `firebase-rules-open` (No); `policy-select-true` (a `for select using (true)` policy is public read by design, like a public Firebase read: evidence, the by-hand test decides), `policy-with-check-true`, `policy-to-anon`, `firebase-rules-public-read`, `storage-bucket-public` (evidence).
 - **By hand (the boundary triad, 3 × 60 s):**
   1. **Logged out:** in a private window, request one record's URL or API endpoint directly. It should refuse.
@@ -55,12 +57,13 @@ Two halves, scored separately; the verdict shows the lower one.
 - **Yes (medium)** from the scanner when two named environments are configured (`.env.staging` and `.env.production`, `netlify.toml [context.*]`, `wrangler.toml [env.*]`, `vercel.json` `production` / `preview`, `fly.<name>.toml`). That proves names, not a running staging site.
 - **Yes (high)** from you: a non-live copy exists that you deploy to first.
 - **No** only from you: every change goes straight to the live site.
-- Scanner check: `env-name`.
+- Scanner check: `env-name`. Evidence: `preview-deploys-default` means a `vercel.json` or `netlify.toml` sits at the root, and those hosts build a preview of each branch unless you turned it off. That is a copy that exists; it is not one you have opened.
 - **By hand (60 s):** open your host's dashboard. Is there a second URL, a preview deployment, or a staging project? Have you ever opened it?
 
 ## Q7. What changed that I didn't ask for? Read the diff, not the summary. (Diff review)
 
 - Never answered by the scanner. **Yes** only from you: on your last change you read the diff line by line and found nothing you did not ask for. **No**: you shipped the summary without reading the diff.
+- Scanner evidence: `review-workflow` is a review bot on pull requests (a workflow named for review, `anthropics/claude-code-action`, `coderabbitai/…`, `reviewdog/…`, or a `.coderabbit.yaml`). It shows a habit of looking at diffs; it is not you reading one.
 - **By hand (60 s):** run `git diff HEAD~1 --stat`, then open the two files you least expected to see in the list.
 
 ## Q8. What does one user cost me? A number or "I don't know". (Watch)
@@ -75,6 +78,7 @@ Two halves, scored separately; the verdict shows the lower one.
 - **Yes** only from you: a specific failure sends a message to a specific person, and you have seen that message once.
 - **No** only from you: you would find out from a user.
 - Scanner hints: `monitoring-dependency`, `sentry-config`, `health-route`, `cron-schedule` show that monitoring code exists; the alert is the question.
+- **Nothing found** when the scan was complete, at least one dependency was read, no manifest was skipped, and none of those fired (`nothing-found-monitoring`, which says how many dependencies were read). Monitoring can still live outside the code (an uptime service, your host's own alerts), so it is never a No.
 - **By hand (60 s):** break something on purpose in the non-live copy (rename an environment variable). Did anyone get a message? Put it back.
 
 ## Q10. What am I storing, and could I explain it out loud? (Define)
@@ -88,7 +92,7 @@ Two halves, scored separately; the verdict shows the lower one.
 
 - **Yes** only from you: you have the code on your own machine and you have exported the data once.
 - **No** only from you: the platform holds the only copy of either.
-- Scanner evidence: `builder-file`, `builder-dependency`, `builder-readme`, `container-config` name the platform; the defaults are the question.
+- Scanner evidence: `code-history-local` says the code is on this machine with its git history, which is the code half; the data half is yours. `builder-file`, `builder-dependency`, `builder-readme`, `container-config` name the platform; the defaults are the question.
 - **By hand (60 s):** find the export or download button for both the code and the data. Click the data one and open the file.
 
 # If AI drives part of your product: keeping it on rails
@@ -183,15 +187,16 @@ Most founders with a prototype do not, and everything above still applies to the
 
 ## All check names
 
-Every `check` the scanner can emit, by question. The skill accepts scanner output only when every check is on this list; `scan-summary` is the placeholder row for a question with zero hits. Effect: **no** flips the answer to no; **yes-part** contributes to a yes; **hint** and **evidence** never change the answer.
+Every `check` the scanner can emit, by question. The skill accepts scanner output only when every check is on this list; `scan-summary` is the placeholder row for a question with zero hits, and the `nothing-found-*` rows are the list of what was checked behind a `nothing-found` answer. Effect: **no** flips the answer to no; **yes-part** contributes to a yes; **hint** and **evidence** never change the answer.
 
-- **Q1:** `browser-prefix-anon-jwt` (evidence), `browser-prefix-authenticated-jwt` (evidence), `browser-prefix-named-key` (no), `browser-prefix-privileged-jwt` (no), `browser-prefix-public-key` (evidence), `browser-prefix-service-or-secret-name` (no), `browser-prefix-token-shaped` (evidence), `browser-prefix-unknown-role-jwt` (evidence), `client-anon-jwt` (evidence), `client-authenticated-jwt` (evidence), `client-key-literal` (no), `client-keyish-ident-token` (evidence), `client-privileged-jwt` (no), `client-secret-ident-token` (no), `client-secret-name-token` (no), `client-unknown-role-jwt` (evidence), `env-file-on-disk` (evidence), `git-index-unread` (evidence), `mcp-token` (no), `mcp-token-shaped` (evidence), `non-client-key-literal` (evidence), `placeholder-key-literal` (evidence), `scan-summary` (evidence), `server-path-key-literal` (evidence), `test-path-key-literal` (evidence), `tracked-env-file` (no), `tracked-env-file-nonprod` (evidence)
-- **Q2:** `api-route-dir` (hint), `framework-config` (hint)
-- **Q3:** `firebase-rules-open` (no), `firebase-rules-public-read` (evidence), `policy-altered-true` (evidence), `policy-select-true` (evidence), `policy-to-anon` (evidence), `policy-using-true` (no), `policy-with-check-true` (evidence), `rls-disabled` (no), `storage-bucket-public` (evidence), `storage-bucket-public-sql` (evidence)
+- **Q1:** `browser-prefix-anon-jwt` (evidence), `browser-prefix-authenticated-jwt` (evidence), `browser-prefix-named-key` (no), `browser-prefix-privileged-jwt` (no), `browser-prefix-public-key` (evidence), `browser-prefix-service-or-secret-name` (no), `browser-prefix-token-shaped` (evidence), `browser-prefix-unknown-role-jwt` (evidence), `client-anon-jwt` (evidence), `client-authenticated-jwt` (evidence), `client-key-literal` (no), `client-keyish-ident-token` (evidence), `client-privileged-jwt` (no), `client-secret-ident-token` (no), `client-secret-name-token` (no), `build-output-unread` (evidence), `client-unknown-role-jwt` (evidence), `nothing-found-keys` (evidence), `env-file-on-disk` (evidence), `git-index-unread` (evidence), `mcp-token` (no), `mcp-token-shaped` (evidence), `non-client-key-literal` (evidence), `placeholder-key-literal` (evidence), `scan-summary` (evidence), `server-path-key-literal` (evidence), `test-path-key-literal` (evidence), `tracked-env-file` (no), `tracked-env-file-nonprod` (evidence)
+- **Q2:** `api-route-dir` (hint), `client-server-split` (hint), `framework-config` (hint)
+- **Q3:** `firebase-rules-open` (no), `firebase-rules-public-read` (evidence), `policy-altered-true` (evidence), `policy-select-true` (evidence), `policy-to-anon` (evidence), `policy-using-true` (no), `policy-with-check-true` (evidence), `nothing-found-rules` (evidence), `rls-disabled` (no), `table-without-rls` (evidence), `storage-bucket-public` (evidence), `storage-bucket-public-sql` (evidence)
 - **Q4:** `auth-dependency` (evidence), `auth-path` (evidence)
 - **Q5 (code half):** `backup-script` (evidence), `deploy-config` (yes-part), `git-config-not-vouched` (evidence), `git-history` (evidence), `git-not-a-repo` (evidence), `git-shallow` (evidence), `git-subdir` (evidence), `git-timeout` (evidence), `git-unavailable` (evidence), `migration-path` (evidence)
-- **Q6:** `env-name` (yes-part)
+- **Q6:** `env-name` (yes-part), `preview-deploys-default` (evidence)
+- **Q7:** `review-workflow` (evidence)
 - **Q8:** `ai-sdk-dependency` (hint), `model-env-var` (hint), `model-literal` (hint), `spend-cap-word` (hint)
-- **Q9:** `cron-schedule` (hint), `health-route` (hint), `monitoring-dependency` (hint), `sentry-config` (hint)
+- **Q9:** `cron-schedule` (hint), `health-route` (hint), `monitoring-dependency` (hint), `nothing-found-monitoring` (evidence), `sentry-config` (hint)
 - **Q10:** `pii-field` (evidence), `pii-form-input` (evidence)
-- **Q11:** `builder-dependency` (evidence), `builder-file` (evidence), `builder-readme` (evidence), `container-config` (evidence)
+- **Q11:** `code-history-local` (evidence), `builder-dependency` (evidence), `builder-file` (evidence), `builder-readme` (evidence), `container-config` (evidence)

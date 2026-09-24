@@ -110,6 +110,66 @@
 **Priority:** P4
 **Depends on:** PR 2 evals
 
+### Q3 "nothing found" from a lone seed.sql
+
+**What:** Any `.sql` file counts as a rule file, so a project whose only SQL is `supabase/seed.sql` (one `insert`) can reach Q3 Nothing found with "1 rule file read".
+
+**Why:** `questions.md` promises that with no rule file the answer stays Don't know because rules live in a dashboard; a seed file is not a rule file. Found by the Claude adversarial pass in the v0.3.0 pre-merge review.
+
+**Context:** `test_nothing_found_is_never_a_no_and_never_on_a_partial_scan` encodes the current rule (`select 1;` in a migration earns Nothing found), so this is a design change, not a bug fix: count a `.sql` file as a rule file only when it holds `create table`, `create policy`, `alter table … row level security` or `storage.buckets`; `.rules` and `database.rules.json` always count. Decide against the workshop corpus.
+
+**Effort:** S
+**Priority:** P2
+**Depends on:** None
+
+### Q1 "nothing found" after one file, and file kinds Q1 never reads
+
+**What:** Q1 Nothing found needs only one code or env file read, and `.xml`, `.plist`, `.properties`, `.prisma`, `.sh`, `.ini` are neither read for keys nor counted as gaps, although `EXPO_PUBLIC_` support puts mobile apps (`strings.xml`, `GoogleService-Info.plist`) in scope.
+
+**Why:** The Q1 row says "N files read: no key in client code"; on a one-file repo or an Expo app that overstates what was checked.
+
+**Context:** Raised by the Claude adversarial pass in the v0.3.0 pre-merge review. Options: a minimum file count for Q1, widening `Q1_Q3_EXTS` and `_pred_code_or_env`, or wording the row as what was actually read. Sits with the M5 precision pass.
+
+**Effort:** M
+**Priority:** P3
+**Depends on:** M5 precision pass
+
+### Smaller v0.3.0 review leftovers
+
+**What:** Four evidence-only or observability items from the v0.3.0 pre-merge review, kept as designed for now: (1) `alter table t add column x, enable row level security` (comma-joined actions) is not recognised as enabling RLS, so `table-without-rls` can name a table that is covered; (2) the synthetic Q2 `client-server-split` and Q11 `code-history-local` rows are inserted at index 0 and can push out the twelfth real row without counting as trimmed; (3) `state.gaps` is never emitted, so a withheld Nothing found is indistinguishable in `stats` from the old "0 hits" (adding a `gaps` object to `stats` is contract-safe per SKILL.md); (4) MCP configs inside never-open agent folders (`.claude/settings.local.json`, `.kiro/settings/mcp.json`) are counted but not named in the Q1 row.
+
+**Why:** None changes an answer or the door; each is a wording or visibility nit worth one small PR together.
+
+**Context:** All from the Claude adversarial and maintainability passes on PR #11. (1) needs a bounded `[^;]{0,500}?` between the table name and `enable row level security` rather than an unbounded match. (2) either stop slicing after the insert (max 13 rows) or count the dropped row in `output_trimmed`; `test_json_shape` and the `MAX_EVIDENCE` assertions at test lines 936 and 1278 constrain the choice.
+
+**Effort:** S
+**Priority:** P3
+**Depends on:** None
+
+### Open-rule shapes the Q3 "nothing found" row does not cover
+
+**What:** The `nothing-found-rules` row now names exactly what was checked ("no RLS disabled, no using (true) policy, no if-true Firebase rule"), but three common open shapes pass every check: Firebase's generated test-mode default `allow read, write: if request.time < timestamp.date(...)`, Postgres `using (1=1)`, and `using (true or auth.uid() = owner)`. A rules file holding only those earns Q3 Nothing found.
+
+**Why:** Time-boxed test mode is the most common vibe-coded Firebase layout. Found by the Red Team pass in the v0.3.0 pre-merge review; the row wording was fixed there, the detectors were not.
+
+**Context:** Add `firebase-rules-test-mode` as an evidence row (`allow … : if request.time <`), and widen `USING_TRUE_RE` only as evidence (`policy-using-tautology`), never as a decisive `no`, until the workshop corpus shows no false positives. Also from the same review: a committed `.env-cmdrc` (env-cmd's rc file) is reported as `tracked-env-file-nonprod` evidence, never a `no`; decide whether it should be evidence at all.
+
+**Effort:** S
+**Priority:** P2
+**Depends on:** None
+
+### Door rule when Q1 or Q3 is Don't know on a complete scan
+
+**What:** Step 3 of the door rule blocks Ship it only when the scan was partial. A build folder, a minified bundle, a precompressed bundle or an excluded folder withholds Nothing found (a gap) without making the scan partial, so Q1 can be an ordinary Don't know on a `partial: false` result and step 5 can still reach Ship it.
+
+**Why:** Raised by the Codex adversarial pass in the v0.3.0 pre-merge review. It is the v0.2.0 behaviour too (an excluded folder never set partial), so it is not a regression, but the gap counters now make the distinction visible and the door rule could use it.
+
+**Context:** Options: emit `stats.gaps` (see the leftovers entry) and let step 3 read "partial, or Q1/Q3 withheld by a gap"; or keep the door as is and have the verdict name the gap in the Q1 row. Decide against the workshop corpus so ordinary prototypes with a `build/` folder are not pushed to Patch it.
+
+**Effort:** S
+**Priority:** P2
+**Depends on:** None
+
 ## Completed
 
 ### Test fixtures use real .env filenames
@@ -125,5 +185,3 @@
 **Depends on:** None
 
 **Completed:** v0.2.0 (2026-09-23)
-
-

@@ -441,7 +441,7 @@ class TrackedEnvTests(ScanCase):
         self.init_repo()
         q1 = self.scan()["questions"]["q1"]
         self.assertNotIn("tracked-env-file", evidence_checks(q1))
-        self.assertEqual(q1["answer"], "dont-know")
+        self.assertEqual(q1["answer"], "nothing-found")
 
     def test_tracked_env_is_no_and_envrc_ignored(self):
         self.write(".env", "A=b\n")
@@ -778,6 +778,8 @@ class Q6Tests(ScanCase):
         q6 = self.scan()["questions"]["q6"]
         for e in q6["evidence"]:
             self.assertLessEqual(len(e["snippet"]), 40)
+            if e["check"] != "env-name":
+                continue  # the fixed preview-deployment sentence is the scanner's text, not the app's
             self.assertTrue(re.fullmatch(r"[a-z0-9_-]{1,32}", e["snippet"]), e["snippet"])
 
 
@@ -895,7 +897,7 @@ class SeededAppGoldenTest(ScanCase):
 
 class ContractTests(ScanCase):
     TOP_KEYS = ["ok", "partial", "version", "files_scanned", "stats", "warnings", "git", "questions"]
-    STATS_KEYS = ["files_skipped_oversize", "files_skipped_binary", "files_skipped_generated", "files_never_open",
+    STATS_KEYS = ["files_skipped_oversize", "files_skipped_oversize_relevant", "files_skipped_binary", "files_skipped_generated", "files_never_open",
                   "files_skipped_special", "files_skipped_hardlink", "files_errored", "dirs_unreadable", "dirs_truncated", "mcp_capped", "git_index_partial", "output_trimmed", "max_files_hit", "max_total_bytes_hit", "deadline_hit", "config"]
 
     def test_json_shape(self):
@@ -908,7 +910,7 @@ class ContractTests(ScanCase):
         self.assertEqual(r["version"], cs.__version__)
         for q in cs.iter_questions(r):
             self.assertEqual(list(q.keys()), ["answer", "confidence", "evidence"])
-            self.assertIn(q["answer"], ("yes", "no", "dont-know"))
+            self.assertIn(q["answer"], ("yes", "no", "dont-know", "nothing-found"))
             self.assertIn(q["confidence"], ("high", "med", "low"))
             for e in q["evidence"]:
                 self.assertEqual(list(e.keys()), ["path", "line", "snippet", "check"])
@@ -1176,7 +1178,7 @@ class LinearityTests(unittest.TestCase):
     def test_multiline_patterns_are_linear_on_blank_lines(self):
         blank = "\n" * 524288
         spaced = " \n" * 262144
-        for regex in (cs.CLIENT_IMPORT_RE, cs.CRON_WORKFLOW_RE, cs.TOML_PUBLIC_TRUE_RE, cs.NETLIFY_CONTEXT_RE, cs.WRANGLER_ENV_RE, cs.CRON_WRANGLER_RE, cs.USE_CLIENT_RE):
+        for regex in (cs.CLIENT_IMPORT_RE, cs.CRON_WORKFLOW_RE, cs.TOML_PUBLIC_TRUE_RE, cs.NETLIFY_CONTEXT_RE, cs.WRANGLER_ENV_RE, cs.CRON_WRANGLER_RE, cs.USE_CLIENT_RE, cs.GEM_RE, cs.GO_REQUIRE_RE):
             t0 = time.perf_counter()
             regex.search(blank)
             regex.search(spaced)
@@ -1532,7 +1534,7 @@ class ReviewCycleThreeGateTests(ScanCase):
     def test_sql_comments_never_decide_q3(self):
         self.write("supabase/migrations/1.sql", "-- do not use: alter table users disable row level security;\n/* create policy p on t using (true); */\nselect 1;\n")
         q3 = self.scan()["questions"]["q3"]
-        self.assertEqual(q3["answer"], "dont-know")
+        self.assertEqual(q3["answer"], "nothing-found")  # read, and a commented-out line is not a finding
         self.write("supabase/migrations/2.sql", "alter table users disable row level security; -- oops\n")
         self.assertEqual(self.scan()["questions"]["q3"]["answer"], "no")
 
@@ -1603,7 +1605,7 @@ class ReviewCycleThreeAdversarialTests(ScanCase):
 
     def test_single_long_whitespace_line_is_linear(self):
         line = " " * 400000
-        for regex in (cs.CRON_WORKFLOW_RE, cs.CLIENT_IMPORT_RE, cs.TOML_PUBLIC_TRUE_RE, cs.NETLIFY_CONTEXT_RE, cs.WRANGLER_ENV_RE, cs.CRON_WRANGLER_RE, cs.USE_CLIENT_RE, cs.FIREBASE_ALLOW_TRUE_RE):
+        for regex in (cs.CRON_WORKFLOW_RE, cs.CLIENT_IMPORT_RE, cs.TOML_PUBLIC_TRUE_RE, cs.NETLIFY_CONTEXT_RE, cs.WRANGLER_ENV_RE, cs.CRON_WRANGLER_RE, cs.USE_CLIENT_RE, cs.FIREBASE_ALLOW_TRUE_RE, cs.GEM_RE, cs.GO_REQUIRE_RE):
             t0 = time.perf_counter()
             regex.search(line)
             regex.search("\t" * 400000)
@@ -1799,7 +1801,7 @@ class ShipCoverageTests(ScanCase):
         self.assertEqual(r["files_scanned"], 1)
 
     @unittest.skipIf(sys.platform == "win32", "POSIX permissions")
-    def test_unreadable_file_is_skipped_as_special(self):
+    def test_unreadable_file_is_an_error_that_marks_the_scan_partial(self):
         if getattr(os, "geteuid", lambda: 1)() == 0:
             self.skipTest("root can read anything")
         path = self.write("src/a.ts", 'const k = "%s";\n' % SK)
@@ -1810,7 +1812,9 @@ class ShipCoverageTests(ScanCase):
             os.chmod(path, 0o644)
         self.assertTrue(r["ok"])
         self.assertEqual(r["files_scanned"], 0)
-        self.assertEqual(r["stats"]["files_skipped_special"], 1)
+        self.assertEqual(r["stats"]["files_errored"], 1)  # lstat vouched for it; a file we could not read is missing coverage, not a link
+        self.assertEqual(r["stats"]["files_skipped_special"], 0)
+        self.assertTrue(r["partial"])
         self.assert_no_secret(json.dumps(r), SK)
 
     def test_fstat_and_truncated_read_failures_are_contained(self):
@@ -1820,7 +1824,8 @@ class ShipCoverageTests(ScanCase):
             r = self.scan()
         self.assertTrue(r["ok"])
         self.assertEqual(r["files_scanned"], 0)
-        self.assertEqual(r["stats"]["files_skipped_special"], 1)
+        self.assertEqual(r["stats"]["files_errored"], 1)
+        self.assertTrue(r["partial"])
         with mock.patch.object(cs, "git_facts", quiet), mock.patch.object(cs.os, "read", return_value=b""):
             r = self.scan()
         self.assertTrue(r["ok"])
@@ -1848,7 +1853,7 @@ class ShipCoverageTests(ScanCase):
         self.write(".mcp.json", json.dumps({"TOKEN": "x" * 9000}))
         r = self.scan()
         self.assertFalse(r["partial"])
-        self.assertEqual(evidence_checks(r["questions"]["q1"]), ["scan-summary"])
+        self.assertEqual(evidence_checks(r["questions"]["q1"]), ["scan-summary"])  # a value too long to judge is not a look
 
     def test_content_hits_are_capped_at_five_per_file_per_check(self):
         self.write("src/ai.ts", "".join('const m%d = "gpt-4o";\n' % i for i in range(7)))
@@ -3194,6 +3199,787 @@ class RailsQuestionsTests(ScanCase):
             if "Door:" in line or line.startswith("- **Partial scan:**"):
                 for rid in ids:
                     self.assertNotIn(rid, line, "the verdict's door line must not depend on a rails answer")
+
+
+
+class OversizeRelevanceTests(ScanCase):
+    """Issue #10: a skipped photo is not an incomplete scan. Only a file a Q1 or Q3 detector would have
+    read can hide a key or an open rule, so only that kind of oversize skip may set `partial`."""
+
+    BIG = 600000
+
+    def test_oversize_photos_and_media_do_not_mark_partial(self):
+        for name in ("public/hero.jpeg", "public/team.JPG", "assets/demo.mp4", "docs/deck.pdf", "fonts/a.woff2", "data/export.csv"):
+            self.write(name, b"\xff\xd8" + b"\x01" * self.BIG, binary=True)
+        self.write("src/a.ts", "export const a = 1;\n")
+        r = self.scan()
+        self.assertEqual(r["stats"]["files_skipped_oversize"], 6)
+        self.assertFalse(r["partial"], "a large photo cannot hold a key or an access rule")
+
+    def test_a_photo_named_like_a_template_is_still_a_photo(self):
+        # found on a real app: `step2-sample-selected.png` matched the env-template word list
+        self.write("shots/step2-sample-selected.png", b"\x89PNG\x00" + b"\x01" * 600000, binary=True)
+        self.write("shots/example-small.png", b"\x89PNG\x00\x01", binary=True)
+        self.write("src/a.ts", "export const a = 1;\n")
+        r = self.scan()
+        self.assertFalse(r["partial"])
+        self.assertEqual(r["questions"]["q1"]["answer"], "nothing-found")
+        self.write(".env.sample", "x" * 600000)
+        self.assertTrue(self.scan()["partial"], "a real env template is still read")
+
+    def test_oversize_files_a_q1_or_q3_detector_reads_still_mark_partial(self):
+        for name in ("src/big.ts", "public/app.html", "config/seed.json", "deploy.yaml", "wrangler.toml",
+                     "supabase/migrations/1.sql", "firestore.rules", ".env.production", "prod.env"):
+            with self.subTest(name=name):
+                shutil.rmtree(self.repo)
+                os.makedirs(self.repo)
+                self.write(name, "x" * self.BIG)
+                r = self.scan()
+                self.assertEqual(r["stats"]["files_skipped_oversize"], 1)
+                self.assertTrue(r["partial"], name)
+
+    def test_grown_data_file_after_lstat_does_not_mark_partial(self):
+        # a photo is never opened now; a data export is opened, found grown past the cap, and skipped as irrelevant
+        self.write("data/export.csv", "a,b\n")
+        real_open = cs.open_regular
+
+        def grown(path):
+            opened = real_open(path)
+            return None if opened is None else (opened[0], 10 ** 9)
+
+        with mock.patch.object(cs, "open_regular", side_effect=grown):
+            r = self.scan()
+        self.assertEqual(r["stats"]["files_skipped_oversize"], 1)
+        self.assertFalse(r["partial"])
+
+    def test_a_photo_heavy_clean_app_can_reach_nothing_found_on_q1(self):
+        # the inkling-app shape: 99 large photos and nothing wrong, which used to render "scan incomplete"
+        for i in range(5):
+            self.write("public/p%d.jpeg" % i, b"\xff\xd8" + b"\x01" * self.BIG, binary=True)
+        self.write("src/a.ts", "export const a = 1;\n")
+        r = self.scan()
+        self.assertEqual(r["questions"]["q1"]["answer"], "nothing-found")
+
+
+class NothingFoundTests(ScanCase):
+    """Issue #7: "looked hard and found nothing" must read differently from "did not look"."""
+
+    def clean_app(self):
+        self.write("src/components/A.tsx", "export const A = () => null;\n")
+        self.write("pages/index.tsx", "export default function P() { return null; }\n")
+
+    def rows(self, q, check):
+        return [e for e in q["evidence"] if e["check"] == check]
+
+    def test_q1_clean_complete_scan_is_nothing_found_with_what_was_checked(self):
+        self.clean_app()
+        q1 = self.scan()["questions"]["q1"]
+        self.assertEqual((q1["answer"], q1["confidence"]), ("nothing-found", "med"))
+        self.assertEqual(evidence_checks(q1), ["nothing-found-keys"])
+        snippet = q1["evidence"][0]["snippet"]
+        self.assertIn("2 files read", snippet)
+        self.assertIn("no env file", snippet)
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_q1_nothing_found_names_the_git_index_when_it_was_read(self):
+        self.clean_app()
+        self.init_repo()
+        q1 = self.scan()["questions"]["q1"]
+        self.assertEqual(q1["answer"], "nothing-found")
+        self.assertIn("no tracked env file", q1["evidence"][0]["snippet"])
+
+    def test_q1_partial_scan_stays_dont_know(self):
+        self.clean_app()
+        self.write("src/big.ts", "x" * 600000)
+        r = self.scan()
+        self.assertTrue(r["partial"])
+        self.assertEqual(r["questions"]["q1"]["answer"], "dont-know")
+        self.assertEqual(evidence_checks(r["questions"]["q1"]), ["scan-summary"])
+
+    def test_q1_with_any_evidence_row_stays_dont_know(self):
+        self.write("src/components/S.tsx", 'const c = createClient(url, "%s");\n' % ANON_JWT)
+        self.assertEqual(self.scan()["questions"]["q1"]["answer"], "dont-know")
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.write(".env", "A=b\n")  # not a git repo: an env file on disk is worth a look, not "nothing"
+        self.assertEqual(self.scan()["questions"]["q1"]["answer"], "dont-know")
+
+    def test_q1_nothing_read_is_not_nothing_found(self):
+        self.write("public/a.png", b"\x89PNG\x00\x00", binary=True)
+        q1 = self.scan()["questions"]["q1"]
+        self.assertEqual(q1["answer"], "dont-know")
+
+    def test_q3_needs_an_access_rule_file_before_it_can_say_nothing_found(self):
+        self.clean_app()
+        self.write("README.md", "never write using (true) in a policy\n")
+        q3 = self.scan()["questions"]["q3"]
+        self.assertEqual(q3["answer"], "dont-know", "no rule file read: the scanner did not look")
+        self.assertIn("no SQL", q3["evidence"][0]["snippet"])
+        self.write("supabase/migrations/1.sql", "create policy p on t for select using (auth.uid() = owner);\n")
+        self.write("firestore.rules", "match /x { allow read: if request.auth != null; }\n")
+        q3 = self.scan()["questions"]["q3"]
+        self.assertEqual((q3["answer"], q3["confidence"]), ("nothing-found", "med"))
+        self.assertEqual(evidence_checks(q3), ["nothing-found-rules"])
+        self.assertIn("2 rule files read", q3["evidence"][0]["snippet"])
+        os.remove(os.path.join(self.repo, "firestore.rules"))
+        self.assertIn("1 rule file read", self.scan()["questions"]["q3"]["evidence"][0]["snippet"])
+
+    def test_q3_evidence_or_partial_keeps_dont_know(self):
+        self.write("db/p.sql", 'create policy "p" on t for select to anon using (auth.uid() is not null);\n')
+        self.assertEqual(self.scan()["questions"]["q3"]["answer"], "dont-know")
+        self.write("db/p.sql", "create policy p on t for select using (auth.uid() = owner);\n")
+        self.write("db/big.sql", "x" * 600000)
+        self.assertEqual(self.scan()["questions"]["q3"]["answer"], "dont-know")
+
+    def test_q9_manifest_with_no_monitoring_is_nothing_found(self):
+        self.clean_app()
+        self.write("package.json", json.dumps({"dependencies": {"next": "15", "react": "19", "zod": "3"}}))
+        q9 = self.scan()["questions"]["q9"]
+        self.assertEqual((q9["answer"], q9["confidence"]), ("nothing-found", "med"))
+        self.assertEqual(evidence_checks(q9), ["nothing-found-monitoring"])
+        self.assertIn("3 dependencies", q9["evidence"][0]["snippet"])
+
+    def test_q9_without_a_manifest_or_on_a_partial_scan_stays_dont_know(self):
+        self.clean_app()
+        q9 = self.scan()["questions"]["q9"]
+        self.assertEqual((q9["answer"], q9["confidence"]), ("dont-know", "low"))
+        self.write("package.json", json.dumps({"dependencies": {"next": "15"}}))
+        self.write("src/big.ts", "x" * 600000)
+        self.assertEqual(self.scan()["questions"]["q9"]["answer"], "dont-know")
+        os.remove(os.path.join(self.repo, "src", "big.ts"))
+        self.write("package.json", json.dumps({"dependencies": {"@sentry/nextjs": "8"}}))
+        self.assertEqual(self.scan()["questions"]["q9"]["answer"], "dont-know")
+
+    def test_q2_reports_the_client_server_split_it_already_computed(self):
+        self.clean_app()
+        self.write("middleware.ts", "export function middleware() {}\n")
+        q2 = self.scan()["questions"]["q2"]
+        self.assertEqual((q2["answer"], q2["confidence"]), ("dont-know", "low"), "the split is evidence, not a hint")
+        row = self.rows(q2, "client-server-split")
+        self.assertEqual(len(row), 1)
+        self.assertIn("2 as browser code", row[0]["snippet"])
+        self.assertIn("1 as server code", row[0]["snippet"])
+
+    def test_q6_names_default_preview_deployments(self):
+        self.write("vercel.json", "{}\n")
+        q6 = self.scan()["questions"]["q6"]
+        self.assertEqual(q6["answer"], "dont-know", "a preview that exists by default is not one the founder has opened")
+        self.assertEqual(len(self.rows(q6, "preview-deploys-default")), 1)
+        self.write("netlify.toml", "[build]\n")
+        self.assertEqual(len(self.rows(self.scan()["questions"]["q6"], "preview-deploys-default")), 2)
+
+    def test_nested_deploy_config_and_non_yaml_review_file_have_no_rows(self):
+        self.write("apps/web/vercel.json", "{}\n")
+        self.write(".github/workflows/code-review.md", "notes\n")
+        q = self.scan()["questions"]
+        self.assertEqual(self.rows(q["q6"], "preview-deploys-default"), [])
+        self.assertEqual(self.rows(q["q7"], "review-workflow"), [])
+
+    def test_q7_sees_a_review_workflow(self):
+        self.write(".github/workflows/claude-code-review.yml", "on: pull_request\n")
+        self.write(".github/workflows/ci.yml", "on: pull_request\njobs:\n  r:\n    steps:\n      - uses: coderabbitai/ai-pr-reviewer@latest\n")
+        self.write(".github/workflows/deploy.yml", "on: push\n")
+        q = self.scan()["questions"]
+        self.assertEqual(q["q7"]["answer"], "dont-know", "a review bot is not the founder reading the diff")
+        paths = sorted(e["path"] for e in self.rows(q["q7"], "review-workflow"))
+        self.assertEqual(paths, [".github/workflows/ci.yml", ".github/workflows/claude-code-review.yml"])
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_q11_names_the_code_half_when_git_holds_history(self):
+        self.clean_app()
+        self.init_repo(commits=3)
+        q11 = self.scan()["questions"]["q11"]
+        self.assertEqual(q11["answer"], "dont-know", "the data half is still the founder's")
+        row = self.rows(q11, "code-history-local")
+        self.assertEqual(len(row), 1)
+        self.assertIn("3 commits", row[0]["snippet"])
+
+    def test_q11_without_git_has_no_history_row(self):
+        self.clean_app()
+        self.assertEqual(self.rows(self.scan()["questions"]["q11"], "code-history-local"), [])
+
+    def test_nothing_found_is_never_a_no_and_never_on_a_partial_scan(self):
+        self.clean_app()
+        self.write("package.json", json.dumps({"dependencies": {"next": "15"}}))
+        self.write("supabase/migrations/1.sql", "select 1;\n")
+        full = self.scan()
+        self.write("src/big.ts", "x" * 600000)
+        part = self.scan()
+        self.assertTrue(part["partial"])
+        self.assertEqual({k for k, v in full["questions"].items() if k != "q5" and v["answer"] == "nothing-found"}, {"q1", "q3", "q9"})
+        for q in cs.iter_questions(part):
+            self.assertNotEqual(q["answer"], "nothing-found")
+
+    def test_docs_define_nothing_found_as_dont_know_for_the_door(self):
+        def read(*parts):
+            with open(os.path.join(SKILL_DIR, *parts), encoding="utf-8") as fh:
+                return fh.read()
+        skill = read("SKILL.md")
+        door = skill.split("## Door rule")[1].split("\n## ")[0]
+        self.assertIn("Nothing found counts as Don't know", door)
+        doors = read("references", "tiers-and-doors.md")
+        self.assertIn("Nothing found counts as Don't know", doors.split("### Door rule")[1].split("###")[0])
+        template = read("assets", "verdict-template.md")
+        eleven_first_row = template.split("## The eleven")[1].split("\n")[3]
+        self.assertIn("nothing found", eleven_first_row.lower())
+        self.assertIn("- **Nothing found:**", template)
+        self.assertIn("`nothing-found`", read("references", "questions.md"))
+        self.assertIn("nothing-found", skill.split("**Accept the output only if**")[1].split("\n\n")[0])
+        # the interview asks only open questions; a scanner "nothing found" on Q9 must still be asked
+        interview = skill.split("ask **one question at a time**")[1].split("\n")[0]
+        self.assertIn("Nothing found", interview)
+
+
+class NothingFoundGapTests(ScanCase):
+    """Adversarial round on #7: every way the scanner can skip a file that could hide the answer must
+    keep "nothing found" off that question. Each case holds a real key or open rule in the skipped file."""
+
+    def base_app(self):
+        self.write("src/components/A.tsx", "export const A = () => null;\n")
+
+    def q(self, key, **kw):
+        return self.scan(**kw)["questions"][key]
+
+    @unittest.skipIf(sys.platform == "win32", "long paths")
+    def test_output_trimmed_after_resolve_downgrades_nothing_found(self):
+        self.base_app()
+        self.write("db/1.sql", "create table t (id int);\nalter table t enable row level security;\n")
+        # six bytes each once JSON-escaped, so a dozen rows per question exceed the cap; split over two
+        # segments because Linux refuses a single name over 255 bytes and each character is two in UTF-8
+        long = "é" * 75 + "/" + "é" * 75
+        for i in range(12):  # enough evidence on Q2, Q4 and Q5 to push the JSON over the cap
+            self.write("src/auth/%s%02d.txt" % (long, i), "x\n")
+            self.write("api/%s%02d.txt" % (long, i), "x\n")
+            self.write("db/migrations/%s%02d.txt" % (long, i), "x\n")
+        for root, dirs, files in os.walk(self.repo):
+            for n in dirs + files:
+                self.assertLessEqual(len(n.encode("utf-8")), 255, "a name Linux would refuse")
+        r = self.scan()
+        self.assertTrue(r["stats"]["output_trimmed"])
+        self.assertTrue(r["partial"])
+        for q in cs.iter_questions(r):
+            self.assertNotEqual(q["answer"], "nothing-found")
+            self.assertFalse([e for e in q["evidence"] if e["check"].startswith("nothing-found")], "a downgraded answer keeps no reassuring row")
+
+    @unittest.skipIf(sys.platform == "win32", "POSIX permissions")
+    def test_unreadable_source_file_blocks_q1(self):
+        if getattr(os, "geteuid", lambda: 1)() == 0:
+            self.skipTest("root reads everything")
+        self.base_app()
+        p = self.write("src/b.ts", 'const k = "%s";\n' % SK)
+        os.chmod(p, 0)
+        try:
+            self.assertEqual(self.q("q1")["answer"], "dont-know")
+        finally:
+            os.chmod(p, 0o644)
+
+    def test_binary_looking_rules_json_and_sql_mark_partial(self):
+        for name, body in (("firestore.rules", b"\x00allow write: if true;"), (".mcp.json", b"\x00{\"TOKEN\": \"x\"}"),
+                           ("db/2.sql", b"\x00alter table t disable row level security;"), ("conf.yaml", b"\x00a: b")):
+            with self.subTest(name=name):
+                shutil.rmtree(self.repo)
+                os.makedirs(self.repo)
+                self.base_app()
+                self.write(name, body, binary=True)
+                self.assertTrue(self.scan()["partial"], name)
+
+    @unittest.skipUnless(hasattr(os, "symlink"), "symlinks")
+    def test_generated_bundle_symlink_and_excluded_dir_block_q1(self):
+        self.base_app()
+        self.write("public/app.min.js", 'var k="%s";\n' % SK)
+        self.assertEqual(self.q("q1")["answer"], "dont-know", "a public minified bundle is browser code")
+        os.remove(os.path.join(self.repo, "public", "app.min.js"))
+        real = os.path.join(self.tmp, "elsewhere")
+        os.makedirs(real)
+        os.symlink(real, os.path.join(self.repo, "lib"))
+        self.assertEqual(self.q("q1")["answer"], "dont-know", "a symlinked folder was not read")
+        os.remove(os.path.join(self.repo, "lib"))
+        self.write("secret/x.ts", 'const k = "%s";\n' % SK)
+        self.assertEqual(self.q("q1", exclude_dirs=["secret"])["answer"], "dont-know", "the founder excluded a folder")
+        self.assertNotEqual(self.q("q1")["answer"], "nothing-found")  # read without the exclude: the key is evidence
+
+    def test_a_build_folder_can_hold_source_so_it_blocks_q1(self):
+        # found on a real app: a prototype whose whole source lived in build/part*.js
+        self.write("app.html", "<html></html>\n")
+        self.write("build/part2-data.js", "export const d = 1;\n")
+        self.write("packages/ui/dist/index.js", "export const e = 1;\n")
+        q1 = self.q("q1")
+        self.assertEqual(q1["answer"], "dont-know")
+        rows = [e for e in q1["evidence"] if e["check"] == "build-output-unread"]
+        self.assertEqual(len(rows), 1, "one row lists every skipped build folder; a monorepo must not fill the evidence with them")
+        self.assertIn("2 build folders not read: build, packages/ui/dist", rows[0]["snippet"])
+        self.assertEqual(self.q("q3")["answer"], "dont-know", "a build folder could hold a rules file too")
+        shutil.rmtree(os.path.join(self.repo, "build"))
+        shutil.rmtree(os.path.join(self.repo, "packages"))
+        self.write(".next/static/chunks/main.js", "x\n")  # the bundle the browser downloads
+        self.assertEqual(self.q("q1")["answer"], "dont-know")
+        shutil.rmtree(os.path.join(self.repo, ".next"))
+        self.write("coverage/lcov-report/x.js", "x\n")  # a report is never source
+        self.write("node_modules/x/index.js", "x\n")
+        self.write("vendor/x/index.php", "x\n")  # a root vendor folder is dependencies
+        self.assertEqual(self.q("q1")["answer"], "nothing-found")
+        self.write("src/vendor/widget.js", "x\n")  # under src it is app code
+        self.assertEqual(self.q("q1")["answer"], "dont-know")
+
+    def test_overlong_values_block_q1(self):
+        self.base_app()
+        self.write(".mcp.json", json.dumps({"mcpServers": {"a": {"env": {"TOKEN": "sk-" + "a1" * 4600}}}}))
+        self.assertEqual(self.q("q1")["answer"], "dont-know")
+        os.remove(os.path.join(self.repo, ".mcp.json"))
+        self.write("src/c.ts", 'export const NEXT_PUBLIC_API_TOKEN = "%s";\n' % ("Ab1" * 3000))
+        self.assertEqual(self.q("q1")["answer"], "dont-know")
+
+    def test_table_past_the_per_file_cap_blocks_q3_nothing_found(self):
+        self.base_app()
+        sql = "".join("create table t%d (id int);\nalter table t%d enable row level security;\n" % (i, i) for i in range(cs.MAX_TABLE_MATCHES_PER_FILE))
+        self.write("supabase/migrations/1.sql", sql + "create table t_open (id int);\n")
+        self.assertEqual(self.q("q3")["answer"], "dont-know", "a table the cap hid was not looked at")
+
+    def test_quoted_table_name_with_a_dot_is_still_tracked(self):
+        self.base_app()
+        self.write("db/1.sql", 'create table "user.data" (id int);\ncreate table public."a.b" (id int);\n')
+        q3 = self.q("q3")
+        self.assertEqual(q3["answer"], "dont-know")
+        self.assertEqual(sorted(e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"), ["a.b", "user.data"])
+
+    def test_q9_counts_only_dependencies_a_parser_read(self):
+        self.base_app()
+        self.write("pyproject.toml", '[project]\nname = "x"\nversion = "1"\ndependencies = [\n  "sentry-sdk>=1",\n]\n')
+        q9 = self.q("q9")
+        self.assertNotEqual(q9["answer"], "nothing-found", "a PEP 621 list must be read as dependencies, not as TOML keys")
+        self.assertIn("monitoring-dependency", evidence_checks(q9))
+        self.write("pyproject.toml", '[project]\nname = "x"\ndependencies = [\n  "requests",\n]\n')
+        q9 = self.q("q9")
+        self.assertEqual(q9["answer"], "nothing-found")
+        self.assertIn("1 dependency read", q9["evidence"][0]["snippet"])
+        os.remove(os.path.join(self.repo, "pyproject.toml"))
+        self.write("Gemfile", 'source "https://rubygems.org"\ngem "rails"\ngem "sentry-ruby"\n')
+        self.assertIn("monitoring-dependency", evidence_checks(self.q("q9")))
+        self.write("Gemfile", 'source "https://rubygems.org"\n')
+        self.assertEqual(self.q("q9")["answer"], "dont-know", "keywords are not dependencies")
+        os.remove(os.path.join(self.repo, "Gemfile"))
+        self.write("go.mod", "module x\n\ngo 1.22\n")
+        self.assertEqual(self.q("q9")["answer"], "dont-know")
+
+    def test_requirements_include_is_a_gap_not_a_dependency(self):
+        self.base_app()
+        for text in ("-r requirements/production.txt\nrequests==2\n", "-rbase.txt\nrequests==2\n", "--requirement=base.txt\nrequests==2\n", "-e .\nrequests==2\n",
+                     "git+https://github.com/getsentry/sentry-python\nrequests==2\n", "https://x/y.whl\nrequests==2\n", "./vendor/pkg\nrequests==2\n"):
+            with self.subTest(text=text.split("\n")[0]):
+                self.write("requirements.txt", text)
+                self.assertEqual(self.q("q9")["answer"], "dont-know", "one dependency was read but another was named somewhere the parser cannot see")
+        self.write("requirements.txt", "# pinned\n--no-binary :all:\nrequests==2\n")
+        q9 = self.q("q9")
+        self.assertEqual(q9["answer"], "nothing-found")
+        self.assertIn("1 dependency read", q9["evidence"][0]["snippet"])
+        self.write("package.json", "{not json")
+        self.assertEqual(self.q("q9")["answer"], "dont-know", "a manifest that would not parse was not read")
+
+    @unittest.skipUnless(hasattr(os, "symlink"), "symlinks")
+    def test_q9_gap_is_as_wide_as_q9_readers(self):
+        self.base_app()
+        self.write("package.json", json.dumps({"dependencies": {"next": "15"}}))
+        self.assertEqual(self.q("q9")["answer"], "nothing-found")
+        outside = os.path.join(self.tmp, "vercel.json")
+        with open(outside, "w") as fh:
+            fh.write('{"crons": [{"path": "/api/x", "schedule": "0 0 * * *"}]}')
+        os.symlink(outside, os.path.join(self.repo, "vercel.json"))
+        self.assertEqual(self.q("q9")["answer"], "dont-know", "a linked deploy config could hold a cron")
+        os.remove(os.path.join(self.repo, "vercel.json"))
+        self.write("public/app.min.js", "x\n")
+        self.assertEqual(self.q("q9")["answer"], "dont-know", "a skipped bundle could hold a health route")
+        os.remove(os.path.join(self.repo, "public", "app.min.js"))
+        self.write("build/part.js", "x\n")
+        self.write("db/1.sql", "select 1;\n")
+        q = self.scan()["questions"]
+        self.assertEqual(q["q9"]["answer"], "dont-know", "an unread build folder could hold a manifest")
+        self.assertEqual(q["q3"]["answer"], "dont-know", "or a rules file")
+
+    @unittest.skipIf(sys.platform == "win32", "POSIX permissions")
+    def test_unreadable_regular_file_marks_the_scan_partial(self):
+        if getattr(os, "geteuid", lambda: 1)() == 0:
+            self.skipTest("root reads everything")
+        self.base_app()
+        data = self.write("data/export.csv", "a,b\n")  # opened (a photo never is), unreadable, and irrelevant
+        os.chmod(data, 0)
+        try:
+            r = self.scan()
+        finally:
+            os.chmod(data, 0o644)
+        self.assertFalse(r["partial"], "a file we could not open is missing coverage only if a detector wanted it")
+        self.assertEqual(r["stats"]["files_errored"], 1)
+        os.remove(data)
+        self.write("package.json", json.dumps({"dependencies": {"next": "15"}}))
+        p = self.write("server.js", 'app.get("/health", () => 1);\n')
+        os.chmod(p, 0)
+        try:
+            r = self.scan()
+        finally:
+            os.chmod(p, 0o644)
+        self.assertTrue(r["partial"], "a file the walk saw and could not read is missing coverage")
+        self.assertEqual(r["stats"]["files_errored"], 1)
+        self.assertEqual(r["stats"]["files_skipped_special"], 0)
+        self.assertEqual(r["questions"]["q9"]["answer"], "dont-know")
+
+    def test_blank_line_manifests_parse_in_bounded_time(self):
+        self.write("src/a.ts", "x\n")
+        for name, head in (("go.mod", "module x\n"), ("pyproject.toml", "[project]\n"), ("Gemfile", 'source "https://rubygems.org"\n')):
+            self.write(name, head + "\n" * 200000)
+        t0 = time.perf_counter()
+        self.scan()
+        self.assertLess(time.perf_counter() - t0, bound(2.0), "manifest regexes must be linear in blank lines")
+
+    def test_pyproject_counts_only_dependency_lists_and_poetry_tables(self):
+        self.base_app()
+        self.write("pyproject.toml", '[project]\nname = "x"\nclassifiers = [\n  "Programming Language :: Python",\n  "License :: OSI Approved",\n]\n[tool.ruff]\nselect = ["E", "F"]\n')
+        self.assertEqual(self.q("q9")["answer"], "dont-know", "zero dependencies were read")
+        self.write("pyproject.toml", '[project]\ndependencies = ["sentry-sdk>=1", "requests"]\n')
+        self.assertIn("monitoring-dependency", evidence_checks(self.q("q9")))
+        self.write("pyproject.toml", '[project]\ndependencies = ["requests"]\n[project.optional-dependencies]\ndev = [\n  "pytest",\n]\n')
+        q9 = self.q("q9")
+        self.assertEqual(q9["answer"], "nothing-found")
+        self.assertIn("2 dependencies read", q9["evidence"][0]["snippet"])
+        self.write("pyproject.toml", '[tool.poetry]\nname = "x"\n[tool.poetry.dependencies]\npython = "^3.11"\nsentry-sdk = "^1"\n[tool.poetry.group.dev.dependencies]\npytest = "^8"\n')
+        q9 = self.q("q9")
+        self.assertIn("monitoring-dependency", evidence_checks(q9))
+        self.write("pyproject.toml", '[tool.poetry.dependencies]\npython = "^3.11"\n')
+        self.assertEqual(self.q("q9")["answer"], "dont-know", "the interpreter is not a dependency")
+
+    def test_go_require_block_is_read(self):
+        self.base_app()
+        self.write("go.mod", "module x\n\ngo 1.22\n\nrequire (\n\tgithub.com/getsentry/sentry-go v0.27.0\n\tgolang.org/x/text v0.14.0 // indirect\n)\n")
+        self.assertIn("monitoring-dependency", evidence_checks(self.q("q9")))
+        self.write("go.mod", "module x\n\nrequire golang.org/x/text v0.14.0\n")
+        q9 = self.q("q9")
+        self.assertEqual(q9["answer"], "nothing-found")
+        self.assertIn("1 dependency read", q9["evidence"][0]["snippet"])
+
+    def test_underscore_env_template_is_a_template(self):
+        self.base_app()
+        self.write(".env_example", "A=\n")
+        q1 = self.q("q1")
+        self.assertEqual(q1["answer"], "nothing-found")
+        self.assertNotIn("env-file-on-disk", evidence_checks(q1))
+
+    def test_template_words_in_a_source_file_name_do_not_demote_a_no(self):
+        # found in cycle 2: widening the template separators made `defaults_store.tsx` an env template, and a client key inside it lost its `no`
+        for name in ("src/components/defaults_store.tsx", "src/sample_data.ts", "src/template_engine.ts", "src/example_usage.tsx"):
+            with self.subTest(name=name):
+                shutil.rmtree(self.repo)
+                os.makedirs(self.repo)
+                self.write(name, 'export const apiSecret = "%s";\n' % ("a1b2c3d4" * 8))
+                self.assertEqual(self.q("q1")["answer"], "no", name)
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_env_named_code_files_are_not_env_files(self):
+        self.base_app()
+        self.write(".env-schema.ts", "export const schema = {};\n")
+        self.write(".env-cmdrc.json", '{"development": {"PORT": "3000"}}\n')
+        self.write(".env.production", "A=b\n")
+        self.init_repo()
+        q1 = self.q("q1")
+        self.assertEqual(q1["answer"], "no")
+        self.assertEqual([e["path"] for e in q1["evidence"] if e["check"].startswith("tracked-env-file")], [".env.production"])
+
+    def test_nested_repo_registry_overflow_is_a_q1_gap(self):
+        self.base_app()
+        os.makedirs(os.path.join(self.repo, "a", ".git"))
+        os.makedirs(os.path.join(self.repo, "b", ".git"))
+        self.write("b/.env", "A=b\n")
+        with mock.patch.object(cs, "MAX_SEEN", 1):
+            self.assertNotEqual(self.q("q1")["answer"], "nothing-found")
+
+    def test_env_cmdrc_is_not_an_environment_name(self):
+        self.write(".env-cmdrc", '{"development": {"PORT": "3000"}}\n')
+        self.write(".env-production", "A=b\n")
+        q6 = self.scan()["questions"]["q6"]
+        self.assertEqual([e["snippet"] for e in q6["evidence"] if e["check"] == "env-name"], ["production"])
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_env_file_inside_a_nested_repo_is_reported(self):
+        # a vendored clone or a submodule: the parent's index never lists its files, so a committed .env there left no row
+        self.base_app()
+        self.init_repo()
+        os.makedirs(os.path.join(self.repo, "vendor2", "lib", ".git"))
+        self.write("vendor2/lib/.env", "DATABASE_URL=postgres://admin:hunter2hunter2@db/x\n")
+        self.write("vendor2/lib2/.env", "A=b\n")  # a sibling that shares a prefix is not inside the nested repo
+        self.write("sub/.git", "gitdir: ../.git/modules/sub\n")  # a submodule keeps a gitdir pointer file
+        self.write("sub/deep/.env", "A=b\n")
+        q1 = self.q("q1")
+        self.assertEqual(q1["answer"], "dont-know")
+        self.assertEqual(sorted(e["path"] for e in q1["evidence"] if e["check"] == "env-file-on-disk"), ["sub/deep/.env", "vendor2/lib/.env"])
+
+    def test_unlogged_and_foreign_tables_are_tracked(self):
+        self.base_app()
+        self.write("db/1.sql", "create table profiles (id int);\nalter table profiles enable row level security;\ncreate unlogged table public.sessions (id int, token text);\ncreate foreign table remote (id int) server s;\n")
+        q3 = self.q("q3")
+        self.assertEqual(q3["answer"], "dont-know")
+        self.assertEqual(sorted(e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"), ["remote", "sessions"])
+
+    def test_table_row_carries_its_line_and_the_verdict_caps_the_rows(self):
+        self.base_app()
+        self.write("db/1.sql", "select 1;\n-- c\n\ncreate table profiles (id int);\n")
+        row = [e for e in self.q("q3")["evidence"] if e["check"] == "table-without-rls"][0]
+        self.assertEqual((row["path"], row["line"]), ("db/1.sql", 4))
+        self.write("db/1.sql", "".join("create table t%d (id int);\n" % i for i in range(cs.MAX_TABLE_WITHOUT_RLS_ROWS + 3)))
+        q3 = self.q("q3")
+        self.assertEqual(len([e for e in q3["evidence"] if e["check"] == "table-without-rls"]), cs.MAX_TABLE_WITHOUT_RLS_ROWS)
+        self.assertEqual(q3["answer"], "dont-know")
+
+    def test_table_registry_overflow_is_a_q3_gap(self):
+        self.base_app()
+        self.write("db/1.sql", "create table a (id int);\ncreate table b (id int);\nalter table a enable row level security;\nalter table b enable row level security;\n")
+        self.assertEqual(self.q("q3")["answer"], "nothing-found")
+        with mock.patch.object(cs, "MAX_SEEN", 1):
+            self.assertEqual(self.q("q3")["answer"], "dont-know", "a table the registry could not hold was not looked at")
+
+    def test_every_review_action_is_recognised(self):
+        self.write(".github/workflows/ci.yml", "on: pull_request\njobs:\n  r:\n    steps:\n      - uses: anthropics/claude-code-action@v1\n      - uses: 'reviewdog/action-eslint@v1'\n      - uses: coderabbitai/ai-pr-reviewer@latest\n")
+        rows = sorted(e["snippet"] for e in self.q("q7")["evidence"] if e["check"] == "review-workflow")
+        self.assertEqual(rows, ["anthropics/claude-code-action", "coderabbitai/ai-pr-reviewer", "reviewdog/action-eslint"])
+
+    def test_extras_marker_does_not_end_the_dependency_list(self):
+        self.base_app()
+        self.write("pyproject.toml", '[project]\ndependencies = [\n  "uvicorn[standard]>=0.2",\n  "sentry-sdk>=1",\n]\n')
+        q9 = self.q("q9")
+        self.assertIn("monitoring-dependency", evidence_checks(q9))
+        self.assertNotEqual(q9["answer"], "nothing-found")
+        self.write("pyproject.toml", '[project]\ndependencies = ["a[x]",\n  "sentry-sdk"]\n')
+        self.assertIn("monitoring-dependency", evidence_checks(self.q("q9")))
+
+    def test_pyproject_headers_markers_and_references(self):
+        self.base_app()
+        self.write("pyproject.toml", '[project]  # main\ndependencies = ["requests; python_version >= \\"3.8\\"", "sentry-sdk"]\n')
+        q9 = self.q("q9")
+        self.assertIn("monitoring-dependency", evidence_checks(q9), "a trailing comment on the table header must not drop the table")
+        self.write("pyproject.toml", '[project]\ndependencies = ["requests; python_version >= \\"3.8\\""]\n')
+        q9 = self.q("q9")
+        self.assertEqual(q9["answer"], "nothing-found")
+        self.assertIn("1 dependency read", q9["evidence"][0]["snippet"], "an environment marker is not a second dependency")
+        self.write("pyproject.toml", '[project]\ndependencies = ["observability @ git+https://example.com/x.git", "requests"]\n')
+        self.assertEqual(self.q("q9")["answer"], "dont-know", "a direct reference names a package the parser did not read")
+        self.write("pyproject.toml", '[dependency-groups]\ntest = ["pytest", {include-group = "lint"}]\n')
+        self.assertEqual(self.q("q9")["answer"], "dont-know")
+
+    def test_requirements_direct_references_and_paths_are_gaps(self):
+        self.base_app()
+        for text in ("observability @ git+https://example.com/x.git\nrequests==2\n", "Git+https://github.com/x/y.git#egg=y\nrequests==2\n", "vendor/mypkg\nrequests==2\n"):
+            with self.subTest(text=text.split("\n")[0]):
+                self.write("requirements.txt", text)
+                self.assertEqual(self.q("q9")["answer"], "dont-know")
+        self.write("requirements.txt", "uvicorn[standard]>=0.2\nrequests==2 ; python_version >= '3.8'\n")
+        q9 = self.q("q9")
+        self.assertEqual(q9["answer"], "nothing-found")
+        self.assertIn("2 dependencies read", q9["evidence"][0]["snippet"])
+
+    def test_go_module_major_suffix_is_ignored(self):
+        self.base_app()
+        self.write("go.mod", "module x\n\nrequire github.com/newrelic/go-agent/v3 v3.30.0\n")
+        self.assertIn("monitoring-dependency", evidence_checks(self.q("q9")))
+
+    def test_health_routes_in_every_layout_are_seen(self):
+        for path in ("pages/api/health.ts", "app/api/health/route.ts", "src/app/api/healthz/route.ts", "src/routes/health/+server.ts", "server/api/health.get.ts", "api/health/index.ts"):
+            with self.subTest(path=path):
+                shutil.rmtree(self.repo)
+                os.makedirs(self.repo)
+                self.write(path, "export default () => 1;\n")
+                self.assertIn("health-route", evidence_checks(self.q("q9")), path)
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.write("src/healthy/index.ts", "x\n")
+        self.assertNotIn("health-route", evidence_checks(self.q("q9")))
+
+    def test_precompressed_rules_and_sql_are_q3_gaps(self):
+        self.base_app()
+        self.write("db/schema.sql", "select 1;\n")
+        self.assertEqual(self.q("q3")["answer"], "nothing-found")
+        self.write("db/dump.sql.gz", b"\x1f\x8b\x01", binary=True)
+        r = self.scan()
+        self.assertEqual(r["questions"]["q3"]["answer"], "dont-know")
+        self.assertFalse(r["partial"])
+
+    def test_hardlinked_asset_does_not_mark_partial(self):
+        self.base_app()
+        logo = self.write("public/logo.png", b"\x89PNG\x01", binary=True)
+        os.link(logo, os.path.join(self.repo, "public", "logo2.png"))
+        r = self.scan()
+        self.assertFalse(r["partial"])
+        self.assertEqual(r["stats"]["files_skipped_hardlink"], 2)
+        src = self.write("src/b.ts", "x\n")
+        os.link(src, os.path.join(self.repo, "src", "c.ts"))
+        self.assertTrue(self.scan()["partial"], "a hard-linked source file is missing coverage")
+
+    def test_build_summary_row_names_the_overflow_and_fits_the_snippet_cap(self):
+        self.write("app.html", "<html></html>\n")
+        for n in ("customer-portal", "design-system", "marketing-site", "admin-console", "notifications", "zeta"):
+            self.write("packages/%s/dist/x.js" % n, "x\n")
+        row = [e for e in self.q("q1")["evidence"] if e["check"] == "build-output-unread"][0]
+        self.assertLessEqual(len(row["snippet"]), cs.MAX_SNIPPET)
+        self.assertRegex(row["snippet"], r"^6 build folders not read: .* and \d+ more$")
+
+    def test_never_read_files_do_not_count_toward_the_file_budget(self):
+        self.base_app()
+        for i in range(3):
+            self.write("public/p%d.png" % i, b"\x89PNG\x01", binary=True)
+        r = self.scan(max_files=2)
+        self.assertFalse(r["stats"]["max_files_hit"], "a photo is neither opened nor charged to the budget")
+        self.assertEqual(r["stats"]["files_skipped_binary"], 3)
+        self.assertEqual(r["questions"]["q1"]["answer"], "nothing-found")
+
+    def test_precompressed_bundle_is_browser_code(self):
+        for name in ("public/app.js.gz", "public/app.js.br", "static/index.html.br"):
+            with self.subTest(name=name):
+                shutil.rmtree(self.repo)
+                os.makedirs(self.repo)
+                self.base_app()
+                self.write(name, b"\x01" * 600000, binary=True)
+                r = self.scan()
+                self.assertFalse(r["partial"], "an unreadable bundle is a gap, not an incomplete scan")
+                self.assertEqual(r["questions"]["q1"]["answer"], "dont-know")
+                self.assertEqual(r["stats"]["files_skipped_generated"], 1)
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.base_app()
+        self.write("public/app.js.br", "var k = 1;\n")  # brotli has no header: a small one can decode as text, and must still not count as read
+        self.assertEqual(self.q("q1")["answer"], "dont-know")
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.base_app()
+        for name in ("backups/archive.tar.gz", "src/data.json.gz", "public/hero.png", "docs/deck.pdf"):
+            self.write(name, b"\x01" * 100, binary=True)
+        r = self.scan()
+        self.assertFalse(r["partial"], "data and media are neither read nor relevant")
+        self.assertEqual(r["questions"]["q1"]["answer"], "nothing-found")
+        self.assertEqual(r["stats"]["files_skipped_binary"], 4)
+
+    def test_env_names_use_the_same_separators_as_env_files(self):
+        self.base_app()
+        self.write(".env-staging", "A=b\n")
+        self.write(".env_production", "A=b\n")
+        self.assertEqual(self.scan()["questions"]["q6"]["answer"], "yes")
+        self.write(".env-example", "A=\n")  # a template is still not an environment
+        self.assertEqual(len(self.scan()["questions"]["q6"]["evidence"]), 2)
+
+    def test_overlong_value_under_a_secret_name_outside_browser_prefixes_blocks_q1(self):
+        # the key-literal pass is the only guard here: no browser prefix, so detect_browser_prefix never sees it
+        self.base_app()
+        self.write("src/lib/pay.ts", 'const STRIPE_SECRET_KEY = "%s";\n' % ("A1b2" * 2100))
+        self.assertEqual(self.q("q1")["answer"], "dont-know")
+
+    def test_commented_out_enable_rls_does_not_cover_a_table(self):
+        self.base_app()
+        self.write("supabase/migrations/1.sql", "create table profiles (id int);\n-- TODO: alter table profiles enable row level security;\n/* alter table profiles enable row level security; */\n")
+        q3 = self.q("q3")
+        self.assertEqual(q3["answer"], "dont-know")
+        self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], ["profiles"])
+        self.write("supabase/migrations/2.sql", "-- create table hidden (id int);\n")
+        self.assertEqual([e["snippet"] for e in self.q("q3")["evidence"] if e["check"] == "table-without-rls"], ["profiles"])
+
+    def test_overlong_browser_prefixed_value_under_a_plain_name_blocks_q1(self):
+        self.base_app()
+        self.write("src/c.ts", 'export const NEXT_PUBLIC_CONFIG_BLOB = "%s";\n' % ("Ab1" * 3000))
+        self.assertEqual(self.q("q1")["answer"], "dont-know")
+
+    @unittest.skipUnless(hasattr(os, "symlink"), "symlinks")
+    def test_a_skipped_rule_file_blocks_q3_on_a_complete_scan(self):
+        self.base_app()
+        self.write("db/1.sql", "select 1;\n")
+        outside = os.path.join(self.tmp, "open.sql")
+        with open(outside, "w") as fh:
+            fh.write("alter table t disable row level security;\n")
+        os.symlink(outside, os.path.join(self.repo, "db", "2.sql"))
+        r = self.scan()
+        self.assertFalse(r["partial"])
+        self.assertEqual(r["questions"]["q3"]["answer"], "dont-know")
+
+    def test_overlong_value_under_an_ordinary_name_is_not_a_gap(self):
+        self.base_app()
+        self.write("src/logo.ts", 'export const logo = "%s";\n' % ("Ab1+/" * 2000))
+        self.assertEqual(self.q("q1")["answer"], "nothing-found")
+
+    def test_agent_files_are_named_in_the_q1_row(self):
+        self.base_app()
+        self.write(".claude/settings.json", "{}")
+        q1 = self.q("q1")
+        self.assertEqual(q1["answer"], "nothing-found")
+        self.assertIn("1 agent file not opened", q1["evidence"][0]["snippet"])
+
+    def test_q3_table_without_rls_blocks_nothing_found(self):
+        self.base_app()
+        self.write("supabase/migrations/1.sql", 'create table public.profiles (id uuid primary key);\ncreate table if not exists "notes" (id int);\n')
+        self.write("supabase/migrations/2.sql", "alter table only public.notes enable row level security;\ncreate table auth.x (id int);\n")
+        q3 = self.q("q3")
+        self.assertEqual(q3["answer"], "dont-know")
+        rows = [e for e in q3["evidence"] if e["check"] == "table-without-rls"]
+        self.assertEqual([e["snippet"] for e in rows], ["profiles"])
+        self.assertEqual(rows[0]["path"], "supabase/migrations/1.sql")
+        self.write("supabase/migrations/3.sql", "ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;\n")
+        self.assertEqual(self.q("q3")["answer"], "nothing-found")
+
+    def test_q3_table_names_fold_case_the_way_postgres_does(self):
+        self.base_app()
+        # unquoted names fold to lower case, quoted ones keep theirs: these are two different tables
+        self.write("db/1.sql", 'create table "public".Profiles (id int);\ncreate table public."Profiles" (id int);\n'
+                               'alter table public."Profiles" enable row level security;\n')
+        rows = [e["snippet"] for e in self.q("q3")["evidence"] if e["check"] == "table-without-rls"]
+        self.assertEqual(rows, ["profiles"])
+        self.write("db/2.sql", "alter table PROFILES enable row level security;\n")
+        self.assertEqual(self.q("q3")["answer"], "nothing-found")
+
+    def test_q3_supabase_config_alone_is_not_a_rule_file(self):
+        self.base_app()
+        self.write("supabase/config.toml", "[api]\nport = 1\n")
+        self.assertEqual(self.q("q3")["answer"], "dont-know")
+
+    def test_q9_needs_dependencies_and_every_manifest_read(self):
+        self.base_app()
+        self.write("package.json", "{}")
+        self.assertEqual(self.q("q9")["answer"], "dont-know", "zero dependencies read is not a look")
+        self.write("package.json", json.dumps({"dependencies": {"next": "15"}}))
+        self.write("requirements.txt", "sentry-sdk\n" + "#" * 600000)
+        self.assertEqual(self.q("q9")["answer"], "dont-know", "a manifest was skipped")
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_odd_env_names_and_case_are_tracked(self):
+        self.base_app()
+        for name in (".env-production", ".env_prod", "config/PROD.ENV"):
+            self.write(name, "DB_PASSWORD=hunter2hunter2\n")
+        self.write(".env_example", "A=\n")
+        self.write(".env-test", "A=\n")
+        self.init_repo()
+        q1 = self.q("q1")
+        self.assertEqual(q1["answer"], "no")
+        hits = sorted(e["path"] for e in q1["evidence"] if e["check"] == "tracked-env-file")
+        self.assertEqual(hits, [".env-production", ".env_prod", "config/PROD.ENV"])
+        self.assertIn(".env-test", [e["path"] for e in q1["evidence"] if e["check"] == "tracked-env-file-nonprod"])
+
+    def test_preview_workflow_is_not_a_review_workflow(self):
+        self.write(".github/workflows/preview.yml", "on: pull_request\n")
+        self.write(".github/workflows/pr-review.yml", "on: pull_request\n")
+        rows = [e["path"] for e in self.q("q7")["evidence"] if e["check"] == "review-workflow"]
+        self.assertEqual(rows, [".github/workflows/pr-review.yml"])
+
+    def test_evidence_only_rows_do_not_raise_confidence(self):
+        self.base_app()
+        self.write("vercel.json", "{}\n")
+        q = self.scan()["questions"]
+        self.assertEqual(q["q2"]["confidence"], "low")
+        self.assertEqual(q["q6"]["confidence"], "low")
+
+    def test_oversize_relevant_stat_and_env_names_without_extension(self):
+        for name in (".env", ".envrc", ".mcp.json", "package.json"):
+            with self.subTest(name=name):
+                shutil.rmtree(self.repo)
+                os.makedirs(self.repo)
+                self.base_app()
+                self.write(name, "x" * 600000)
+                r = self.scan()
+                self.assertTrue(r["partial"], name)
+                self.assertEqual(r["stats"]["files_skipped_oversize_relevant"], 1, name)
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.write("public/a.jpeg", b"\xff" * 600000, binary=True)
+        self.assertEqual(self.scan()["stats"]["files_skipped_oversize_relevant"], 0)
 
 
 if __name__ == "__main__":

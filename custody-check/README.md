@@ -70,11 +70,11 @@ Three rows of a real verdict:
 
 ```
 | 1 | Secrets out of the browser | no | high | `src/lib/config.ts:12` · `browser-prefix-service-or-secret-name` |
-| 3 | Who can read this | don't know | med | 128 files scanned, 0 hits |
+| 3 | Who can read this | nothing found | med | 3 rule files read: no RLS disabled, no using (true) policy, no if-true Firebase rule |
 | 9 | How I'd find out it's broken | don't know | low | (you: "I'd hear it from a user") |
 ```
 
-followed by the door ("Patch it: Q1, then Q9"), the five-if-only-five list, the Don't-know list with a sixty-second test for each, and the footer with the version and file count.
+"Nothing found" means the scanner read the files that could hold the answer and every check came back empty; it still carries a by-hand test, because files cannot show the running app. That is followed by the door ("Patch it: Q1, then Q9"), the five-if-only-five list, the Don't-know list with a sixty-second test for each, and the footer with the version and file count.
 
 ## What it never does
 
