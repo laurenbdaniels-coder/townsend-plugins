@@ -9,7 +9,7 @@ guardrails listed. Strategy numbers refer to `current-guidance.md` section 3 and
 Read the user's draft prompt and pick the closest type below. If it spans two types,
 apply the union of their guardrails. Then determine the stakes tier (see
 `current-guidance.md` section 4) from the audience and the presence of high-stakes
-markers: donor, board, press, grant, homeowner-facing, legal, funder, media, public.
+markers: donor, board, press, grant, client- or beneficiary-facing, legal, funder, media, public.
 
 ## Playbooks
 

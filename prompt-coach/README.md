@@ -20,7 +20,7 @@ guardrail strategies, the copy-paste prompt library, prompt-type playbooks, a pi
 source allowlist, and a changelog. When a refresh is approved, every skill is upgraded
 at once.
 
-High-stakes work (donor, board, press, grant, homeowner-facing, legal) automatically
+High-stakes work (donor, board, press, grant, client- or beneficiary-facing, legal) automatically
 gets the strict treatment. Brainstorming stays light — the plugin is designed not to
 nag.
 

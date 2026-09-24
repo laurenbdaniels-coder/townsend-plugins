@@ -47,7 +47,7 @@ memory; fluent filler.
 
 Sixty-second habits: blind re-ask in fresh chat; click one citation; ask "what would
 make this wrong?"; independently spot-check the load-bearing fact; tier verification by
-stakes (donor/board/press/homeowner-facing = human-verified source per claim).
+stakes (donor/board/press/client- or beneficiary-facing = human-verified source per claim).
 
 Added v0.4: **length is not evidence** — longer, more detailed answers feel more right
 without being more right (Nature Machine Intelligence); and **you won't feel sycophancy
@@ -137,13 +137,13 @@ Full copy-paste prompts for each strategy: `prompt-library.md`.
 
 - **Light** (internal brainstorm/drafts): scope control only; skip the battery.
 - **Standard** (team-facing work): give-an-out + grounding + standard closer.
-- **Strict** (donor, board, press, grant, homeowner-facing, legal): full battery —
+- **Strict** (donor, board, press, grant, client- or beneficiary-facing, legal): full battery —
   grounding, citation per claim, premise check, uncertainty labels, human verification
   of every factual claim before shipping. Never a "verified" stamp; always a
   "verify before use" list.
 
 High-stakes markers that trigger strict tier: donor, board, press, grant,
-homeowner-facing, legal, funder, media, public.
+client- or beneficiary-facing, legal, funder, media, public.
 
 ## 5. Skill & plugin authoring practice (for maintaining Prompt Coach itself)
 
