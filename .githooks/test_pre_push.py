@@ -227,6 +227,12 @@ class PrePushHookTests(unittest.TestCase):
         self.git("replace", dirty, clean)
         self.assertRefused(self.push(dirty))
 
+    def test_url_rewritten_by_insteadof_refuses(self):
+        decoy = os.path.join(self.tmp, "decoy.git")
+        subprocess.run(["git", "init", "-q", "--bare", decoy], check=True)
+        self.git("config", "url.%s.insteadOf" % decoy, self.remote)
+        self.assertRefused(self.push(self.commit({"a.md": "clean\n"}, "add")), "insteadOf")
+
     # allowed
     def test_first_push_to_an_empty_remote_passes(self):
         empty = os.path.join(self.tmp, "empty.git")

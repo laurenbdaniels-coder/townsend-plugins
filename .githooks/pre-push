@@ -60,6 +60,12 @@ check() {  # $1 = what, $2 = file to search
   elif [ $rc -gt 1 ]; then fail "could not check $1 (grep exit $rc)"; fi
 }
 
+# git hands us the push URL already rewritten; ls-remote would apply insteadOf
+# rules again and could ask a different repo (a fetch mirror) what the target has
+if [ "$(git ls-remote --get-url "$url")" != "$url" ]; then
+  echo "pre-push: $url is rewritten by a url.*.insteadOf rule, so the hook cannot see what the push target has; refusing" >&2
+  exit 1
+fi
 # exclude only what the remote actually has: its advertised tips that we hold
 # locally. Never local remote-tracking refs, which can be stale or unpruned.
 advertised=$(git ls-remote "$url") || { echo "pre-push: git ls-remote $url failed; refusing" >&2; exit 1; }
