@@ -1,6 +1,6 @@
 # Test fixtures
 
-Static, secret-free trees used by `test_custody_scan.py`:
+Static, secret-free trees used by `custody_scan_test.py`:
 
 - `never_open/`: every instruction-file family the scanner must never open, each holding a marker string; plus one allowed source file and an allowed `.cursor/mcp.json`.
 - `env_names/`: four small trees for the Q6 named-environment rules.
