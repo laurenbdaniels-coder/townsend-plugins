@@ -114,7 +114,7 @@ The last two lines of every verdict:
 
 ```
 custody-check v<version from the JSON> · <files_scanned> files scanned · partial: <yes|no><, reasons> · <files_never_open> instruction files not opened by the scanner · not a security audit
-<next-step sentence> Free Assessment, one per company: townsendaistudio.com/assessment?src=custody-check
+<the footer next-step line>
 ```
 
-The version comes from the scanner JSON, never from memory. Pick the next-step sentence with the template's **Footer next step** rule (stop-line first, then scanner unavailable, then partial, otherwise complete); a stop-line app is never sent to the free step. The link is a static string; nothing is sent anywhere by this skill.
+The version comes from the scanner JSON, never from memory. Copy the last line exactly from the template's **Footer next step** rule (first match wins: stop-line, then scanner unavailable, then partial, otherwise); the stop-line line carries no booking link, because a stop-line app is never sent to the free step. The other three end in townsendaistudio.com/assessment?src=custody-check. The link is a static string; nothing is sent anywhere by this skill.

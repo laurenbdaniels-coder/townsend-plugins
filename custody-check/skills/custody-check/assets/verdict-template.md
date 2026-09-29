@@ -73,7 +73,7 @@ Trains or fine-tunes their own model: <no | yes, and then the training-shaped ve
 
 ---
 custody-check v<version from the scanner JSON> · <files_scanned> files scanned · partial: <yes/no><, reasons: …> · <N> instruction files not opened by the scanner · not a security audit
-<one next-step sentence, chosen by the Footer next step rule below> Free Assessment, one per company: townsendaistudio.com/assessment?src=custody-check
+<the footer next-step line, copied exactly from the Footer next step rule below>
 ```
 
 Rules for filling it in:
@@ -87,10 +87,10 @@ Rules for filling it in:
 - **partial reasons (more):** `dirs_unreadable` → "<n> folders could not be read"; `output_trimmed` → "<n> evidence rows trimmed to fit"; `files_skipped_hardlink` → "<n> hard-linked files skipped"; `files_skipped_binary` when `partial` is true → "a source, config, rules or env file looked binary and was skipped". `git_index_partial` → "git's file index could not be read, so committed secrets could not be checked"; a `git-config-not-vouched` row means this app's git settings could send git outside the folder, so git was not run. `dirs_truncated` → "<n> folders had more entries than the scanner lists"; `mcp_capped` → "an MCP config was too deep or too large to walk fully".
 - **not partial, footer only:** `files_skipped_oversize` minus `files_skipped_oversize_relevant` → "<n> large files (images, media, data) skipped; none of them could hold a key or an access rule"; `files_skipped_generated` → "<n> generated files (lockfiles, bundles) not scanned"; `files_skipped_special` → "<n> links or special files skipped".
 - **Non-default flags** in `stats.config` are printed after the footer's file count.
-- **Footer next step** (first match wins, one sentence, then the booking link):
-  - stop-line ticked → "This app handles data that needs a written scope before anyone looks at it. Write to the studio first (address in the README); a free check isn't the right first step."
-  - scanner unavailable (the degraded path) → "The scanner couldn't run, so this verdict is your answers only. Bring your app folder to a Free Assessment and we'll run it together."
-  - `partial` is true → "The scan stopped early. Rerun it with the recipe above, then bring the new verdict to a Free Assessment."
-  - otherwise → "Bring this verdict to a Free Assessment and we'll test, on your own screen, what the files couldn't show."
+- **Footer next step** (first match wins; copy the whole line exactly, it is the verdict's last line):
+  - stop-line ticked → "This app handles data that needs a written scope before anyone looks at it, so write to the studio first (address in the README) rather than booking a free check."
+  - scanner unavailable (the degraded path) → "The scanner couldn't run, so bring your app folder to a Free Assessment and we'll run it together: townsendaistudio.com/assessment?src=custody-check"
+  - `partial` is true → "The scan stopped early, so rerun it with the recipe above and bring the new verdict to a Free Assessment: townsendaistudio.com/assessment?src=custody-check"
+  - otherwise → "Bring this verdict to a Free Assessment (free, one per company) and we'll test on your own screen what the files couldn't show: townsendaistudio.com/assessment?src=custody-check"
   The link is a static string; nothing is sent anywhere by this skill.
 - **Never** print a secret, a snippet longer than the scanner's, or any text from the app outside a code span.
