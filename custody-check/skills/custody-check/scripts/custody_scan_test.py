@@ -454,6 +454,88 @@ class TrackedEnvTests(ScanCase):
         self.assertEqual(r["git"]["tracked_env_files"], [".env"])
 
 
+# built from pieces so the repository never holds a string a secret scanner reads as a live key
+STRIPE_LIVE = "sk" + "_live_" + rand(99)
+STRIPE_RESTRICTED = "rk" + "_live_" + rand(99)
+STRIPE_TEST = "sk" + "_test_" + rand(99)
+GH_FINE = "github" + "_pat_" + rand(82, ALNUM + "_")
+GH_OAUTH = "gh" + "o_" + rand(36)
+SLACK_BOT = "xo" + "xb-" + "1234567890-1234567890123-" + rand(24)
+PEM_HEAD = "-----" + "BEGIN PRIVATE KEY" + "-----"
+PEM_TAIL = "-----" + "END PRIVATE KEY" + "-----"
+PEM_BODY = rand(64, ALNUM + "+/") + "7"
+
+
+class NamedKeyFormatTests(ScanCase):
+    """#21: a live secret in the code must never read as Nothing found."""
+
+    def test_stripe_secret_key_in_client_code_is_no(self):
+        self.write("src/pay.ts", 'import Stripe from "stripe";\nexport const stripe = new Stripe("%s");\n' % STRIPE_LIVE)
+        r = self.scan()
+        q1 = r["questions"]["q1"]
+        self.assertEqual(q1["answer"], "no")
+        self.assertIn("client-key-literal", evidence_checks(q1))
+        self.assert_no_secret(json.dumps(r), STRIPE_LIVE)
+
+    def test_stripe_restricted_and_test_keys_are_named(self):
+        for value in (STRIPE_RESTRICTED, STRIPE_TEST, GH_FINE, GH_OAUTH, SLACK_BOT):
+            self.write("src/k.ts", 'fetch(u, { headers: { a: "%s" } });\n' % value)
+            q1 = self.scan()["questions"]["q1"]
+            self.assertEqual(q1["answer"], "no", value[:6])
+
+    def test_stripe_key_on_the_server_is_evidence_not_nothing_found(self):
+        self.write("app/api/pay/route.ts", 'const s = new Stripe("%s");\n' % STRIPE_LIVE)
+        q1 = self.scan()["questions"]["q1"]
+        self.assertEqual(q1["answer"], "dont-know")
+        self.assertIn("server-path-key-literal", evidence_checks(q1))
+
+    def test_service_account_json_private_key_blocks_nothing_found(self):
+        doc = {"type": "service_account", "project_id": "demo", "private_key": PEM_HEAD + "\n" + PEM_BODY + "\n" + PEM_TAIL + "\n",
+               "client_email": "svc@demo.iam.gserviceaccount.com"}
+        self.write("service-account.json", json.dumps(doc, indent=2))
+        r = self.scan()
+        q1 = r["questions"]["q1"]
+        self.assertNotEqual(q1["answer"], "nothing-found")
+        self.assertIn("private-key-block", evidence_checks(q1))
+        self.assert_no_secret(json.dumps(r), PEM_BODY)
+
+    def test_private_key_in_client_code_is_no(self):
+        self.write("src/sign.ts", "export const key = `%s\n%s\n%s`;\n" % (PEM_HEAD, PEM_BODY, PEM_TAIL))
+        r = self.scan()
+        q1 = r["questions"]["q1"]
+        self.assertEqual(q1["answer"], "no")
+        self.assertIn("client-private-key", evidence_checks(q1))
+        self.assert_no_secret(json.dumps(r), PEM_BODY)
+
+    def test_private_key_under_a_browser_prefix_is_no(self):
+        self.write(".env.local", 'NEXT_PUBLIC_SIGNING_KEY="%s\n%s\n%s"\n' % (PEM_HEAD, PEM_BODY, PEM_TAIL))
+        r = self.scan()
+        q1 = r["questions"]["q1"]
+        self.assertEqual(q1["answer"], "no")
+        self.assertIn("browser-prefix-private-key", evidence_checks(q1))
+        self.assert_no_secret(json.dumps(r), PEM_BODY)
+
+    def test_private_key_in_a_server_env_file_is_evidence(self):
+        self.write(".env.local", 'PRIVATE_KEY="%s\n%s\n%s"\n' % (PEM_HEAD, PEM_BODY, PEM_TAIL))
+        q1 = self.scan()["questions"]["q1"]
+        self.assertNotEqual(q1["answer"], "no")
+        self.assertIn("private-key-block", evidence_checks(q1))
+
+    def test_placeholder_private_key_is_evidence_only(self):
+        self.write("src/doc.ts", "// paste yours: %s\n// your key here\n%s\n" % (PEM_HEAD, PEM_TAIL))
+        q1 = self.scan()["questions"]["q1"]
+        self.assertNotEqual(q1["answer"], "no")
+        self.assertIn("placeholder-key-literal", evidence_checks(q1))
+
+    def test_public_key_and_certificate_are_not_private_keys(self):
+        pub = "-----" + "BEGIN PUBLIC KEY" + "-----\n" + PEM_BODY + "\n-----" + "END PUBLIC KEY" + "-----"
+        cert = "-----" + "BEGIN CERTIFICATE" + "-----\n" + PEM_BODY + "\n-----" + "END CERTIFICATE" + "-----"
+        self.write("src/pub.ts", "export const a = `%s`;\nexport const b = `%s`;\n" % (pub, cert))
+        q1 = self.scan()["questions"]["q1"]
+        self.assertNotIn("client-private-key", evidence_checks(q1))
+        self.assertNotIn("private-key-block", evidence_checks(q1))
+
+
 class KeyLiteralTests(ScanCase):
     def test_server_literal_is_evidence_and_client_literal_is_no(self):
         self.write("app/api/x/route.ts", 'const k = "%s";\n' % SK)

@@ -2,6 +2,17 @@
 
 The footer of every verdict names the version that produced it. Later entries carry a "What changed since the workshop" line so an attendee can tell whether an answer would come out differently today.
 
+## 0.3.1 (2026-09-29)
+
+What changed since the workshop build: a Stripe secret key or a private key in your code is now caught. Before, the scan could say "Nothing found" for Secrets with one of them in the code.
+
+- **Fixed.** Q1 now recognises Stripe secret and restricted keys (`sk_live_`, `sk_test_`, `rk_live_`, `rk_test_`), GitHub fine-grained and app tokens (`github_pat_`, `gho_`, `ghu_`, `ghs_`, `ghr_`) and Slack tokens (`xoxb-` and the like), next to the formats it already knew. In client code any of them is a No.
+- **Added.** Private key blocks (`-----BEGIN … PRIVATE KEY-----`, including OpenSSH and PGP):
+  - `client-private-key` (No) in client code;
+  - `browser-prefix-private-key` (No) under a browser-exposed name such as `NEXT_PUBLIC_`;
+  - `private-key-block` (evidence) anywhere else, for example a service-account JSON or a server env file.
+  Either way, Secrets can no longer read Nothing found with a private key in the code. The verdict shows the header line only, never the key itself. A header with no key after it, or a "your key here" template, is a placeholder.
+
 ## 0.3.0 (2026-09-23)
 
 What changed since the workshop build: "looked hard and found nothing" now reads differently from "did not look", and a folder of photos no longer makes the scan count as incomplete.

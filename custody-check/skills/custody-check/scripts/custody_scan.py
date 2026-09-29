@@ -10,7 +10,7 @@ Run it from the folder that CONTAINS the app:  python3 -I custody_scan.py --repo
 """
 import sys
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 _DOCS = "README.md#when-it-goes-wrong"
 HINTS = {
@@ -126,7 +126,7 @@ CHECKS = {
     "browser-prefix-privileged-jwt": ("q1", "no"), "browser-prefix-anon-jwt": ("q1", "evidence"),
     "browser-prefix-authenticated-jwt": ("q1", "evidence"), "browser-prefix-unknown-role-jwt": ("q1", "evidence"),
     "browser-prefix-public-key": ("q1", "evidence"), "browser-prefix-token-shaped": ("q1", "evidence"),
-    "client-key-literal": ("q1", "no"), "client-privileged-jwt": ("q1", "no"), "client-secret-name-token": ("q1", "no"),
+    "client-key-literal": ("q1", "no"), "client-private-key": ("q1", "no"), "browser-prefix-private-key": ("q1", "no"), "private-key-block": ("q1", "evidence"), "client-privileged-jwt": ("q1", "no"), "client-secret-name-token": ("q1", "no"),
     "client-anon-jwt": ("q1", "evidence"), "client-authenticated-jwt": ("q1", "evidence"), "client-unknown-role-jwt": ("q1", "evidence"),
     "client-secret-ident-token": ("q1", "no"), "client-keyish-ident-token": ("q1", "evidence"),
     "server-path-key-literal": ("q1", "evidence"), "non-client-key-literal": ("q1", "evidence"),
@@ -154,9 +154,13 @@ for _name, (_q, _e) in CHECKS.items():
 
 # ------------------------------------------------------------------ regexes
 
-NAMED_KEY_ALT = r"sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|sb_secret_[A-Za-z0-9_-]{10,}"
+NAMED_KEY_ALT = (r"sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|sb_secret_[A-Za-z0-9_-]{10,}"
+                 r"|(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{22,}|gh[ousr]_[A-Za-z0-9]{36}|xox[baprs]-[A-Za-z0-9-]{10,}")
 NAMED_KEY_RE = re.compile(r"(?<![A-Za-z0-9_-])(?:" + NAMED_KEY_ALT + r")(?![A-Za-z0-9_-])")
 NAMED_KEY_FULL_RE = re.compile(r"(?:" + NAMED_KEY_ALT + r")")
+# a PEM or OpenSSH private key header; public keys and certificates say PUBLIC KEY / CERTIFICATE and never match
+PRIVATE_KEY_RE = re.compile(r"-----BEGIN (?:[A-Z0-9]+ ){0,3}PRIVATE KEY(?: BLOCK)?-----")
+PEM_BODY_RE = re.compile(r"(?:\\[nr]|[\s\"'`,])*([A-Za-z0-9+/=]{40,})")
 JWT_RE = re.compile(r"(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}(?![A-Za-z0-9_-])")
 JWT_RUN_RE = re.compile(r"[A-Za-z0-9_.-]{27,}")
 JWT_SEG_RE = re.compile(r"[A-Za-z0-9_-]{8,}")
@@ -210,7 +214,7 @@ PII_INPUT_RE = re.compile(r"name=[\"'](email|tel|phone|address|street|cc-[a-z-]+
 BUILDER_URL_RE = re.compile(r"lovable\.(?:dev|app)|replit\.com|bolt\.new|base44\.com|v0\.(?:dev|app)", re.I)
 DEP_NAME_RE = re.compile(r"\"(@?[A-Za-z0-9_./-]+)\"\s*:")
 _prefix_alt = "|".join(re.escape(p) for p in BROWSER_PREFIXES)
-PREFILTER_RE = re.compile(NAMED_KEY_ALT + r"|eyJ[A-Za-z0-9_-]{8,}|(?:[Ss]ecret|SECRET|[Ss]ervice|SERVICE|[Kk]ey|KEY|[Tt]oken|TOKEN)[A-Za-z0-9_]{0,64}[\"']?[ \t]*[:=]|" + _prefix_alt)
+PREFILTER_RE = re.compile(NAMED_KEY_ALT + r"|-----BEGIN [A-Z0-9 ]{0,40}PRIVATE KEY|eyJ[A-Za-z0-9_-]{8,}|(?:[Ss]ecret|SECRET|[Ss]ervice|SERVICE|[Kk]ey|KEY|[Tt]oken|TOKEN)[A-Za-z0-9_]{0,64}[\"']?[ \t]*[:=]|" + _prefix_alt)
 
 AUTH_DEPS = {"next-auth", "@auth/core", "@auth/nextjs", "@clerk/nextjs", "@clerk/clerk-react", "@clerk/clerk-sdk-node", "@supabase/auth-helpers-nextjs", "@supabase/auth-helpers-react", "@supabase/ssr", "@supabase/auth-ui-react", "passport", "lucia", "better-auth", "jsonwebtoken", "jose", "firebase-admin", "@kinde-oss/kinde-auth-nextjs", "@auth0/nextjs-auth0", "auth0", "django-allauth", "devise", "flask-login", "authlib", "pyjwt", "python-jose"}
 AI_DEPS = {"openai", "@anthropic-ai/sdk", "anthropic", "ai", "@ai-sdk/openai", "@ai-sdk/anthropic", "@ai-sdk/google", "langchain", "@langchain/core", "@langchain/openai", "@langchain/anthropic", "@google/generative-ai", "google-generativeai", "@google/genai", "cohere-ai", "cohere", "replicate", "@mistralai/mistralai", "mistralai", "groq-sdk", "groq", "together-ai", "litellm", "ollama", "openrouter", "@huggingface/inference", "transformers"}
@@ -915,6 +919,31 @@ def detect_key_literals(sf, state, opts, claimed):
         else:
             snippet = make_snippet(text, start, end)
         state.add(check, sf.rel, line, snippet)
+
+
+def detect_private_keys(sf, state, opts):
+    """A private key block anywhere Q1 reads. The snippet is the header only: the body is the secret."""
+    text = sf.text
+    counter = {}
+    is_test = bool(TEST_PATH_RE.search(sf.rel))
+    for m in PRIVATE_KEY_RE.finditer(text):
+        state.tick()
+        body = PEM_BODY_RE.match(text, m.end(), m.end() + 400)
+        window = text[m.end():m.end() + 200]
+        im = IDENT_BEFORE_RE.search(text[_line_start(text, m.start()):m.start()])
+        name = im.group(1) if im else ""
+        if not body or PLACEHOLDER_RE.search(window):
+            check = "placeholder-key-literal"  # a header with no key after it, or a "your key here" template
+        elif is_test:
+            check = "test-path-key-literal"
+        elif name and name.startswith(opts.prefixes):
+            check = "browser-prefix-private-key"
+        elif sf.cls == "client":
+            check = "client-private-key"
+        else:
+            check = "private-key-block"
+        if _cap(counter, check):
+            state.add(check, sf.rel, line_of(text, m.start()), (name + " = " if name else "") + m.group(0))
 
 
 def _mcp_check_for(key):
@@ -1992,6 +2021,7 @@ def run_scan(repo, state, opts):
                     claimed = []
                     detect_browser_prefix(sf, state, opts, claimed)
                     detect_key_literals(sf, state, opts, claimed)
+                    detect_private_keys(sf, state, opts)
                 for predicate, detector in DETECTORS:
                     if predicate(sf):
                         detector(sf, state, opts)
