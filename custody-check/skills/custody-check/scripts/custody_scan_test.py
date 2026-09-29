@@ -4292,5 +4292,34 @@ class NothingFoundGapTests(ScanCase):
         self.assertEqual(self.scan()["stats"]["files_skipped_oversize_relevant"], 0)
 
 
+
+class FooterBookingTests(unittest.TestCase):
+    """The verdict's last line sends a founder to the Free Assessment, tagged so a booking can be traced,
+    with one next-step sentence chosen by verdict state (offer ladder, approved 2026-09-24)."""
+
+    URL = "townsendaistudio.com/assessment?src=custody-check"
+
+    def _read(self, *parts):
+        with open(os.path.join(*parts), encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_every_surface_carries_the_booking_link_and_not_the_old_offer(self):
+        for label, text in (("template", self._read(SKILL_DIR, "assets", "verdict-template.md")),
+                            ("SKILL.md", self._read(SKILL_DIR, "SKILL.md")),
+                            ("README", self._read(PLUGIN_DIR, "README.md"))):
+            self.assertIn(self.URL, text, label)
+            self.assertNotIn("Want the routing I run", text, label)
+            self.assertNotIn("townsendaistudio.com/?src=", text, label)
+
+    def test_footer_states_are_ranked_stop_line_first(self):
+        template = self._read(SKILL_DIR, "assets", "verdict-template.md")
+        rule = template.split("- **Footer next step**")[1].split("\n- **")[0]
+        order = [rule.index(k) for k in ("stop-line", "scanner unavailable", "partial", "otherwise")]
+        self.assertEqual(order, sorted(order), "precedence must be stop-line > degraded > partial > complete")
+        self.assertIn("written scope", rule, "a stop-line app is never pointed at the free step")
+        skill = self._read(SKILL_DIR, "SKILL.md").split("## Footer")[1]
+        self.assertIn("Footer next step", skill)
+
+
 if __name__ == "__main__":
     unittest.main()

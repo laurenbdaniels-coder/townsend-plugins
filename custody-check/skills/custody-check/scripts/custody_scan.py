@@ -10,7 +10,7 @@ Run it from the folder that CONTAINS the app:  python3 -I custody_scan.py --repo
 """
 import sys
 
-__version__ = "0.3.1"
+__version__ = "0.3.2"
 
 _DOCS = "README.md#when-it-goes-wrong"
 HINTS = {

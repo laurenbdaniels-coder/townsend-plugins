@@ -124,4 +124,4 @@ Because the alternative is asking the agent to look for keys itself, and an agen
 
 Three detection patterns (the browser-exposed prefixes, "verify `.env` is in `.gitignore`", and the `USING (true)` row-security smells) are borrowed from [raroque/vibe-security-skill](https://github.com/raroque/vibe-security-skill), MIT. Everything else is the workshop handout.
 
-MIT licensed. Want the routing I run? Send your verdict to hello@townsendaistudio.com, or use the link in the footer: townsendaistudio.com/?src=custody-check
+MIT licensed. Want a second pair of eyes? Bring your verdict to a Free Assessment, one per company: townsendaistudio.com/assessment?src=custody-check (or write to hello@townsendaistudio.com).
