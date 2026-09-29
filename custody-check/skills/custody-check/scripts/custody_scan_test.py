@@ -4603,7 +4603,7 @@ class FalseNothingFoundReviewTests(ScanCase):
     def test_rls_disabled_inside_a_string_is_evidence_not_a_no(self):
         q3 = self.q3_of({"db/1.sql": self.RLS + "comment on table public.notes is 'we never disable row level security';\n"})
         self.assertEqual(q3["answer"], "dont-know")
-        self.assertIn("rls-disabled-in-string", evidence_checks(q3))
+        self.assertIn("open-rule-in-string", evidence_checks(q3))
         q3 = self.q3_of({"db/1.sql": "create table public.t (id int);\ndo $$ begin execute 'alter table public.t disable row level security'; end $$;\n"})
         self.assertNotEqual(q3["answer"], "nothing-found", "execute in a DO block is real")
         self.assertEqual(self.q3_of({"db/1.sql": self.RLS + "alter table public.notes disable row level security;\n"})["answer"], "no")
@@ -4703,6 +4703,83 @@ class FalseNothingFoundReviewTests(ScanCase):
                 self.write("package.json", json.dumps({"dependencies": {"react": "18"}}))
                 self.write(rel, "sentry-sdk\n")
                 self.assertEqual(self.q("q9")["answer"], "dont-know", rel)
+
+
+
+class StringBlankingIsOnlyEverCautiousTests(ScanCase):
+    """Review cycle two: blanking SQL strings may only make the scanner more careful. Good signals (RLS on, a rule
+    file read) come from code alone; bad ones (drops, disables, open policies) come from everywhere, and one inside a
+    string is evidence rather than a No."""
+
+    RLS = "create table public.notes (id int);\nalter table public.notes enable row level security;\n"
+
+    def q3_of(self, body):
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.write("src/components/A.tsx", "export const A = () => null;\n")
+        self.write("db/1.sql", body)
+        return self.scan()["questions"]["q3"]
+
+    def test_open_policy_text_inside_a_string_is_evidence_not_a_no(self):
+        q3 = self.q3_of(self.RLS + "comment on table public.notes is 'doc says using (true) is unsafe';\n")
+        self.assertEqual(q3["answer"], "dont-know")
+        self.assertIn("open-rule-in-string", evidence_checks(q3))
+        self.assertEqual(self.q3_of(self.RLS + "create policy p on public.notes for all using (true);\n")["answer"], "no")
+
+    def test_a_string_over_several_lines_is_still_a_string(self):
+        q3 = self.q3_of(self.RLS + "comment on table public.notes is 'line one\ndisable row level security\nline three';\n")
+        self.assertEqual(q3["answer"], "dont-know")
+        self.assertIn("open-rule-in-string", evidence_checks(q3))
+        q3 = self.q3_of("create table public.notes (id int);\ncomment on table public.notes is 'a\nalter table public.notes enable row level security\nb';\n")
+        self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], ["notes"])
+
+    def test_a_drop_inside_a_function_body_still_counts(self):
+        q3 = self.q3_of(self.RLS + "create function public.rebuild() returns void language plpgsql as $$ begin execute 'drop table public.notes'; execute 'create table public.notes (id int)'; end $$;\nselect public.rebuild();\n")
+        self.assertEqual(q3["answer"], "dont-know")
+
+    def test_a_drop_list_too_long_to_read_whole_is_a_gap(self):
+        items = ", ".join("private.f%04d" % i for i in range(180))  # past the 2000-character window, under every other cap
+        q3 = self.q3_of(self.RLS + "drop table %s, public.notes cascade;\ncreate table public.notes (id int);\n" % items)
+        self.assertEqual(q3["answer"], "dont-know")
+
+    def test_string_blanking_growth_is_linear(self):
+        for name, unit in (("closed quotes", "'a' "), ("escape strings", "E'a\\'b' "), ("dollar bodies", "$$a$$ "), ("doubled quotes", "'a''b' ")):
+            t_small = _fastest(lambda: cs._blank_sql_strings(unit * 150000))
+            t_big = _fastest(lambda: cs._blank_sql_strings(unit * 300000))
+            self.assertGreater(t_small, _RATIO_FLOOR_S, "%s: too fast to time, the ratio would assert nothing" % name)
+            self.assertLess(t_big / t_small, 3.0, "%s grew %.1fx when the input doubled" % (name, t_big / t_small))
+
+    def test_a_view_inside_a_function_body_still_counts(self):
+        q3 = self.q3_of(self.RLS + "create function public.mk() returns void language sql as $$ create view public.v as select * from public.notes $$;\n")
+        self.assertIn("public-view", evidence_checks(q3))
+
+    def test_a_long_drop_list_of_private_tables_is_still_read_whole(self):
+        items = ", ".join("private.f%04d" % i for i in range(180))  # ~2700 characters, all outside public
+        q3 = self.q3_of(self.RLS + "drop table %s cascade;\n" % items)
+        self.assertEqual(q3["answer"], "nothing-found", "nothing public was dropped, and the whole list was read")
+
+    def test_a_drop_list_cut_inside_a_table_name_is_still_a_gap(self):
+        # place the cut exactly inside a private table's name, so a stray public-looking fragment cannot pass the test
+        names = ["private.t%05d" % i for i in range(cs.MAX_DROP_LIST_CHARS // 10)]
+        pad = 0
+        while True:
+            names[0] = "private.t" + "x" * pad + "00000"
+            joined = ", ".join(names)
+            cut = joined[:cs.MAX_DROP_LIST_CHARS]
+            last = cut.split(",")[-1].strip()
+            if last.startswith("private.t") and len(last) > len("private.t"):
+                break
+            pad += 1
+        self.assertGreater(len(joined), cs.MAX_DROP_LIST_CHARS)
+        q3 = self.q3_of(self.RLS + "drop table %s, public.notes;\ncreate table public.notes (id int);\n" % joined)
+        self.assertEqual(q3["answer"], "dont-know", "public.notes sits past the cut, so the list was not read whole")
+
+    def test_firebase_true_in_any_depth_of_parentheses_is_open(self):
+        rules = "service cloud.firestore {\n  match /{d=**} {\n    allow read, write: if ((((((true))))));\n  }\n}\n"
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.write("firestore.rules", rules)
+        self.assertEqual(self.scan()["questions"]["q3"]["answer"], "no")
 
 
 if __name__ == "__main__":

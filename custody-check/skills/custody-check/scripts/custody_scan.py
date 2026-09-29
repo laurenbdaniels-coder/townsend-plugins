@@ -142,7 +142,7 @@ CHECKS = {
     "scan-summary": ("q1", "evidence"),
     "nothing-found-keys": ("q1", "evidence"), "mcp-config-not-opened": ("q1", "evidence"), "build-output-unread": ("q1", "evidence"),
     "api-route-dir": ("q2", "hint"), "framework-config": ("q2", "hint"), "client-server-split": ("q2", "hint"),
-    "rls-disabled": ("q3", "no"), "rls-disabled-in-string": ("q3", "evidence"), "policy-using-true": ("q3", "no"), "policy-select-true": ("q3", "evidence"), "policy-altered-true": ("q3", "evidence"), "policy-with-check-true": ("q3", "evidence"),
+    "rls-disabled": ("q3", "no"), "open-rule-in-string": ("q3", "evidence"), "policy-using-true": ("q3", "no"), "policy-select-true": ("q3", "evidence"), "policy-altered-true": ("q3", "evidence"), "policy-with-check-true": ("q3", "evidence"),
     "policy-to-anon": ("q3", "evidence"), "table-without-rls": ("q3", "evidence"), "storage-bucket-public-sql": ("q3", "evidence"), "nothing-found-rules": ("q3", "evidence"),
     "firebase-rules-open": ("q3", "no"), "firebase-rules-public-read": ("q3", "evidence"), "firebase-rules-test-mode": ("q3", "evidence"), "public-view": ("q3", "evidence"), "storage-bucket-public": ("q3", "evidence"),
     "auth-path": ("q4", "evidence"), "auth-dependency": ("q4", "evidence"),
@@ -248,9 +248,9 @@ WITH_CHECK_TRUE_RE = re.compile(r"\bwith\s{1,20}check\s{0,20}\(\s{0,20}true\s{0,
 POLICY_TO_ANON_RE = re.compile(r"\bcreate\s+policy\b[^\n]{0,300}?\bto\s+anon\b", re.I)
 STORAGE_BUCKET_TRUE_RE = re.compile(r"storage\.buckets\b[^\n]{0,300}?\btrue\b", re.I)
 FIREBASE_ALLOW_ALL_RE = re.compile(r"\ballow[ \t]{1,20}([a-z]+(?:[ \t]*,[ \t]*[a-z]+){0,10})[ \t]*;", re.I)
-FIREBASE_ALLOW_TRUE_RE = re.compile(r"\ballow\s{1,20}([a-z]+(?:\s{0,20},\s{0,20}[a-z]+){0,10})\s{0,20}:\s{0,20}if(?=[\s(])\s{0,20}(?:\(\s{0,20}){0,3}true(?:\s{0,20}\)){0,3}(?=\s{0,20}[;}])", re.I)  # `true` alone: `true && request.auth != null` is not open
+FIREBASE_ALLOW_TRUE_RE = re.compile(r"\ballow\s{1,20}([a-z]+(?:\s{0,20},\s{0,20}[a-z]+){0,10})\s{0,20}:\s{0,20}if(?=[\s(])\s{0,20}(?:\(\s{0,20})*true(?:\s{0,20}\))*(?=\s{0,20}[;}])", re.I)  # `true` alone: `true && request.auth != null` is not open
 # the console's generated "test mode": open to everyone until a date, then closed
-FIREBASE_TEST_MODE_RE = re.compile(r"\ballow\s{1,20}[a-z]+(?:\s{0,20},\s{0,20}[a-z]+){0,10}\s{0,20}:\s{0,20}if(?=[\s(])\s{0,20}(?:\(\s{0,20}){0,3}(?:request\.time\s{0,20}<|timestamp\.date\([^)\n]{0,40}\)\s{0,20}>\s{0,20}request\.time)", re.I)
+FIREBASE_TEST_MODE_RE = re.compile(r"\ballow\s{1,20}[a-z]+(?:\s{0,20},\s{0,20}[a-z]+){0,10}\s{0,20}:\s{0,20}if(?=[\s(])\s{0,20}(?:\(\s{0,20})*(?:request\.time\s{0,20}<|timestamp\.date\([^)\n]{0,40}\)\s{0,20}>\s{0,20}request\.time)", re.I)
 RTDB_TEST_MODE_RE = re.compile(r"\"\.(?:read|write)\"\s{0,20}:\s{0,20}\"\s{0,5}now\s{0,5}<", re.I)
 FIREBASE_WRITE_RE = re.compile(r"\b(?:write|create|update|delete)\b", re.I)
 RTDB_WRITE_OPEN_RE = re.compile(r"\"\.write\"\s{0,20}:\s{0,20}(?:true|\"\s{0,5}true\s{0,5}\")", re.I)  # "true" as a string rule is the same rule
@@ -303,12 +303,13 @@ _SQL_IDENT = r"(?:\"[^\"\n]{1,63}\"|[A-Za-z_][A-Za-z0-9_$]{0,62})"  # a Postgres
 _SQL_TABLE = "(" + _SQL_IDENT + r"(?:\s{0,5}\.\s{0,5}" + _SQL_IDENT + ")?)"  # optionally schema-qualified
 _CREATE_TABLE_HEAD = r"\bcreate\s{1,20}(?:(?:unlogged|foreign)\s{1,20})?table"  # shared, so a table the scanner tracks always makes its file a rule file
 CREATE_TABLE_RE = re.compile(_CREATE_TABLE_HEAD + r"\s{1,20}(?:if\s{1,20}not\s{1,20}exists\s{1,20})?" + _SQL_TABLE, re.I)
-DROP_TABLE_RE = re.compile(r"\bdrop\s{1,20}table\s{1,20}(?:if\s{1,20}exists\s{1,20})?([^;]{1,2000})", re.I)  # the whole list: `drop table a, public.b cascade`
+MAX_DROP_LIST_CHARS = 20000
+DROP_TABLE_RE = re.compile(r"\bdrop\s{1,20}table\s{1,20}(?:if\s{1,20}exists\s{1,20})?([^;]{1,%d})" % MAX_DROP_LIST_CHARS, re.I)  # the whole list: `drop table a, public.b cascade`
 DROP_ITEM_RE = re.compile(r"\s{0,20}" + _SQL_TABLE)
 CREATE_VIEW_RE = re.compile(r"\bcreate\s{1,20}(?:or\s{1,20}replace\s{1,20})?(materialized\s{1,20})?view\s{1,20}(?:if\s{1,20}not\s{1,20}exists\s{1,20})?" + _SQL_TABLE + r"([^;]{0,400})", re.I)
 SQL_OPENER_RE = re.compile(r"(?<![A-Za-z0-9_])[Ee]'|'|\$(?:[A-Za-z_][A-Za-z0-9_]{0,30})?\$")  # E'…', '…', $$…$$ or $tag$…$tag$
-SQL_PLAIN_BODY_RE = re.compile(r"(?:[^'\n]|'')*'")
-SQL_ESCAPE_BODY_RE = re.compile(r"(?:[^'\\\n]|\\.|'')*'")
+SQL_PLAIN_BODY_RE = re.compile(r"(?:[^']|'')*'")  # a SQL string may span lines
+SQL_ESCAPE_BODY_RE = re.compile(r"(?:[^'\\]|\\[\s\S]|'')*'")
 DO_BEFORE_RE = re.compile(r"\bdo\s{0,20}$", re.I)
 SAFE_INVOKER_RE = re.compile(r"\bsecurity_invoker\s{0,20}(?:=\s{0,20}'?(?:on|true|1|yes)\b|(?=\s{0,20}[,)]))", re.I)
 VIEW_AS_RE = re.compile(r"\bas\b", re.I)
@@ -1182,7 +1183,7 @@ def detect_sql(sf, state, opts):
         state.tick()
         # `comment on table … is 'never disable row level security'` disables nothing; `execute '… disable …'` in a
         # DO block does, so a match inside a string is evidence, never dropped
-        check = "rls-disabled" if code[m.start():m.end()] == m.group(0) else "rls-disabled-in-string"
+        check = "rls-disabled" if code[m.start():m.end()] == m.group(0) else "open-rule-in-string"
         if _cap(counter, check):
             state.add(check, sf.rel, line_of(text, m.start()), _clause(m))
     for m in USING_TRUE_RE.finditer(text):
@@ -1198,6 +1199,8 @@ def detect_sql(sf, state, opts):
             check = "policy-select-true"
         else:
             check = "policy-using-true"
+        if code[m.start():m.end()] != m.group(0):
+            check = "open-rule-in-string"  # quoted text, or an `execute '…'` that may run: evidence, never a No
         if _cap(counter, check):
             state.add(check, sf.rel, line_of(text, m.start()), _clause(m))
     _finditer_lines(WITH_CHECK_TRUE_RE, text, sf, state, "policy-with-check-true", counter, _clause)
@@ -1232,12 +1235,15 @@ def detect_sql(sf, state, opts):
                 state.rls_enabled.add(name)
             else:
                 state.gaps["q3"] += 1
-    for n, m in enumerate(DROP_TABLE_RE.finditer(code)):
+    for n, m in enumerate(DROP_TABLE_RE.finditer(text)):
         if n >= MAX_TABLE_MATCHES_PER_FILE:
             state.gaps["q3"] += 1
             break
         state.tick()
-        for part in m.group(1).split(",")[:MAX_TABLE_MATCHES_PER_FILE]:
+        parts = m.group(1).split(",")
+        if len(m.group(1)) >= MAX_DROP_LIST_CHARS or len(parts) > MAX_TABLE_MATCHES_PER_FILE:
+            state.gaps["q3"] += 1  # a drop list too long to read whole: a table past the cut was not looked at
+        for part in parts[:MAX_TABLE_MATCHES_PER_FILE]:
             t = DROP_ITEM_RE.match(part)
             name = _public_table(t.group(1)) if t else None
             # a table dropped and made again loses its RLS; unless this file turns it back on afterwards, migration
@@ -1245,7 +1251,7 @@ def detect_sql(sf, state, opts):
             if name and enabled_at.get(name, -1) < m.start():
                 state.gaps["q3"] += 1
     counter_views = {}
-    for m in CREATE_VIEW_RE.finditer(code):
+    for m in CREATE_VIEW_RE.finditer(text):
         state.tick()
         name = _public_table(m.group(2))
         # a view runs as its owner and skips the table's RLS unless security_invoker is set; a materialized view has no RLS at all
@@ -1304,8 +1310,9 @@ def _strip_sql_comments(text):
 
 def _blank_sql_strings(text):
     """Blank every SQL string literal, keeping offsets and newlines: '…' (with ''), E'…' (with backslash escapes)
-    and $tag$…$tag$ bodies. A DO block's body is left alone, because its statements run; a function body only
-    runs when called. One forward pass: an unclosed dollar quote ends the scan rather than rescanning."""
+    and $tag$…$tag$ bodies. A DO block's body is left alone, because its statements run. One forward pass: an
+    unclosed quote ends the scan rather than rescanning. Only good signals (RLS turned on, a rule file read) are
+    read from the blanked text; bad ones (drops, disables, open policies, views) are read from all of it."""
     out = []
     pos = 0
     n = len(text)
@@ -1326,9 +1333,7 @@ def _blank_sql_strings(text):
         else:
             body = (SQL_ESCAPE_BODY_RE if tok[0] in "Ee" else SQL_PLAIN_BODY_RE).match(text, m.end())
             if not body:
-                out.append(text[pos:m.end()])  # unterminated on its line: not a string we can bound
-                pos = m.end()
-                continue
+                break  # never closed: every later quote would fail the same way, so stop instead of rescanning
             stop = body.end()
         out.append(text[pos:m.start()])
         out.append("".join(c if c == "\n" else " " for c in text[m.start():stop]))
