@@ -157,17 +157,50 @@ for _name, (_q, _e) in CHECKS.items():
 # ------------------------------------------------------------------ regexes
 
 NAMED_KEY_ALT = (r"sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|sb_secret_[A-Za-z0-9_-]{10,}"
-                 r"|(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{22,}|gh[ousr]_[A-Za-z0-9]{36}|xox[baprs]-[0-9]{8,}-[A-Za-z0-9-]{10,}|xapp-[0-9]-[A-Za-z0-9]{8,}-[0-9]{8,}-[A-Za-z0-9]{16,}")  # Slack tokens carry numeric ids, CSS names do not
+                 r"|(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{22,}|gh[ousr]_[A-Za-z0-9]{36}|xox[baprs]-(?:[0-9]{10,13}-){1,3}[A-Za-z0-9]{24,34}|xapp-[0-9]-[A-Za-z0-9]{8,}-[0-9]{10,13}-[A-Za-z0-9]{32,}")  # Slack tokens carry 10-13 digit ids, CSS names do not
 NAMED_KEY_RE = re.compile(r"(?<![A-Za-z0-9_-])(?:" + NAMED_KEY_ALT + r")(?![A-Za-z0-9_-])")
 NAMED_KEY_FULL_RE = re.compile(r"(?:" + NAMED_KEY_ALT + r")")
 # a PEM or OpenSSH private key header; public keys and certificates say PUBLIC KEY / CERTIFICATE and never match
 PRIVATE_KEY_RE = re.compile(r"-----BEGIN (?:[A-Z0-9]+ ){0,3}PRIVATE KEY(?: BLOCK)?-----")
 PRIVATE_KEY_END_RE = re.compile(r"-----END (?:[A-Z0-9]+ ){0,3}PRIVATE KEY(?: BLOCK)?-----")  # survives a header split by "+"
 MIN_PEM_BODY_DISTINCT = 10  # a real base64 body uses dozens of characters; filler such as XXXX uses a handful
-PEM_ELLIPSIS_RE = re.compile(r"[A-Za-z0-9+/=\s\\\"'`,]{0,200}?(?:\.\.\.|\u2026)")  # a sample that trails off: MIIEvQ...
-# the key body after the header: quote or escape noise, then up to four RFC 1421 / PGP header lines
-# (Proc-Type:, DEK-Info:, Version:), then at least 40 base64 characters
-PEM_BODY_RE = re.compile(r"(?:\\+[nr]|[\s\"'`,+])*(?:[A-Za-z][A-Za-z-]{1,30}:[^\n\\]{0,200}(?:\\+[nr]|[\r\n])+(?:\\+[nr]|[\s\"'`,+])*){0,4}([A-Za-z0-9+/=]{40,})")
+PEM_ESCAPE_RE = re.compile(r"\\+[nr]")  # \n, \\n, \r\n inside a string literal
+PEM_HEADER_LINE_RE = re.compile(r"^[A-Za-z][A-Za-z-]{1,30}:")  # Proc-Type:, DEK-Info:, Version:, Comment:
+PEM_B64_LINE_RE = re.compile(r"^[A-Za-z0-9+/=]+$")
+PEM_NOISE = " \t\"'`,+;()[]"
+PEM_WINDOW = 4096
+
+
+def pem_body(text, pos):
+    """The base64 body after a private key header, or None: (body, trailed_off). Linear, no backtracking:
+    string noise (quotes, "+", commas, escapes) is stripped line by line, up to four header lines are skipped,
+    then consecutive base64 lines are joined, so a key wrapped at 32 or 64 characters reads the same."""
+    lines = PEM_ESCAPE_RE.sub("\n", text[pos:pos + PEM_WINDOW]).splitlines()
+    body, headers, trailed = [], 0, False
+    for raw in lines:
+        line = raw.strip(PEM_NOISE)
+        if not line:
+            if body:
+                break
+            continue
+        if not body and headers < 4 and PEM_HEADER_LINE_RE.match(line):
+            headers += 1
+            continue
+        chunk = line[:-3] if line.endswith("...") else line[:-1] if line.endswith("\u2026") else line
+        if chunk != line:
+            trailed = True
+        if chunk and PEM_B64_LINE_RE.match(chunk):
+            body.append(chunk)
+            if trailed:
+                break
+            continue
+        if line.startswith(("...", "\u2026")):
+            trailed = True
+        break
+    joined = "".join(body)
+    return (joined, trailed) if len(joined) >= 40 else None
+
+
 JWT_RE = re.compile(r"(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}(?![A-Za-z0-9_-])")
 JWT_RUN_RE = re.compile(r"[A-Za-z0-9_.-]{27,}")
 JWT_SEG_RE = re.compile(r"[A-Za-z0-9_-]{8,}")
@@ -933,7 +966,12 @@ KEY_FILE_EXTS = {".key", ".p8", ".p12", ".pfx", ".ppk", ".jks", ".keystore"}
 KEY_FILE_NAMES = {"id_rsa", "id_dsa", "id_ecdsa", "id_ed25519"}
 
 
+RAILS_MASTER_KEY_RE = re.compile(r"^[0-9a-f]{32}\s*$")
+
+
 def is_key_file(base, ext, data):
+    if base.lower() == "debug.keystore":
+        return False  # the React Native / Android template's debug key, password "android": public on purpose
     if base.lower() in KEY_FILE_NAMES:
         return True
     if ext.lower() not in KEY_FILE_EXTS:
@@ -941,10 +979,11 @@ def is_key_file(base, ext, data):
     return not data.startswith(b"PK\x03\x04")  # a Keynote deck is also .key, and it is a zip
 
 
-def detect_key_file(rel, base, state):
-    """A committed key file whose text never says PRIVATE KEY: a PKCS#12 / JKS / DER key or a PuTTY .ppk."""
+def detect_key_file(rel, base, state, confirmed=True):
+    """A committed key file whose text never says PRIVATE KEY: a PKCS#12 / JKS / DER key, a PuTTY .ppk,
+    or a Rails master.key. Only a confirmed key under public/ or static/ is a No; the rest is evidence."""
     top = rel.split("/", 1)[0].lower()
-    check = "client-private-key" if top in ("public", "static") else "private-key-block"
+    check = "client-private-key" if confirmed and top in ("public", "static") else "private-key-block"
     state.add(check, rel, 0, base)
 
 
@@ -953,14 +992,15 @@ def detect_private_keys(sf, state, opts):
     text = sf.text
     counter = {}
     is_test = bool(TEST_PATH_RE.search(sf.rel))
+    served = (sf.cls == "client" and _pred_code_or_env(sf)) or sf.rel.split("/", 1)[0].lower() in ("public", "static")
     found = False
     for m in PRIVATE_KEY_RE.finditer(text):
         found = True
         state.tick()
-        body = PEM_BODY_RE.match(text, m.end(), m.end() + 400)
+        body = pem_body(text, m.end())
         im = IDENT_BEFORE_RE.search(text[_line_start(text, m.start()):m.start()])
         name = im.group(1) if im else ""
-        if not body or len(set(body.group(1))) < MIN_PEM_BODY_DISTINCT or PEM_ELLIPSIS_RE.match(text, body.end(1)):
+        if not body or body[1] or len(set(body[0])) < MIN_PEM_BODY_DISTINCT:
             # no key after the header ("your key here"), or filler such as XXXX: judge the body's shape, never
             # its words, since a real random body can contain "xxx" or "your" by chance
             check = "placeholder-key-literal"
@@ -968,7 +1008,7 @@ def detect_private_keys(sf, state, opts):
             check = "test-path-key-literal"
         elif name and name.startswith(opts.prefixes):
             check = "browser-prefix-private-key"
-        elif sf.cls == "client":
+        elif served:
             check = "client-private-key"
         else:
             check = "private-key-block"
@@ -976,8 +1016,9 @@ def detect_private_keys(sf, state, opts):
             state.add(check, sf.rel, line_of(text, m.start()), (name + " = " if name else "") + m.group(0))
     if not found:
         for m in PRIVATE_KEY_END_RE.finditer(text):  # "-----BEGIN PRIVATE" + " KEY-----": the footer still names it
-            if _cap(counter, "private-key-block"):
-                state.add("private-key-block", sf.rel, line_of(text, m.start()), m.group(0))
+            check = "test-path-key-literal" if is_test else "client-private-key" if served else "private-key-block"
+            if _cap(counter, check):
+                state.add(check, sf.rel, line_of(text, m.start()), m.group(0))
             break
 
 
@@ -2060,8 +2101,8 @@ def run_scan(repo, state, opts):
                     detect_key_literals(sf, state, opts, claimed)
                 if "PRIVATE KEY" in text:
                     detect_private_keys(sf, state, opts)  # code, config, env, and key files alike: id_rsa is not code, but it is the classic leak
-                elif is_key_file(base, ext, data):
-                    detect_key_file(rel, base, state)
+                elif is_key_file(base, ext, data) and (text.startswith("PuTTY-User-Key-File") or RAILS_MASTER_KEY_RE.match(text)):
+                    detect_key_file(rel, base, state, confirmed=text.startswith("PuTTY-User-Key-File"))
                 for predicate, detector in DETECTORS:
                     if predicate(sf):
                         detector(sf, state, opts)

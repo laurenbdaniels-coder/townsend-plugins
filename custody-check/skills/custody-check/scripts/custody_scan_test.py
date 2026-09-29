@@ -584,6 +584,53 @@ class NamedKeyFormatTests(ScanCase):
         self.assertNotEqual(q1["answer"], "no")
         self.assertNotIn("client-key-literal", evidence_checks(q1))
 
+    def test_crafted_header_lines_cannot_stall_the_scan(self):
+        # a regex over "header line + newlines" backtracked in O(n^4): 330 bytes took 14 s and ignored --deadline-s
+        evil = PEM_HEAD + "".join("Ab:" + "\n" * 90 for _ in range(4)) + "!\n" + PEM_HEAD + "".join("Ab:" + "\\n" * 90 for _ in range(4)) + "!\n"
+        self.write("docs/notes.md", evil * 3)
+        t = time.time()
+        self.scan()
+        self.assertLess(time.time() - t, 2.0 * TIME_SLACK)
+
+    def test_a_key_wrapped_at_32_characters_is_a_key(self):
+        wrapped = "\n".join(PEM_BODY[i:i + 32] for i in range(0, len(PEM_BODY), 32))
+        self.write("src/k.ts", "export const k = `%s\n%s\n%s`;\n" % (PEM_HEAD, wrapped, PEM_TAIL))
+        self.assertIn("client-private-key", evidence_checks(self.scan()["questions"]["q1"]))
+
+    def test_a_docs_file_under_src_is_evidence_but_a_served_one_is_no(self):
+        block = "%s\n%s\n%s\n" % (PEM_HEAD, PEM_BODY, PEM_TAIL)
+        self.write("src/README.md", "Example:\n" + block)
+        q1 = self.scan()["questions"]["q1"]
+        self.assertNotEqual(q1["answer"], "no")
+        self.assertIn("private-key-block", evidence_checks(q1))
+        os.remove(os.path.join(self.repo, "src/README.md"))
+        self.write("public/docs/ssh.md", block)
+        self.assertEqual(self.scan()["questions"]["q1"]["answer"], "no")
+
+    def test_text_key_extension_files_are_judged_by_content(self):
+        self.write("src/app.ts", "export const ok = 1;\n")
+        self.write("public/locales/en.key", "hello=Hello\n")
+        pub = "-----" + "BEGIN PUBLIC KEY" + "-----\n" + PEM_BODY + "\n-----" + "END PUBLIC KEY" + "-----\n"
+        self.write("public/.well-known/server.key", pub)
+        q1 = self.scan()["questions"]["q1"]
+        self.assertNotEqual(q1["answer"], "no")
+        self.assertNotIn("private-key-block", evidence_checks(q1))
+        self.write("config/master.key", "0123456789abcdef0123456789abcdef\n")
+        q1 = self.scan()["questions"]["q1"]
+        self.assertIn("private-key-block", evidence_checks(q1))
+        self.assertNotEqual(q1["answer"], "no")
+
+    def test_the_react_native_debug_keystore_is_not_a_finding(self):
+        der = b"\x30\x82\x04\xa4" + bytes(random.Random(10).getrandbits(8) for _ in range(600)) + b"\x00"
+        self.write("android/app/debug.keystore", der, binary=True)
+        self.write("src/app.ts", "export const ok = 1;\n")
+        self.assertNotIn("private-key-block", evidence_checks(self.scan()["questions"]["q1"]))
+
+    def test_slack_shaped_ids_with_short_numbers_are_not_keys(self):
+        self.write("src/ui.tsx", '<div id="xoxb-12345678-button-primary" data-x="xoxp-20240101-summer-collection-sale-banner" />\n')
+        q1 = self.scan()["questions"]["q1"]
+        self.assertNotIn("client-key-literal", evidence_checks(q1))
+
     def test_public_key_and_certificate_are_not_private_keys(self):
         pub = "-----" + "BEGIN PUBLIC KEY" + "-----\n" + PEM_BODY + "\n-----" + "END PUBLIC KEY" + "-----"
         cert = "-----" + "BEGIN CERTIFICATE" + "-----\n" + PEM_BODY + "\n-----" + "END CERTIFICATE" + "-----"
@@ -627,8 +674,8 @@ class NamedKeyFormatTests(ScanCase):
         head = '"-----BEGIN PRIVATE" + " KEY-----\\n'
         self.write("src/k.ts", "const k = %s%s\\n%s\";\n" % (head, PEM_BODY * 3, PEM_TAIL))
         q1 = self.scan()["questions"]["q1"]
-        self.assertNotEqual(q1["answer"], "nothing-found")
-        self.assertIn("private-key-block", evidence_checks(q1))
+        self.assertEqual(q1["answer"], "no")  # client code: the footer names a key the browser can read
+        self.assertIn("client-private-key", evidence_checks(q1))
 
     def test_binary_and_ppk_key_files_count_by_name(self):
         der = b"\x30\x82\x04\xa4" + bytes(random.Random(7).getrandbits(8) for _ in range(600)) + b"\x00"
