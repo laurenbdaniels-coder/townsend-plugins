@@ -551,8 +551,8 @@ class NamedKeyFormatTests(ScanCase):
         self.assertIn("placeholder-key-literal", evidence_checks(q1))
 
     def test_encrypted_and_pgp_keys_with_header_lines_are_keys(self):
-        enc = "-----" + "BEGIN RSA PRIVATE KEY" + "-----\nProc-Type: 4,ENCRYPTED\nDEK-Info: AES-128-CBC,0A1B2C3D4E5F\n\n" + PEM_BODY + "\n"
-        pgp = "-----" + "BEGIN PGP PRIVATE KEY BLOCK" + "-----\nVersion: Keybase OpenPGP v2.1.0\n\n" + PEM_BODY + "\n"
+        enc = "-----" + "BEGIN RSA PRIVATE KEY" + "-----\nProc-Type: 4,ENCRYPTED\nDEK-Info: AES-128-CBC,0A1B2C3D4E5F\n\n" + PEM_BODY + "\n" + "-----" + "END RSA PRIVATE KEY" + "-----"
+        pgp = "-----" + "BEGIN PGP PRIVATE KEY BLOCK" + "-----\nVersion: Keybase OpenPGP v2.1.0\n\n" + PEM_BODY + "\n" + "-----" + "END PGP PRIVATE KEY BLOCK" + "-----"
         for text in (enc, pgp):
             self.write("src/sign.ts", "export const key = `%s`;\n" % text)
             q1 = self.scan()["questions"]["q1"]
@@ -630,6 +630,70 @@ class NamedKeyFormatTests(ScanCase):
         self.write("src/ui.tsx", '<div id="xoxb-12345678-button-primary" data-x="xoxp-20240101-summer-collection-sale-banner" />\n')
         q1 = self.scan()["questions"]["q1"]
         self.assertNotIn("client-key-literal", evidence_checks(q1))
+
+    def test_a_block_with_no_footer_is_evidence_not_no(self):
+        sample = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+        self.write("src/k.ts", "export const h = `%s\n%s\n`;\n" % (PEM_HEAD, sample))
+        q1 = self.scan()["questions"]["q1"]
+        self.assertNotEqual(q1["answer"], "no")
+        self.assertNotEqual(q1["answer"], "nothing-found")
+        self.assertIn("private-key-block", evidence_checks(q1))
+
+    def test_one_line_space_joined_and_array_keys_are_keys(self):
+        lines = [PEM_BODY] * 20
+        cases = {
+            "one line": "const k = '%s%s%s';\n" % (PEM_HEAD, "".join(lines), PEM_TAIL),
+            "space joined": "const k = '%s %s %s';\n" % (PEM_HEAD, " ".join(lines), PEM_TAIL),
+            "json array": 'const k = %s;\n' % json.dumps([PEM_HEAD] + lines + [PEM_TAIL]),
+            "trailing comment": "const k = [\n  '%s',\n  '%s', // first line\n%s  '%s',\n];\n" % (PEM_HEAD, PEM_BODY, "".join("  '%s',\n" % x for x in lines), PEM_TAIL),
+        }
+        for name, text in cases.items():
+            self.write("src/k.ts", text)
+            q1 = self.scan()["questions"]["q1"]
+            self.assertEqual(q1["answer"], "no", name)
+            self.assertIn("client-private-key", evidence_checks(q1), name)
+
+    def test_a_header_followed_by_words_is_not_a_key(self):
+        words = "\n".join(("export", "default", "function", "isPrivateKeyStringFormattedCorrectlyForSigning", "paste", "your", "private", "key"))
+        self.write("src/k.ts", "const H = '%s'\n%s\n%s\n" % (PEM_HEAD, words, PEM_TAIL))
+        q1 = self.scan()["questions"]["q1"]
+        self.assertNotEqual(q1["answer"], "no")
+        self.assertIn("placeholder-key-literal", evidence_checks(q1))
+
+    def test_a_rails_master_key_under_public_is_evidence(self):
+        self.write("public/config/master.key", "0123456789abcdef0123456789abcdef\n")
+        self.write("src/app.ts", "export const ok = 1;\n")
+        q1 = self.scan()["questions"]["q1"]
+        self.assertNotEqual(q1["answer"], "no")
+        self.assertIn("private-key-block", evidence_checks(q1))
+
+    def test_a_split_header_in_a_test_path_is_test_evidence(self):
+        head = '"-----BEGIN PRIVATE" + " KEY-----\\n'
+        self.write("src/__tests__/k.ts", "const k = %s%s\\n%s\";\n" % (head, PEM_BODY * 3, PEM_TAIL))
+        q1 = self.scan()["questions"]["q1"]
+        self.assertNotEqual(q1["answer"], "no")
+        self.assertIn("test-path-key-literal", evidence_checks(q1))
+
+    def test_more_than_four_header_lines_is_not_a_body(self):
+        heads = "".join("Key%s: v\n" % c for c in "abcde")  # header names are letters and hyphens only
+        self.write("src/k.ts", "export const k = `%s\n%s%s\n%s`;\n" % (PEM_HEAD, heads, PEM_BODY, PEM_TAIL))
+        self.assertIn("placeholder-key-literal", evidence_checks(self.scan()["questions"]["q1"]))
+
+    def test_the_width_rule_stops_at_a_different_line_width(self):
+        # without it, filler lines plus a trailing word pass the distinct-character test
+        text = "%s\n%s\n%s\n%s\nYOURKEYHERE\nMIIBxx\n%s" % (PEM_HEAD, "X" * 32, "X" * 32, "X" * 32, PEM_TAIL)
+        self.write("src/k.ts", "export const k = `%s`;\n" % text)
+        q1 = self.scan()["questions"]["q1"]
+        self.assertNotEqual(q1["answer"], "no")
+        self.assertIn("placeholder-key-literal", evidence_checks(q1))
+
+    def test_a_single_narrow_piece_is_not_a_body(self):
+        # 39 characters, then a shorter word: long enough together, but no real body wraps like this
+        text = "%s\nisPrivateKeyStringFormattedCorrectlyFor\nSigning\n%s" % (PEM_HEAD, PEM_TAIL)
+        self.write("src/k.ts", "export const k = `%s`;\n" % text)
+        q1 = self.scan()["questions"]["q1"]
+        self.assertNotEqual(q1["answer"], "no")
+        self.assertIn("placeholder-key-literal", evidence_checks(q1))
 
     def test_public_key_and_certificate_are_not_private_keys(self):
         pub = "-----" + "BEGIN PUBLIC KEY" + "-----\n" + PEM_BODY + "\n-----" + "END PUBLIC KEY" + "-----"

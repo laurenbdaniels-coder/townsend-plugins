@@ -171,33 +171,47 @@ PEM_NOISE = " \t\"'`,+;()[]"
 PEM_WINDOW = 4096
 
 
+PEM_TOKEN_SPLIT_RE = re.compile(r"[\s\"'`,;()\[\]]+")  # never "+": it is a base64 character
+
+
 def pem_body(text, pos):
-    """The base64 body after a private key header, or None: (body, trailed_off). Linear, no backtracking:
-    string noise (quotes, "+", commas, escapes) is stripped line by line, up to four header lines are skipped,
-    then consecutive base64 lines are joined, so a key wrapped at 32 or 64 characters reads the same."""
-    lines = PEM_ESCAPE_RE.sub("\n", text[pos:pos + PEM_WINDOW]).splitlines()
-    body, headers, trailed = [], 0, False
-    for raw in lines:
-        line = raw.strip(PEM_NOISE)
-        if not line:
-            if body:
-                break
-            continue
-        if not body and headers < 4 and PEM_HEADER_LINE_RE.match(line):
+    """The base64 body after a private key header, or None: (body, trailed_off). Linear, no backtracking.
+    Escapes become line breaks, each line is cut at the next "-----" (the footer), up to four header lines
+    (Proc-Type:, Version:) are skipped, and the rest is split into tokens on quotes, commas and spaces (a bare "+" between string pieces is skipped).
+    A real body wraps at one width with only the last piece shorter, so the first piece sets the width W,
+    a longer piece or anything after a shorter one ends the body, and a narrow W (< 40) needs a second
+    piece of the same width. That keeps one-line, space-joined and JSON-array keys, and rejects a header
+    followed by ordinary words."""
+    window = PEM_ESCAPE_RE.sub("\n", text[pos:pos + PEM_WINDOW])
+    pieces, width, headers, trailed, done = [], 0, 0, False, False
+    for raw in window.splitlines():
+        cut = raw.find("-----")
+        line = raw if cut < 0 else raw[:cut]
+        if not pieces and headers < 4 and PEM_HEADER_LINE_RE.match(line.strip(PEM_NOISE)):
             headers += 1
             continue
-        chunk = line[:-3] if line.endswith("...") else line[:-1] if line.endswith("\u2026") else line
-        if chunk != line:
-            trailed = True
-        if chunk and PEM_B64_LINE_RE.match(chunk):
-            body.append(chunk)
-            if trailed:
+        for tok in PEM_TOKEN_SPLIT_RE.split(line):
+            if not tok or tok.strip("+") == "":
+                continue  # an empty token or a bare "+" between string pieces
+            if tok.endswith("...") or tok.endswith("\u2026"):
+                trailed, tok = True, tok.rstrip(".\u2026")
+            if not tok or not PEM_B64_LINE_RE.match(tok):
+                done = True
                 break
-            continue
-        if line.startswith(("...", "\u2026")):
-            trailed = True
-        break
-    joined = "".join(body)
+            if not pieces:
+                width = len(tok)
+            elif len(tok) > width or len(pieces[-1]) < width:
+                done = True
+                break
+            pieces.append(tok)
+            if trailed:
+                done = True
+                break
+        if done or cut >= 0:
+            break
+    if not pieces or (width < 40 and sum(1 for x in pieces if len(x) == width) < 2):
+        return None
+    joined = "".join(pieces)
     return (joined, trailed) if len(joined) >= 40 else None
 
 
@@ -1008,8 +1022,8 @@ def detect_private_keys(sf, state, opts):
             check = "test-path-key-literal"
         elif name and name.startswith(opts.prefixes):
             check = "browser-prefix-private-key"
-        elif served:
-            check = "client-private-key"
+        elif served and PRIVATE_KEY_END_RE.search(text, m.end(), m.end() + PEM_WINDOW):
+            check = "client-private-key"  # a whole block: header, body and footer, where the browser can read it
         else:
             check = "private-key-block"
         if _cap(counter, check):
