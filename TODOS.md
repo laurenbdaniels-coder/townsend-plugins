@@ -110,18 +110,6 @@
 **Priority:** P4
 **Depends on:** PR 2 evals
 
-### Q3 "nothing found" from a lone seed.sql
-
-**What:** Any `.sql` file counts as a rule file, so a project whose only SQL is `supabase/seed.sql` (one `insert`) can reach Q3 Nothing found with "1 rule file read".
-
-**Why:** `questions.md` promises that with no rule file the answer stays Don't know because rules live in a dashboard; a seed file is not a rule file. Found by the Claude adversarial pass in the v0.3.0 pre-merge review.
-
-**Context:** `test_nothing_found_is_never_a_no_and_never_on_a_partial_scan` encodes the current rule (`select 1;` in a migration earns Nothing found), so this is a design change, not a bug fix: count a `.sql` file as a rule file only when it holds `create table`, `create policy`, `alter table … row level security` or `storage.buckets`; `.rules` and `database.rules.json` always count. Decide against the workshop corpus.
-
-**Effort:** S
-**Priority:** P2
-**Depends on:** None
-
 ### Q1 "nothing found" after one file, and file kinds Q1 never reads
 
 **What:** Q1 Nothing found needs only one code or env file read, and `.xml`, `.plist`, `.properties`, `.prisma`, `.sh`, `.ini` are neither read for keys nor counted as gaps, although `EXPO_PUBLIC_` support puts mobile apps (`strings.xml`, `GoogleService-Info.plist`) in scope.
@@ -136,7 +124,7 @@
 
 ### Smaller v0.3.0 review leftovers
 
-**What:** Four evidence-only or observability items from the v0.3.0 pre-merge review, kept as designed for now: (1) `alter table t add column x, enable row level security` (comma-joined actions) is not recognised as enabling RLS, so `table-without-rls` can name a table that is covered; (2) the synthetic Q2 `client-server-split` and Q11 `code-history-local` rows are inserted at index 0 and can push out the twelfth real row without counting as trimmed; (3) `state.gaps` is never emitted, so a withheld Nothing found is indistinguishable in `stats` from the old "0 hits" (adding a `gaps` object to `stats` is contract-safe per SKILL.md); (4) MCP configs inside never-open agent folders (`.claude/settings.local.json`, `.kiro/settings/mcp.json`) are counted but not named in the Q1 row.
+**What:** Four evidence-only or observability items from the v0.3.0 pre-merge review, kept as designed for now: (1) `alter table t add column x, enable row level security` (comma-joined actions) is not recognised as enabling RLS, so `table-without-rls` can name a table that is covered; (2) the synthetic Q2 `client-server-split` and Q11 `code-history-local` rows are inserted at index 0 and can push out the twelfth real row without counting as trimmed; (3) `state.gaps` is never emitted, so a withheld Nothing found is indistinguishable in `stats` from the old "0 hits" (adding a `gaps` object to `stats` is contract-safe per SKILL.md); (4) `.claude/settings.local.json` can carry MCP server env tokens but is counted as an agent file, not a Q1 gap (the MCP-only paths such as `.kiro/settings/mcp.json` became `mcp-config-not-opened` gaps in 0.3.2); every Claude Code project has one, so gating Q1 on it needs the workshop corpus first.
 
 **Why:** None changes an answer or the door; each is a wording or visibility nit worth one small PR together.
 
@@ -144,18 +132,6 @@
 
 **Effort:** S
 **Priority:** P3
-**Depends on:** None
-
-### Open-rule shapes the Q3 "nothing found" row does not cover
-
-**What:** The `nothing-found-rules` row now names exactly what was checked ("no RLS disabled, no using (true) policy, no if-true Firebase rule"), but three common open shapes pass every check: Firebase's generated test-mode default `allow read, write: if request.time < timestamp.date(...)`, Postgres `using (1=1)`, and `using (true or auth.uid() = owner)`. A rules file holding only those earns Q3 Nothing found.
-
-**Why:** Time-boxed test mode is the most common vibe-coded Firebase layout. Found by the Red Team pass in the v0.3.0 pre-merge review; the row wording was fixed there, the detectors were not.
-
-**Context:** Add `firebase-rules-test-mode` as an evidence row (`allow … : if request.time <`), and widen `USING_TRUE_RE` only as evidence (`policy-using-tautology`), never as a decisive `no`, until the workshop corpus shows no false positives. Also from the same review: a committed `.env-cmdrc` (env-cmd's rc file) is reported as `tracked-env-file-nonprod` evidence, never a `no`; decide whether it should be evidence at all.
-
-**Effort:** S
-**Priority:** P2
 **Depends on:** None
 
 ### Door rule when Q1 or Q3 is Don't know on a complete scan
@@ -170,7 +146,45 @@
 **Priority:** P2
 **Depends on:** None
 
+### Open-rule shapes the Q3 "nothing found" row still does not cover
+
+**What:** After 0.3.2 (test mode, `if (true)`, string literals, dropped tables and public views), three shapes still pass every Q3 check: Postgres `using (1=1)`, `using (true or auth.uid() = owner)`, and `using (auth.uid() is not null)`, which lets every signed-in user read every row.
+
+**Why:** A rules file holding only those earns Q3 Nothing found. Found by the adversarial passes in the v0.3.0 pre- and post-merge reviews.
+
+**Context:** Widen `USING_TRUE_RE` only as evidence (`policy-using-tautology`, `policy-any-signed-in`), never as a decisive `no`, until the workshop corpus shows no false positives. Also: a committed `.env-cmdrc` is `tracked-env-file-nonprod` evidence while `.env-cmdrc.json` is a tracked env file (`no`); both usually hold every environment, production included, so pick one rule.
+
+**Effort:** S
+**Priority:** P2
+**Depends on:** None
+
+### Q1 and Q3 claims the file tree cannot settle
+
+**What:** (1) A `.env` committed and later `git rm --cached` still holds its key in history, but Q1 says "no tracked env file". (2) The scanner does not replay migration order across files, so 0.3.2 withholds Nothing found on any cross-file drop; it could order `supabase/migrations/*` by filename instead. (3) A down migration (`*.down.sql`) that disables RLS gives Q3 a high-confidence `no` for a state production never runs.
+
+**Why:** Each is either a false reassurance (1) or a false alarm (2, 3). From the v0.3.0 post-merge adversarial review.
+
+**Context:** (1) `git log --all --diff-filter=A --name-only -- ':(icase).env*'` inside the existing git budget, or say in the row that history was not checked. (3) treat `*.down.sql` and `down/` as evidence-only for `rls-disabled`.
+
+**Effort:** M
+**Priority:** P2
+**Depends on:** None
+
 ## Completed
+
+### Q3 "nothing found" from a lone seed.sql
+
+**What:** Any `.sql` file counts as a rule file, so a project whose only SQL is `supabase/seed.sql` (one `insert`) can reach Q3 Nothing found with "1 rule file read".
+
+**Why:** `questions.md` promises that with no rule file the answer stays Don't know because rules live in a dashboard; a seed file is not a rule file. Found by the Claude adversarial pass in the v0.3.0 pre-merge review.
+
+**Context:** `test_nothing_found_is_never_a_no_and_never_on_a_partial_scan` encodes the current rule (`select 1;` in a migration earns Nothing found), so this is a design change, not a bug fix: count a `.sql` file as a rule file only when it holds `create table`, `create policy`, `alter table … row level security` or `storage.buckets`; `.rules` and `database.rules.json` always count. Decide against the workshop corpus.
+
+**Effort:** S
+**Priority:** P2
+**Depends on:** None
+
+**Completed:** v0.3.2 (2026-09-29)
 
 ### Test fixtures use real .env filenames
 

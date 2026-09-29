@@ -60,12 +60,16 @@ import warnings
 BUILD_OUTPUT_DIRS = {"dist", "build", "out", ".next", ".nuxt"}  # skipped like the rest, but they hold browser bundles, and people keep source under the first three
 NEVER_READ_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".heic", ".ico", ".bmp", ".tif", ".tiff", ".psd", ".mp4", ".mov", ".webm", ".mkv", ".avi", ".mp3", ".wav", ".ogg", ".flac",
               ".woff", ".woff2", ".ttf", ".otf", ".eot", ".pdf", ".zip", ".tar", ".tgz", ".7z", ".rar", ".dmg", ".exe", ".dll", ".so", ".dylib", ".wasm", ".pyc", ".class", ".jar"}  # media, fonts, archives, binaries: never opened, no detector wants them
-PRECOMPRESSED_EXTS = (".gz", ".br")  # app.js.gz is browser code no detector can read; data.json.gz is just data
+PRECOMPRESSED_EXTS = (".gz", ".br", ".zst", ".zstd")  # app.js.gz is browser code no detector can read; data.json.gz is just data
 EXCLUDED_DIRS = {".git", "node_modules", "dist", "build", ".next", ".nuxt", "out", "vendor", "venv", ".venv", "__pycache__", "coverage"}
 NEVER_OPEN_DIRS = {".claude", ".codex", ".agents", ".windsurf", ".clinerules", ".gemini", ".kiro", ".roo", ".trae", ".augment", ".amazonq", ".junie", ".continue", ".aider", ".opencode"}
 NEVER_OPEN_DIR_PAIRS = {(".cursor", "rules"), (".github", "instructions"), (".github", "prompts"), (".github", "agents")}
 NEVER_OPEN_FILE_RE = re.compile(r"^(?:claude|agents?|gemini|conventions|copilot-instructions)(?:[.-][^/]*)?\.md$|^\.aider.*$|.*\.prompt\.md$|.*\.agent\.md$|.*\.instructions\.md$|.*\.mdc$", re.I)
 NEVER_OPEN_FILES = {".cursorrules", ".windsurfrules", ".clinerules", ".rules", "opencode.json", ".roomodes"}
+# MCP server configs that live inside never-open agent folders: never opened, but each one could hold a token, so it is a Q1 gap
+NEVER_OPEN_MCP_PATHS = {".roo": ("mcp.json",), ".kiro": ("settings/mcp.json",), ".amazonq": ("mcp.json",), ".gemini": ("settings.json",),
+                        ".windsurf": ("mcp_config.json",), ".continue": ("mcpServers", "config.json", "config.yaml"), ".junie": ("mcp",), ".codex": ("config.toml",)}
+NEVER_OPEN_MCP_FILES = {"opencode.json"}
 SKIP_BASENAMES = {"package-lock.json", "yarn.lock", "pnpm-lock.yaml", "bun.lockb", "poetry.lock", "cargo.lock", "composer.lock", "gemfile.lock"}
 SKIP_EXT_SUFFIXES = (".map", ".min.js", ".min.css", ".bundle.js")
 BROWSER_PREFIXES = ("NEXT_PUBLIC_", "VITE_", "REACT_APP_", "EXPO_PUBLIC_", "PUBLIC_", "NUXT_PUBLIC_", "GATSBY_")
@@ -81,7 +85,7 @@ SOURCE_ROOTS = {"src", "app", "pages", "api", "server", "supabase", "prisma", "f
 _HAS_NONBLOCK = hasattr(os, "set_blocking") and sys.platform != "win32"
 CONFIG_VALUE_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 SQL_LIKE_EXTS = {".sql", ".psql", ".pgsql", ".ddl"}
-CODE_EXTS = {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".vue", ".svelte", ".astro", ".py", ".rb", ".go", ".java", ".kt", ".php", ".cs", ".swift", ".dart"}
+CODE_EXTS = {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".mts", ".cts", ".vue", ".svelte", ".astro", ".py", ".rb", ".go", ".java", ".kt", ".php", ".cs", ".swift", ".dart"}
 SCHEMA_EXTS = {".prisma", ".graphql", ".gql"}
 HTML_EXTS = {".html", ".htm", ".jsx", ".tsx", ".vue", ".svelte", ".astro"}
 MAX_EVIDENCE = 12
@@ -134,11 +138,11 @@ CHECKS = {
     "server-path-key-literal": ("q1", "evidence"), "non-client-key-literal": ("q1", "evidence"),
     "placeholder-key-literal": ("q1", "evidence"), "test-path-key-literal": ("q1", "evidence"),
     "scan-summary": ("q1", "evidence"),
-    "nothing-found-keys": ("q1", "evidence"), "build-output-unread": ("q1", "evidence"),
+    "nothing-found-keys": ("q1", "evidence"), "mcp-config-not-opened": ("q1", "evidence"), "build-output-unread": ("q1", "evidence"),
     "api-route-dir": ("q2", "hint"), "framework-config": ("q2", "hint"), "client-server-split": ("q2", "hint"),
     "rls-disabled": ("q3", "no"), "policy-using-true": ("q3", "no"), "policy-select-true": ("q3", "evidence"), "policy-altered-true": ("q3", "evidence"), "policy-with-check-true": ("q3", "evidence"),
     "policy-to-anon": ("q3", "evidence"), "table-without-rls": ("q3", "evidence"), "storage-bucket-public-sql": ("q3", "evidence"), "nothing-found-rules": ("q3", "evidence"),
-    "firebase-rules-open": ("q3", "no"), "firebase-rules-public-read": ("q3", "evidence"), "storage-bucket-public": ("q3", "evidence"),
+    "firebase-rules-open": ("q3", "no"), "firebase-rules-public-read": ("q3", "evidence"), "firebase-rules-test-mode": ("q3", "evidence"), "public-view": ("q3", "evidence"), "storage-bucket-public": ("q3", "evidence"),
     "auth-path": ("q4", "evidence"), "auth-dependency": ("q4", "evidence"),
     "deploy-config": ("q5.code", "yes-part"), "migration-path": ("q5.code", "evidence"), "backup-script": ("q5.code", "evidence"),
     "git-history": ("q5.code", "evidence"), "git-not-a-repo": ("q5.code", "evidence"), "git-config-not-vouched": ("q5.code", "evidence"), "git-index-unread": ("q1", "evidence"), "git-unavailable": ("q5.code", "evidence"),
@@ -146,7 +150,7 @@ CHECKS = {
     "env-name": ("q6", "yes-part"), "preview-deploys-default": ("q6", "evidence"),
     "review-workflow": ("q7", "evidence"),
     "model-env-var": ("q8", "hint"), "model-literal": ("q8", "hint"), "spend-cap-word": ("q8", "hint"), "ai-sdk-dependency": ("q8", "hint"),
-    "monitoring-dependency": ("q9", "hint"), "sentry-config": ("q9", "hint"), "health-route": ("q9", "hint"), "cron-schedule": ("q9", "hint"), "nothing-found-monitoring": ("q9", "evidence"),
+    "monitoring-dependency": ("q9", "hint"), "sentry-config": ("q9", "hint"), "health-route": ("q9", "hint"), "cron-schedule": ("q9", "hint"), "nothing-found-monitoring": ("q9", "evidence"), "manifest-not-parsed": ("q9", "evidence"),
     "pii-field": ("q10", "evidence"), "pii-form-input": ("q10", "evidence"),
     "builder-file": ("q11", "evidence"), "builder-dependency": ("q11", "evidence"), "builder-readme": ("q11", "evidence"), "container-config": ("q11", "evidence"), "code-history-local": ("q11", "evidence"),
 }
@@ -242,7 +246,10 @@ WITH_CHECK_TRUE_RE = re.compile(r"\bwith\s{1,20}check\s{0,20}\(\s{0,20}true\s{0,
 POLICY_TO_ANON_RE = re.compile(r"\bcreate\s+policy\b[^\n]{0,300}?\bto\s+anon\b", re.I)
 STORAGE_BUCKET_TRUE_RE = re.compile(r"storage\.buckets\b[^\n]{0,300}?\btrue\b", re.I)
 FIREBASE_ALLOW_ALL_RE = re.compile(r"\ballow[ \t]{1,20}([a-z]+(?:[ \t]*,[ \t]*[a-z]+){0,10})[ \t]*;", re.I)
-FIREBASE_ALLOW_TRUE_RE = re.compile(r"\ballow[ \t]{1,20}([a-z]+(?:[ \t]*,[ \t]*[a-z]+){0,10})[ \t]*:[ \t]*if[ \t]{1,20}true\b", re.I)
+FIREBASE_ALLOW_TRUE_RE = re.compile(r"\ballow[ \t]{1,20}([a-z]+(?:[ \t]*,[ \t]*[a-z]+){0,10})[ \t]*:[ \t]*if(?:[ \t]{1,20}true\b|[ \t]*\([ \t]*true[ \t]*\)(?=[ \t]*;))", re.I)
+# the console's generated "test mode": open to everyone until a date, then closed
+FIREBASE_TEST_MODE_RE = re.compile(r"\ballow[ \t]{1,20}[a-z]+(?:[ \t]*,[ \t]*[a-z]+){0,10}[ \t]*:[ \t]*if[ \t]*\(?[ \t]*request\.time[ \t]*<", re.I)
+RTDB_TEST_MODE_RE = re.compile(r"\"\.(?:read|write)\"\s{0,20}:\s{0,20}\"\s{0,5}now\s{0,5}<", re.I)
 FIREBASE_WRITE_RE = re.compile(r"\b(?:write|create|update|delete)\b", re.I)
 RTDB_WRITE_OPEN_RE = re.compile(r"\"\.write\"\s{0,20}:\s{0,20}true", re.I)
 RTDB_READ_OPEN_RE = re.compile(r"\"\.read\"\s{0,20}:\s{0,20}true", re.I)
@@ -274,9 +281,13 @@ PREFILTER_RE = re.compile(NAMED_KEY_ALT + r"|eyJ[A-Za-z0-9_-]{8,}|(?:[Ss]ecret|S
 AUTH_DEPS = {"next-auth", "@auth/core", "@auth/nextjs", "@clerk/nextjs", "@clerk/clerk-react", "@clerk/clerk-sdk-node", "@supabase/auth-helpers-nextjs", "@supabase/auth-helpers-react", "@supabase/ssr", "@supabase/auth-ui-react", "passport", "lucia", "better-auth", "jsonwebtoken", "jose", "firebase-admin", "@kinde-oss/kinde-auth-nextjs", "@auth0/nextjs-auth0", "auth0", "django-allauth", "devise", "flask-login", "authlib", "pyjwt", "python-jose"}
 AI_DEPS = {"openai", "@anthropic-ai/sdk", "anthropic", "ai", "@ai-sdk/openai", "@ai-sdk/anthropic", "@ai-sdk/google", "langchain", "@langchain/core", "@langchain/openai", "@langchain/anthropic", "@google/generative-ai", "google-generativeai", "@google/genai", "cohere-ai", "cohere", "replicate", "@mistralai/mistralai", "mistralai", "groq-sdk", "groq", "together-ai", "litellm", "ollama", "openrouter", "@huggingface/inference", "transformers"}
 MONITORING_DEPS = {"@sentry/node", "@sentry/nextjs", "@sentry/react", "@sentry/browser", "@sentry/sveltekit", "@sentry/remix", "sentry-sdk", "dd-trace", "datadog", "@datadog/browser-rum", "@logtail/node", "@logtail/next", "newrelic", "@highlight-run/next", "@highlight-run/node", "@axiomhq/js", "next-axiom", "node-cron", "cron", "bull", "bullmq", "agenda", "@vercel/cron", "pino", "winston", "better-stack",
-                   "sentry-ruby", "sentry-rails", "honeybadger", "rollbar", "bugsnag", "airbrake", "scout_apm", "newrelic_rpm",  # Ruby
-                   "github.com/getsentry/sentry-go", "github.com/rollbar/rollbar-go", "github.com/bugsnag/bugsnag-go", "github.com/newrelic/go-agent",  # Go
-                   "sentry_sdk", "rollbar", "bugsnag", "structlog", "loguru"}
+                   "elastic-apm-node", "logrocket", "logfire",  # JavaScript
+                   "sentry-ruby", "sentry-rails", "honeybadger", "rollbar", "bugsnag", "airbrake", "scout_apm", "newrelic_rpm", "appsignal", "skylight",  # Ruby
+                   "github.com/getsentry/sentry-go", "github.com/rollbar/rollbar-go", "github.com/bugsnag/bugsnag-go", "github.com/newrelic/go-agent",
+                   "github.com/datadog/dd-trace-go", "gopkg.in/datadog/dd-trace-go",  # Go, major-version suffix stripped
+                   "sentry_sdk", "ddtrace", "elastic-apm", "structlog", "loguru"}  # Python; logging libraries count like pino and winston
+# whole vendor scopes and families: @sentry/vue, @opentelemetry/api, opentelemetry-sdk are error tracking or tracing whatever the suffix
+MONITORING_PREFIXES = ("@sentry/", "@bugsnag/", "@opentelemetry/", "@datadog/", "@honeybadger-io/", "@rollbar/", "@logtail/", "@highlight-run/", "@appsignal/", "opentelemetry-")
 BUILDER_DEPS_RE = re.compile(r"^(?:lovable-tagger|@base44/sdk|@replit/.+)$")
 BUILDER_BASENAMES = {".replit", "replit.nix", ".bolt", ".lovable", "base44.config.json", ".v0"}
 FRAMEWORK_CONFIG_RE = re.compile(r"^(?:next|vite|nuxt|svelte|astro|remix|gatsby|angular|vue)\.config\.[a-z]+$", re.I)
@@ -289,14 +300,21 @@ REVIEW_NAME_RE = re.compile(r"(?:^|[-_.])review")  # pr-review.yml, claude-code-
 _SQL_IDENT = r"(?:\"[^\"\n]{1,63}\"|[A-Za-z_][A-Za-z0-9_$]{0,62})"  # a Postgres identifier: quoted as written, or bare
 _SQL_TABLE = "(" + _SQL_IDENT + r"(?:\s{0,5}\.\s{0,5}" + _SQL_IDENT + ")?)"  # optionally schema-qualified
 CREATE_TABLE_RE = re.compile(r"\bcreate\s{1,20}(?:(?:unlogged|foreign)\s{1,20})?table\s{1,20}(?:if\s{1,20}not\s{1,20}exists\s{1,20})?" + _SQL_TABLE, re.I)
+DROP_TABLE_RE = re.compile(r"\bdrop\s{1,20}table\s{1,20}(?:if\s{1,20}exists\s{1,20})?" + _SQL_TABLE, re.I)
+CREATE_VIEW_RE = re.compile(r"\bcreate\s{1,20}(?:or\s{1,20}replace\s{1,20})?(materialized\s{1,20})?view\s{1,20}(?:if\s{1,20}not\s{1,20}exists\s{1,20})?" + _SQL_TABLE + r"([^;]{0,400})", re.I)
+SQL_STRING_RE = re.compile(r"'(?:[^'\n]|'')*'")  # a string literal: `comment on table … is 'enable row level security'` enables nothing
+# a SQL file that defines access, as opposed to a seed file of inserts; only these count as "rule files read"
+RULE_SQL_RE = re.compile(r"\bcreate\s{1,20}(?:(?:unlogged|foreign)\s{1,20})?table\b|\bcreate\s{1,20}policy\b|\brow\s{1,20}level\s{1,20}security\b|\bstorage\.buckets\b", re.I)
 ENABLE_RLS_RE = re.compile(r"\balter\s{1,20}table\s{1,20}(?:if\s{1,20}exists\s{1,20})?(?:only\s{1,20})?" + _SQL_TABLE + r"\s{1,20}enable\s{1,20}row\s{1,20}level\s{1,20}security", re.I)
 TABLE_PART_RE = re.compile(r'"[^"]*"|[^.\s]+')  # a dot inside quotes is part of the name, not a schema separator
 MANIFEST_BASENAMES = {"package.json", "requirements.txt", "pyproject.toml", "gemfile", "go.mod"}
+# dependency manifests no parser here reads; one of these can name the error tracker, so Q9 cannot claim "nothing found"
+UNPARSED_MANIFEST_RE = re.compile(r"^(?:pipfile|setup\.py|setup\.cfg|composer\.json|cargo\.toml|pom\.xml|build\.gradle(?:\.kts)?|pubspec\.yaml|deno\.jsonc?|[^/]+\.gemspec|requirements[-_.][^/]+\.(?:txt|in))$")
 # manifest entry shapes; anchored whitespace never crosses a newline, so a file of blank lines stays linear
 PY_DEP_ENTRY_RE = re.compile(r'"((?:\\.|[^"\\\n]){1,300})"|\x27([^\x27\n]{1,300})\x27')  # one quoted list entry, escapes and markers included
 PY_DEP_NAME_RE = re.compile(r"^[ \t]*([A-Za-z0-9][A-Za-z0-9_.-]{0,99})")  # the name at the front of an entry, before extras, version or marker
 QUOTED_RE = re.compile(r'"(?:\\.|[^"\\\n])*"|\x27[^\x27\n]*\x27')  # blanked before looking for the `]` that ends a list
-GO_MAJOR_SUFFIX_RE = re.compile(r"/v[0-9]+$")  # github.com/newrelic/go-agent/v3 is the go-agent module
+GO_MAJOR_SUFFIX_RE = re.compile(r"(?:/v[0-9]+|\.v[0-9]+)$")  # go-agent/v3 is go-agent; gopkg.in/DataDog/dd-trace-go.v1 is dd-trace-go
 TOML_KEY_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9_.-]{0,99})[ \t]*=[ \t]*(\[)?")
 GEM_RE = re.compile(r'^[ \t]*gem[ \t]+["\x27]([A-Za-z0-9][A-Za-z0-9_.-]{0,99})["\x27]', re.M)
 GO_REQUIRE_RE = re.compile(r'^[ \t]*(?:require[ \t]+)?([a-z0-9][a-z0-9.-]{0,99}/[^\s]{1,200})[ \t]+v[0-9]', re.M)
@@ -1162,17 +1180,37 @@ def detect_sql(sf, state, opts):
                 state.tables[name] = (sf.rel, line)
             else:
                 state.gaps["q3"] += 1
-    for n, m in enumerate(ENABLE_RLS_RE.finditer(text)):
+    code = SQL_STRING_RE.sub(lambda q: " " * len(q.group(0)), text)  # same offsets, no string literals
+    enabled_at = {}  # public table -> offset of its last `enable row level security` in this file
+    for n, m in enumerate(ENABLE_RLS_RE.finditer(code)):
         if n >= MAX_TABLE_MATCHES_PER_FILE:
             state.gaps["q3"] += 1
             break
         state.tick()
         name = _public_table(m.group(1))
         if name:
+            enabled_at[name] = m.start()
             if len(state.rls_enabled) < MAX_SEEN:
                 state.rls_enabled.add(name)
             else:
                 state.gaps["q3"] += 1
+    for n, m in enumerate(DROP_TABLE_RE.finditer(code)):
+        if n >= MAX_TABLE_MATCHES_PER_FILE:
+            state.gaps["q3"] += 1
+            break
+        state.tick()
+        name = _public_table(m.group(1))
+        # a table dropped and made again loses its RLS; unless this file turns it back on afterwards, migration
+        # order across files decides, and the scanner does not replay migrations
+        if name and enabled_at.get(name, -1) < m.start():
+            state.gaps["q3"] += 1
+    counter_views = {}
+    for m in CREATE_VIEW_RE.finditer(code):
+        state.tick()
+        name = _public_table(m.group(2))
+        # a view runs as its owner and skips the table's RLS unless security_invoker is set; a materialized view has no RLS at all
+        if name and (m.group(1) or "security_invoker" not in m.group(3).lower()) and _cap(counter_views, "public-view"):
+            state.add("public-view", sf.rel, line_of(text, m.start()), name)
 
 
 def _public_table(raw):
@@ -1238,6 +1276,8 @@ def detect_rules(sf, state, opts):
             check = "firebase-rules-open" if FIREBASE_WRITE_RE.search(m.group(1)) else "firebase-rules-public-read"
             if _cap(counter, check):
                 state.add(check, sf.rel, line_of(text, m.start()), _clause(m))
+    _finditer_lines(FIREBASE_TEST_MODE_RE, text, sf, state, "firebase-rules-test-mode", counter, _clause)
+    _finditer_lines(RTDB_TEST_MODE_RE, text, sf, state, "firebase-rules-test-mode", counter, _clause)
     _finditer_lines(RTDB_WRITE_OPEN_RE, text, sf, state, "firebase-rules-open", counter, _clause)
     _finditer_lines(RTDB_READ_OPEN_RE, text, sf, state, "firebase-rules-public-read", counter, _clause)
 
@@ -1398,7 +1438,7 @@ def detect_manifest(sf, state, opts):
             state.add("auth-dependency", sf.rel, 0, name)
         if lname in AI_DEPS and _cap(counter, "ai-sdk-dependency"):
             state.add("ai-sdk-dependency", sf.rel, 0, name)
-        if lname in MONITORING_DEPS and _cap(counter, "monitoring-dependency"):
+        if (lname in MONITORING_DEPS or lname.startswith(MONITORING_PREFIXES)) and _cap(counter, "monitoring-dependency"):
             state.add("monitoring-dependency", sf.rel, 0, name)
         if BUILDER_DEPS_RE.match(lname) and _cap(counter, "builder-dependency"):
             state.add("builder-dependency", sf.rel, 0, name)
@@ -1495,6 +1535,9 @@ def layout_checks(rel, base, state):
         state.add("api-route-dir", rel, 0, "")
     if FRAMEWORK_CONFIG_RE.match(b):
         state.add("framework-config", rel, 0, "")
+    if UNPARSED_MANIFEST_RE.match(b) or (dirs and dirs[-1] == "requirements" and b.endswith((".txt", ".in"))):
+        state.gaps["q9"] += 1
+        state.add("manifest-not-parsed", rel, 0, "")
     if any(d in AUTH_SEGMENTS for d in dirs) or stem in AUTH_SEGMENTS or "[...nextauth]" in lower:
         state.add("auth-path", rel, 0, "")
     fly = FLY_ENV_TOML_RE.match(b)
@@ -2004,6 +2047,10 @@ def run_scan(repo, state, opts):
                 continue
             if is_never_open_dir(d, parent_name):
                 state.stats["files_never_open"] += count_files(full, deadline)
+                for inner in NEVER_OPEN_MCP_PATHS.get(d.lower(), ()):
+                    if os.path.lexists(os.path.join(full, *inner.split("/"))):  # existence only; the file is never opened
+                        state.gaps["q1"] += 1
+                        state.add("mcp-config-not-opened", (rel_dir + "/" if rel_dir else "") + d + "/" + inner, 0, "")
                 continue
             if d.lower() in opts.excluded:
                 note_unread_dir(state)  # the founder asked for this folder to be skipped
@@ -2022,6 +2069,9 @@ def run_scan(repo, state, opts):
             ext = os.path.splitext(name)[1].lower()
             if is_never_open_file(name):
                 state.stats["files_never_open"] += 1
+                if name.lower() in NEVER_OPEN_MCP_FILES:
+                    state.gaps["q1"] += 1
+                    state.add("mcp-config-not-opened", rel, 0, "")
                 continue
             if name == ".git":
                 continue
@@ -2107,8 +2157,8 @@ def run_scan(repo, state, opts):
                     state.cls_counts[cls] += 1
                 if _pred_code_or_env(sf) or "mcp" in kinds:
                     state.q1_files += 1
-                if kinds & {"sql", "rules"}:
-                    state.rule_files += 1
+                if "rules" in kinds or ("sql" in kinds and RULE_SQL_RE.search(text)):
+                    state.rule_files += 1  # a seed file of inserts defines no access, so it is not a rule file read
                 if _q1_gate(sf, opts):
                     claimed = []
                     detect_browser_prefix(sf, state, opts, claimed)
@@ -2183,13 +2233,13 @@ def resolve(state):
     elif complete and not ev["q1"] and state.q1_files and not state.gaps["q1"]:
         env = "no tracked env file" if state.git["tracked_env_files"] is not None else "no env file"
         agents = "; %s not opened" % _n(state.stats["files_never_open"], "agent file") if state.stats["files_never_open"] else ""
-        out["q1"] = _q("nothing-found", "med", [_row("nothing-found-keys", "%s read: no key in client code, no MCP token, %s%s" % (_n(state.q1_files, "file"), env, agents))])
+        out["q1"] = _q("nothing-found", "med", [_row("nothing-found-keys", "%s read: no named key format in client code, no MCP token, %s%s" % (_n(state.q1_files, "file"), env, agents))])
     else:
         out["q1"] = _q("dont-know", "med", summary("q1"))
     if "no" in ef["q3"]:
         out["q3"] = _q("no", "high", ev["q3"])
     elif complete and not ev["q3"] and state.rule_files and not state.gaps["q3"]:
-        out["q3"] = _q("nothing-found", "med", [_row("nothing-found-rules", "%s read: no RLS disabled, no using (true) policy, no if-true Firebase rule" % _n(state.rule_files, "rule file"))])
+        out["q3"] = _q("nothing-found", "med", [_row("nothing-found-rules", "%s read: no RLS off, no using (true), no table without RLS, no if-true or test-mode Firebase rule" % _n(state.rule_files, "rule file"))])
     else:
         out["q3"] = _q("dont-know", "med", summary("q3", "" if state.rule_files else "; no SQL or security-rules file among them"))
     q2 = list(ev["q2"])

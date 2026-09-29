@@ -2,6 +2,15 @@
 
 The footer of every verdict names the version that produced it. Later entries carry a "What changed since the workshop" line so an attendee can tell whether an answer would come out differently today.
 
+## 0.3.3 (2026-09-30)
+
+What changed since the workshop build: fewer ways for "nothing found" to be wrong. Every case below used to come back as "nothing found" on an app that had the problem, or had monitoring the scanner could not see.
+
+- **Q3.** Firebase's generated "test mode" (`allow read, write: if request.time < …`, and `".read": "now < …"` in the Realtime Database) is now a `firebase-rules-test-mode` row: the whole database is open until that date. `if (true);` in parentheses is open, like `if true`. A seed file of inserts no longer counts as a rule file read, so an app whose only SQL is `seed.sql` stays Don't know. Text inside a SQL string (`comment on table … is '… enable row level security'`) no longer turns RLS on. A public table that is dropped without the same file turning RLS back on afterwards withholds Nothing found, because a recreated table starts without RLS and the scanner does not replay migration order. A public view without `security_invoker`, and any materialized view, is a `public-view` row: it runs as its owner and skips the table's RLS.
+- **Q1.** `.mts` and `.cts` files are read as code. A zstd bundle (`app.js.zst`) is unread browser code, like `.gz` and `.br`. An MCP config inside an agent folder the scanner never opens (`.roo/mcp.json`, `.kiro/settings/mcp.json`, `.gemini/settings.json`, `opencode.json` and others) is still never opened, but it could hold a token, so it keeps Q1 at Don't know with an `mcp-config-not-opened` row.
+- **Q9.** Error tracking is recognised by vendor family (`@sentry/*`, `@bugsnag/*`, `@opentelemetry/*`, `@datadog/*`, `@honeybadger-io/*`, `@rollbar/*`, `opentelemetry-*`), plus `ddtrace`, `elastic-apm`, `logfire`, `logrocket`, `appsignal` and `skylight`; `gopkg.in/…/dd-trace-go.v1` matches like `go-agent/v3`. A dependency manifest the scanner cannot parse (`Pipfile`, `requirements-*.txt`, `setup.py`, `Cargo.toml`, `composer.json`, `pom.xml`, `build.gradle`, `pubspec.yaml`, `*.gemspec`, `deno.json`) is a `manifest-not-parsed` row and withholds Nothing found.
+- **Wording.** The Nothing found rows now say what was checked: Q1 "no named key format in client code", Q3 "no RLS off, no using (true), no table without RLS, no if-true or test-mode Firebase rule". The skill no longer tells the founder the files "look clean".
+
 ## 0.3.2 (2026-09-29)
 
 What changed since the workshop build: the last line of every verdict now points to a Free Assessment, with one next step chosen by your verdict.

@@ -3711,7 +3711,7 @@ class NothingFoundTests(ScanCase):
     def test_nothing_found_is_never_a_no_and_never_on_a_partial_scan(self):
         self.clean_app()
         self.write("package.json", json.dumps({"dependencies": {"next": "15"}}))
-        self.write("supabase/migrations/1.sql", "select 1;\n")
+        self.write("supabase/migrations/1.sql", "create table t (id int);\nalter table t enable row level security;\n")
         full = self.scan()
         self.write("src/big.ts", "x" * 600000)
         part = self.scan()
@@ -4101,7 +4101,7 @@ class NothingFoundGapTests(ScanCase):
 
     def test_precompressed_rules_and_sql_are_q3_gaps(self):
         self.base_app()
-        self.write("db/schema.sql", "select 1;\n")
+        self.write("db/schema.sql", "create table t (id int);\nalter table t enable row level security;\n")
         self.assertEqual(self.q("q3")["answer"], "nothing-found")
         self.write("db/dump.sql.gz", b"\x1f\x8b\x01", binary=True)
         r = self.scan()
@@ -4349,6 +4349,203 @@ class FooterBookingTests(unittest.TestCase):
         template = self._read(SKILL_DIR, "assets", "verdict-template.md")
         block = template.split("```markdown")[1].split("```")[0]
         self.assertNotIn(self.URL, block)
+
+
+class FalseNothingFoundTests(ScanCase):
+    """Post-merge review of v0.3.0: each case produced a false "nothing found" (or a missed hint) on the
+    merged build. Named key formats (Stripe, private keys) are covered by their own branch."""
+
+    def base_app(self):
+        self.write("src/components/A.tsx", "export const A = () => null;\n")
+
+    def fresh(self):
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.base_app()
+
+    def q(self, key, **kw):
+        return self.scan(**kw)["questions"][key]
+
+    def monitoring(self, q9):
+        return sorted(e["snippet"] for e in q9["evidence"] if e["check"] == "monitoring-dependency")
+
+    # ----------------------------------------------------------------- Q9
+    def test_dependency_groups_are_read(self):
+        self.base_app()
+        self.write("pyproject.toml", '[project]\ndependencies = ["requests"]\n[dependency-groups]\nobs = ["sentry-sdk"]\n')
+        self.assertEqual(self.monitoring(self.q("q9")), ["sentry-sdk"])
+
+    def test_gem_lines_count_as_dependencies_read(self):
+        self.base_app()
+        self.write("Gemfile", 'source "https://rubygems.org"\ngem "rails"\n')
+        q9 = self.q("q9")
+        self.assertEqual(q9["answer"], "nothing-found")
+        self.assertIn("1 dependency read", q9["evidence"][0]["snippet"])
+
+    def test_monitoring_families_match_by_prefix(self):
+        names = ["@sentry/vue", "@bugsnag/js", "@opentelemetry/api", "@datadog/browser-logs", "@honeybadger-io/js",
+                 "@rollbar/react", "ddtrace", "elastic-apm", "logfire", "opentelemetry-sdk", "logrocket", "appsignal"]
+        for name in names:
+            with self.subTest(name=name):
+                self.fresh()
+                self.write("package.json", json.dumps({"dependencies": {name: "1"}}))
+                self.assertEqual(self.monitoring(self.q("q9")), [name])
+
+    def test_every_listed_monitoring_dependency_is_recognised(self):
+        # table-driven so deleting any one entry fails; Go paths in go.mod, everything else by name in package.json
+        for name in sorted(cs.MONITORING_DEPS):
+            with self.subTest(name=name):
+                self.fresh()
+                if name.startswith(("github.com/", "gopkg.in/")):
+                    self.write("go.mod", "module x\n\nrequire %s v1.0.0\n" % name)
+                else:
+                    self.write("package.json", json.dumps({"dependencies": {name: "1"}}))
+                self.assertEqual(self.monitoring(self.q("q9")), [name])
+
+    def test_go_version_suffixes_are_stripped(self):
+        for path in ("gopkg.in/DataDog/dd-trace-go.v1", "github.com/newrelic/go-agent/v3"):
+            with self.subTest(path=path):
+                self.fresh()
+                self.write("go.mod", "module x\n\nrequire %s v1.2.3\n" % path)
+                self.assertTrue(self.monitoring(self.q("q9")), path)
+
+    def test_a_manifest_the_scanner_cannot_parse_is_a_q9_gap(self):
+        for rel in ("backend/Pipfile", "backend/requirements-prod.txt", "requirements/base.txt", "setup.py", "setup.cfg",
+                    "composer.json", "Cargo.toml", "pom.xml", "build.gradle", "build.gradle.kts", "pubspec.yaml", "app.gemspec", "deno.json"):
+            with self.subTest(rel=rel):
+                self.fresh()
+                self.write("package.json", json.dumps({"dependencies": {"react": "18"}}))
+                self.assertEqual(self.q("q9")["answer"], "nothing-found", "control")
+                self.write(rel, "sentry-sdk\n")
+                self.assertEqual(self.q("q9")["answer"], "dont-know", rel)
+
+    def test_precompressed_bundle_is_a_q9_gap_too(self):
+        self.base_app()
+        self.write("package.json", json.dumps({"dependencies": {"next": "15"}}))
+        self.assertEqual(self.q("q9")["answer"], "nothing-found", "control")
+        self.write("public/app.js.gz", b"\x1f\x8b" + b"\x01" * 200, binary=True)
+        self.assertEqual(self.q("q9")["answer"], "dont-know")
+
+    def test_a_linked_sentry_config_is_a_q9_gap(self):
+        self.base_app()
+        self.write("package.json", json.dumps({"dependencies": {"next": "15"}}))
+        os.symlink("/nonexistent/sentry.properties", os.path.join(self.repo, "sentry.properties"))
+        self.assertEqual(self.q("q9")["answer"], "dont-know")
+
+    # ----------------------------------------------------------------- Q1
+    def test_mts_and_cts_files_are_code(self):
+        key = "sk-" + "proj-" + "a1b2c3d4e5f6g7h8i9j0" * 2
+        for name, answer in (("src/components/ai.mts", "no"), ("src/components/ai.cts", "no"), ("src/lib/ai.mts", "dont-know")):
+            with self.subTest(name=name):  # src/lib is unclear territory, the same as a .ts there: evidence, not a no
+                self.fresh()
+                self.write(name, 'export const openai = new OpenAI({ apiKey: "%s" });\n' % key)
+                self.assertEqual(self.q("q1")["answer"], answer, name)
+
+    def test_mcp_config_inside_an_agent_folder_is_a_q1_gap(self):
+        token = "ghp_" + "aB3dE6gH9jK2mN5pQ8sT1vW4yZ7bC0eF3hJ6"
+        for rel in (".roo/mcp.json", ".kiro/settings/mcp.json", ".amazonq/mcp.json", ".gemini/settings.json", "opencode.json"):
+            with self.subTest(rel=rel):
+                self.fresh()
+                self.assertEqual(self.q("q1")["answer"], "nothing-found", "control")
+                self.write(rel, json.dumps({"mcpServers": {"gh": {"env": {"GITHUB_TOKEN": token}}}}))
+                r = self.scan()
+                self.assertEqual(r["questions"]["q1"]["answer"], "dont-know", rel)
+                self.assert_no_secret(json.dumps(r), token)
+
+    def test_zstd_bundle_is_browser_code(self):
+        self.base_app()
+        self.write("public/app.js.zst", b"\x28\xb5\x2f\xfd" + b"\x01" * 200, binary=True)
+        self.assertEqual(self.q("q1")["answer"], "dont-know")
+
+    def test_q1_row_says_what_was_checked(self):
+        self.base_app()
+        snippet = self.q("q1")["evidence"][0]["snippet"]
+        self.assertNotIn("no key in client code", snippet, "the row may only claim the patterns the detectors know")
+        self.assertIn("no named key format", snippet)
+
+    # ----------------------------------------------------------------- Q3
+    def rls_app(self):
+        self.base_app()
+        self.write("supabase/migrations/001.sql", "create table public.profiles (id uuid);\nalter table public.profiles enable row level security;\n")
+        self.assertEqual(self.q("q3")["answer"], "nothing-found", "control")
+
+    def test_firebase_test_mode_rules_are_not_nothing_found(self):
+        cases = {
+            "firestore.rules": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{db}/documents {\n    match /{doc=**} {\n      allow read, write: if request.time < timestamp.date(2026, 12, 31);\n    }\n  }\n}\n",
+            "database.rules.json": '{\n  "rules": {\n    ".read": "now < 1767139200000",\n    ".write": "now < 1767139200000"\n  }\n}\n',
+        }
+        for name, body in cases.items():
+            with self.subTest(name=name):
+                self.fresh()
+                self.write(name, body)
+                q3 = self.q("q3")
+                self.assertNotEqual(q3["answer"], "nothing-found", name)
+                self.assertIn("firebase-rules-test-mode", evidence_checks(q3), name)
+
+    def test_firebase_if_true_in_parentheses_is_open(self):
+        self.base_app()
+        self.write("storage.rules", "service firebase.storage {\n  match /b/{bucket}/o {\n    match /{all=**} {\n      allow read, write: if (true);\n    }\n  }\n}\n")
+        self.assertEqual(self.q("q3")["answer"], "no")
+
+    def test_rls_text_inside_a_string_does_not_enable_rls(self):
+        self.base_app()
+        self.write("db/1.sql", "create table public.orders (id int);\ncomment on table public.orders is 'TODO: alter table public.orders enable row level security';\n")
+        q3 = self.q("q3")
+        self.assertEqual(q3["answer"], "dont-know")
+        self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], ["orders"])
+
+    def test_a_dropped_and_recreated_table_is_not_nothing_found(self):
+        self.rls_app()
+        self.write("supabase/migrations/002.sql", "drop table public.profiles;\ncreate table public.profiles (id uuid, ssn text);\n")
+        self.assertEqual(self.q("q3")["answer"], "dont-know")
+
+    def test_a_rerunnable_schema_that_drops_and_reenables_rls_is_still_clean(self):
+        # the idempotent schema.sql shape: drop, create, enable, all in one file, in that order
+        self.base_app()
+        self.write("db/schema.sql", "drop table if exists public.profiles;\ncreate table public.profiles (id uuid);\nalter table public.profiles enable row level security;\n")
+        self.assertEqual(self.q("q3")["answer"], "nothing-found")
+        self.write("db/schema.sql", "alter table public.profiles enable row level security;\ndrop table if exists public.profiles;\ncreate table public.profiles (id uuid);\n")
+        self.assertEqual(self.q("q3")["answer"], "dont-know", "RLS turned on before the drop does not survive it")
+
+    def test_a_public_view_is_evidence(self):
+        self.rls_app()
+        self.write("supabase/migrations/002.sql", "create view public.profiles_public as select * from public.profiles;\n")
+        q3 = self.q("q3")
+        self.assertEqual(q3["answer"], "dont-know")
+        self.assertIn("public-view", evidence_checks(q3))
+        self.write("supabase/migrations/002.sql", "create view public.profiles_public with (security_invoker = true) as select * from public.profiles;\n")
+        self.assertEqual(self.q("q3")["answer"], "nothing-found", "a security_invoker view obeys the table's RLS")
+
+    def test_a_seed_file_alone_is_not_a_rule_file(self):
+        self.base_app()
+        self.write("supabase/seed.sql", "insert into profiles (id) values (1);\n")
+        self.assertEqual(self.q("q3")["answer"], "dont-know", "no table definition or policy was read")
+
+    def test_compressed_sql_is_a_q3_gap(self):
+        self.rls_app()
+        self.write("backups/dump.sql.gz", b"\x1f\x8b" + b"\x01" * 200, binary=True)
+        self.assertEqual(self.q("q3")["answer"], "dont-know")
+
+    def test_table_registry_gap_alone_withholds_nothing_found(self):
+        # isolated from the rls_enabled overflow: only the first table gets RLS, so that set never overflows
+        self.base_app()
+        self.write("db/1.sql", "create table a (id int);\nalter table a enable row level security;\ncreate table b (id int);\n")
+        with mock.patch.object(cs, "MAX_SEEN", 1):
+            self.assertEqual(self.q("q3")["answer"], "dont-know", "table b never entered the registry, so it was never checked")
+
+    def test_q3_row_says_what_was_checked(self):
+        self.rls_app()
+        snippet = self.q("q3")["evidence"][0]["snippet"]
+        self.assertTrue(snippet.endswith("no if-true or test-mode Firebase rule"), "the row must fit the snippet cap whole: " + snippet)
+
+    def test_q1_row_fits_the_snippet_cap_at_its_longest(self):
+        for i in range(12):
+            self.write("src/c%d.ts" % i, "export const a = 1;\n")
+        self.write("CLAUDE.md", "x\n")
+        self.write(".cursorrules", "x\n")
+        snippet = self.q("q1")["evidence"][0]["snippet"]
+        self.assertIn("no named key format", snippet)
+        self.assertTrue(snippet.endswith("agent files not opened"), "the row must fit the snippet cap whole: " + snippet)
 
 
 if __name__ == "__main__":

@@ -70,7 +70,7 @@ Three rows of a real verdict:
 
 ```
 | 1 | Secrets out of the browser | no | high | `src/lib/config.ts:12` · `browser-prefix-service-or-secret-name` |
-| 3 | Who can read this | nothing found | med | 3 rule files read: no RLS disabled, no using (true) policy, no if-true Firebase rule |
+| 3 | Who can read this | nothing found | med | 3 rule files read: no RLS off, no using (true), no table without RLS, no if-true or test-mode Firebase rule |
 | 9 | How I'd find out it's broken | don't know | low | (you: "I'd hear it from a user") |
 ```
 
