@@ -126,8 +126,10 @@ CHECKS = {
     "browser-prefix-privileged-jwt": ("q1", "no"), "browser-prefix-anon-jwt": ("q1", "evidence"),
     "browser-prefix-authenticated-jwt": ("q1", "evidence"), "browser-prefix-unknown-role-jwt": ("q1", "evidence"),
     "browser-prefix-public-key": ("q1", "evidence"), "browser-prefix-token-shaped": ("q1", "evidence"),
-    "client-key-literal": ("q1", "no"), "client-private-key": ("q1", "no"), "browser-prefix-private-key": ("q1", "no"), "private-key-block": ("q1", "evidence"), "client-privileged-jwt": ("q1", "no"), "client-secret-name-token": ("q1", "no"),
+    "client-key-literal": ("q1", "no"), "client-privileged-jwt": ("q1", "no"), "client-secret-name-token": ("q1", "no"),
     "client-anon-jwt": ("q1", "evidence"), "client-authenticated-jwt": ("q1", "evidence"), "client-unknown-role-jwt": ("q1", "evidence"),
+    "client-private-key": ("q1", "no"), "browser-prefix-private-key": ("q1", "no"), "private-key-block": ("q1", "evidence"),
+    "client-test-mode-key": ("q1", "evidence"),
     "client-secret-ident-token": ("q1", "no"), "client-keyish-ident-token": ("q1", "evidence"),
     "server-path-key-literal": ("q1", "evidence"), "non-client-key-literal": ("q1", "evidence"),
     "placeholder-key-literal": ("q1", "evidence"), "test-path-key-literal": ("q1", "evidence"),
@@ -155,12 +157,17 @@ for _name, (_q, _e) in CHECKS.items():
 # ------------------------------------------------------------------ regexes
 
 NAMED_KEY_ALT = (r"sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|sb_secret_[A-Za-z0-9_-]{10,}"
-                 r"|(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{22,}|gh[ousr]_[A-Za-z0-9]{36}|xox[baprs]-[A-Za-z0-9-]{10,}")
+                 r"|(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{22,}|gh[ousr]_[A-Za-z0-9]{36}|xox[baprs]-[0-9]{8,}-[A-Za-z0-9-]{10,}|xapp-[0-9]-[A-Za-z0-9]{8,}-[0-9]{8,}-[A-Za-z0-9]{16,}")  # Slack tokens carry numeric ids, CSS names do not
 NAMED_KEY_RE = re.compile(r"(?<![A-Za-z0-9_-])(?:" + NAMED_KEY_ALT + r")(?![A-Za-z0-9_-])")
 NAMED_KEY_FULL_RE = re.compile(r"(?:" + NAMED_KEY_ALT + r")")
 # a PEM or OpenSSH private key header; public keys and certificates say PUBLIC KEY / CERTIFICATE and never match
 PRIVATE_KEY_RE = re.compile(r"-----BEGIN (?:[A-Z0-9]+ ){0,3}PRIVATE KEY(?: BLOCK)?-----")
-PEM_BODY_RE = re.compile(r"(?:\\[nr]|[\s\"'`,])*([A-Za-z0-9+/=]{40,})")
+PRIVATE_KEY_END_RE = re.compile(r"-----END (?:[A-Z0-9]+ ){0,3}PRIVATE KEY(?: BLOCK)?-----")  # survives a header split by "+"
+MIN_PEM_BODY_DISTINCT = 10  # a real base64 body uses dozens of characters; filler such as XXXX uses a handful
+PEM_ELLIPSIS_RE = re.compile(r"[A-Za-z0-9+/=\s\\\"'`,]{0,200}?(?:\.\.\.|\u2026)")  # a sample that trails off: MIIEvQ...
+# the key body after the header: quote or escape noise, then up to four RFC 1421 / PGP header lines
+# (Proc-Type:, DEK-Info:, Version:), then at least 40 base64 characters
+PEM_BODY_RE = re.compile(r"(?:\\+[nr]|[\s\"'`,+])*(?:[A-Za-z][A-Za-z-]{1,30}:[^\n\\]{0,200}(?:\\+[nr]|[\r\n])+(?:\\+[nr]|[\s\"'`,+])*){0,4}([A-Za-z0-9+/=]{40,})")
 JWT_RE = re.compile(r"(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}(?![A-Za-z0-9_-])")
 JWT_RUN_RE = re.compile(r"[A-Za-z0-9_.-]{27,}")
 JWT_SEG_RE = re.compile(r"[A-Za-z0-9_-]{8,}")
@@ -180,6 +187,7 @@ CLIENT_IMPORT_RE = re.compile(r"(?m)^[ \t]*import\b[^\n]{0,200}\bfrom[ \t]+[\"']
 SERVER_ONLY_IMPORT_RE = re.compile(r"(?m)^[ \t]*import\b[^\n]{0,200}[\"'](?:next/(?:headers|server|cache)|server-only)[\"']")
 ANGULAR_IMPORT_RE = re.compile(r"(?m)^[ \t]*import\b[^\n]{0,200}\bfrom[ \t]+[\"']@angular/")
 PAGES_DATA_FN_RE = re.compile(r"\b(?:getServerSideProps|getStaticProps|getStaticPaths)\b")
+TEST_MODE_KEY_RE = re.compile(r"^(?:sk|rk)_test_")  # Stripe test mode cannot move real money
 TEST_PATH_RE = re.compile(r"(?:^|/)(?:__tests__|tests?|fixtures?)/|\.(?:test|spec|stories)\.[^/]+$")
 RLS_DISABLED_RE = re.compile(r"disable\s{1,20}row\s{1,20}level\s{1,20}security", re.I)
 USING_TRUE_RE = re.compile(r"\busing\s{0,20}\((?:\s{0,20}\(){0,3}\s{0,20}true(?:\s{0,5}::\s{0,5}bool(?:ean)?)?(?:\s{0,20}\)){1,4}", re.I)
@@ -214,7 +222,7 @@ PII_INPUT_RE = re.compile(r"name=[\"'](email|tel|phone|address|street|cc-[a-z-]+
 BUILDER_URL_RE = re.compile(r"lovable\.(?:dev|app)|replit\.com|bolt\.new|base44\.com|v0\.(?:dev|app)", re.I)
 DEP_NAME_RE = re.compile(r"\"(@?[A-Za-z0-9_./-]+)\"\s*:")
 _prefix_alt = "|".join(re.escape(p) for p in BROWSER_PREFIXES)
-PREFILTER_RE = re.compile(NAMED_KEY_ALT + r"|-----BEGIN [A-Z0-9 ]{0,40}PRIVATE KEY|eyJ[A-Za-z0-9_-]{8,}|(?:[Ss]ecret|SECRET|[Ss]ervice|SERVICE|[Kk]ey|KEY|[Tt]oken|TOKEN)[A-Za-z0-9_]{0,64}[\"']?[ \t]*[:=]|" + _prefix_alt)
+PREFILTER_RE = re.compile(NAMED_KEY_ALT + r"|eyJ[A-Za-z0-9_-]{8,}|(?:[Ss]ecret|SECRET|[Ss]ervice|SERVICE|[Kk]ey|KEY|[Tt]oken|TOKEN)[A-Za-z0-9_]{0,64}[\"']?[ \t]*[:=]|" + _prefix_alt)
 
 AUTH_DEPS = {"next-auth", "@auth/core", "@auth/nextjs", "@clerk/nextjs", "@clerk/clerk-react", "@clerk/clerk-sdk-node", "@supabase/auth-helpers-nextjs", "@supabase/auth-helpers-react", "@supabase/ssr", "@supabase/auth-ui-react", "passport", "lucia", "better-auth", "jsonwebtoken", "jose", "firebase-admin", "@kinde-oss/kinde-auth-nextjs", "@auth0/nextjs-auth0", "auth0", "django-allauth", "devise", "flask-login", "authlib", "pyjwt", "python-jose"}
 AI_DEPS = {"openai", "@anthropic-ai/sdk", "anthropic", "ai", "@ai-sdk/openai", "@ai-sdk/anthropic", "@ai-sdk/google", "langchain", "@langchain/core", "@langchain/openai", "@langchain/anthropic", "@google/generative-ai", "google-generativeai", "@google/genai", "cohere-ai", "cohere", "replicate", "@mistralai/mistralai", "mistralai", "groq-sdk", "groq", "together-ai", "litellm", "ollama", "openrouter", "@huggingface/inference", "transformers"}
@@ -810,7 +818,7 @@ def detect_browser_prefix(sf, state, opts, claimed):
         elif IDENT_SENSITIVE_RE.search(name) and (named or jwt or generic):
             check = "browser-prefix-service-or-secret-name"
         elif named:
-            check = "browser-prefix-named-key"
+            check = "client-test-mode-key" if TEST_MODE_KEY_RE.match(value) else "browser-prefix-named-key"
         elif jwt:
             role = decode_jwt_role(value)
             if role == "service_role":
@@ -891,7 +899,7 @@ def detect_key_literals(sf, state, opts, claimed):
         elif sf.cls == "other":
             check = "non-client-key-literal"
         elif kind == "named":
-            check = "client-key-literal"
+            check = "client-test-mode-key" if TEST_MODE_KEY_RE.match(value) else "client-key-literal"
         elif kind == "jwt":
             role = decode_jwt_role(value)
             im = IDENT_BEFORE_RE.search(text[_line_start(text, start):start])
@@ -921,19 +929,41 @@ def detect_key_literals(sf, state, opts, claimed):
         state.add(check, sf.rel, line, snippet)
 
 
+KEY_FILE_EXTS = {".key", ".p8", ".p12", ".pfx", ".ppk", ".jks", ".keystore"}
+KEY_FILE_NAMES = {"id_rsa", "id_dsa", "id_ecdsa", "id_ed25519"}
+
+
+def is_key_file(base, ext, data):
+    if base.lower() in KEY_FILE_NAMES:
+        return True
+    if ext.lower() not in KEY_FILE_EXTS:
+        return False
+    return not data.startswith(b"PK\x03\x04")  # a Keynote deck is also .key, and it is a zip
+
+
+def detect_key_file(rel, base, state):
+    """A committed key file whose text never says PRIVATE KEY: a PKCS#12 / JKS / DER key or a PuTTY .ppk."""
+    top = rel.split("/", 1)[0].lower()
+    check = "client-private-key" if top in ("public", "static") else "private-key-block"
+    state.add(check, rel, 0, base)
+
+
 def detect_private_keys(sf, state, opts):
     """A private key block anywhere Q1 reads. The snippet is the header only: the body is the secret."""
     text = sf.text
     counter = {}
     is_test = bool(TEST_PATH_RE.search(sf.rel))
+    found = False
     for m in PRIVATE_KEY_RE.finditer(text):
+        found = True
         state.tick()
         body = PEM_BODY_RE.match(text, m.end(), m.end() + 400)
-        window = text[m.end():m.end() + 200]
         im = IDENT_BEFORE_RE.search(text[_line_start(text, m.start()):m.start()])
         name = im.group(1) if im else ""
-        if not body or PLACEHOLDER_RE.search(window):
-            check = "placeholder-key-literal"  # a header with no key after it, or a "your key here" template
+        if not body or len(set(body.group(1))) < MIN_PEM_BODY_DISTINCT or PEM_ELLIPSIS_RE.match(text, body.end(1)):
+            # no key after the header ("your key here"), or filler such as XXXX: judge the body's shape, never
+            # its words, since a real random body can contain "xxx" or "your" by chance
+            check = "placeholder-key-literal"
         elif is_test:
             check = "test-path-key-literal"
         elif name and name.startswith(opts.prefixes):
@@ -944,6 +974,11 @@ def detect_private_keys(sf, state, opts):
             check = "private-key-block"
         if _cap(counter, check):
             state.add(check, sf.rel, line_of(text, m.start()), (name + " = " if name else "") + m.group(0))
+    if not found:
+        for m in PRIVATE_KEY_END_RE.finditer(text):  # "-----BEGIN PRIVATE" + " KEY-----": the footer still names it
+            if _cap(counter, "private-key-block"):
+                state.add("private-key-block", sf.rel, line_of(text, m.start()), m.group(0))
+            break
 
 
 def _mcp_check_for(key):
@@ -2004,6 +2039,8 @@ def run_scan(repo, state, opts):
             candidates += 1
             text = decode_text(data)
             if text is None:
+                if is_key_file(base, ext, data):
+                    detect_key_file(rel, base, state)
                 state.stats["files_skipped_binary"] += 1
                 if note_unread(state, base, ext):
                     state.partial = True  # a source, config, rules or env file that looks binary is itself worth a look
@@ -2021,7 +2058,10 @@ def run_scan(repo, state, opts):
                     claimed = []
                     detect_browser_prefix(sf, state, opts, claimed)
                     detect_key_literals(sf, state, opts, claimed)
-                    detect_private_keys(sf, state, opts)
+                if "PRIVATE KEY" in text:
+                    detect_private_keys(sf, state, opts)  # code, config, env, and key files alike: id_rsa is not code, but it is the classic leak
+                elif is_key_file(base, ext, data):
+                    detect_key_file(rel, base, state)
                 for predicate, detector in DETECTORS:
                     if predicate(sf):
                         detector(sf, state, opts)

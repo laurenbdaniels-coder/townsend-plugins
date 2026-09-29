@@ -461,6 +461,7 @@ STRIPE_TEST = "sk" + "_test_" + rand(99)
 GH_FINE = "github" + "_pat_" + rand(82, ALNUM + "_")
 GH_OAUTH = "gh" + "o_" + rand(36)
 SLACK_BOT = "xo" + "xb-" + "1234567890-1234567890123-" + rand(24)
+SLACK_APP = "xa" + "pp-1-" + "A0" + rand(9, string.ascii_uppercase + string.digits) + "-" + "1234567890123-" + rand(64, "abcdef0123456789")
 PEM_HEAD = "-----" + "BEGIN PRIVATE KEY" + "-----"
 PEM_TAIL = "-----" + "END PRIVATE KEY" + "-----"
 PEM_BODY = rand(64, ALNUM + "+/") + "7"
@@ -477,11 +478,20 @@ class NamedKeyFormatTests(ScanCase):
         self.assertIn("client-key-literal", evidence_checks(q1))
         self.assert_no_secret(json.dumps(r), STRIPE_LIVE)
 
-    def test_stripe_restricted_and_test_keys_are_named(self):
-        for value in (STRIPE_RESTRICTED, STRIPE_TEST, GH_FINE, GH_OAUTH, SLACK_BOT):
+    def test_every_named_live_prefix_in_client_code_is_no(self):
+        for value in (STRIPE_LIVE, STRIPE_RESTRICTED, GH_FINE, "gh" + "o_" + rand(36), "gh" + "u_" + rand(36),
+                      "gh" + "s_" + rand(36), "gh" + "r_" + rand(36), SLACK_BOT, "xo" + "xp-" + "1234567890-1234567890123-" + rand(24), SLACK_APP):
             self.write("src/k.ts", 'fetch(u, { headers: { a: "%s" } });\n' % value)
             q1 = self.scan()["questions"]["q1"]
             self.assertEqual(q1["answer"], "no", value[:6])
+            self.assertIn("client-key-literal", evidence_checks(q1), value[:6])
+
+    def test_stripe_test_mode_keys_in_client_code_are_evidence(self):
+        for value in (STRIPE_TEST, "rk" + "_test_" + rand(99), "sk" + "_test_" + "4eC39HqLyjWDarjtT1zdp7dc"):
+            self.write("src/pay.ts", "// e.g. %s\nconst s = new Stripe(\"%s\");\n" % (value, value))
+            q1 = self.scan()["questions"]["q1"]
+            self.assertNotEqual(q1["answer"], "no", value[:8])
+            self.assertIn("client-test-mode-key", evidence_checks(q1), value[:8])
 
     def test_stripe_key_on_the_server_is_evidence_not_nothing_found(self):
         self.write("app/api/pay/route.ts", 'const s = new Stripe("%s");\n' % STRIPE_LIVE)
@@ -527,12 +537,119 @@ class NamedKeyFormatTests(ScanCase):
         self.assertNotEqual(q1["answer"], "no")
         self.assertIn("placeholder-key-literal", evidence_checks(q1))
 
+    def test_a_real_key_body_that_happens_to_spell_a_placeholder_word_is_still_a_key(self):
+        body = PEM_BODY[:20] + "xxxYour" + PEM_BODY[20:]
+        self.write("src/sign.ts", "export const key = `%s\n%s\n%s`;\n" % (PEM_HEAD, body, PEM_TAIL))
+        q1 = self.scan()["questions"]["q1"]
+        self.assertEqual(q1["answer"], "no")
+        self.assertIn("client-private-key", evidence_checks(q1))
+
+    def test_filler_body_is_a_placeholder(self):
+        self.write("src/doc.ts", "export const key = `%s\n%s\n%s`;\n" % (PEM_HEAD, "X" * 64, PEM_TAIL))
+        q1 = self.scan()["questions"]["q1"]
+        self.assertNotEqual(q1["answer"], "no")
+        self.assertIn("placeholder-key-literal", evidence_checks(q1))
+
+    def test_encrypted_and_pgp_keys_with_header_lines_are_keys(self):
+        enc = "-----" + "BEGIN RSA PRIVATE KEY" + "-----\nProc-Type: 4,ENCRYPTED\nDEK-Info: AES-128-CBC,0A1B2C3D4E5F\n\n" + PEM_BODY + "\n"
+        pgp = "-----" + "BEGIN PGP PRIVATE KEY BLOCK" + "-----\nVersion: Keybase OpenPGP v2.1.0\n\n" + PEM_BODY + "\n"
+        for text in (enc, pgp):
+            self.write("src/sign.ts", "export const key = `%s`;\n" % text)
+            q1 = self.scan()["questions"]["q1"]
+            self.assertIn("client-private-key", evidence_checks(q1), text[:30])
+
+    def test_private_key_files_are_read(self):
+        for rel in ("id_rsa", "certs/private.key", "keys/server.pem", "AuthKey_ABC123.p8"):
+            self.write("src/app.ts", "export const ok = 1;\n")
+            self.write(rel, "%s\n%s\n%s\n" % (PEM_HEAD, PEM_BODY, PEM_TAIL))
+            r = self.scan()
+            q1 = r["questions"]["q1"]
+            self.assertNotEqual(q1["answer"], "nothing-found", rel)
+            self.assertIn("private-key-block", evidence_checks(q1), rel)
+            self.assert_no_secret(json.dumps(r), PEM_BODY)
+            os.remove(os.path.join(self.repo, rel))
+
+    def test_private_key_file_in_public_folder_is_no(self):
+        self.write("public/key.pem", "%s\n%s\n%s\n" % (PEM_HEAD, PEM_BODY, PEM_TAIL))
+        q1 = self.scan()["questions"]["q1"]
+        self.assertEqual(q1["answer"], "no")
+
+    def test_slack_app_token_is_named(self):
+        self.write("src/k.ts", 'const t = "%s";\n' % SLACK_APP)
+        self.assertEqual(self.scan()["questions"]["q1"]["answer"], "no")
+
+    def test_slack_shaped_css_and_dom_names_are_not_keys(self):
+        self.write("src/ui.tsx", '<div className="xoxb-button-primary xoxp-avatar-large" id="xoxa-settings-panel-v2" />\n')
+        q1 = self.scan()["questions"]["q1"]
+        self.assertNotEqual(q1["answer"], "no")
+        self.assertNotIn("client-key-literal", evidence_checks(q1))
+
     def test_public_key_and_certificate_are_not_private_keys(self):
         pub = "-----" + "BEGIN PUBLIC KEY" + "-----\n" + PEM_BODY + "\n-----" + "END PUBLIC KEY" + "-----"
         cert = "-----" + "BEGIN CERTIFICATE" + "-----\n" + PEM_BODY + "\n-----" + "END CERTIFICATE" + "-----"
-        self.write("src/pub.ts", "export const a = `%s`;\nexport const b = `%s`;\n" % (pub, cert))
+        real = "%s\n%s\n%s" % (PEM_HEAD, PEM_BODY, PEM_TAIL)  # a positive control: the detector must run on this file
+        self.write("src/keys.ts", "export const publicKey = `%s`;\nexport const cert = `%s`;\nexport const privateKey = `%s`;\n" % (pub, cert, real))
         q1 = self.scan()["questions"]["q1"]
-        self.assertNotIn("client-private-key", evidence_checks(q1))
+        self.assertEqual(evidence_checks(q1).count("client-private-key"), 1)
+        self.assertNotIn("private-key-block", evidence_checks(q1))
+
+    def test_filler_threshold_is_pinned(self):
+        nine = ("ABCDEFGHI" * 8)[:64]
+        ten = ("ABCDEFGHIJ" * 7)[:64]
+        self.write("src/a.ts", "export const k = `%s\n%s\n%s`;\n" % (PEM_HEAD, nine, PEM_TAIL))
+        self.assertIn("placeholder-key-literal", evidence_checks(self.scan()["questions"]["q1"]))
+        self.write("src/a.ts", "export const k = `%s\n%s\n%s`;\n" % (PEM_HEAD, ten, PEM_TAIL))
+        self.assertIn("client-private-key", evidence_checks(self.scan()["questions"]["q1"]))
+
+    def test_private_key_rows_are_capped_per_file(self):
+        block = "`%s\n%s\n%s`" % (PEM_HEAD, PEM_BODY, PEM_TAIL)
+        self.write("src/many.ts", "".join("export const k%d = %s;\n" % (i, block) for i in range(cs.MAX_HITS_PER_FILE_PER_CHECK + 2)))
+        q1 = self.scan()["questions"]["q1"]
+        self.assertEqual(evidence_checks(q1).count("client-private-key"), cs.MAX_HITS_PER_FILE_PER_CHECK)
+
+    def test_a_sample_that_trails_off_is_a_placeholder(self):
+        for sample in ("b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAABlwAAAAdzc2gtcn\n...",
+                       "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC\u2026"):
+            self.write("src/Form.tsx", "<textarea placeholder={`%s\n%s\n%s`} />\n" % (PEM_HEAD, sample, PEM_TAIL))
+            q1 = self.scan()["questions"]["q1"]
+            self.assertNotEqual(q1["answer"], "no", sample[:10])
+            self.assertIn("placeholder-key-literal", evidence_checks(q1))
+
+    def test_concatenated_and_double_escaped_bodies_are_keys(self):
+        concat = '"%s\\n" +\n' % PEM_HEAD + "".join('  "%s\\n" +\n' % PEM_BODY for _ in range(3)) + '  "%s\\n";\n' % PEM_TAIL
+        double = '"%s\\\\n%s\\\\n%s"' % (PEM_HEAD, PEM_BODY, PEM_TAIL)
+        for text in ("export const k = " + concat, "export const k = %s;\n" % double):
+            self.write("src/sign.ts", text)
+            q1 = self.scan()["questions"]["q1"]
+            self.assertIn("client-private-key", evidence_checks(q1), text[:40])
+
+    def test_a_header_split_by_concatenation_still_counts(self):
+        head = '"-----BEGIN PRIVATE" + " KEY-----\\n'
+        self.write("src/k.ts", "const k = %s%s\\n%s\";\n" % (head, PEM_BODY * 3, PEM_TAIL))
+        q1 = self.scan()["questions"]["q1"]
+        self.assertNotEqual(q1["answer"], "nothing-found")
+        self.assertIn("private-key-block", evidence_checks(q1))
+
+    def test_binary_and_ppk_key_files_count_by_name(self):
+        der = b"\x30\x82\x04\xa4" + bytes(random.Random(7).getrandbits(8) for _ in range(600)) + b"\x00"
+        cases = [("server.key", der, True), ("deploy.ppk", b"PuTTY-User-Key-File-3: ssh-ed25519\nEncryption: none\n", False),
+                 ("certs/push.p12", der, True), ("android/app/release.keystore", der, True)]
+        for rel, content, binary in cases:
+            self.write("src/app.ts", "export const ok = 1;\n")
+            self.write(rel, content, binary=True) if binary else self.write(rel, content.decode())
+            q1 = self.scan()["questions"]["q1"]
+            self.assertNotEqual(q1["answer"], "nothing-found", rel)
+            self.assertIn("private-key-block", evidence_checks(q1), rel)
+            os.remove(os.path.join(self.repo, rel))
+
+    def test_key_file_in_public_folder_is_no_and_a_keynote_deck_is_not_a_key(self):
+        der = b"\x30\x82\x04\xa4" + bytes(random.Random(8).getrandbits(8) for _ in range(600)) + b"\x00"
+        self.write("public/cert.p12", der, binary=True)
+        self.assertEqual(self.scan()["questions"]["q1"]["answer"], "no")
+        os.remove(os.path.join(self.repo, "public/cert.p12"))
+        self.write("docs/pitch.key", b"PK\x03\x04" + bytes(random.Random(9).getrandbits(8) for _ in range(600)), binary=True)
+        self.write("src/app.ts", "export const ok = 1;\n")
+        q1 = self.scan()["questions"]["q1"]
         self.assertNotIn("private-key-block", evidence_checks(q1))
 
 

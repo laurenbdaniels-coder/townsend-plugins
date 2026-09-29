@@ -6,12 +6,12 @@ The footer of every verdict names the version that produced it. Later entries ca
 
 What changed since the workshop build: a Stripe secret key or a private key in your code is now caught. Before, the scan could say "Nothing found" for Secrets with one of them in the code.
 
-- **Fixed.** Q1 now recognises Stripe secret and restricted keys (`sk_live_`, `sk_test_`, `rk_live_`, `rk_test_`), GitHub fine-grained and app tokens (`github_pat_`, `gho_`, `ghu_`, `ghs_`, `ghr_`) and Slack tokens (`xoxb-` and the like), next to the formats it already knew. In client code any of them is a No.
-- **Added.** Private key blocks (`-----BEGIN … PRIVATE KEY-----`, including OpenSSH and PGP):
+- **Fixed.** Q1 now recognises Stripe secret and restricted keys (`sk_live_`, `sk_test_`, `rk_live_`, `rk_test_`), GitHub fine-grained and app tokens (`github_pat_`, `gho_`, `ghu_`, `ghs_`, `ghr_`) and Slack tokens (`xoxb-`, `xapp-` and the like; a CSS name that merely starts with `xoxb-` doesn't count), next to the formats it already knew. In client code any of them is a No, except a Stripe test-mode key (`sk_test_`, `rk_test_`): it can't move real money, so it's listed as evidence (`client-test-mode-key`).
+- **Added.** Private key blocks (`-----BEGIN … PRIVATE KEY-----`, including OpenSSH and PGP), in code, config and env files and in key files such as `id_rsa`, `private.key` or `key.pem`:
   - `client-private-key` (No) in client code;
   - `browser-prefix-private-key` (No) under a browser-exposed name such as `NEXT_PUBLIC_`;
   - `private-key-block` (evidence) anywhere else, for example a service-account JSON or a server env file.
-  Either way, Secrets can no longer read Nothing found with a private key in the code. The verdict shows the header line only, never the key itself. A header with no key after it, or a "your key here" template, is a placeholder.
+  Either way, Secrets can no longer read Nothing found with a private key in the code. The verdict shows the header line only, never the key itself. A header with no key after it, a "your key here" template, filler such as `XXXX`, or a sample that trails off with `...` is a placeholder. A committed key file that never says PRIVATE KEY in text (`.p12`, `.pfx`, `.jks`, `.keystore`, a DER `.key`, a PuTTY `.ppk`) counts by its name.
 
 ## 0.3.0 (2026-09-23)
 
