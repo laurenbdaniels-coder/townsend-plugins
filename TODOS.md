@@ -170,6 +170,18 @@
 **Priority:** P2
 **Depends on:** None
 
+### Leftovers from the v0.3.2 review
+
+**What:** (1) A key in `src/components/` is client code even when the file imports `server-only`, so it is a decisive No (true for `.ts` since 0.1; `.mts` inherits it). (2) A Supabase edge function importing `npm:@sentry/deno` with no manifest is not seen by Q9. (3) Never-open folder lookups are case-sensitive on Linux (`.Roo/MCP.json`), matching the tools themselves there. (4) A file of only `drop table` statements reports "no SQL or security-rules file among them", though one was read.
+
+**Why:** (1) is a false No, the worst answer the scanner can give; the rest are wording or reach. From the adversarial and Codex passes on the v0.3.2 branch.
+
+**Context:** (1) let `SERVER_ONLY_IMPORT_RE` override the client folder in `classify`, with a test that a `"use client"` file still wins. (2) a code-import check for `npm:@sentry/` and `jsr:` specifiers under `supabase/functions/`.
+
+**Effort:** S
+**Priority:** P1 for (1), P3 for the rest
+**Depends on:** None
+
 ## Completed
 
 ### Q3 "nothing found" from a lone seed.sql

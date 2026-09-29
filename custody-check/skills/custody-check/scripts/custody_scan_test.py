@@ -1842,7 +1842,7 @@ class ReviewCycleThreeTests(ScanCase):
 
 class ReviewCycleThreeGateTests(ScanCase):
     def test_sql_comments_never_decide_q3(self):
-        self.write("supabase/migrations/1.sql", "-- do not use: alter table users disable row level security;\n/* create policy p on t using (true); */\nselect 1;\n")
+        self.write("supabase/migrations/1.sql", "-- do not use: alter table users disable row level security;\n/* create policy p on t using (true); */\ncreate table t (id int);\nalter table t enable row level security;\n")
         q3 = self.scan()["questions"]["q3"]
         self.assertEqual(q3["answer"], "nothing-found")  # read, and a commented-out line is not a finding
         self.write("supabase/migrations/2.sql", "alter table users disable row level security; -- oops\n")
@@ -4546,6 +4546,163 @@ class FalseNothingFoundTests(ScanCase):
         snippet = self.q("q1")["evidence"][0]["snippet"]
         self.assertIn("no named key format", snippet)
         self.assertTrue(snippet.endswith("agent files not opened"), "the row must fit the snippet cap whole: " + snippet)
+
+
+
+class FalseNothingFoundReviewTests(ScanCase):
+    """Pre-merge review of the 0.3.2 fixes: variants that sidestepped them, and two older false "no" answers."""
+
+    def base_app(self):
+        self.write("src/components/A.tsx", "export const A = () => null;\n")
+
+    def fresh(self):
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.base_app()
+
+    def q(self, key, **kw):
+        return self.scan(**kw)["questions"][key]
+
+    def q3_of(self, files):
+        self.fresh()
+        for rel, body in files.items():
+            self.write(rel, body)
+        return self.q("q3")
+
+    RLS = "create table public.notes (id int);\nalter table public.notes enable row level security;\n"
+
+    # ----------------------------------------------------------------- rule files
+    def test_words_in_a_seed_comment_or_string_do_not_make_it_a_rule_file(self):
+        for body in ("-- run after the create table migrations\ninsert into notes values (1);\n",
+                     "/* create policy docs */\ninsert into notes values (1);\n",
+                     "insert into docs values ('how to create policy for row level security');\n",
+                     "insert into docs values ($$create table in a dollar string$$);\n"):
+            with self.subTest(body=body):
+                self.assertEqual(self.q3_of({"supabase/seed.sql": body})["answer"], "dont-know")
+
+    def test_every_access_statement_makes_a_rule_file(self):
+        for body in ("alter table public.t enable row level security;\n", "create policy p on public.t for select using (auth.uid() = owner);\n",
+                     "insert into storage.buckets (id, public) values ('avatars', false);\n"):
+            with self.subTest(body=body):
+                self.assertEqual(self.q3_of({"db/1.sql": body})["answer"], "nothing-found")
+
+    # ----------------------------------------------------------------- strings
+    def test_dollar_and_escape_strings_do_not_enable_rls(self):
+        for tail in ("select $$alter table public.notes enable row level security$$;\n",
+                     "create function f() returns void language sql as $body$ alter table public.notes enable row level security $body$;\n",
+                     "comment on table public.notes is E'it\\'s alter table public.notes enable row level security';\n",
+                     "comment on table public.notes is 'it''s alter table public.notes enable row level security';\n"):
+            with self.subTest(tail=tail):
+                q3 = self.q3_of({"db/1.sql": "create table public.notes (id int);\n" + tail})
+                self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], ["notes"])
+
+    def test_a_do_block_really_runs(self):
+        q3 = self.q3_of({"db/1.sql": "create table public.notes (id int);\ndo $$ begin\n  alter table public.notes enable row level security;\nend $$;\n"})
+        self.assertEqual(q3["answer"], "nothing-found")
+
+    def test_rls_disabled_inside_a_string_is_evidence_not_a_no(self):
+        q3 = self.q3_of({"db/1.sql": self.RLS + "comment on table public.notes is 'we never disable row level security';\n"})
+        self.assertEqual(q3["answer"], "dont-know")
+        self.assertIn("rls-disabled-in-string", evidence_checks(q3))
+        q3 = self.q3_of({"db/1.sql": "create table public.t (id int);\ndo $$ begin execute 'alter table public.t disable row level security'; end $$;\n"})
+        self.assertNotEqual(q3["answer"], "nothing-found", "execute in a DO block is real")
+        self.assertEqual(self.q3_of({"db/1.sql": self.RLS + "alter table public.notes disable row level security;\n"})["answer"], "no")
+
+    # ----------------------------------------------------------------- drops and views
+    def test_every_table_in_a_drop_list_is_checked(self):
+        q3 = self.q3_of({"db/1.sql": "create table public.a (id int);\ncreate table public.notes (id int);\nalter table public.notes enable row level security;\n",
+                         "db/2.sql": "drop table public.a, public.notes cascade;\ncreate table public.a (id int);\ncreate table public.notes (id int);\nalter table public.a enable row level security;\n"})
+        self.assertEqual(q3["answer"], "dont-know")
+
+    def test_security_invoker_must_be_on(self):
+        for opt, flagged in (("with (security_invoker = false)", True), ("with (security_invoker=off)", True), ("with (security_invoker=on)", False),
+                             ("with (security_invoker = true)", False), ("with (security_invoker)", False), ("with (security_barrier)", True)):
+            with self.subTest(opt=opt):
+                q3 = self.q3_of({"db/1.sql": self.RLS + "create view public.v %s as select id as security_invoker from public.notes;\n" % opt})
+                self.assertEqual("public-view" in evidence_checks(q3), flagged, opt)
+
+    def test_view_kinds_and_schemas(self):
+        for stmt, flagged in (("create materialized view public.mv as select * from public.notes;", True),
+                              ("create or replace view public.v as select * from public.notes;", True),
+                              ("create view private.v as select * from public.notes;", False)):
+            with self.subTest(stmt=stmt):
+                self.assertEqual("public-view" in evidence_checks(self.q3_of({"db/1.sql": self.RLS + stmt + "\n"})), flagged, stmt)
+
+    # ----------------------------------------------------------------- Firebase
+    def rules(self, cond):
+        return "service cloud.firestore {\n  match /databases/{db}/documents {\n    match /{doc=**} {\n      allow read, write: %s\n    }\n  }\n}\n" % cond
+
+    def test_firebase_open_variants(self):
+        for cond in ("if ((true));", "if (true)\n", "if\n        true;", "if true;"):
+            with self.subTest(cond=cond):
+                self.assertEqual(self.q3_of({"firestore.rules": self.rules(cond)})["answer"], "no", cond)
+
+    def test_true_joined_to_a_real_condition_is_not_open(self):
+        for cond in ("if true && request.auth != null;", "if (true) && request.auth != null;", "if true\n        && request.auth != null;"):
+            with self.subTest(cond=cond):
+                self.assertNotEqual(self.q3_of({"firestore.rules": self.rules(cond)})["answer"], "no", cond)
+
+    def test_firebase_test_mode_variants(self):
+        for cond in ("if (request.time < timestamp.date(2026, 12, 31));", "if request.time<timestamp.date(2026, 12, 31);",
+                     "if\n        request.time < timestamp.date(2026, 12, 31);", "if timestamp.date(2026, 12, 31) > request.time;"):
+            with self.subTest(cond=cond):
+                self.assertIn("firebase-rules-test-mode", evidence_checks(self.q3_of({"firestore.rules": self.rules(cond)})), cond)
+        q3 = self.q3_of({"database.rules.json": '{"rules": {".read": "now < 1767139200000", ".write": "auth != null"}}\n'})
+        self.assertIn("firebase-rules-test-mode", evidence_checks(q3))
+
+    def test_rtdb_true_as_a_string_is_open(self):
+        self.assertEqual(self.q3_of({"database.rules.json": '{"rules": {".read": "true", ".write": "true"}}\n'})["answer"], "no")
+
+    # ----------------------------------------------------------------- Q1 agent configs
+    def test_more_agent_configs_that_hold_tokens_are_q1_gaps(self):
+        token = "ghp_" + "aB3dE6gH9jK2mN5pQ8sT1vW4yZ7bC0eF3hJ6"
+        for rel in ("opencode.jsonc", ".aider.conf.yml", ".trae/mcp.json", ".amazonq/cli-agents/dev.json", ".windsurf/mcp_config.json",
+                    ".continue/config.yaml", ".continue/mcpServers/gh.json", ".junie/mcp/mcp.json", ".codex/config.toml",
+                    ".github/agents/mcp.json", ".roo/servers/team-mcp.json"):
+            with self.subTest(rel=rel):
+                self.fresh()
+                self.write(rel, json.dumps({"mcpServers": {"gh": {"env": {"GITHUB_TOKEN": token}}}}))
+                r = self.scan()
+                self.assertEqual(r["questions"]["q1"]["answer"], "dont-know", rel)
+                self.assert_no_secret(json.dumps(r), token)
+
+    def test_zstd_long_suffix_is_browser_code(self):
+        self.base_app()
+        self.write("public/app.js.zstd", b"\x28\xb5\x2f\xfd" + b"\x01" * 200, binary=True)
+        self.assertEqual(self.q("q1")["answer"], "dont-know")
+
+    # ----------------------------------------------------------------- Q9
+    EXPECTED_MONITORING = ["@sentry/node", "@sentry/nextjs", "sentry-sdk", "sentry_sdk", "dd-trace", "ddtrace", "datadog", "@datadog/browser-rum",
+                           "newrelic", "newrelic_rpm", "@axiomhq/js", "next-axiom", "node-cron", "cron", "bull", "bullmq", "agenda", "@vercel/cron",
+                           "pino", "winston", "better-stack", "elastic-apm", "elastic-apm-node", "logrocket", "logfire", "sentry-ruby", "sentry-rails",
+                           "honeybadger", "rollbar", "bugsnag", "airbrake", "scout_apm", "appsignal", "skylight", "structlog", "loguru",
+                           "@logtail/node", "@highlight-run/next", "@appsignal/nodejs", "@bugsnag/js", "@honeybadger-io/js", "@rollbar/react",
+                           "@opentelemetry/api", "opentelemetry-sdk",
+                           "github.com/getsentry/sentry-go", "github.com/rollbar/rollbar-go", "github.com/bugsnag/bugsnag-go",
+                           "github.com/newrelic/go-agent", "github.com/datadog/dd-trace-go", "gopkg.in/datadog/dd-trace-go"]
+
+    def test_each_expected_monitoring_name_is_recognised(self):
+        # a literal list, so deleting an entry from the scanner's set or prefixes fails here
+        for name in self.EXPECTED_MONITORING:
+            with self.subTest(name=name):
+                self.fresh()
+                if name.startswith(("github.com/", "gopkg.in/")):
+                    self.write("go.mod", "module x\n\nrequire %s v1.0.0\n" % name)
+                else:
+                    self.write("package.json", json.dumps({"dependencies": {name: "1"}}))
+                self.assertEqual(sorted(e["snippet"] for e in self.q("q9")["evidence"] if e["check"] == "monitoring-dependency"), [name])
+
+    def test_no_exact_monitoring_name_is_already_covered_by_a_prefix(self):
+        self.assertEqual(sorted(n for n in cs.MONITORING_DEPS if n.startswith(cs.MONITORING_PREFIXES)), [])
+
+    def test_more_manifest_shapes_are_q9_gaps(self):
+        for rel in ("requirements.in", "requirements-dev.in", "dev-requirements.txt", "environment.yml", "supabase/functions/import_map.json",
+                    "deno.jsonc", "api/App.csproj", "mix.exs", "requirements/dev.in"):
+            with self.subTest(rel=rel):
+                self.fresh()
+                self.write("package.json", json.dumps({"dependencies": {"react": "18"}}))
+                self.write(rel, "sentry-sdk\n")
+                self.assertEqual(self.q("q9")["answer"], "dont-know", rel)
 
 
 if __name__ == "__main__":
