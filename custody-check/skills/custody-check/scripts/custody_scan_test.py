@@ -1454,7 +1454,7 @@ class LinearityTests(unittest.TestCase):
             ("prefilter keyword", cs.PREFILTER_RE, "secret:"),
             ("run sweep", cs.RUN_RE, "A1b2C3d4" * 4 + " "),
             ("client import", cs.CLIENT_IMPORT_RE, "import x from 'y'\n"),
-            ("firebase allow", cs.FIREBASE_ALLOW_TRUE_RE, "allow read, write: if x;\n"),
+            ("firebase allow", cs.FIREBASE_IF_RE, "allow read, write: if x;\n"),
         )
         # Sized so the fastest case still takes ~6x the floor below. At 20k units the two hottest
         # regexes measured 0.0021s and 0.0024s against a 0.002s floor, so a faster runner would have
@@ -1496,7 +1496,7 @@ class LinearityTests(unittest.TestCase):
 
     def test_firebase_and_sql_patterns_are_linear(self):
         t0 = time.perf_counter()
-        cs.FIREBASE_ALLOW_TRUE_RE.search("allow " * 80000)
+        cs.FIREBASE_IF_RE.search("allow " * 80000)
         cs.RLS_DISABLED_RE.search("disable " + " " * 400000)
         cs.RLS_DISABLED_RE.search("disable \n" * 60000)
         self.assertLess(time.perf_counter() - t0, bound(1.0))
@@ -1915,7 +1915,7 @@ class ReviewCycleThreeAdversarialTests(ScanCase):
 
     def test_single_long_whitespace_line_is_linear(self):
         line = " " * 400000
-        for regex in (cs.CRON_WORKFLOW_RE, cs.CLIENT_IMPORT_RE, cs.TOML_PUBLIC_TRUE_RE, cs.NETLIFY_CONTEXT_RE, cs.WRANGLER_ENV_RE, cs.CRON_WRANGLER_RE, cs.USE_CLIENT_RE, cs.FIREBASE_ALLOW_TRUE_RE, cs.GEM_RE, cs.GO_REQUIRE_RE):
+        for regex in (cs.CRON_WORKFLOW_RE, cs.CLIENT_IMPORT_RE, cs.TOML_PUBLIC_TRUE_RE, cs.NETLIFY_CONTEXT_RE, cs.WRANGLER_ENV_RE, cs.CRON_WRANGLER_RE, cs.USE_CLIENT_RE, cs.FIREBASE_IF_RE, cs.GEM_RE, cs.GO_REQUIRE_RE):
             t0 = time.perf_counter()
             regex.search(line)
             regex.search("\t" * 400000)
@@ -4744,8 +4744,8 @@ class StringBlankingIsOnlyEverCautiousTests(ScanCase):
 
     def test_string_blanking_growth_is_linear(self):
         for name, unit in (("closed quotes", "'a' "), ("escape strings", "E'a\\'b' "), ("dollar bodies", "$$a$$ "), ("doubled quotes", "'a''b' ")):
-            t_small = _fastest(lambda: cs._blank_sql_strings(unit * 150000))
-            t_big = _fastest(lambda: cs._blank_sql_strings(unit * 300000))
+            t_small = _fastest(lambda: cs._lex_sql(unit * 150000))
+            t_big = _fastest(lambda: cs._lex_sql(unit * 300000))
             self.assertGreater(t_small, _RATIO_FLOOR_S, "%s: too fast to time, the ratio would assert nothing" % name)
             self.assertLess(t_big / t_small, 3.0, "%s grew %.1fx when the input doubled" % (name, t_big / t_small))
 
@@ -4780,6 +4780,106 @@ class StringBlankingIsOnlyEverCautiousTests(ScanCase):
         os.makedirs(self.repo)
         self.write("firestore.rules", rules)
         self.assertEqual(self.scan()["questions"]["q3"]["answer"], "no")
+
+
+
+class ReviewCycleThreeRegressionTests(ScanCase):
+    """Final review cycle of 0.3.2: two regressions against 0.3.1 and the gaps behind them. Comments, strings,
+    dollar bodies and quoted identifiers are now read in one left-to-right pass."""
+
+    RLS = "create table public.notes (id int);\nalter table public.notes enable row level security;\n"
+
+    def q3_of(self, files):
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.write("src/components/A.tsx", "export const A = () => null;\n")
+        for rel, body in files.items():
+            self.write(rel, body)
+        return self.scan()["questions"]["q3"]
+
+    def sql(self, body):
+        return self.q3_of({"db/1.sql": body})
+
+    # ----------------------------------------------------------------- regression 1: Firebase ||
+    def rules(self, cond):
+        return "service cloud.firestore {\n  match /{d=**} {\n    allow read, write: %s\n  }\n}\n" % cond
+
+    def test_true_or_anything_is_open(self):
+        for cond in ("if true || request.auth != null;", "if request.auth != null || true;", "if ((true) || request.auth != null);", "if false || true;"):
+            with self.subTest(cond=cond):
+                self.assertEqual(self.q3_of({"firestore.rules": self.rules(cond)})["answer"], "no", cond)
+
+    def test_true_and_something_is_never_a_no(self):
+        for cond in ("if (true || request.auth != null) && request.auth.uid == 'x';", "if true && request.auth != null;", "if (request.auth != null || true) && false;"):
+            with self.subTest(cond=cond):
+                self.assertNotEqual(self.q3_of({"firestore.rules": self.rules(cond)})["answer"], "no", cond)
+
+    def test_a_condition_with_true_the_scanner_did_not_evaluate_is_not_nothing_found(self):
+        for cond in ("if true == true;", "if true && request.auth != null;"):
+            with self.subTest(cond=cond):
+                q3 = self.q3_of({"firestore.rules": self.rules(cond)})
+                self.assertNotEqual(q3["answer"], "nothing-found", cond)
+
+    # ----------------------------------------------------------------- regression 2: parity
+    def test_a_double_dash_inside_a_string_is_not_a_comment(self):
+        q3 = self.sql(self.RLS + "insert into public.log(msg) values ('a -- b');\nalter table public.notes disable row level security;\nselect 'x';\n")
+        self.assertEqual(q3["answer"], "no")
+        q3 = self.sql("create table public.notes (id int);\ninsert into public.log(msg) values ('a -- b');\ncomment on table public.notes is 'alter table public.notes enable row level security';\n")
+        self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], ["notes"])
+
+    def test_a_do_block_does_not_flip_later_dollar_quotes(self):
+        do = "do $$ begin if not exists (select 1) then perform 1; end if; end $$;\n"
+        fn = "create or replace function public.touch() returns trigger language plpgsql as $$ begin return new; end; $$;\n"
+        q3 = self.sql("create table public.notes (id int);\n" + do + "alter table public.notes disable row level security;\n" + fn)
+        self.assertEqual(q3["answer"], "no")
+        q3 = self.sql("create table public.notes (id int);\n" + do + "create function f() returns void language plpgsql as $$ begin alter table public.notes enable row level security; end $$;\n")
+        self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], ["notes"], "a function body is not run")
+
+    def test_statements_inside_a_do_block_still_run(self):
+        self.assertEqual(self.sql("create table public.notes (id int);\ndo $body$ begin alter table public.notes enable row level security; end $body$;\n")["answer"], "nothing-found")
+        self.assertEqual(self.sql(self.RLS + "do $$ begin alter table public.notes disable row level security; end $$;\n")["answer"], "no")
+
+    def test_an_apostrophe_in_a_quoted_identifier_is_not_a_string(self):
+        q3 = self.sql("create table public.notes (id int);\ncreate index \"o'brien_idx\" on public.notes(id);\ncomment on table public.notes is 'alter table public.notes enable row level security';\n")
+        self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], ["notes"])
+
+    def test_an_unclosed_quote_is_a_gap(self):
+        q3 = self.sql(self.RLS + "select 'unterminated;\n")
+        self.assertEqual(q3["answer"], "dont-know")
+        q3 = self.sql("create table public.notes (id int);\nselect 'unterminated;\ncomment on table public.notes is 'alter table public.notes enable row level security';\n")
+        self.assertNotEqual(q3["answer"], "nothing-found")
+        # a quote that is really the last one: everything after it is inside a string that never ends
+        q3 = self.sql("create table public.notes (id int);\nselect 'unterminated;\nalter table public.notes enable row level security;\n")
+        self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], ["notes"],
+                         "nothing after an unclosed quote earns RLS credit, whatever the gap does")
+
+    def test_a_double_dash_inside_a_dollar_string_keeps_its_evidence(self):
+        q3 = self.sql(self.RLS + "comment on table public.notes is $$-- docs: create policy p on public.notes using (true)$$;\n")
+        self.assertIn("open-rule-in-string", evidence_checks(q3))
+
+    # ----------------------------------------------------------------- older regexes
+    def test_a_long_inline_comment_does_not_hide_a_rule(self):
+        pad = "/* " + "padding " * 10 + "*/"
+        self.assertEqual(self.sql(self.RLS + "alter table public.notes disable %s row level security;\n" % pad)["answer"], "no")
+        self.assertEqual(self.sql(self.RLS + "create policy open on public.notes for all using %s (true);\n" % pad)["answer"], "no")
+        q3 = self.sql(self.RLS + "drop %s table public.notes;\ncreate table public.notes (id int);\n" % pad)
+        self.assertEqual(q3["answer"], "dont-know")
+
+    def test_using_true_in_any_depth_of_parentheses(self):
+        self.assertEqual(self.sql(self.RLS + "create policy open on public.notes for all using (((((((true)))))));\n")["answer"], "no")
+
+    def test_a_recursive_view_is_evidence(self):
+        self.assertIn("public-view", evidence_checks(self.sql(self.RLS + "create recursive view public.v(n) as select id from public.notes;\n")))
+
+    def test_a_crowded_agent_folder_is_walked_in_linear_time(self):
+        d = os.path.join(self.repo, ".codex")
+        os.makedirs(d)
+        for i in range(4000):
+            open(os.path.join(d, "mcp%05d" % i), "w").close()
+        t0 = time.perf_counter()
+        r = self.scan()
+        self.assertLess(time.perf_counter() - t0, bound(2.0))
+        self.assertEqual(r["questions"]["q1"]["answer"], "dont-know")
 
 
 if __name__ == "__main__":
