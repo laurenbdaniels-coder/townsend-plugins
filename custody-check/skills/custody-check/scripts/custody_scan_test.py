@@ -144,7 +144,10 @@ class ScanCase(unittest.TestCase):
                     os.chmod(os.path.join(root, d), 0o755)
                 except OSError:
                     pass
-        shutil.rmtree(self.tmp, ignore_errors=True)
+        try:
+            rm_tree(self.tmp)  # git objects are read-only, and Windows will not unlink them otherwise
+        except OSError:
+            shutil.rmtree(self.tmp, ignore_errors=True)
 
     def write(self, rel, content, binary=False):
         path = os.path.join(self.repo, rel)
@@ -3429,6 +3432,13 @@ class SmallReadTests(ScanCase):
         with mock.patch.object(cs, "read_bytes", lambda fd, size: b"[core]\n"):
             self.assertIsNone(cs._read_small_regular(path, 4096))
 
+    def test_a_file_that_grows_under_the_read_is_not_vouched_for(self):
+        path = os.path.join(self.tmp, "config")
+        with open(path, "wb") as fh:
+            fh.write(b"[core]\n")
+        with mock.patch.object(cs, "read_bytes", lambda fd, size: b"x" * size):  # size is what the reader asked for
+            self.assertIsNone(cs._read_small_regular(path, 4096))
+
 
 class KilledLatePopen(subprocess.Popen):
     """The race Windows loses: git is still alive when the reader kills it at the output cap, so it exits non-zero."""
@@ -3461,6 +3471,15 @@ class KilledGitTests(ScanCase):
         self.assertIn("%d+ tags" % r["git"]["tags"], history["snippet"])
 
     @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_one_tag_longer_than_the_cap_still_counts(self):
+        self.init_repo(commits=1)
+        self.git("tag", "t" + "x" * 230)  # one ref name longer than the cap: nothing whole is read, but a tag exists
+        with mock.patch.object(cs, "GIT_OUTPUT_LIMIT", 200), mock.patch.object(cs.subprocess, "Popen", KilledLatePopen):
+            r = self.scan()
+        self.assertEqual(r["git"]["commits"], 1, "the cap must still hold the repo path, or this test proves nothing")
+        self.assertEqual(r["git"]["tags"], 1)
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
     def test_tag_cut_mid_name_is_not_counted(self):
         self.init_repo(commits=1)
         for i in range(40):
@@ -3488,7 +3507,8 @@ class KilledGitTests(ScanCase):
             self.write("d%03d/.env.staging" % i, "x\n")
         self.init_repo(commits=1)
         entry = len("d000/.env.staging\0")
-        with mock.patch.object(cs, "GIT_OUTPUT_LIMIT", 9 * entry + len("d009/.env.sta")):  # the tenth path is cut to ".env.sta"
+        with mock.patch.object(cs, "GIT_OUTPUT_LIMIT", 9 * entry + len("d009/.env.sta")), \
+                mock.patch.object(cs.subprocess, "Popen", KilledLatePopen):  # the tenth path is cut to ".env.sta", and git exits non-zero
             r = self.scan()
         self.assertTrue(r["partial"])
         self.assertEqual(len(r["git"]["tracked_env_files"]), 9)

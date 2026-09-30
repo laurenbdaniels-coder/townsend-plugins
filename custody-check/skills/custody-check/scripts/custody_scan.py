@@ -720,7 +720,8 @@ def count_files(path, deadline=None):
 
 
 def _safe_open_flags():
-    """Read-only, never following a symlink or blocking on a fifo, and binary: Windows text mode turns CRLF into LF, a short read."""
+    """Read-only and binary (Windows text mode turns CRLF into LF, a short read). Where the platform has them, also never
+    following a symlink or blocking on a fifo; Windows has neither flag, so there the lstat before every open is the guard."""
     return os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NONBLOCK", 0)
 
 
@@ -1661,7 +1662,7 @@ def _read_small_regular(path, limit):
         st = os.fstat(fd)
         if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_size > limit:
             return None
-        data = read_bytes(fd, st.st_size)
+        data = read_bytes(fd, st.st_size + 1)  # one byte past fstat, so a file that grew is caught as well as one that shrank
         return data if len(data) == st.st_size else None  # a file that changed under us is not vouched for on a prefix
     except OSError:
         return None
@@ -1916,8 +1917,10 @@ def git_facts(repo, state):
         if tags.truncated:  # git was killed at the cap, so its exit code says nothing; what was read is a floor,
             tag_lines = tag_lines[:-1]  # and a floor is all Q5 asks ("any tags?"), so the scan is not partial for it
         state.git["tags"] = len([t for t in tag_lines if t.strip()]) if tags.returncode == 0 or tags.truncated else 0
+        if tags.truncated:
+            state.git["tags"] = max(state.git["tags"], 1)  # output hit the cap, so at least one tag exists, however long its name
         shallow = run(["rev-parse", "--is-shallow-repository"])
-        state.git["shallow"] = shallow.stdout.strip() == "true" or _read_small_regular(os.path.join(_git_dir(toplevel), "shallow"), 4096) is not None
+        state.git["shallow"] = shallow.stdout.strip() == "true" or os.path.lexists(os.path.join(_git_dir(toplevel), "shallow"))  # the file existing is enough; never fail open to "full history"
         commits = run(["rev-list", "--count", "--exclude-promisor-objects", "HEAD"])  # the only object walk: last, never lazy-fetching
         state.git["commits"] = int(commits.stdout.strip()) if commits.returncode == 0 and commits.stdout.strip().isdigit() else 0
         if subdir:

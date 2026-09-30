@@ -106,7 +106,7 @@ Claude Code and Codex read the instruction files in the folder they start in (`C
 - **A git worktree.** The scanner treats a `.git` file that points outside the app folder as "not a repository", on purpose; run it on the main checkout instead.
 - **`git-unavailable` / `git-timeout`.** Install git (macOS: Command Line Tools) or try again.
 - **"I think a `no` is wrong."** A scanner `no` comes with a path and a line. Look there. If it really is a placeholder, a test fixture, or a public key, open an issue on this repository with the check name from the evidence column and I will tune it; the scanner cannot be argued down inside the chat, on purpose.
-- **Windows.** Not supported for the workshop. The scanner's unit tests pass on Windows in CI and gate the build, but the full skill run has not been tried there. Use macOS or Linux for the workshop.
+- **Windows.** Not supported for the workshop. The scanner's unit tests pass on Windows in CI and gate the build (the POSIX-only cases, such as fifos, hard links and permission bits, are skipped there), but the full skill run has not been tried. Use macOS or Linux for the workshop.
 
 ## Platforms
 

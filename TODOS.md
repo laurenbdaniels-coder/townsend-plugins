@@ -14,15 +14,15 @@
 **Priority:** P3
 **Depends on:** None
 
-### Make the scanner work on Windows
+### Try the full skill run on Windows
 
-**What:** 116 of the scanner's unit tests fail on the `windows-latest` CI job. The git reader (non-blocking pipes, `select`, process groups), the fifo and symlink guards, and the permission and temp-directory handling in the tests are all written for macOS and Linux.
+**What:** The scanner's unit tests pass on `windows-latest` and gate the build, including a check that an NTFS junction cannot pull files from outside the app folder into the scan. Nobody has run the whole skill on a Windows machine yet: `py -3` in place of `python3`, the verdict template, and the paths shown in evidence rows.
 
-**Why:** The workshop is macOS and Linux only, so this does not block the giveaway, but a Windows attendee currently gets the by-hand interview with no scan. The job already runs and is informational, so the failure count is visible.
+**Why:** The workshop is macOS and Linux only. Before the README can say Windows is supported, one end-to-end run on a real Windows machine has to go right.
 
-**Context:** The CI job is `custody-check-windows` in `.github/workflows/ci.yml`, kept `continue-on-error: true` until it is green. The plan's drop order named the Windows job as the first thing to cut, and it was cut. Start with the threaded reader path in `git_facts` (already written for platforms without non-blocking pipes) and the `tearDown` permission handling in `ScanCase`.
+**Context:** CI job `custody-check-windows` in `.github/workflows/ci.yml`. Two known Windows differences stay as they are: a git killed at the output cap is ended without a process-group kill, and the perf-timed tests run on shared Windows runners with `CUSTODY_TIME_SLACK=3`.
 
-**Effort:** L
+**Effort:** S
 **Priority:** P3
 **Depends on:** None
 
