@@ -109,7 +109,7 @@ STEPS = "on: push\njobs:\n  d:\n    runs-on: ubuntu-latest\n    steps:\n      - 
 def wf(name, steps, file="deploy"):
     case(name, {W % file: STEPS % steps})
 wf("workflow lint only", "      - run: npm run lint\n", "ci")
-wf("workflow review bot only", "      - uses: anthropics/claude-code-action@v1\n", "review")
+wf("workflow review bot only", "      - uses: anthropics/claude-code-action@v1\n", "pr-bot")
 wf("workflow environment key only", "      - run: npm test\n    environment: test\n")
 wf("workflow named deploy, no deploy step", "      - run: npm ci\n")
 wf("workflow commented deploy", "      # - run: vercel deploy --prod\n      - run: npm test\n")
@@ -147,6 +147,22 @@ case("lookalike import", {"src/f.ts": 'import x from "ai-utils";\nconst m = "gpt
 case("mentions before a real call", dict({"src/m%d.ts" % i: "".join('const a%d = "gpt-4o-%d";\n' % (j, j) for j in range(5)) for i in range(3)},
                                          **{"src/zz_ai.ts": 'import OpenAI from "openai";\nconst r = {model: "gpt-4o", max_tokens: 100};\n'}))
 
+# ---- review cycle 2 for #16/#17
+case("model name in a config file, call elsewhere", {"src/lib/config.ts": 'export const MODEL = "gpt-4o-mini";\n',
+                                                    "src/lib/ai.ts": 'import { MODEL } from "./config";\nawait fetch("https://api.openai.com/v1/chat/completions", {body: JSON.stringify({model: MODEL})});\n'})
+case("azure openai sdk", {"src/az.ts": 'import { AzureOpenAI } from "@azure/openai";\nconst m = "gpt-4o";\n'})
+case("anthropic bedrock sdk", {"src/b.ts": 'import { AnthropicBedrock } from "@anthropic-ai/bedrock-sdk";\nconst m = "claude-3-haiku";\n'})
+case("vertex sdk", {"src/v.ts": 'import { VertexAI } from "@google-cloud/vertexai";\nconst m = "gemini-1.5-pro";\n'})
+case("wrapper module", {"src/app/page.tsx": 'import { client } from "@/lib/llm";\nconst m = "gpt-4o";\n'})
+case("python requests to an endpoint", {"app/call.py": "requests.post(os.environ['LLM_ENDPOINT'], json={'model': 'gpt-4o'})\n"})
+case("model name in docs snippet", {"docs/snippets/a.ts": 'const m = "gpt-4o";\n'})
+case("model name in a test", {"tests/test_prompts.py": 'MODEL = "gpt-4o"\n'})
+wf("workflow npm run deploy", "      - run: npm run deploy\n")
+wf("workflow deploy shell script", "      - run: ./scripts/deploy.sh production\n")
+wf("workflow separator inside quotes", "      - run: echo \"done; vercel deploy --prod\"\n      - run: git commit -m 'x && vercel --prod'\n")
+wf("workflow run with no space", "      - run:vercel deploy --prod\n")
+case("workflow crlf if false", {W % "off": "on: push\r\njobs:\r\n  d:\r\n    if: false\r\n    steps:\r\n      - run: vercel deploy --prod\r\n"})
+
 def answers(scanner, files):
     tmp = tempfile.mkdtemp()
     try:
@@ -156,7 +172,7 @@ def answers(scanner, files):
             os.makedirs(os.path.dirname(p), exist_ok=True)
             for k, v in REAL.items():
                 body = body.replace(k, v)
-            open(p, "w").write(body)
+            open(p, "w", newline="").write(body)
         out = subprocess.run([sys.executable, "-I", scanner, "--repo", "app"], cwd=tmp, capture_output=True, text=True).stdout
         q = json.loads(out)["questions"]
         return {k: q[k]["answer"] for k in ("q1", "q3", "q9")}, strong_checks(q)

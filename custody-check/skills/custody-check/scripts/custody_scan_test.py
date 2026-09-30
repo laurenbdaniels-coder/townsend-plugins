@@ -5074,7 +5074,13 @@ class NeverWorseThanMainTests(unittest.TestCase):
         ("mts client key", "q1", "client-key-literal"): "PR #24: .mts is read as code; a key in a browser folder is a No, as in a .ts file",
         ("mts server only", "q1", "client-key-literal"): "PR #24: .mts is read as code; 0.3.2 gives the same No for this file as .ts (server-only never softens a No)",
         ("sentry vue", "q9", "monitoring-dependency"): "PR #24: every @sentry/ package is error tracking; 0.3.2 listed only six of them",
-        ("mentions before a real call", "q8", "spend-cap-word"): "#17: 0.3.2 found max_tokens too, but twelve model-name rows crowded its row out; a mention no longer hides a hint",
+    }
+
+    # (case, question, check) -> why losing a hint the baseline gave is right
+    ALLOW_LOST_HINT = {
+        ("model name in research script", "q8", "model-literal"): "#17: a model list in scripts/ with no provider call in the file is not the app calling a model",
+        ("model name in docs snippet", "q8", "model-literal"): "#17: a docs/ snippet is not runtime code and the file reaches no provider",
+        ("model name in a test", "q8", "model-literal"): "#17: a test file names models to test prompts; it reaches no provider",
     }
 
     def _strong_checks(self, files):
@@ -5085,7 +5091,7 @@ class NeverWorseThanMainTests(unittest.TestCase):
                     body = body.replace(k, v)
                 path = os.path.join(tmp, rel)
                 os.makedirs(os.path.dirname(path), exist_ok=True)
-                with open(path, "w", encoding="utf-8") as fh:
+                with open(path, "w", encoding="utf-8", newline="") as fh:
                     fh.write(body)
             q = cs.scan(tmp)["questions"]
             halves = {"q5.code": q["q5"]["code"], "q5.data": q["q5"]["data"]}
@@ -5110,7 +5116,13 @@ class NeverWorseThanMainTests(unittest.TestCase):
                     with self.subTest(case=c["name"], question=q, check=check):
                         self.assertIn(key, self.ALLOW_NEW_CHECK, "%s %s: new %s the baseline did not give" % key)
                         used.add(key)
-        self.assertEqual(set(self.ALLOW_NEW_CHECK) - used, set(), "an allowed exception that no longer happens should be removed")
+                for check in sorted(set(base) - new.get(q, set())):
+                    key = (c["name"], q, check)
+                    if cs.CHECKS.get(check, ("", "hint"))[1] == "hint":  # a lost hint is a weaker interview than the release gave
+                        with self.subTest(case=c["name"], question=q, lost=check):
+                            self.assertIn(key, self.ALLOW_LOST_HINT, "%s %s: lost %s the baseline gave" % key)
+                            used.add(key)
+        self.assertEqual((set(self.ALLOW_NEW_CHECK) | set(self.ALLOW_LOST_HINT)) - used, set(), "an allowed exception that no longer happens should be removed")
 
 
 class DeployWorkflowTests(ScanCase):
@@ -5172,6 +5184,29 @@ class DeployWorkflowTests(ScanCase):
         rows = self.deploy_rows(self.scan()["questions"])
         self.assertEqual([(r["snippet"], r["line"]) for r in rows], [("vercel deploy --prod", 5)])
 
+    def test_a_named_deploy_script_counts(self):
+        for step, label in (("      - run: npm run deploy\n", "npm run deploy"), ("      - run: pnpm run deploy:prod\n", "pnpm run deploy"),
+                            ("      - run: yarn deploy\n", "yarn deploy"), ("      - run: bun run deploy\n", "bun run deploy"),
+                            ("      - run: make deploy\n", "make deploy"), ("      - run: ./scripts/deploy.sh production\n", "deploy script"),
+                            ("      - run: bash scripts/deploy-prod.sh\n", "deploy script")):
+            with self.subTest(step=step):
+                shutil.rmtree(self.repo)
+                os.makedirs(self.repo)
+                self.write(".github/workflows/d.yml", "on: push\njobs:\n  d:\n    steps:\n" + step)
+                self.assertEqual([r["snippet"] for r in self.deploy_rows(self.scan()["questions"])], [label])
+
+    def test_a_separator_inside_quotes_is_not_a_command(self):
+        self.write(".github/workflows/q.yml", "on: push\njobs:\n  q:\n    steps:\n      - run: echo \"done; vercel deploy --prod\"\n"
+                                              "      - run: git commit -m 'x && vercel --prod'\n      - run:vercel deploy --prod\n"
+                                              "      - run: npm run deploy-docs-preview-check\n")
+        self.assertEqual(self.deploy_rows(self.scan()["questions"]), [])
+
+    def test_if_false_holds_on_a_crlf_workflow(self):
+        self.write(".github/workflows/off.yml", "x")
+        with open(os.path.join(self.repo, ".github", "workflows", "off.yml"), "wb") as fh:
+            fh.write(b"on: push\r\njobs:\r\n  d:\r\n    if: false\r\n    steps:\r\n      - run: vercel deploy --prod\r\n")
+        self.assertEqual(self.deploy_rows(self.scan()["questions"]), [])
+
     def test_prod_flag_on_another_command_is_not_a_vercel_deploy(self):
         self.write(".github/workflows/b.yml", "on: push\njobs:\n  b:\n    steps:\n      - run: echo vercel rocks && npm run build -- --prod\n"
                                               "      - run: echo vercel; npm test --prod\n      - run: npm i vercel@latest | tee log --prod\n")
@@ -5210,7 +5245,7 @@ class DeployWorkflowTests(ScanCase):
 
     def test_workflows_that_only_lint_test_or_review_do_not_count(self):
         self.write(".github/workflows/lint.yml", "on: push\njobs:\n  l:\n    steps:\n      - run: npm run lint\n")
-        self.write(".github/workflows/review.yml", "on: pull_request\njobs:\n  r:\n    steps:\n      - uses: anthropics/claude-code-action@v1\n")
+        self.write(".github/workflows/pr-bot.yml", "on: pull_request\njobs:\n  r:\n    steps:\n      - uses: anthropics/claude-code-action@v1\n")
         self.write(".github/workflows/test.yml", "on: push\njobs:\n  t:\n    environment: test\n    steps:\n      - run: npm test\n      - run: echo release notes\n")
         self.write(".github/workflows/commented.yml", "on: push\njobs:\n  t:\n    steps:\n      # - run: vercel --prod\n      - run: npm test\n")
         self.write(".github/workflows/deploy.yml", "on: push\n")  # the name alone is not a deploy
@@ -5235,61 +5270,92 @@ class DeployWorkflowTests(ScanCase):
 
 
 class ModelLiteralTests(ScanCase):
-    """#17: a model name is a runtime-call hint only next to a provider SDK, host or key."""
+    """#17: a model name is a hint as in 0.3.2, except in a path that is not runtime code (scripts/, docs/,
+    notebooks/, tests...) where it is only `model-mentioned` unless that file reaches a provider."""
 
     def q8(self):
         return self.scan()["questions"]["q8"]
 
-    def test_model_name_beside_an_sdk_import_is_a_hint(self):
-        for rel, src in (("src/ai.ts", 'import OpenAI from "openai";\nconst m = "gpt-4o";\n'),
-                         ("src/chat.ts", 'import { generateText } from "ai";\nimport { anthropic } from "@ai-sdk/anthropic";\nconst m = "claude-sonnet-4";\n'),
-                         ("app/llm.py", 'from anthropic import Anthropic\nMODEL = "claude-3-5-sonnet"\n'),
-                         ("app/g.py", 'import google.generativeai as genai\nm = "gemini-1.5-pro"\n'),
-                         ("lib/r.js", 'const OpenAI = require("openai");\nconst m = "gpt-4o-mini";\n')):
+    def fresh(self):
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+
+    def test_a_model_name_in_app_code_stays_a_hint_as_in_the_release(self):
+        # a config file holding the name, the call elsewhere; a wrapper; an SDK the scanner doesn't list
+        for rel, src in (("src/lib/config.ts", 'export const MODEL = "gpt-4o-mini";\n'),
+                         ("src/copy.ts", 'export const blurb = "Built with gpt-4o";\n'),
+                         ("src/az.ts", 'import { AzureOpenAI } from "@azure/openai";\nconst m = "gpt-4o";\n'),
+                         ("app/call.py", "requests.post(os.environ['LLM_ENDPOINT'], json={'model': 'gpt-4o'})\n")):
             with self.subTest(rel=rel):
-                shutil.rmtree(self.repo)
-                os.makedirs(self.repo)
+                self.fresh()
                 self.write(rel, src)
+                q8 = self.q8()
+                self.assertEqual(evidence_checks(q8), ["model-literal"])
+                self.assertEqual(q8["confidence"], "med")
+
+    def test_a_model_name_outside_runtime_code_is_only_mentioned(self):
+        for rel in ("scripts/research.py", "research/compare.py", "notebooks/eval.py", "docs/snippets/a.ts", "examples/demo.ts",
+                    "tests/test_prompts.py", "src/__tests__/llm.test.ts", "evals/run.py", "benchmarks/b.py"):
+            with self.subTest(rel=rel):
+                self.fresh()
+                self.write(rel, 'MODELS = ["gpt-4o", "claude-3-opus"]\n')
+                q8 = self.q8()
+                self.assertEqual(set(evidence_checks(q8)), {"model-mentioned"})
+                self.assertEqual(q8["confidence"], "low", "a model name alone says nothing about a call")
+        self.assertEqual(cs.CHECKS["model-mentioned"], ("q8", "evidence"))
+
+    def test_provider_context_promotes_a_name_outside_runtime_code(self):
+        for src in ('import OpenAI from "openai";\nconst m = "gpt-4o";\n',
+                    'import { generateText } from "ai";\nimport { xai } from "@ai-sdk/xai";\nconst m = "grok-2";\nconst n = "gpt-4o";\n',
+                    'const OpenAI = require("openai");\nconst m = "gpt-4o-mini";\n',
+                    'import OpenAI from "npm:openai@4.20.0";\nconst m = "gpt-4o";\n',
+                    'import Anthropic from "https://esm.sh/@anthropic-ai/sdk@0.20.0";\nconst m = "claude-3-haiku";\n',
+                    'import Anthropic from "jsr:@anthropic-ai/sdk";\nconst m = "claude-3-haiku";\n',
+                    'import { AnthropicBedrock } from "@anthropic-ai/bedrock-sdk";\nconst m = "claude-3-haiku";\n',
+                    'import { VertexAI } from "@google-cloud/vertexai";\nconst m = "gemini-1.5-pro";\n',
+                    'import { BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime";\nconst m = "claude-3-sonnet";\n',
+                    'await fetch("https://api.anthropic.com/v1/messages", {body: JSON.stringify({model: "claude-3-haiku"})});\n',
+                    'await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {body: JSON.stringify({model: "gemini-2.5-flash"})});\n',
+                    'const k = Deno.env.get("LOVABLE_API_KEY");\nconst m = "gemini-2.5-flash";\n',
+                    'const k = process.env.OPENAI_API_KEY;\nconst m = "gpt-4o";\n',
+                    'const u = process.env.OPENAI_BASE_URL;\nconst m = "gpt-4o";\n'):
+            with self.subTest(src=src):
+                self.fresh()
+                self.write("scripts/eval.ts", src)
                 checks = evidence_checks(self.q8())
                 self.assertIn("model-literal", checks)
                 self.assertNotIn("model-mentioned", checks)
-
-    def test_model_name_beside_a_provider_host_or_key_is_a_hint(self):
-        self.write("src/fetch.ts", 'await fetch("https://api.anthropic.com/v1/messages", {body: JSON.stringify({model: "claude-3-haiku"})});\n')
-        self.assertIn("model-literal", evidence_checks(self.q8()))
-        shutil.rmtree(self.repo)
-        os.makedirs(self.repo)
-        self.write("src/k.ts", 'const k = process.env.OPENAI_API_KEY;\nconst m = "gpt-4o";\n')
-        self.assertIn("model-literal", evidence_checks(self.q8()))
+        for src in ("from anthropic import Anthropic\nMODEL = 'claude-3-5-sonnet'\n", "import google.generativeai as genai\nm = 'gemini-1.5-pro'\n",
+                    "import boto3\nc = boto3.client('bedrock-runtime')\nm = 'claude-3-sonnet'\n"):
+            with self.subTest(src=src):
+                self.fresh()
+                self.write("scripts/eval.py", src)
+                self.assertEqual(set(evidence_checks(self.q8())), {"model-literal"})
 
     def test_every_provider_host_promotes_a_model_name(self):
         for host in ("api.openai.com", "generativelanguage.googleapis.com", "openrouter.ai/api/v1", "bedrock-runtime.us-east-1.amazonaws.com",
                      "myco.openai.azure.com", "ai-gateway.vercel.sh", "api.groq.com", "api.mistral.ai"):
             with self.subTest(host=host):
-                shutil.rmtree(self.repo)
-                os.makedirs(self.repo)
-                self.write("src/f.ts", 'const u = "https://%s"; const m = "gpt-4o";\n' % host)
+                self.fresh()
+                self.write("scripts/f.ts", 'const u = "https://%s"; const m = "gpt-4o";\n' % host)
                 self.assertEqual(evidence_checks(self.q8()), ["model-literal"])
 
-    def test_deno_lovable_and_bedrock_calls_are_provider_context(self):
-        for rel, src in (("supabase/functions/chat/index.ts", 'import OpenAI from "npm:openai@4.20.0";\nconst m = "gpt-4o";\n'),
-                         ("supabase/functions/a/index.ts", 'import Anthropic from "https://esm.sh/@anthropic-ai/sdk@0.20.0";\nconst m = "claude-3-haiku";\n'),
-                         ("supabase/functions/b/index.ts", 'import Anthropic from "jsr:@anthropic-ai/sdk";\nconst m = "claude-3-haiku";\n'),
-                         ("src/c.ts", 'import OpenAI from "openai@4";\nconst m = "gpt-4o";\n'),
-                         ("supabase/functions/lov/index.ts", 'await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {body: JSON.stringify({model: "google/gemini-2.5-flash"})});\n'),
-                         ("supabase/functions/key/index.ts", 'const k = Deno.env.get("LOVABLE_API_KEY");\nconst m = "gemini-2.5-flash";\n'),
-                         ("app/br.py", 'import boto3\nc = boto3.client("bedrock-runtime")\nm = "claude-3-sonnet"\n'),
-                         ("src/br.ts", 'import { BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime";\nconst m = "claude-3-sonnet";\n')):
-            with self.subTest(rel=rel):
-                shutil.rmtree(self.repo)
-                os.makedirs(self.repo)
-                self.write(rel, src)
-                self.assertEqual(set(evidence_checks(self.q8())), {"model-literal"})
+    def test_lookalike_imports_outside_runtime_code_stay_mentioned(self):
+        for src in ('import x from "ai-utils";\n', 'import x from "./ai";\n', 'import x from "openai-edge-helpers";\n'):
+            with self.subTest(src=src):
+                self.fresh()
+                self.write("scripts/f.ts", src + 'const m = "gpt-4o";\n')
+                self.assertEqual(evidence_checks(self.q8()), ["model-mentioned"])
+        for src in ("import openai_helpers\n", "from langchainish import x\n", "from googleapis import genai\n"):
+            with self.subTest(src=src):
+                self.fresh()
+                self.write("scripts/f.py", src + 'm = "gpt-4o"\n')
+                self.assertEqual(evidence_checks(self.q8()), ["model-mentioned"])
 
     def test_mentions_never_crowd_out_hints(self):
         for i in range(3):
-            self.write("src/m%d.ts" % i, "".join('const a%d = "gpt-4o-%d";\n' % (j, j) for j in range(5)))
-        self.write("src/zz_ai.ts", 'import OpenAI from "openai";\nconst r = {model: "gpt-4o", max_tokens: 100};\n')
+            self.write("scripts/m%d.ts" % i, "".join('const a%d = "gpt-4o-%d";\n' % (j, j) for j in range(5)))
+        self.write("scripts/zz_ai.ts", 'import OpenAI from "openai";\nconst r = {model: "gpt-4o", max_tokens: 100};\n')
         q8 = self.q8()
         checks = evidence_checks(q8)
         self.assertLessEqual(len(checks), cs.MAX_EVIDENCE)
@@ -5297,55 +5363,15 @@ class ModelLiteralTests(ScanCase):
         self.assertIn("spend-cap-word", checks)
         self.assertEqual(q8["confidence"], "med")
 
-    def test_lookalike_imports_stay_mentioned(self):
-        for src in ('import x from "ai-utils";\n', 'import x from "./ai";\n', 'import x from "openai-edge-helpers";\n'):
-            with self.subTest(src=src):
-                shutil.rmtree(self.repo)
-                os.makedirs(self.repo)
-                self.write("src/f.ts", src + 'const m = "gpt-4o";\n')
-                self.assertEqual(evidence_checks(self.q8()), ["model-mentioned"])
-        for src in ("import openai_helpers\n", "from langchainish import x\n", "from googleapis import genai\n"):
-            with self.subTest(src=src):
-                shutil.rmtree(self.repo)
-                os.makedirs(self.repo)
-                self.write("app/f.py", src + 'm = "gpt-4o"\n')
-                self.assertEqual(evidence_checks(self.q8()), ["model-mentioned"])
-
-    def test_model_name_alone_is_only_mentioned(self):
-        self.write("scripts/research.py", 'MODELS = ["gpt-4o", "claude-3-opus", "gemini-1.5-pro"]\nprint(MODELS)\n')
-        self.write("src/copy.ts", 'export const blurb = "Built with gpt-4o";\n')
-        checks = evidence_checks(self.q8())
-        self.assertNotIn("model-literal", checks)
-        self.assertIn("model-mentioned", checks)
-        self.assertEqual(cs.CHECKS["model-mentioned"], ("q8", "evidence"))
-
-    def test_a_bare_mention_does_not_raise_q8_confidence(self):
-        self.write("scripts/research.py", 'MODELS = ["gpt-4o"]\n')
-        q8 = self.q8()
-        self.assertEqual(evidence_checks(q8), ["model-mentioned"])
-        self.assertEqual((q8["answer"], q8["confidence"]), ("dont-know", "low"))
-        self.write("src/ai.ts", 'import OpenAI from "openai";\nconst m = "gpt-4o";\n')
-        self.assertEqual(self.q8()["confidence"], "med")
-
     def test_model_name_in_a_json_data_file_gives_no_hint(self):
         self.write("data/benchmarks.json", '{"models": ["gpt-4o", "claude-3-opus"]}\n')
         self.assertNotIn("model-literal", evidence_checks(self.q8()))
 
-    def test_an_sdk_dependency_elsewhere_does_not_promote_a_bare_mention(self):
-        self.write("package.json", '{"dependencies": {"openai": "4.0.0"}}')
-        self.write("src/copy.ts", 'export const blurb = "Built with gpt-4o";\n')
-        checks = evidence_checks(self.q8())
-        self.assertIn("ai-sdk-dependency", checks)
-        self.assertNotIn("model-literal", checks)
-        self.assertIn("model-mentioned", checks)
-
     def test_newer_sdk_imports_are_context_but_the_dependency_list_is_as_released(self):
-        # an @ai-sdk/gateway import shows a provider call, so its model names stay hints; the ai-sdk-dependency
-        # list is not widened here (that would be a new alarm against the release; see TODOS.md)
+        # the ai-sdk-dependency list is not widened here (that would be a new alarm against the release; see TODOS.md)
         self.write("package.json", '{"dependencies": {"@ai-sdk/gateway": "1.0.0"}}')
-        self.write("src/g.ts", 'import { gateway } from "@ai-sdk/gateway";\nconst m = "gpt-4o";\n')
-        checks = evidence_checks(self.q8())
-        self.assertEqual(checks, ["model-literal"])
+        self.write("scripts/g.ts", 'import { gateway } from "@ai-sdk/gateway";\nconst m = "gpt-4o";\n')
+        self.assertEqual(evidence_checks(self.q8()), ["model-literal"])
         self.assertNotIn("@ai-sdk/gateway", cs.AI_DEPS)
 
     def test_the_skill_names_model_mentioned(self):

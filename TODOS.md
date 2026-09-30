@@ -218,6 +218,18 @@
 **Priority:** P3
 **Depends on:** None
 
+### Workflow shapes the deploy check still reads like 0.3.2
+
+**What:** A `run:` key inside a `with:` map or a `script: |` block (actions/github-script), a heredoc body, a multi-document workflow read as one document, and a `run: |` body bounded by the `-` column (sibling keys after it are read as commands) can still count as a deploy step. Real deploys it misses (Don't know): folded or backslash-continued commands, `env CI=1 vercel`, `bash -c '...'`, flow-style steps, reusable workflows (`jobs.x.uses:`), local composite actions (`uses: ./.github/actions/deploy`), `superfly/flyctl-actions` with `args: deploy`, workflows over the read limit. An `if: false` on any step turns off the whole file.
+
+**Why:** Each false "yes" matches what 0.3.2 already said (it counted every workflow), and each miss is more cautious, so none blocked #16; they are accuracy gaps for Q5's code half.
+
+**Context:** From the #16/#17 review cycle 2. The fix is a small step-mapping reader: track each step's indentation and accept `run` only as a key of a step. Add every shape to the differential corpus first.
+
+**Effort:** M
+**Priority:** P3
+**Depends on:** None
+
 ### Production-only deploys for Q5's code half
 
 **What:** Decide whether a preview-only deploy (`vercel deploy` or `netlify deploy` without `--prod`, amondnet/vercel-action without prod args) or a docs-site action (actions/deploy-pages, peaceiris/actions-gh-pages) should count as "a redeploy path exists".

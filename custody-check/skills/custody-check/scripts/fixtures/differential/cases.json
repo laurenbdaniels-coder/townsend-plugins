@@ -1847,6 +1847,24 @@
     "q3": "no",
     "q9": "dont-know"
    },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [
+     "policy-using-true"
+    ],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
    "name": "function body using true with comment"
   },
   {
@@ -1858,6 +1876,24 @@
     "q1": "nothing-found",
     "q3": "no",
     "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [
+     "policy-using-true"
+    ],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
    },
    "name": "do with comment before tag"
   },
@@ -1871,6 +1907,24 @@
     "q3": "no",
     "q9": "dont-know"
    },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [
+     "rls-disabled"
+    ],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
    "name": "function body disable with block comment"
   },
   {
@@ -1883,6 +1937,24 @@
     "q3": "no",
     "q9": "dont-know"
    },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [
+     "policy-using-true"
+    ],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
    "name": "execute string using true with comment"
   },
   {
@@ -1894,6 +1966,24 @@
     "q1": "nothing-found",
     "q3": "no",
     "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [
+     "policy-using-true"
+    ],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
    },
    "name": "backslash quote shifts parity"
   },
@@ -2125,7 +2215,7 @@
   },
   {
    "files": {
-    ".github/workflows/review.yml": "on: push\njobs:\n  d:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: anthropics/claude-code-action@v1\n",
+    ".github/workflows/pr-bot.yml": "on: push\njobs:\n  d:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: anthropics/claude-code-action@v1\n",
     "src/components/A.tsx": "export const A = () => null;\n"
    },
    "main": {
@@ -3180,6 +3270,397 @@
     "q9": []
    },
    "name": "mentions before a real call"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "src/lib/ai.ts": "import { MODEL } from \"./config\";\nawait fetch(\"https://api.openai.com/v1/chat/completions\", {body: JSON.stringify({model: MODEL})});\n",
+    "src/lib/config.ts": "export const MODEL = \"gpt-4o-mini\";\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [
+     "model-literal"
+    ],
+    "q9": []
+   },
+   "name": "model name in a config file, call elsewhere"
+  },
+  {
+   "files": {
+    "src/az.ts": "import { AzureOpenAI } from \"@azure/openai\";\nconst m = \"gpt-4o\";\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [
+     "model-literal"
+    ],
+    "q9": []
+   },
+   "name": "azure openai sdk"
+  },
+  {
+   "files": {
+    "src/b.ts": "import { AnthropicBedrock } from \"@anthropic-ai/bedrock-sdk\";\nconst m = \"claude-3-haiku\";\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [
+     "model-literal"
+    ],
+    "q9": []
+   },
+   "name": "anthropic bedrock sdk"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "src/v.ts": "import { VertexAI } from \"@google-cloud/vertexai\";\nconst m = \"gemini-1.5-pro\";\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [
+     "model-literal"
+    ],
+    "q9": []
+   },
+   "name": "vertex sdk"
+  },
+  {
+   "files": {
+    "src/app/page.tsx": "import { client } from \"@/lib/llm\";\nconst m = \"gpt-4o\";\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [
+     "model-literal"
+    ],
+    "q9": []
+   },
+   "name": "wrapper module"
+  },
+  {
+   "files": {
+    "app/call.py": "requests.post(os.environ['LLM_ENDPOINT'], json={'model': 'gpt-4o'})\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [
+     "model-literal"
+    ],
+    "q9": []
+   },
+   "name": "python requests to an endpoint"
+  },
+  {
+   "files": {
+    "docs/snippets/a.ts": "const m = \"gpt-4o\";\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [
+     "model-literal"
+    ],
+    "q9": []
+   },
+   "name": "model name in docs snippet"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "tests/test_prompts.py": "MODEL = \"gpt-4o\"\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [
+     "model-literal"
+    ],
+    "q9": []
+   },
+   "name": "model name in a test"
+  },
+  {
+   "files": {
+    ".github/workflows/deploy.yml": "on: push\njobs:\n  d:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: npm run deploy\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [
+     "deploy-config"
+    ],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
+   "name": "workflow npm run deploy"
+  },
+  {
+   "files": {
+    ".github/workflows/deploy.yml": "on: push\njobs:\n  d:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: ./scripts/deploy.sh production\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [
+     "deploy-config"
+    ],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
+   "name": "workflow deploy shell script"
+  },
+  {
+   "files": {
+    ".github/workflows/deploy.yml": "on: push\njobs:\n  d:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: echo \"done; vercel deploy --prod\"\n      - run: git commit -m 'x && vercel --prod'\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [
+     "deploy-config"
+    ],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
+   "name": "workflow separator inside quotes"
+  },
+  {
+   "files": {
+    ".github/workflows/deploy.yml": "on: push\njobs:\n  d:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run:vercel deploy --prod\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [
+     "deploy-config"
+    ],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
+   "name": "workflow run with no space"
+  },
+  {
+   "files": {
+    ".github/workflows/off.yml": "on: push\r\njobs:\r\n  d:\r\n    if: false\r\n    steps:\r\n      - run: vercel deploy --prod\r\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [
+     "deploy-config"
+    ],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
+   "name": "workflow crlf if false"
   }
  ]
 }

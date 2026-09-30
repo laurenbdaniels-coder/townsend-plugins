@@ -276,8 +276,9 @@ VERCEL_ENV_RE = re.compile(r"\"(production|preview|staging)\"\s*:")
 MODEL_PROVIDER_ALT = "OPENAI|ANTHROPIC|CLAUDE|GEMINI|GOOGLE_AI|GOOGLE_GENERATIVE_AI|MISTRAL|COHERE|GROQ|TOGETHER|REPLICATE|HUGGINGFACE|AZURE_OPENAI|OPENROUTER|XAI|DEEPSEEK|PERPLEXITY|FIREWORKS"
 MODEL_PROVIDER_RE = re.compile(r"(?:" + MODEL_PROVIDER_ALT + r")_", re.I)
 MODEL_ENV_RE = re.compile(r"\b((?:" + MODEL_PROVIDER_ALT + r"|HF)_[A-Z0-9_]*(?:KEY|TOKEN|SECRET))\b")  # HF_ is too short to trust as a provider prefix on a Google key
-# A model name is a runtime-call hint only in a file that also reaches a provider: an SDK import, a provider
-# API host, or a provider key. Anywhere else (a research script, UI copy) it is only a mention (#17).
+# A model name is a hint, as in 0.3.2, except in a path that is not runtime code (NON_RUNTIME_PATH_RE, tests)
+# where it is only a mention unless that file also reaches a provider: an SDK import, a provider host or key (#17).
+NON_RUNTIME_PATH_RE = re.compile(r"(?:^|/)(?:scripts?|research|notebooks?|docs?|examples?|samples?|evals?|benchmarks?)/", re.I)
 AI_DEPS = {"openai", "@anthropic-ai/sdk", "anthropic", "ai", "@ai-sdk/openai", "@ai-sdk/anthropic", "@ai-sdk/google", "langchain", "@langchain/core", "@langchain/openai", "@langchain/anthropic", "@google/generative-ai", "google-generativeai", "@google/genai", "cohere-ai", "cohere", "replicate", "@mistralai/mistralai", "mistralai", "groq-sdk", "groq", "together-ai", "litellm", "ollama", "openrouter", "@huggingface/inference", "transformers"}
 # Imports that also show a provider call, beyond AI_DEPS. They are context for model names only; the
 # ai-sdk-dependency check keeps AI_DEPS as released (widening it is a TODO, not this change).
@@ -285,6 +286,7 @@ AI_IMPORT_ONLY = {"@ai-sdk/mistral", "@ai-sdk/groq", "@ai-sdk/gateway", "@langch
 # "openai", "npm:openai@4" (Deno and Supabase edge functions), "jsr:@anthropic-ai/sdk", "https://esm.sh/openai@4"
 AI_JS_IMPORT_RE = re.compile(r"(?:\bfrom[ \t]*|\brequire[ \t]*\([ \t]*|\bimport[ \t]*\([ \t]*|^[ \t]*import[ \t]+)[\"'](?:npm:|jsr:|https?://esm\.sh/|https?://cdn\.jsdelivr\.net/npm/)?(?:"
                              + "|".join(re.escape(p) for p in sorted(AI_DEPS | AI_IMPORT_ONLY, key=len, reverse=True))
+                             + r"|@ai-sdk/[\w.-]{1,60}|@anthropic-ai/[\w.-]{1,60}|@langchain/[\w.-]{1,60}|@google-cloud/vertexai|@azure/openai|openai-edge|llamaindex"
                              + r")(?:@[\w.^~-]{1,40})?(?:/[^\"'\n]{0,80})?[\"']", re.M)
 AI_PY_IMPORT_RE = re.compile(r"^[ \t]*(?:(?:from|import)[ \t]+(?:openai|anthropic|langchain(?:_[a-z_]+)?|cohere|replicate|mistralai|groq|litellm|ollama|together|transformers|huggingface_hub|vertexai|google\.generativeai|google\.genai)\b"
                              r"|from[ \t]+google[ \t]+import[ \t]+(?:genai|generativeai)\b)", re.M)
@@ -292,15 +294,16 @@ AI_PY_IMPORT_RE = re.compile(r"^[ \t]*(?:(?:from|import)[ \t]+(?:openai|anthropi
 PROVIDER_REF_RE = re.compile(r"api\.openai\.com|api\.anthropic\.com|generativelanguage\.googleapis\.com|aiplatform\.googleapis\.com|api\.mistral\.ai|api\.groq\.com"
                              r"|api\.together\.(?:xyz|ai)|openrouter\.ai/api|api\.cohere\.(?:ai|com)|api\.replicate\.com|api-inference\.huggingface\.co|router\.huggingface\.co"
                              r"|api\.perplexity\.ai|api\.deepseek\.com|api\.x\.ai|api\.fireworks\.ai|bedrock-runtime\b|openai\.azure\.com|ai-gateway\.vercel\.sh"
-                             r"|ai\.gateway\.lovable\.dev|\bLOVABLE_API_KEY\b", re.I)
+                             r"|ai\.gateway\.lovable\.dev|\bLOVABLE_API_KEY\b|\b(?:" + MODEL_PROVIDER_ALT + r")_(?:BASE_URL|API_BASE|ENDPOINT)\b", re.I)
 # A workflow counts as a deploy path only when a `run:` command deploys or a step uses a deploy action (#16).
 # An `environment:` key, a release step, an echo, a step name or a file named deploy.yml proves nothing.
 DEPLOY_ACTION_RE = re.compile(r"^[ \t]*(?:-[ \t]*)?uses:[ \t]*[\"']?(amondnet/vercel-action|nwtgck/actions-netlify|netlify/actions/cli|cloudflare/wrangler-action|cloudflare/pages-action"
                               r"|FirebaseExtended/action-hosting-deploy|w9jds/firebase-action|google-github-actions/deploy-(?:cloudrun|appengine)|aws-actions/amazon-ecs-deploy-task-definition"
                               r"|azure/webapps-deploy|peaceiris/actions-gh-pages|JamesIves/github-pages-deploy-action|actions/deploy-pages)(?![A-Za-z0-9_-])", re.M | re.I)
-WORKFLOW_RUN_RE = re.compile(r"^([ \t]*)(?:-[ \t]+)?run[ \t]*:[ \t]*(.*)$")
-WORKFLOW_DISABLED_RE = re.compile(r"^[ \t]*(?:-[ \t]+)?if[ \t]*:[ \t]*(?:\$\{\{[ \t]*false[ \t]*\}\}|false)[ \t]*(?:#[^\n]*)?$", re.M)
-COMMAND_SPLIT_RE = re.compile(r"&&|\|\||[;&|]")
+WORKFLOW_RUN_RE = re.compile(r"^([ \t]*)(?:-[ \t]+)?run[ \t]*:(?=[ \t\r]|$)[ \t]*(.*)$")  # `run:vercel` is a plain string, not a key
+WORKFLOW_DISABLED_RE = re.compile(r"^[ \t]*(?:-[ \t]+)?if[ \t]*:[ \t]*(?:\$\{\{[ \t]*false[ \t]*\}\}|false)[ \t]*(?:#[^\n]*)?\r?$", re.M)
+# a script named deploy: npm/pnpm/bun run deploy[:env], yarn deploy, make deploy, ./scripts/deploy.sh, bash deploy-prod.sh
+DEPLOY_SCRIPT_RE = re.compile(r"^(?:((?:npm|pnpm|bun)[ \t]+run|yarn(?:[ \t]+run)?|make)[ \t]+deploy(?::[\w-]{1,40})?|((?:(?:ba|z)?sh[ \t]+)?(?:\./)?[\w./-]{0,120}?deploy[\w.-]{0,40}\.sh))(?:[ \t]|$)")
 # env assignments and package-runner wrappers in front of the tool: FORCE=1 npx --yes vercel, pnpm dlx vercel, npm exec -- vercel
 COMMAND_PREFIX_RE = re.compile(r"^(?:(?:[A-Za-z_][A-Za-z0-9_]*=[^ \t]*|sudo|npx|bunx|yarn|pnpm|npm|exec|dlx|--yes|-y|--)[ \t]+)*")
 _PIN = r"(?:@[\w.^~-]{1,40})?"  # npx vercel@latest, pnpm dlx vercel@33
@@ -1790,8 +1793,9 @@ def detect_model_hints(sf, state, opts):
     if "env" in sf.kinds or "env-template" in sf.kinds:
         return  # env lines are never echoed; the variable name above is all the hint needed
     if MODEL_LITERAL_RE.search(text):  # the provider-context searches only run when there is a model name to classify
-        reaches_provider = AI_JS_IMPORT_RE.search(text) or AI_PY_IMPORT_RE.search(text) or PROVIDER_REF_RE.search(text) or MODEL_ENV_RE.search(text)
-        _finditer_lines(MODEL_LITERAL_RE, text, sf, state, "model-literal" if reaches_provider else "model-mentioned", counter, _clause)
+        runtime = not (NON_RUNTIME_PATH_RE.search(sf.rel) or TEST_PATH_RE.search(sf.rel))
+        hint = runtime or AI_JS_IMPORT_RE.search(text) or AI_PY_IMPORT_RE.search(text) or PROVIDER_REF_RE.search(text) or MODEL_ENV_RE.search(text)
+        _finditer_lines(MODEL_LITERAL_RE, text, sf, state, "model-literal" if hint else "model-mentioned", counter, _clause)
     _finditer_lines(SPEND_CAP_RE, text, sf, state, "spend-cap-word", counter, lambda m: m.group(0))
     _finditer_lines(HEALTH_ROUTE_RE, text, sf, state, "health-route", counter, _clause)
 
@@ -1808,6 +1812,26 @@ def _strip_shell_comment(line):
         elif ch == "#" and (i == 0 or line[i - 1] in " \t"):
             return line[:i]
     return line
+
+
+def _split_commands(line):
+    """Split a shell line on ; & | && || outside quotes: `echo "done; vercel deploy"` is one command."""
+    out, start, quote, i = [], 0, None, 0
+    while i < len(line):
+        ch = line[i]
+        if quote:
+            if ch == quote:
+                quote = None
+        elif ch in "'\"":
+            quote = ch
+        elif ch in ";&|":
+            out.append(line[start:i])
+            while i + 1 < len(line) and line[i + 1] in "&|":
+                i += 1
+            start = i + 1
+        i += 1
+    out.append(line[start:])
+    return out
 
 
 def _run_commands(text):
@@ -1833,8 +1857,8 @@ def _run_commands(text):
             body.append((i + 1, value))
             i += 1
         for line_no, line in body:
-            for command in COMMAND_SPLIT_RE.split(_strip_shell_comment(line)):
-                yield line_no, COMMAND_PREFIX_RE.sub("", command.strip())
+            for command in _split_commands(_strip_shell_comment(line)):
+                yield line_no, command.strip()
 
 
 def _deploy_label(command):
@@ -1861,8 +1885,13 @@ def detect_workflow(sf, state, opts):
         found.append((line_of(sf.text, m.start()), m.group(1)))
     for line_no, command in _run_commands(sf.text):
         state.tick()
-        if DEPLOY_CLI_RE.match(command):
-            found.append((line_no, _deploy_label(command)))
+        script = DEPLOY_SCRIPT_RE.match(command)
+        if script:
+            found.append((line_no, " ".join(script.group(1).split() + ["deploy"]) if script.group(1) else "deploy script"))
+            break
+        tool = COMMAND_PREFIX_RE.sub("", command)
+        if DEPLOY_CLI_RE.match(tool):
+            found.append((line_no, _deploy_label(tool)))
             break
     if found:
         line, label = min(found)

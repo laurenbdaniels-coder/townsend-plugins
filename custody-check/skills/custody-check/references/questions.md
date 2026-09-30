@@ -44,7 +44,7 @@ The scanner answers only what a file tree can prove. A scanner **no** is evidenc
 
 Two halves, scored separately; the verdict shows the lower one.
 
-- **Code half.** Scanner **yes (medium)** when the repository has real history (a tag or ten or more commits), is not a shallow clone, and a deploy configuration exists (`vercel.json`, `netlify.toml`, `fly.toml`, `render.yaml`, `railway.json`, `Dockerfile`, `Procfile`, or a GitHub workflow with a step that deploys: a deploy action or a deploy command such as `vercel --prod`, `netlify deploy`, `wrangler deploy`, `firebase deploy` or `fly deploy`; the `deploy-config` row names it). A workflow that only lints, tests or runs a review bot doesn't count, and neither does an `environment:` key on its own. That proves a previous version exists and a redeploy path exists, not that you have rehearsed a rollback. **High** only from you, after you have rolled back once.
+- **Code half.** Scanner **yes (medium)** when the repository has real history (a tag or ten or more commits), is not a shallow clone, and a deploy configuration exists (`vercel.json`, `netlify.toml`, `fly.toml`, `render.yaml`, `railway.json`, `Dockerfile`, `Procfile`, or a GitHub workflow with a step that deploys: a deploy action, a deploy command such as `vercel --prod`, `netlify deploy`, `wrangler deploy`, `firebase deploy` or `fly deploy`, or a script named deploy such as `npm run deploy` or `./scripts/deploy.sh`; the `deploy-config` row names it). A workflow that only lints, tests or runs a review bot doesn't count, and neither does an `environment:` key, a step name, an `echo`, a workflow switched off with `if: false`, or one in a subfolder GitHub never runs. That proves a previous version exists and a redeploy path exists, not that you have rehearsed a rollback. **High** only from you, after you have rolled back once.
   - `git-not-a-repo`: the folder is not a git repository (a zip export, for example). Nothing to do here; answer from what your platform offers.
   - `git-unavailable`: git is not installed (on macOS, install the Command Line Tools). Answer by hand.
   - `git-timeout`: git did not answer in time; try again.
@@ -70,7 +70,7 @@ Two halves, scored separately; the verdict shows the lower one.
 
 - **Yes** only from you, with a number: cost per user or per action, and a cap that stops spending.
 - **No** only from you: no cap, and the bill is a surprise.
-- Scanner hints: `ai-sdk-dependency`, `model-env-var`, `model-literal`, `spend-cap-word` show that a model is called and whether cap-shaped words appear; they never change the answer. `model-literal` is a model name in a file that also imports a provider SDK, names a provider's API host or reads a provider key; a model name anywhere else (a research script, marketing copy) is `model-mentioned`, evidence only.
+- Scanner hints: `ai-sdk-dependency`, `model-env-var`, `model-literal`, `spend-cap-word` show that a model is called and whether cap-shaped words appear; they never change the answer. `model-literal` is a model name in app code, or anywhere in a file that also imports a provider SDK, names a provider's API host or reads a provider key; a model name in a folder that isn't app code (`scripts/`, `docs/`, `notebooks/`, `examples/`, tests, evals) with no provider call in that file is `model-mentioned`, evidence only.
 - **By hand (60 s):** open your AI provider's billing page and your host's usage page. Write down last month's total and divide by your user count. Then find the spend cap setting and set one.
 
 ## Q9. How would I find out it's broken? One real alert to a named person. (Watch)
@@ -97,7 +97,7 @@ Two halves, scored separately; the verdict shows the lower one.
 
 # If AI drives part of your product: keeping it on rails
 
-Ask these **only when the app calls a model**, and ask the founder that question rather than inferring it. The scanner's Q8 hints (`ai-sdk-dependency`, `model-env-var`, `model-literal`) are worth leading with, but they miss a call through a wrapper the scanner doesn't know and they fire on an unused dependency. A model name counts as `model-literal` only in a file that also imports a provider SDK, names a provider's API host or reads a provider key; anywhere else it is `model-mentioned`, evidence that is never led with. A model is not a library that does the same thing every time. It is a moving part inside the product, and these are the six ways it wanders off without anything turning red.
+Ask these **only when the app calls a model**, and ask the founder that question rather than inferring it. The scanner's Q8 hints (`ai-sdk-dependency`, `model-env-var`, `model-literal`) are worth leading with, but they miss a call through a wrapper the scanner doesn't know and they fire on an unused dependency. A model name in app code is `model-literal`. In a folder that isn't app code (`scripts/`, `docs/`, `notebooks/`, `examples/`, tests, evals) it is only `model-mentioned`, evidence that is never worth leading with, unless that file also imports a provider SDK, names a provider's API host or reads a provider key. A model is not a library that does the same thing every time. It is a moving part inside the product, and these are the six ways it wanders off without anything turning red.
 
 The eleven already cover the ones that are really software questions wearing an AI hat: rollback is Q5, the bill is Q8, would-you-notice-it-is-down is Q9, and who-can-read-this is Q1, Q3, Q4 and Q10. These six are what is left.
 
@@ -129,7 +129,7 @@ The prompt you tried in the playground is not the prompt your code sends. Your c
 
 - **Yes** only from you: you have seen the exact final text and settings one real request sent, and it matches what you evaluated.
 - **No** only from you: you tuned it in a playground, shipped something your code assembles, and have never compared the two.
-- Scanner hints: `model-literal` and `model-mentioned` show which model names appear in the code (next to a provider call, and anywhere else). Two different model names in two places is worth a look.
+- Scanner hints: `model-literal` and `model-mentioned` show which model names appear in the code (in app code, and in scripts, docs or tests). Two different model names in two places is worth a look.
 - **By hand (60 s):** ask your AI tool: "show me the exact final text and settings you send to the model for one request, printed in full, not summarised." Read it next to what you tested. People are usually surprised.
 - **The fix:** whatever differs, make the tested version the shipped one. If you cannot tell them apart, that is the finding.
 - *If you also train a model, this one has a name: training and serving skew. Without training, it is the same shape with a smaller blast radius, because only the input differs and the fix is a diff rather than a retrain.*
