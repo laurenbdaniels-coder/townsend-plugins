@@ -142,7 +142,7 @@ CHECKS = {
     "scan-summary": ("q1", "evidence"),
     "nothing-found-keys": ("q1", "evidence"), "mcp-config-not-opened": ("q1", "evidence"), "build-output-unread": ("q1", "evidence"),
     "api-route-dir": ("q2", "hint"), "framework-config": ("q2", "hint"), "client-server-split": ("q2", "hint"),
-    "rls-disabled": ("q3", "no"), "open-rule-in-string": ("q3", "evidence"), "policy-using-true": ("q3", "no"), "policy-select-true": ("q3", "evidence"), "policy-altered-true": ("q3", "evidence"), "policy-with-check-true": ("q3", "evidence"),
+    "rls-disabled": ("q3", "no"), "open-rule-in-string": ("q3", "evidence"), "policy-true-unevaluated": ("q3", "evidence"), "policy-using-true": ("q3", "no"), "policy-select-true": ("q3", "evidence"), "policy-altered-true": ("q3", "evidence"), "policy-with-check-true": ("q3", "evidence"),
     "policy-to-anon": ("q3", "evidence"), "table-without-rls": ("q3", "evidence"), "storage-bucket-public-sql": ("q3", "evidence"), "nothing-found-rules": ("q3", "evidence"),
     "firebase-rules-open": ("q3", "no"), "firebase-rules-public-read": ("q3", "evidence"), "firebase-rules-test-mode": ("q3", "evidence"), "firebase-rules-true-unevaluated": ("q3", "evidence"), "public-view": ("q3", "evidence"), "storage-bucket-public": ("q3", "evidence"),
     "auth-path": ("q4", "evidence"), "auth-dependency": ("q4", "evidence"),
@@ -248,8 +248,8 @@ WITH_CHECK_TRUE_RE = re.compile(r"\bwith\s+check\s*\(\s*true\s*\)", re.I)
 POLICY_TO_ANON_RE = re.compile(r"\bcreate\s+policy\b[^\n]{0,300}?\bto\s+anon\b", re.I)
 STORAGE_BUCKET_TRUE_RE = re.compile(r"storage\.buckets\b[^\n]{0,300}?\btrue\b", re.I)
 FIREBASE_ALLOW_ALL_RE = re.compile(r"\ballow[ \t]{1,20}([a-z]+(?:[ \t]*,[ \t]*[a-z]+){0,10})[ \t]*;", re.I)
-FIREBASE_IF_RE = re.compile(r"\ballow\s{1,20}([a-z]+(?:\s{0,20},\s{0,20}[a-z]+){0,10})\s{0,20}:\s{0,20}if(?=[\s(])([^;}]{0,400})(?=[;}])", re.I)
-FIREBASE_IF_LONG_RE = re.compile(r"\ballow\s{1,20}[a-z]+(?:\s{0,20},\s{0,20}[a-z]+){0,10}\s{0,20}:\s{0,20}if(?=[\s(])[^;}]{401}", re.I)  # past what FIREBASE_IF_RE reads
+FIREBASE_IF_RE = re.compile(r"\ballow\s{1,20}([a-z]+(?:\s{0,20},\s{0,20}[a-z]+){0,10})\s{0,20}:\s{0,20}if(?=[\s(])((?:[^;}\n]|\n(?![ \t]*(?:allow|match)\b)){0,400})(?=[;}]|\n[ \t]*(?:allow|match)\b)", re.I)  # a rule may leave off its ;
+FIREBASE_IF_LONG_RE = re.compile(r"\ballow\s{1,20}[a-z]+(?:\s{0,20},\s{0,20}[a-z]+){0,10}\s{0,20}:\s{0,20}if(?=[\s(])(?:[^;}\n]|\n(?![ \t]*(?:allow|match)\b)){401}", re.I)  # past what FIREBASE_IF_RE reads
 TRUE_TOKEN_RE = re.compile(r"(?<![\w.])true(?![\w.])")
 # the console's generated "test mode": open to everyone until a date, then closed
 FIREBASE_TEST_MODE_RE = re.compile(r"\ballow\s{1,20}[a-z]+(?:\s{0,20},\s{0,20}[a-z]+){0,10}\s{0,20}:\s{0,20}if(?=[\s(])\s{0,20}(?:\(\s{0,20})*(?:request\.time\s{0,20}<|timestamp\.date\([^)\n]{0,40}\)\s{0,20}>\s{0,20}request\.time)", re.I)
@@ -314,9 +314,10 @@ SQL_PLAIN_BODY_RE = re.compile(r"(?:[^']|'')*'")  # a SQL string may span lines
 SQL_ESCAPE_BODY_RE = re.compile(r"(?:[^'\\]|\\[\s\S]|'')*'")
 SQL_IDENT_BODY_RE = re.compile(r'(?:[^"]|"")*"')  # a quoted identifier: "o'brien_idx" holds no string
 MAX_DO_NESTING = 8
-DO_BEFORE_RE = re.compile(r"\bdo\s{0,20}$", re.I)
+DO_BEFORE_RE = re.compile(r"\bdo(?:\s{1,20}language\s{1,20}[A-Za-z_][A-Za-z0-9_]{0,30})?\s{0,20}$", re.I)  # DO $$ … or DO LANGUAGE plpgsql $$ …
 SAFE_INVOKER_RE = re.compile(r"\bsecurity_invoker\s{0,20}(?:=\s{0,20}'?(?:on|true|1|yes)\b|(?=\s{0,20}[,)]))", re.I)
 VIEW_AS_RE = re.compile(r"\bas\b", re.I)
+VIEW_WITH_RE = re.compile(r"\bwith\s*\(([^)]{0,400})\)", re.I)
 # a SQL file that defines access, as opposed to a seed file of inserts; only these count as "rule files read"
 RULE_SQL_RE = re.compile(_CREATE_TABLE_HEAD + r"\b|\bcreate\s+policy\b|\brow\s+level\s+security\b|\bstorage\.buckets\b", re.I)
 ENABLE_RLS_RE = re.compile(r"\balter\s+table\s+(?:if\s+exists\s+)?(?:only\s+)?" + _SQL_TABLE + r"\s+enable\s+row\s+level\s+security", re.I)
@@ -877,10 +878,13 @@ def classify(rel, base, ext, text):
         cls = "other"
     else:
         use_client = bool(USE_CLIENT_RE.search(text[:500]))
-        client_import = bool(CLIENT_IMPORT_RE.search(text)) and not SERVER_ONLY_IMPORT_RE.search(text)
+        server_only = bool(SERVER_ONLY_IMPORT_RE.search(text))
+        client_import = bool(CLIENT_IMPORT_RE.search(text)) and not server_only
         native_import = bool(RN_IMPORT_RE.search(text))
         angular_import = bool(ANGULAR_IMPORT_RE.search(text))
-        if any(d in NEUTRAL_SEGMENTS for d in lower_dirs):
+        if server_only and not use_client:
+            cls = "server"  # `import "server-only"` fails the build if a browser bundle ever imports it, whatever the folder
+        elif any(d in NEUTRAL_SEGMENTS for d in lower_dirs):
             cls = "client" if (use_client or client_import or native_import) else "other"
         elif top == "app":
             cls = "client" if (use_client or native_import or angular_import) else "other"
@@ -1222,6 +1226,8 @@ def detect_sql(sf, state, opts):
             continue
         if where == "string":
             check = "open-rule-in-string"  # quoted text, or an `execute '…'` that may run: evidence, never a No
+        elif m.group(0).count(")") < m.group(0).count("("):
+            check = "policy-true-unevaluated"  # `using (((true)) and x)`: true is only part of the predicate
         if _cap(counter, check):
             state.add(check, sf.rel, line_of(text, m.start()), _clause(m))
     _finditer_lines(WITH_CHECK_TRUE_RE, text, sf, state, "policy-with-check-true", counter, _clause)
@@ -1249,6 +1255,8 @@ def detect_sql(sf, state, opts):
             state.gaps["q3"] += 1
             break
         state.tick()
+        if bare[m.start():m.start(1)] != code[m.start():m.start(1)] or bare[m.end(1):m.end()] != code[m.end(1):m.end()]:
+            continue  # `create index "alter table t enable row level security"` names an index; it enables nothing
         name = _public_table(m.group(1))
         if name:
             enabled_at[name] = m.start()
@@ -1276,7 +1284,8 @@ def detect_sql(sf, state, opts):
         state.tick()
         name = _public_table(m.group(2))
         # a view runs as its owner and skips the table's RLS unless security_invoker is set; a materialized view has no RLS at all
-        options = VIEW_AS_RE.split(m.group(3), 1)[0]  # `with (…)` sits before AS; a column named security_invoker does not count
+        head = VIEW_AS_RE.split(m.group(3), 1)[0]
+        options = " ".join(w.group(1) + ")" for w in VIEW_WITH_RE.finditer(head))  # only `with (…)`: a column list or alias named security_invoker is not an option
         if name and (m.group(1) or not SAFE_INVOKER_RE.search(options)) and _cap(counter_views, "public-view"):
             state.add("public-view", sf.rel, line_of(text, m.start()), name)
 
@@ -1295,7 +1304,6 @@ def _public_table(raw):
     return parts[0] or None
 
 
-SQL_LINE_COMMENT_RE = re.compile(r"--[^\n]*")
 QUOTED_SQL_RE = re.compile(r"\"[^\"\n]*\"|'[^'\n]*'")  # identifiers and strings never name a FOR clause
 MCP_PAIR_RE = re.compile(r'"([^"\n]{1,80})"[ \t]*:[ \t]*"([^"\n]{32,8192})"')
 
@@ -1323,18 +1331,31 @@ def _blank_block_comments(text):
     return "".join(out)
 
 
-def _strip_sql_comments(text):
-    """Blank out comments (keeping newlines so line numbers hold) before the decisive Q3 checks."""
-    text = _blank_block_comments(text)
-    return SQL_LINE_COMMENT_RE.sub(lambda m: " " * len(m.group(0)), text)
-
-
 def _sql_where(m, code, bare):
     """Where a match on the comment-free text sits: "string" (evidence), "name" (a quoted identifier: nothing), or "code"."""
     g = m.group(0)
     if code[m.start():m.end()] != g:
         return "string"
     return "name" if bare[m.start():m.end()] != g else "code"
+
+
+def _block_comment_end(text, pos):
+    """Index of the `*/` that closes a /* opened just before `pos`, counting nested /* */ the way Postgres does;
+    -1 when it never closes. One forward pass over the comment."""
+    depth = 1
+    while True:
+        a = text.find("/*", pos)
+        b = text.find("*/", pos)
+        if b < 0:
+            return -1
+        if 0 <= a < b:
+            depth += 1
+            pos = a + 2
+            continue
+        depth -= 1
+        if depth == 0:
+            return b
+        pos = b + 2
 
 
 def _blank(chunk):
@@ -1370,7 +1391,7 @@ def _lex_sql(text, depth=0):
             for out in (nc, code, bare):
                 out.append(_blank(text[m.start():stop]))
         elif tok == "/*":
-            k = -1 if no_block_close else text.find("*/", m.end())
+            k = -1 if no_block_close else _block_comment_end(text, m.end())
             if k < 0:
                 no_block_close = True  # no */ anywhere after this: later openers skip the search, keeping one pass
                 for out in (nc, code, bare):
@@ -1391,7 +1412,10 @@ def _lex_sql(text, depth=0):
                 break
             stop = body.end()
             nc.append(text[m.start():stop])
-            code.append(text[m.start():stop])  # names stay in code: pg_dump quotes every table it enables RLS on
+            if "\n" in text[m.start():stop]:
+                code.append(_blank(text[m.start():stop]))  # a real name never spans lines: treat it as a string, so nothing inside is dropped
+            else:
+                code.append(text[m.start():stop])  # names stay in code: pg_dump quotes every table it enables RLS on
             bare.append(_blank(text[m.start():stop]))
         elif tok.startswith("$"):
             close = text.find(tok, m.end())
@@ -1438,15 +1462,53 @@ def _strip_slash_comments(text):
 
 
 def _firebase_condition(cond):
-    """"open" when the condition is `true` on its own or `true` joined by || with no && anywhere (`if true ||
-    request.auth != null`); "unevaluated" when `true` appears in something else (`true && …`, `true == true`),
-    which is evidence and keeps Q3 off Nothing found; None when `true` is not there at all."""
+    """"open" when the condition is `true`, or `true` joined by `||` at the top level with no `&&` there, with
+    fully parenthesised groups read the same way (`(a || true)`); "unevaluated" when `true` appears in anything
+    else (`true && …`, `!(… || true)`, `x == (… || true)`, `f(… || true)`), which is evidence and keeps Q3 off
+    Nothing found; None when `true` is not there at all."""
     if not TRUE_TOKEN_RE.search(cond):
         return None
-    flat = re.sub(r"[\s()]", "", cond)
-    if "&&" not in flat and "true" in flat.split("||"):
-        return "open"
-    return "unevaluated"
+    return "open" if _firebase_open(re.sub(r"\s+", "", cond), 0) else "unevaluated"
+
+
+def _firebase_open(expr, depth):
+    expr = _strip_outer_parens(expr)
+    if expr == "true":
+        return True
+    if depth > 20:
+        return False
+    parts, level, cur, i = [], 0, [], 0
+    while i < len(expr):
+        c = expr[i]
+        if c == "(":
+            level += 1
+        elif c == ")":
+            level -= 1
+        if level == 0 and expr.startswith("&&", i):
+            return False  # an && at the top level: the scanner does not work that out
+        if level == 0 and expr.startswith("||", i):
+            parts.append("".join(cur))
+            cur = []
+            i += 2
+            continue
+        cur.append(c)
+        i += 1
+    parts.append("".join(cur))
+    if len(parts) == 1:
+        return False  # one operand that is not `true` itself: `!(…)`, `x == (…)`, `f(…)`
+    return any(_firebase_open(part, depth + 1) for part in parts)
+
+
+def _strip_outer_parens(expr):
+    while expr.startswith("(") and expr.endswith(")"):
+        level = 0
+        for i, c in enumerate(expr):
+            level += c == "("
+            level -= c == ")"
+            if level == 0 and i < len(expr) - 1:
+                return expr  # `(a) || (b)`: the first group closes early, so these are not outer parens
+        expr = expr[1:-1]
+    return expr
 
 
 def detect_rules(sf, state, opts):
@@ -1661,7 +1723,7 @@ def detect_pii_schema(sf, state, opts):
     seen = set()
     ordinary = 0
     stopline = 0
-    text = _strip_sql_comments(sf.text) if "sql" in sf.kinds else _strip_slash_comments(sf.text)
+    text = _lex_sql(sf.text)[0] if "sql" in sf.kinds else _strip_slash_comments(sf.text)
     text = CAMEL_SPLIT_RE.sub("_", text)  # dateOfBirth -> date_Of_Birth so the stop-line vocabulary matches camelCase too
     for m in PII_FIELD_RE.finditer(text):
         state.tick()

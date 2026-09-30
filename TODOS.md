@@ -172,14 +172,14 @@
 
 ### Leftovers from the v0.3.3 review
 
-**What:** (1) A key in `src/components/` is client code even when the file imports `server-only`, so it is a decisive No (true for `.ts` since 0.1; `.mts` inherits it). (2) A Supabase edge function importing `npm:@sentry/deno` with no manifest is not seen by Q9. (3) Never-open folder lookups are case-sensitive on Linux (`.Roo/MCP.json`), matching the tools themselves there. (4) A file of only `drop table` statements reports "no SQL or security-rules file among them", though one was read.
+**What:** (1) A `;` or `}` inside a Firebase string or map literal before `|| true` (`'a;b' || true`, `{'a': 1} || true`), and a URL in a condition string (`== 'https://x.com' || true`, where the `//` strip eats the rest of the line), still end the condition early, so Q3 can read Nothing found; same on 0.3.2. (2) A Supabase edge function importing `npm:@sentry/deno` with no manifest is not seen by Q9. (3) Never-open folder lookups are case-sensitive on Linux (`.Roo/MCP.json`), matching the tools themselves there. (4) A file of only `drop table` statements reports "no SQL or security-rules file among them", though one was read.
 
-**Why:** (1) is a false No, the worst answer the scanner can give; the rest are wording or reach. From the adversarial and Codex passes on the v0.3.3 branch.
+**Why:** (1) is a false Nothing found on a realistic rule (the URL case); the rest are wording or reach. From the adversarial and Codex passes on the v0.3.3 branch.
 
-**Context:** (1) let `SERVER_ONLY_IMPORT_RE` override the client folder in `classify`, with a test that a `"use client"` file still wins. (2) a code-import check for `npm:@sentry/` and `jsr:` specifiers under `supabase/functions/`.
+**Context:** (1) lex Firebase rules the way `_lex_sql` lexes SQL (strings and `//` comments in one pass) before reading conditions. (2) a code-import check for `npm:@sentry/` and `jsr:` specifiers under `supabase/functions/`.
 
 **Effort:** S
-**Priority:** P1 for (1), P3 for the rest
+**Priority:** P2 for (1), P3 for the rest
 **Depends on:** None
 
 ## Completed

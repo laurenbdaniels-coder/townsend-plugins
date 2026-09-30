@@ -1731,7 +1731,7 @@ class ReviewCycleThreeTests(ScanCase):
             self.write("src/lib/auth.ts", 'import { cookies } from "%s";\nexport const key = "%s";\n' % (mod, SK))
             q1 = self.scan()["questions"]["q1"]
             self.assertNotEqual(q1["answer"], "no", mod)
-            self.assertIn("non-client-key-literal", evidence_checks(q1), mod)
+            self.assertTrue({"non-client-key-literal", "server-path-key-literal"} & set(evidence_checks(q1)), mod)  # server-only now marks it server code
         self.write("src/lib/auth.ts", 'import Link from "next/link";\nexport const key = "%s";\n' % SK)
         self.assertEqual(self.scan()["questions"]["q1"]["answer"], "no")
 
@@ -2311,7 +2311,7 @@ class ShipReviewTests(ScanCase):
     def test_block_comment_stripping_is_linear_on_unclosed_openers(self):
         text = "/* a" * 100000
         t0 = time.perf_counter()
-        cs._strip_sql_comments(text)
+        cs._lex_sql(text)[0]
         cs._strip_slash_comments(text)
         self.assertLess(time.perf_counter() - t0, bound(1.0))
         self.write("supabase/migrations/1.sql", "/* a" * 50000 + "\nalter table t disable row level security;\n")
@@ -2321,7 +2321,7 @@ class ShipReviewTests(ScanCase):
         self.assertEqual(r["questions"]["q3"]["answer"], "no")
 
     def test_block_comments_still_hide_decisive_lines(self):
-        self.assertEqual(cs._strip_sql_comments("/* disable row level security */\nselect 1;\n"), " " * 32 + "\nselect 1;\n")
+        self.assertEqual(cs._lex_sql("/* disable row level security */\nselect 1;\n")[0], " " * 32 + "\nselect 1;\n")
         self.assertEqual(cs._strip_slash_comments("a /* x\ny */ b // c\n"), "a     \n     b     \n")
 
     def test_env_name_detection_is_capped_and_fast(self):
@@ -4897,6 +4897,125 @@ class ReviewCycleThreeRegressionTests(ScanCase):
         r = self.scan()
         self.assertLess(time.perf_counter() - t0, bound(2.0))
         self.assertEqual(r["questions"]["q1"]["answer"], "dont-know")
+
+
+
+class FreshReviewTests(ScanCase):
+    """Fresh pre-merge review of PR #24: cases the branch answered worse than 0.3.2, or where a guard had no
+    test that bites."""
+
+    RLS = "create table public.notes (id int);\nalter table public.notes enable row level security;\n"
+
+    def q3_of(self, files):
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.write("src/components/A.tsx", "export const A = () => null;\n")
+        for rel, body in files.items():
+            self.write(rel, body)
+        return self.scan()["questions"]["q3"]
+
+    def sql(self, body):
+        return self.q3_of({"db/1.sql": body})
+
+    def rules(self, cond):
+        return "service cloud.firestore {\n  match /{d=**} {\n    allow write: %s\n  }\n}\n" % cond
+
+    # ----------------------------------------------------------------- views
+    def test_only_the_with_clause_holds_view_options(self):
+        for stmt in ("create view public.v (security_invoker) as select id from public.notes;",
+                     "create view public.v as select id as security_invoker, id from public.notes;",
+                     "create view public.v as select 'with (security_invoker = on)' as note from public.notes;"):
+            with self.subTest(stmt=stmt):
+                self.assertIn("public-view", evidence_checks(self.sql(self.RLS + stmt + "\n")), stmt)
+
+    # ----------------------------------------------------------------- policies
+    def test_using_true_joined_to_more_is_evidence_not_a_no(self):
+        q3 = self.sql(self.RLS + "create policy own on public.notes for all using (((((true))) and false));\n")
+        self.assertNotEqual(q3["answer"], "no")
+        self.assertIn("policy-true-unevaluated", evidence_checks(q3))
+        self.assertEqual(self.sql(self.RLS + "create policy p on public.notes for all using (((true)));\n")["answer"], "no")
+
+    # ----------------------------------------------------------------- lexer
+    def test_do_with_a_language_still_runs(self):
+        self.assertEqual(self.sql(self.RLS + "do language plpgsql $$ begin alter table public.notes disable row level security; end $$;\n")["answer"], "no")
+
+    def test_block_comments_nest(self):
+        body = self.RLS + '/* old /* inner */ 27" monitor */\nalter table public.notes disable row level security;\n-- 27" again\n'
+        self.assertEqual(self.sql(body)["answer"], "no")
+        body = self.RLS + "/* /* x */ we don't need this */\ncreate policy p on public.notes for all using (true);\n"
+        self.assertEqual(self.sql(body)["answer"], "no")
+
+    def test_a_quoted_name_across_lines_never_hides_a_rule(self):
+        body = self.RLS + 'select "not a name\nalter table public.notes disable row level security;\n" from x;\n'
+        self.assertNotEqual(self.sql(body)["answer"], "nothing-found")
+
+    def test_rule_words_in_a_name_earn_no_credit(self):
+        q3 = self.sql('create table public.notes (id int);\ncreate index "alter table public.notes enable row level security" on public.notes(id);\n')
+        self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], ["notes"])
+
+    def test_the_name_skip_leaves_nothing_behind(self):
+        q3 = self.sql(self.RLS + 'create index "disable row level security" on public.notes(id);\n')
+        self.assertEqual(q3["answer"], "nothing-found")
+
+    def test_an_unclosed_quote_inside_a_do_block_is_a_gap(self):
+        self.assertEqual(self.sql(self.RLS + "do $$ begin perform 'oops; end $$;\n")["answer"], "dont-know")
+
+    def test_do_blocks_nested_past_the_cap_still_finish(self):
+        depth = cs.MAX_DO_NESTING + 5
+        body = "".join("do $t%d$ " % i for i in range(depth)) + "select 1;" + "".join(" $t%d$" % i for i in reversed(range(depth)))
+        self.sql(self.RLS + body + "\n")  # completes without recursion errors
+
+    # ----------------------------------------------------------------- drops
+    def test_a_drop_list_past_the_character_cut_is_a_gap(self):
+        q3 = self.q3_of({"db/1.sql": self.RLS, "db/2.sql": "drop table other.a," + " " * (cs.MAX_DROP_LIST_CHARS + 1) + "public.notes;\ncreate table public.notes (id int);\n"})
+        self.assertEqual(q3["answer"], "dont-know")
+
+    def test_a_drop_list_past_the_item_cap_is_a_gap(self):
+        items = ", ".join("other.t%d" % i for i in range(cs.MAX_TABLE_MATCHES_PER_FILE + 1))
+        q3 = self.q3_of({"db/1.sql": self.RLS, "db/2.sql": "drop table %s, public.notes;\ncreate table public.notes (id int);\n" % items})
+        self.assertEqual(q3["answer"], "dont-know")
+
+    # ----------------------------------------------------------------- Firebase
+    def test_negated_or_compared_groups_are_never_open(self):
+        for cond in ("if !(request.auth == null || true);", "if false == (request.auth == null || true);", "if f(request.auth || true);"):
+            with self.subTest(cond=cond):
+                q3 = self.q3_of({"firestore.rules": self.rules(cond)})
+                self.assertNotEqual(q3["answer"], "no", cond)
+                self.assertIn("firebase-rules-true-unevaluated", evidence_checks(q3), cond)
+
+    def test_a_parenthesised_or_group_is_still_open(self):
+        for cond in ("if (request.auth == null || true);", "if ((false) || (true));"):
+            with self.subTest(cond=cond):
+                self.assertEqual(self.q3_of({"firestore.rules": self.rules(cond)})["answer"], "no", cond)
+
+    def test_a_rule_without_a_semicolon_before_a_nested_match(self):
+        rules = "service cloud.firestore {\n  match /notes/{id} {\n    allow write: if true\n    match /c/{c} { allow read: if request.auth != null; }\n  }\n}\n"
+        self.assertEqual(self.q3_of({"firestore.rules": rules})["answer"], "no")
+
+    # ----------------------------------------------------------------- Q1
+    def test_server_only_wins_over_a_client_folder(self):
+        key = "sk-" + "proj-" + "a1b2c3d4e5f6g7h8i9j0" * 2
+        for name in ("src/components/secret.ts", "src/components/secret.mts"):
+            with self.subTest(name=name):
+                shutil.rmtree(self.repo)
+                os.makedirs(self.repo)
+                self.write(name, 'import "server-only";\nexport const OPENAI_API_KEY = "%s";\n' % key)
+                self.assertNotEqual(self.scan()["questions"]["q1"]["answer"], "no", name)
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.write("src/components/c.tsx", '"use client";\nimport "server-only";\nexport const k = "%s";\n' % key)
+        self.assertEqual(self.scan()["questions"]["q1"]["answer"], "no", "a file that says use client is client code")
+
+    def test_mcp_rows_name_nested_folders_and_are_capped(self):
+        self.write("src/components/A.tsx", "export const A = 1;\n")
+        self.write("apps/web/.continue/mcp.json", "{}")
+        q1 = self.scan()["questions"]["q1"]
+        self.assertEqual([e["path"] for e in q1["evidence"] if e["check"] == "mcp-config-not-opened"], ["apps/web/.continue/mcp.json"])
+        for i in range(cs.MAX_NEVER_OPEN_MCP_ROWS + 3):
+            self.write(".roo/mcp%d.json" % i, "{}")
+        q1 = self.scan()["questions"]["q1"]
+        self.assertEqual(len([e for e in q1["evidence"] if e["check"] == "mcp-config-not-opened"]), cs.MAX_NEVER_OPEN_MCP_ROWS)
+        self.assertEqual(q1["answer"], "dont-know")
 
 
 if __name__ == "__main__":
