@@ -3534,7 +3534,7 @@ class KilledGitTests(ScanCase):
     def test_one_tag_longer_than_the_cap_still_counts(self):
         self.init_repo(commits=1)
         head = self.git("rev-parse", "HEAD").stdout.strip()
-        with open(os.path.join(self.repo, ".git", "packed-refs"), "w") as fh:  # packed, so no file path limit applies (Windows MAX_PATH)
+        with open(os.path.join(self.repo, ".git", "packed-refs"), "w", newline="\n") as fh:  # packed (no Windows MAX_PATH), LF only (CR is not a ref char)
             fh.write("# pack-refs with: peeled fully-peeled sorted \n%s refs/tags/t%s\n" % (head, "x" * 230))  # longer than the cap
         with mock.patch.object(cs, "GIT_OUTPUT_LIMIT", 200), mock.patch.object(cs.subprocess, "Popen", KilledLatePopen):
             r = self.scan()
