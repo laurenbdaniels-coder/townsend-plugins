@@ -1611,13 +1611,21 @@ def _git_config_safe(text):
     return True
 
 
+FILE_ATTRIBUTE_REPARSE_POINT = 0x400
+
+
+def _is_reparse(st):
+    """A Windows reparse point: a junction reports itself as a plain directory and islink() misses it before 3.12."""
+    return bool(getattr(st, "st_file_attributes", 0) & FILE_ATTRIBUTE_REPARSE_POINT)
+
+
 def _git_tree_plain(gitdir, state=None):
-    """Everything git will open under refs/, logs/ and objects/ is a plain file or directory (no fifo, no link)."""
+    """Everything git will open under refs/, logs/ and objects/ is a plain file or directory (no fifo, no link, no junction)."""
     seen = 0
     for sub in ("refs", "logs", "objects"):
         top = os.path.join(gitdir, sub)
         if not os.path.isdir(top):
-            continue
+            continue  # refs/, logs/ and objects/ themselves were vetted with the other entries git touches
         for root, dirs, files in os.walk(top, followlinks=False, onerror=lambda e: None):
             if state is not None and state.deadline is not None and time.monotonic() > state.deadline:
                 return False
@@ -1629,7 +1637,7 @@ def _git_tree_plain(gitdir, state=None):
                     st = os.lstat(os.path.join(root, name))
                 except OSError:
                     return False
-                if not (stat.S_ISREG(st.st_mode) or stat.S_ISDIR(st.st_mode)):
+                if not (stat.S_ISREG(st.st_mode) or stat.S_ISDIR(st.st_mode)) or _is_reparse(st):
                     return False
     return True
 
@@ -1699,6 +1707,11 @@ def _git_pointer_ok(real_repo, state=None):
         return False
     if os.path.islink(gitdir) or not os.path.isdir(gitdir):
         return False
+    try:
+        if _is_reparse(os.lstat(gitdir)):
+            return False
+    except OSError:
+        return False
     for pointer in ("commondir", "gitdir", "config.worktree", os.path.join("objects", "info", "alternates")):
         if os.path.lexists(os.path.join(gitdir, pointer)):
             return False
@@ -1707,7 +1720,7 @@ def _git_pointer_ok(real_repo, state=None):
             est = os.lstat(os.path.join(gitdir, entry))
         except OSError:
             continue
-        if not (stat.S_ISREG(est.st_mode) or stat.S_ISDIR(est.st_mode)):
+        if not (stat.S_ISREG(est.st_mode) or stat.S_ISDIR(est.st_mode)) or _is_reparse(est):
             return False
     cfg = os.path.join(gitdir, "config")
     if os.path.lexists(cfg):

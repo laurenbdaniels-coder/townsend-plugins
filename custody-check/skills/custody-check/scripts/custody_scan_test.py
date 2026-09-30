@@ -3423,6 +3423,66 @@ class WindowsJunctionTests(ScanCase):
         self.assertNotIn("server-path-key-literal", evidence_checks(r["questions"]["q1"]))
 
 
+class _Reparse(object):
+    """An lstat result that reports the Windows reparse-point attribute, the way a junction does."""
+
+    def __init__(self, st):
+        self._st = st
+
+    def __getattr__(self, name):
+        return cs.FILE_ATTRIBUTE_REPARSE_POINT if name == "st_file_attributes" else getattr(self._st, name)
+
+
+class GitJunctionTests(ScanCase):
+    """A junction anywhere git reads must stop git from being asked, or another checkout's history becomes this app's."""
+
+    def _q5(self, r):
+        return evidence_checks(r["questions"]["q5"]["code"])
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_reparse_points_in_git_metadata_are_refused(self):
+        self.write("vercel.json", "{}\n")
+        self.init_repo(commits=12, tag="v1")
+        real_lstat = os.lstat
+        for suffix in (".git", "/.git/refs", "/.git/objects", "/.git/refs/tags", "/.git/HEAD"):
+            with self.subTest(suffix=suffix):
+                def lstat(path, *a, **kw):
+                    st = real_lstat(path, *a, **kw)
+                    return _Reparse(st) if str(path).replace(os.sep, "/").endswith(suffix) else st
+                with mock.patch.object(cs.os, "lstat", lstat):
+                    r = self.scan()
+                self.assertIn("git-config-not-vouched", self._q5(r), suffix)
+                self.assertIsNone(r["git"]["commits"], suffix)
+        self.assertIn("git-history", self._q5(self.scan()), "without a reparse point the same repo is read")
+
+    @unittest.skipUnless(os.name == "nt" and HAVE_GIT, "NTFS junctions are Windows-only")
+    def test_a_dot_git_junction_to_another_checkout_is_refused(self):
+        other = os.path.join(self.tmp, "other")
+        os.makedirs(other)
+        self.git("init", "-q", cwd=other)
+        with open(os.path.join(other, "f"), "w") as fh:
+            fh.write("x\n")
+        self.git("add", "f", cwd=other)
+        self.git("commit", "-qm", "c", cwd=other)
+        self.git("tag", "v1", cwd=other)
+        self.write("vercel.json", "{}\n")
+        subprocess.run(["cmd", "/c", "mklink", "/J", os.path.join(self.repo, ".git"), os.path.join(other, ".git")], check=True, capture_output=True)
+        r = self.scan()
+        self.assertIn("git-config-not-vouched", self._q5(r))
+        self.assertIsNone(r["git"]["commits"])
+
+    @unittest.skipUnless(os.name == "nt" and HAVE_GIT, "NTFS junctions are Windows-only")
+    def test_a_refs_junction_inside_git_is_refused(self):
+        other = os.path.join(self.tmp, "other")
+        os.makedirs(other)
+        self.git("init", "-q", cwd=other)
+        self.init_repo(commits=1)
+        rm_tree(os.path.join(self.repo, ".git", "refs"))
+        subprocess.run(["cmd", "/c", "mklink", "/J", os.path.join(self.repo, ".git", "refs"), os.path.join(other, ".git", "refs")], check=True, capture_output=True)
+        r = self.scan()
+        self.assertIn("git-config-not-vouched", self._q5(r))
+
+
 class SmallReadTests(ScanCase):
     def test_a_file_that_shrinks_under_the_read_is_not_vouched_for(self):
         path = os.path.join(self.tmp, "config")
