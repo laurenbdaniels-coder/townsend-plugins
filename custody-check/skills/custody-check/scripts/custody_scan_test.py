@@ -3481,6 +3481,28 @@ class GitJunctionTests(ScanCase):
         self.assertEqual(self.scan()["git"]["commits"], 5)
 
     @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_a_forged_commit_graph_does_not_rewrite_history(self):
+        self.init_repo(commits=5)
+        self.git("commit-graph", "write", "--reachable")
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        root = self.git("rev-list", "--max-parents=0", "HEAD").stdout.strip()
+        path = os.path.join(self.repo, ".git", "objects", "info", "commit-graph")
+        os.chmod(path, stat.S_IREAD | stat.S_IWRITE)
+        with open(path, "rb") as fh:
+            data = bytearray(fh.read())
+        chunks = {}
+        for i in range(data[6]):  # chunk table: 4-byte id, 8-byte offset
+            at = 8 + 12 * i
+            chunks[bytes(data[at:at + 4])] = int.from_bytes(data[at + 4:at + 12], "big")
+        oids = [bytes(data[chunks[b"OIDL"] + 20 * k:chunks[b"OIDL"] + 20 * (k + 1)]).hex() for k in range(5)]
+        parent1 = chunks[b"CDAT"] + 36 * oids.index(head) + 20  # CDAT entry: tree, parent1, parent2, generation+time
+        data[parent1:parent1 + 4] = oids.index(root).to_bytes(4, "big")  # HEAD's parent becomes the root: 2 commits, not 5
+        with open(path, "wb") as fh:
+            fh.write(bytes(data))
+        self.assertEqual(self.git("rev-list", "--count", "HEAD").stdout.strip(), "2", "the forged graph must fool plain git")
+        self.assertEqual(self.scan()["git"]["commits"], 5)
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
     def test_grafts_are_refused(self):
         self.init_repo(commits=2)
         os.makedirs(os.path.join(self.repo, ".git", "info"), exist_ok=True)
