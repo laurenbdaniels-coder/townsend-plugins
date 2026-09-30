@@ -194,6 +194,42 @@
 **Priority:** P2
 **Depends on:** None
 
+### Widen the AI dependency list to newer SDK packages
+
+**What:** `AI_DEPS` (the `ai-sdk-dependency` hint) doesn't list `@ai-sdk/gateway`, `@ai-sdk/groq`, `@ai-sdk/mistral`, `@langchain/google-genai`, `@openrouter/ai-sdk-provider` or `@aws-sdk/client-bedrock-runtime`, so an app that depends only on one of them gets no dependency hint.
+
+**Why:** Q8's "does your app call a model?" question leads with the dependency hint; a newer app can miss it.
+
+**Context:** Found in the #16/#17 review. Those packages already count as provider context for model names (`AI_IMPORT_ONLY` in `custody_scan.py`); adding them to `AI_DEPS` raises a new hint the release didn't, so it needs its own differential-test entry and was kept out of the fix PR. Merge the two sets once done.
+
+**Effort:** S
+**Priority:** P2
+**Depends on:** None
+
+### Let any stronger row push out a weaker one when a question is full
+
+**What:** `ScanState.add` caps each question at 12 rows in file order; only a `no` row (and, since #17, a hint over a bare `model-mentioned`) can push an earlier row out. So 12 evidence rows from early files can hide a later hint or yes-part.
+
+**Why:** The skill leads with hints; a hidden hint means a weaker interview. Main already behaves this way for every question.
+
+**Context:** Found in the #16/#17 review. Rank by `evidence < hint < yes-part < no` and evict the newest weaker row. Touches every question's row list, so it needs a differential-test pass over the corpus.
+
+**Effort:** S
+**Priority:** P3
+**Depends on:** None
+
+### Production-only deploys for Q5's code half
+
+**What:** Decide whether a preview-only deploy (`vercel deploy` or `netlify deploy` without `--prod`, amondnet/vercel-action without prod args) or a docs-site action (actions/deploy-pages, peaceiris/actions-gh-pages) should count as "a redeploy path exists".
+
+**Why:** Today they count (Lauren, 2026-09-30: keep them counting in #16, because each still proves a scripted deploy path and GitHub Pages is often the product). A preview-only pipeline can give a medium Yes the founder then has to correct.
+
+**Context:** Revisit with corpus evidence from the corpus runner: count how many real apps deploy only previews or only docs by CI.
+
+**Effort:** S
+**Priority:** P3
+**Depends on:** Corpus runner
+
 ## Completed
 
 ### Q3 "nothing found" from a lone seed.sql

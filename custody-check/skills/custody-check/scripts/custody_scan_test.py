@@ -1239,6 +1239,16 @@ class ContractTests(ScanCase):
             self.assertIn(effect, ("evidence", "hint", "yes-part", "no"))
             self.assertRegex(question, r"^q(\d+)(\.code|\.data)?$")
 
+    def test_check_registry_and_questions_appendix_list_the_same_checks(self):
+        # The skill rejects any scan whose check is missing from the appendix, so a check added to CHECKS
+        # but not to the appendix sends every run that emits it into degraded mode. Both sides, exactly.
+        with open(os.path.join(SKILL_DIR, "references", "questions.md"), encoding="utf-8") as fh:
+            appendix = fh.read().split("## All check names")[1]
+        listed = dict(re.findall(r"`([a-z0-9-]+)` \((evidence|hint|yes-part|no)\)", appendix))
+        self.assertEqual(set(listed), set(cs.CHECKS), "CHECKS and the questions.md appendix must name the same checks")
+        for name, effect in listed.items():
+            self.assertEqual(cs.CHECKS[name][1], effect, name + ": the appendix effect disagrees with CHECKS")
+
     def test_evidence_is_capped_at_max_evidence(self):
         for i in range(30):
             self.write("pages/api/r%d.ts" % i, "export default () => 1;\n")
@@ -1489,11 +1499,17 @@ class LinearityTests(unittest.TestCase):
         blank = "\n" * 524288
         spaced = " \n" * 262144
         for regex in (cs.CLIENT_IMPORT_RE, cs.CRON_WORKFLOW_RE, cs.TOML_PUBLIC_TRUE_RE, cs.NETLIFY_CONTEXT_RE, cs.WRANGLER_ENV_RE, cs.CRON_WRANGLER_RE, cs.USE_CLIENT_RE, cs.GEM_RE, cs.GO_REQUIRE_RE,
-                      cs.AI_JS_IMPORT_RE, cs.AI_PY_IMPORT_RE, cs.DEPLOY_ACTION_RE, cs.WORKFLOW_COMMENT_RE):
+                      cs.AI_JS_IMPORT_RE, cs.AI_PY_IMPORT_RE, cs.DEPLOY_ACTION_RE, cs.WORKFLOW_RUN_RE, cs.WORKFLOW_DISABLED_RE, cs.DEPLOY_CLI_RE, cs.PROVIDER_REF_RE):
             t0 = time.perf_counter()
             regex.search(blank)
             regex.search(spaced)
             self.assertLess(time.perf_counter() - t0, bound(1.0), regex.pattern)
+
+    def test_deploy_cli_pattern_is_linear_on_repeated_tool_words(self):
+        t0 = time.perf_counter()
+        cs.DEPLOY_CLI_RE.search("vercel " * 150000)
+        cs.DEPLOY_CLI_RE.search(("vercel " + "x" * 118 + "\n") * 4000)
+        self.assertLess(time.perf_counter() - t0, bound(1.0))
 
     def test_firebase_and_sql_patterns_are_linear(self):
         t0 = time.perf_counter()
@@ -5060,6 +5076,64 @@ class DeployWorkflowTests(ScanCase):
     def deploy_rows(self, q):
         return [e for e in q["q5"]["code"]["evidence"] if e["check"] == "deploy-config"]
 
+    def test_every_deploy_form_counts_with_its_exact_label(self):
+        cases = [
+            ("      - run: vercel deploy --prod\n", "vercel deploy --prod"),
+            ("      - run: vercel deploy --prebuilt --prod\n", "vercel deploy --prebuilt --prod"),
+            ("      - run: |\n          npm ci\n          FORCE=1 npx vercel@latest --prod --yes\n", "vercel --prod"),
+            ("      - run: ./node_modules/.bin/vercel deploy --prod\n", "vercel deploy --prod"),
+            ("      - run: npx --yes vercel@latest deploy\n", "vercel deploy"),
+            ("      - run: pnpm dlx vercel@33 --prod\n", "vercel --prod"),
+            ("      - run: wrangler publish\n", "wrangler publish"),
+            ("      - run: npx wrangler pages deploy dist\n", "wrangler pages deploy"),
+            ("      - run: railway up --service web\n", "railway up"),
+            ("      - run: supabase functions deploy hello\n", "supabase functions deploy"),
+            ("      - run: gcloud run deploy api --source .\n", "gcloud run deploy"),
+            ("      - run: gcloud app deploy\n", "gcloud app deploy"),
+            ("      - run: npx serverless deploy\n", "serverless deploy"),
+            ("      - run: sls deploy --stage prod\n", "sls deploy"),
+            ("      - run: npx cdk deploy --all\n", "cdk deploy"),
+            ("      - run: eb deploy prod-env\n", "eb deploy"),
+            ("      - run: fly deploy\n", "fly deploy"),
+            ("      - run: echo \"# note\" && vercel deploy --prod\n", "vercel deploy --prod"),
+            ('      - uses: "amondnet/vercel-action@v25"\n', "amondnet/vercel-action"),
+            ("      - uses: nwtgck/actions-netlify@v3\n", "nwtgck/actions-netlify"),
+            ("      - uses: FirebaseExtended/action-hosting-deploy@v0\n", "FirebaseExtended/action-hosting-deploy"),
+            ("      - uses: google-github-actions/deploy-cloudrun@v2\n", "google-github-actions/deploy-cloudrun"),
+            ("      - uses: peaceiris/actions-gh-pages@v4\n", "peaceiris/actions-gh-pages"),
+            ("      - uses: actions/deploy-pages@v4\n", "actions/deploy-pages"),
+            ("      - uses: cloudflare/pages-action@v1\n", "cloudflare/pages-action"),
+        ]
+        for step, label in cases:
+            with self.subTest(step=step):
+                shutil.rmtree(self.repo)
+                os.makedirs(self.repo)
+                self.write(".github/workflows/d.yml", "on: push\njobs:\n  d:\n    steps:\n" + step)
+                self.assertEqual([r["snippet"] for r in self.deploy_rows(self.scan()["questions"])], [label])
+
+    def test_only_a_command_that_starts_with_the_tool_deploys(self):
+        self.write(".github/workflows/a.yml", "name: firebase deploy helper\non: push\njobs:\n  a:\n    name: vercel deploy --prod preview\n    steps:\n"
+                                              "      - name: fly deploy\n        run: echo \"remember to firebase deploy by hand\"\n"
+                                              "      - run: npx vercel build --prod\n      - run: vercel pull --yes --environment=production\n"
+                                              "      - run: |\n          echo 'build #1'; npm test\n          # netlify deploy --prod\n          true # ; vercel deploy --prod\n")
+        self.assertEqual(self.deploy_rows(self.scan()["questions"]), [])
+
+    def test_a_disabled_or_nested_workflow_is_not_a_deploy_path(self):
+        self.write(".github/workflows/off.yml", "on: push\njobs:\n  d:\n    if: false\n    steps:\n      - run: vercel deploy --prod\n")
+        self.write(".github/workflows/also-off.yml", "on: push\njobs:\n  d:\n    steps:\n      - if: ${{ false }}\n        run: netlify deploy --prod\n")
+        self.write(".github/workflows/archive/old.yml", "on: push\njobs:\n  d:\n    steps:\n      - run: vercel deploy --prod\n")
+        self.assertEqual(self.deploy_rows(self.scan()["questions"]), [])
+
+    def test_a_quoted_hash_does_not_hide_the_deploy_after_it(self):
+        self.write(".github/workflows/d.yml", "on: push\njobs:\n  d:\n    steps:\n      - run: echo 'build #1'; vercel deploy --prod\n")
+        rows = self.deploy_rows(self.scan()["questions"])
+        self.assertEqual([(r["snippet"], r["line"]) for r in rows], [("vercel deploy --prod", 5)])
+
+    def test_prod_flag_on_another_command_is_not_a_vercel_deploy(self):
+        self.write(".github/workflows/b.yml", "on: push\njobs:\n  b:\n    steps:\n      - run: echo vercel rocks && npm run build -- --prod\n"
+                                              "      - run: echo vercel; npm test --prod\n      - run: npm i vercel@latest | tee log --prod\n")
+        self.assertEqual(self.deploy_rows(self.scan()["questions"]), [])
+
     def test_workflows_that_deploy_count_and_name_what_deploys(self):
         cases = {
             "vercel": "      - run: npx vercel --prod --token=${{ secrets.VERCEL_TOKEN }}\n",
@@ -5085,6 +5159,11 @@ class DeployWorkflowTests(ScanCase):
         rows = self.deploy_rows(self.scan()["questions"])
         self.assertEqual([r["snippet"] for r in rows], ["vercel --prod"])
         self.assert_no_secret(json.dumps(self.scan()), token)
+        lower = "vtok" + "".join(random.choice(string.ascii_lowercase) for _ in range(24))
+        self.write(".github/workflows/deploy.yml", "on: push\njobs:\n  d:\n    steps:\n      - run: vercel --token %s --prod\n      - run: netlify deploy --auth %s\n" % (lower, lower))
+        rows = self.deploy_rows(self.scan()["questions"])
+        self.assertEqual([r["snippet"] for r in rows], ["vercel --prod"], "an all-lowercase token is still an argument, never a label word")
+        self.assert_no_secret(json.dumps(self.scan()), lower)
 
     def test_workflows_that_only_lint_test_or_review_do_not_count(self):
         self.write(".github/workflows/lint.yml", "on: push\njobs:\n  l:\n    steps:\n      - run: npm run lint\n")
@@ -5102,7 +5181,9 @@ class DeployWorkflowTests(ScanCase):
         code = self.scan()["questions"]["q5"]["code"]
         self.assertEqual(code["answer"], "dont-know")
         self.write(".github/workflows/ci.yml", "on: push\njobs:\n  l:\n    steps:\n      - run: npm run lint\n      - run: vercel deploy --prod\n")
-        self.assertEqual(self.scan()["questions"]["q5"]["code"]["answer"], "yes")
+        code = self.scan()["questions"]["q5"]["code"]
+        self.assertEqual((code["answer"], code["confidence"]), ("yes", "med"))
+        self.assertEqual([e["snippet"] for e in code["evidence"] if e["check"] == "deploy-config"], ["vercel deploy --prod"])
 
     def test_deploy_config_files_still_count_by_name(self):
         self.write("vercel.json", "{}\n")
@@ -5138,6 +5219,55 @@ class ModelLiteralTests(ScanCase):
         self.write("src/k.ts", 'const k = process.env.OPENAI_API_KEY;\nconst m = "gpt-4o";\n')
         self.assertIn("model-literal", evidence_checks(self.q8()))
 
+    def test_every_provider_host_promotes_a_model_name(self):
+        for host in ("api.openai.com", "generativelanguage.googleapis.com", "openrouter.ai/api/v1", "bedrock-runtime.us-east-1.amazonaws.com",
+                     "myco.openai.azure.com", "ai-gateway.vercel.sh", "api.groq.com", "api.mistral.ai"):
+            with self.subTest(host=host):
+                shutil.rmtree(self.repo)
+                os.makedirs(self.repo)
+                self.write("src/f.ts", 'const u = "https://%s"; const m = "gpt-4o";\n' % host)
+                self.assertEqual(evidence_checks(self.q8()), ["model-literal"])
+
+    def test_deno_lovable_and_bedrock_calls_are_provider_context(self):
+        for rel, src in (("supabase/functions/chat/index.ts", 'import OpenAI from "npm:openai@4.20.0";\nconst m = "gpt-4o";\n'),
+                         ("supabase/functions/a/index.ts", 'import Anthropic from "https://esm.sh/@anthropic-ai/sdk@0.20.0";\nconst m = "claude-3-haiku";\n'),
+                         ("supabase/functions/b/index.ts", 'import Anthropic from "jsr:@anthropic-ai/sdk";\nconst m = "claude-3-haiku";\n'),
+                         ("src/c.ts", 'import OpenAI from "openai@4";\nconst m = "gpt-4o";\n'),
+                         ("supabase/functions/lov/index.ts", 'await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {body: JSON.stringify({model: "google/gemini-2.5-flash"})});\n'),
+                         ("supabase/functions/key/index.ts", 'const k = Deno.env.get("LOVABLE_API_KEY");\nconst m = "gemini-2.5-flash";\n'),
+                         ("app/br.py", 'import boto3\nc = boto3.client("bedrock-runtime")\nm = "claude-3-sonnet"\n'),
+                         ("src/br.ts", 'import { BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime";\nconst m = "claude-3-sonnet";\n')):
+            with self.subTest(rel=rel):
+                shutil.rmtree(self.repo)
+                os.makedirs(self.repo)
+                self.write(rel, src)
+                self.assertEqual(set(evidence_checks(self.q8())), {"model-literal"})
+
+    def test_mentions_never_crowd_out_hints(self):
+        for i in range(3):
+            self.write("src/m%d.ts" % i, "".join('const a%d = "gpt-4o-%d";\n' % (j, j) for j in range(5)))
+        self.write("src/zz_ai.ts", 'import OpenAI from "openai";\nconst r = {model: "gpt-4o", max_tokens: 100};\n')
+        q8 = self.q8()
+        checks = evidence_checks(q8)
+        self.assertLessEqual(len(checks), cs.MAX_EVIDENCE)
+        self.assertIn("model-literal", checks)
+        self.assertIn("spend-cap-word", checks)
+        self.assertEqual(q8["confidence"], "med")
+
+    def test_lookalike_imports_stay_mentioned(self):
+        for src in ('import x from "ai-utils";\n', 'import x from "./ai";\n', 'import x from "openai-edge-helpers";\n'):
+            with self.subTest(src=src):
+                shutil.rmtree(self.repo)
+                os.makedirs(self.repo)
+                self.write("src/f.ts", src + 'const m = "gpt-4o";\n')
+                self.assertEqual(evidence_checks(self.q8()), ["model-mentioned"])
+        for src in ("import openai_helpers\n", "from langchainish import x\n", "from googleapis import genai\n"):
+            with self.subTest(src=src):
+                shutil.rmtree(self.repo)
+                os.makedirs(self.repo)
+                self.write("app/f.py", src + 'm = "gpt-4o"\n')
+                self.assertEqual(evidence_checks(self.q8()), ["model-mentioned"])
+
     def test_model_name_alone_is_only_mentioned(self):
         self.write("scripts/research.py", 'MODELS = ["gpt-4o", "claude-3-opus", "gemini-1.5-pro"]\nprint(MODELS)\n')
         self.write("src/copy.ts", 'export const blurb = "Built with gpt-4o";\n')
@@ -5145,6 +5275,14 @@ class ModelLiteralTests(ScanCase):
         self.assertNotIn("model-literal", checks)
         self.assertIn("model-mentioned", checks)
         self.assertEqual(cs.CHECKS["model-mentioned"], ("q8", "evidence"))
+
+    def test_a_bare_mention_does_not_raise_q8_confidence(self):
+        self.write("scripts/research.py", 'MODELS = ["gpt-4o"]\n')
+        q8 = self.q8()
+        self.assertEqual(evidence_checks(q8), ["model-mentioned"])
+        self.assertEqual((q8["answer"], q8["confidence"]), ("dont-know", "low"))
+        self.write("src/ai.ts", 'import OpenAI from "openai";\nconst m = "gpt-4o";\n')
+        self.assertEqual(self.q8()["confidence"], "med")
 
     def test_model_name_in_a_json_data_file_gives_no_hint(self):
         self.write("data/benchmarks.json", '{"models": ["gpt-4o", "claude-3-opus"]}\n')
@@ -5158,12 +5296,18 @@ class ModelLiteralTests(ScanCase):
         self.assertNotIn("model-literal", checks)
         self.assertIn("model-mentioned", checks)
 
-    def test_the_skill_and_appendix_name_model_mentioned(self):
-        q = open(os.path.join(SKILL_DIR, "references", "questions.md"), encoding="utf-8").read()
-        appendix = q.split("## All check names")[1]
-        self.assertIn("`model-mentioned` (evidence)", appendix)
-        k = open(os.path.join(SKILL_DIR, "SKILL.md"), encoding="utf-8").read()
-        self.assertIn("model-mentioned", k)
+    def test_newer_sdk_imports_are_context_but_the_dependency_list_is_as_released(self):
+        # an @ai-sdk/gateway import shows a provider call, so its model names stay hints; the ai-sdk-dependency
+        # list is not widened here (that would be a new alarm against the release; see TODOS.md)
+        self.write("package.json", '{"dependencies": {"@ai-sdk/gateway": "1.0.0"}}')
+        self.write("src/g.ts", 'import { gateway } from "@ai-sdk/gateway";\nconst m = "gpt-4o";\n')
+        checks = evidence_checks(self.q8())
+        self.assertEqual(checks, ["model-literal"])
+        self.assertNotIn("@ai-sdk/gateway", cs.AI_DEPS)
+
+    def test_the_skill_names_model_mentioned(self):
+        with open(os.path.join(SKILL_DIR, "SKILL.md"), encoding="utf-8") as fh:
+            self.assertIn("model-mentioned", fh.read())  # the appendix side is pinned by the registry parity test
 
 
 if __name__ == "__main__":

@@ -97,7 +97,7 @@ Two halves, scored separately; the verdict shows the lower one.
 
 # If AI drives part of your product: keeping it on rails
 
-Ask these **only when the app calls a model**, and ask the founder that question rather than inferring it. The scanner's Q8 hints (`ai-sdk-dependency`, `model-env-var`, `model-literal`) are worth leading with, but they miss a plain HTTP call to a provider and they fire on an unused dependency or a model name in a comment. A model is not a library that does the same thing every time. It is a moving part inside the product, and these are the six ways it wanders off without anything turning red.
+Ask these **only when the app calls a model**, and ask the founder that question rather than inferring it. The scanner's Q8 hints (`ai-sdk-dependency`, `model-env-var`, `model-literal`) are worth leading with, but they miss a call through a wrapper the scanner doesn't know and they fire on an unused dependency. A model name counts as `model-literal` only in a file that also imports a provider SDK, names a provider's API host or reads a provider key; anywhere else it is `model-mentioned`, evidence that is never led with. A model is not a library that does the same thing every time. It is a moving part inside the product, and these are the six ways it wanders off without anything turning red.
 
 The eleven already cover the ones that are really software questions wearing an AI hat: rollback is Q5, the bill is Q8, would-you-notice-it-is-down is Q9, and who-can-read-this is Q1, Q3, Q4 and Q10. These six are what is left.
 
@@ -129,7 +129,7 @@ The prompt you tried in the playground is not the prompt your code sends. Your c
 
 - **Yes** only from you: you have seen the exact final text and settings one real request sent, and it matches what you evaluated.
 - **No** only from you: you tuned it in a playground, shipped something your code assembles, and have never compared the two.
-- Scanner hints: `model-literal` shows which model names appear in the code. Two different model names in two places is worth a look.
+- Scanner hints: `model-literal` and `model-mentioned` show which model names appear in the code (next to a provider call, and anywhere else). Two different model names in two places is worth a look.
 - **By hand (60 s):** ask your AI tool: "show me the exact final text and settings you send to the model for one request, printed in full, not summarised." Read it next to what you tested. People are usually surprised.
 - **The fix:** whatever differs, make the tested version the shipped one. If you cannot tell them apart, that is the finding.
 - *If you also train a model, this one has a name: training and serving skew. Without training, it is the same shape with a smaller blast radius, because only the input differs and the fix is a diff rather than a retrain.*
@@ -163,7 +163,7 @@ You changed nothing and the answers changed anyway. If the model name in your co
 
 - **Yes** only from you: the model name names a specific version, you re-run the examples from A4 when you change it, and you know when that version is scheduled to go away.
 - **No** only from you: the name has no version in it and nothing re-runs when the answers move.
-- Scanner hints: `model-literal` shows which model names appear in the code; a name without a date or version is worth a look.
+- Scanner hints: `model-literal` and `model-mentioned` show which model names appear in the code; a name without a date or version is worth a look.
 - **By hand (60 s):** find the model name in your code. No date or version means you are on today's. Better still, read the `model` field the provider sends back on one real response, which names what actually served rather than what you asked for.
 - **The fix:** pin the version. It is a one-line edit, and then subscribe to your provider's deprecation notices. Swapping a model version is an escalation trigger, so tier that one-line edit Gated and run its gates; "small diff" is exactly how this one gets shipped unwatched.
 - *A pin is a dated lease, not a freeze. Versions are retired on a schedule, so pinning buys you notice and a planned re-run rather than permanence. Pinning is straightforward on Anthropic and OpenAI, where dated names are the normal shape; on some other providers the stable names roll forward and you cannot pin the same way.*

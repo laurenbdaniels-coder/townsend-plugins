@@ -278,26 +278,40 @@ MODEL_PROVIDER_RE = re.compile(r"(?:" + MODEL_PROVIDER_ALT + r")_", re.I)
 MODEL_ENV_RE = re.compile(r"\b((?:" + MODEL_PROVIDER_ALT + r"|HF)_[A-Z0-9_]*(?:KEY|TOKEN|SECRET))\b")  # HF_ is too short to trust as a provider prefix on a Google key
 # A model name is a runtime-call hint only in a file that also reaches a provider: an SDK import, a provider
 # API host, or a provider key. Anywhere else (a research script, UI copy) it is only a mention (#17).
-AI_JS_PACKAGES = ("openai", "@anthropic-ai/sdk", "ai", "@ai-sdk/openai", "@ai-sdk/anthropic", "@ai-sdk/google", "@ai-sdk/mistral", "@ai-sdk/groq", "@ai-sdk/gateway",
-                  "langchain", "@langchain/core", "@langchain/openai", "@langchain/anthropic", "@langchain/google-genai", "@google/generative-ai", "@google/genai",
-                  "cohere-ai", "replicate", "@mistralai/mistralai", "groq-sdk", "together-ai", "ollama", "@openrouter/ai-sdk-provider", "@huggingface/inference")
-AI_JS_IMPORT_RE = re.compile(r"(?:\bfrom[ \t]*|\brequire[ \t]*\([ \t]*|\bimport[ \t]*\([ \t]*|^[ \t]*import[ \t]+)[\"'](?:"
-                             + "|".join(re.escape(p) for p in AI_JS_PACKAGES) + r")(?:/[^\"'\n]{0,80})?[\"']", re.M)
-AI_PY_IMPORT_RE = re.compile(r"^[ \t]*(?:(?:from|import)[ \t]+(?:openai|anthropic|langchain[a-z_]*|cohere|replicate|mistralai|groq|litellm|ollama|together|transformers|huggingface_hub|vertexai|google\.generativeai|google\.genai)\b"
+AI_DEPS = {"openai", "@anthropic-ai/sdk", "anthropic", "ai", "@ai-sdk/openai", "@ai-sdk/anthropic", "@ai-sdk/google", "langchain", "@langchain/core", "@langchain/openai", "@langchain/anthropic", "@google/generative-ai", "google-generativeai", "@google/genai", "cohere-ai", "cohere", "replicate", "@mistralai/mistralai", "mistralai", "groq-sdk", "groq", "together-ai", "litellm", "ollama", "openrouter", "@huggingface/inference", "transformers"}
+# Imports that also show a provider call, beyond AI_DEPS. They are context for model names only; the
+# ai-sdk-dependency check keeps AI_DEPS as released (widening it is a TODO, not this change).
+AI_IMPORT_ONLY = {"@ai-sdk/mistral", "@ai-sdk/groq", "@ai-sdk/gateway", "@langchain/google-genai", "@openrouter/ai-sdk-provider", "@aws-sdk/client-bedrock-runtime"}
+# "openai", "npm:openai@4" (Deno and Supabase edge functions), "jsr:@anthropic-ai/sdk", "https://esm.sh/openai@4"
+AI_JS_IMPORT_RE = re.compile(r"(?:\bfrom[ \t]*|\brequire[ \t]*\([ \t]*|\bimport[ \t]*\([ \t]*|^[ \t]*import[ \t]+)[\"'](?:npm:|jsr:|https?://esm\.sh/|https?://cdn\.jsdelivr\.net/npm/)?(?:"
+                             + "|".join(re.escape(p) for p in sorted(AI_DEPS | AI_IMPORT_ONLY, key=len, reverse=True))
+                             + r")(?:@[\w.^~-]{1,40})?(?:/[^\"'\n]{0,80})?[\"']", re.M)
+AI_PY_IMPORT_RE = re.compile(r"^[ \t]*(?:(?:from|import)[ \t]+(?:openai|anthropic|langchain(?:_[a-z_]+)?|cohere|replicate|mistralai|groq|litellm|ollama|together|transformers|huggingface_hub|vertexai|google\.generativeai|google\.genai)\b"
                              r"|from[ \t]+google[ \t]+import[ \t]+(?:genai|generativeai)\b)", re.M)
-PROVIDER_HOST_RE = re.compile(r"api\.openai\.com|api\.anthropic\.com|generativelanguage\.googleapis\.com|aiplatform\.googleapis\.com|api\.mistral\.ai|api\.groq\.com"
-                              r"|api\.together\.(?:xyz|ai)|openrouter\.ai/api|api\.cohere\.(?:ai|com)|api\.replicate\.com|api-inference\.huggingface\.co|router\.huggingface\.co"
-                              r"|api\.perplexity\.ai|api\.deepseek\.com|api\.x\.ai|api\.fireworks\.ai|bedrock-runtime\.|openai\.azure\.com|ai-gateway\.vercel\.sh", re.I)
-# A workflow counts as a deploy path only when a step deploys (#16): a known deploy action, or a deploy CLI
-# with its deploy verb. An `environment:` key, a release step or a file named deploy.yml proves nothing.
-WORKFLOW_COMMENT_RE = re.compile(r"(^|[ \t])#[^\n]*", re.M)
+# a provider API host, the Lovable AI gateway and its key, or a Bedrock runtime client
+PROVIDER_REF_RE = re.compile(r"api\.openai\.com|api\.anthropic\.com|generativelanguage\.googleapis\.com|aiplatform\.googleapis\.com|api\.mistral\.ai|api\.groq\.com"
+                             r"|api\.together\.(?:xyz|ai)|openrouter\.ai/api|api\.cohere\.(?:ai|com)|api\.replicate\.com|api-inference\.huggingface\.co|router\.huggingface\.co"
+                             r"|api\.perplexity\.ai|api\.deepseek\.com|api\.x\.ai|api\.fireworks\.ai|bedrock-runtime\b|openai\.azure\.com|ai-gateway\.vercel\.sh"
+                             r"|ai\.gateway\.lovable\.dev|\bLOVABLE_API_KEY\b", re.I)
+# A workflow counts as a deploy path only when a `run:` command deploys or a step uses a deploy action (#16).
+# An `environment:` key, a release step, an echo, a step name or a file named deploy.yml proves nothing.
 DEPLOY_ACTION_RE = re.compile(r"^[ \t]*(?:-[ \t]*)?uses:[ \t]*[\"']?(amondnet/vercel-action|nwtgck/actions-netlify|netlify/actions/cli|cloudflare/wrangler-action|cloudflare/pages-action"
                               r"|FirebaseExtended/action-hosting-deploy|w9jds/firebase-action|google-github-actions/deploy-(?:cloudrun|appengine)|aws-actions/amazon-ecs-deploy-task-definition"
                               r"|azure/webapps-deploy|peaceiris/actions-gh-pages|JamesIves/github-pages-deploy-action|actions/deploy-pages)(?![A-Za-z0-9_-])", re.M | re.I)
-DEPLOY_CLI_RE = re.compile(r"(?<![\w./-])((?:vercel(?:[ \t]+deploy\b|[^\n]{0,120}?[ \t]--(?:prod|prebuilt)\b)|netlify[ \t]+deploy\b|wrangler[ \t]+(?:deploy|publish|pages[ \t]+deploy)\b"
-                           r"|firebase[ \t]+deploy\b|fly(?:ctl)?[ \t]+deploy\b|railway[ \t]+up\b|supabase[ \t]+functions[ \t]+deploy\b|gcloud[ \t]+(?:run|app|functions)[ \t]+deploy\b"
-                           r"|(?:serverless|sls|cdk|eb)[ \t]+deploy\b))")
-DEPLOY_LABEL_TOKEN_RE = re.compile(r"^(?:[a-z]+|--prod|--prebuilt)$")
+WORKFLOW_RUN_RE = re.compile(r"^([ \t]*)(?:-[ \t]+)?run[ \t]*:[ \t]*(.*)$")
+WORKFLOW_DISABLED_RE = re.compile(r"^[ \t]*(?:-[ \t]+)?if[ \t]*:[ \t]*(?:\$\{\{[ \t]*false[ \t]*\}\}|false)[ \t]*(?:#[^\n]*)?$", re.M)
+COMMAND_SPLIT_RE = re.compile(r"&&|\|\||[;&|]")
+# env assignments and package-runner wrappers in front of the tool: FORCE=1 npx --yes vercel, pnpm dlx vercel, npm exec -- vercel
+COMMAND_PREFIX_RE = re.compile(r"^(?:(?:[A-Za-z_][A-Za-z0-9_]*=[^ \t]*|sudo|npx|bunx|yarn|pnpm|npm|exec|dlx|--yes|-y|--)[ \t]+)*")
+_PIN = r"(?:@[\w.^~-]{1,40})?"  # npx vercel@latest, pnpm dlx vercel@33
+VERCEL_NOT_DEPLOY = r"(?![ \t]+(?:build|pull|env|link|login|logout|whoami|ls|list|inspect|logs|alias|dev|domains|dns|certs|secrets|teams|switch|init|git|project|projects|rm|remove|help)\b)"
+# matched at the start of one command; a path prefix counts (./node_modules/.bin/vercel)
+DEPLOY_CLI_RE = re.compile(r"(?:[\w.~$-]*/)*(?:vercel" + _PIN + VERCEL_NOT_DEPLOY + r"(?:[ \t]+deploy\b|[^\n]{0,120}?[ \t]--(?:prod|prebuilt)\b)|netlify" + _PIN + r"[ \t]+deploy\b"
+                           r"|wrangler" + _PIN + r"[ \t]+(?:deploy|publish|pages[ \t]+deploy)\b|firebase" + _PIN + r"[ \t]+deploy\b|fly(?:ctl)?" + _PIN + r"[ \t]+deploy\b"
+                           r"|railway" + _PIN + r"[ \t]+up\b|supabase" + _PIN + r"[ \t]+functions[ \t]+deploy\b|gcloud[ \t]+(?:run|app|functions)[ \t]+deploy\b"
+                           r"|(?:serverless|sls|cdk|eb)" + _PIN + r"[ \t]+deploy\b)")
+DEPLOY_LABEL_WORDS = {"vercel", "netlify", "wrangler", "firebase", "fly", "flyctl", "railway", "supabase", "gcloud", "serverless", "sls", "cdk", "eb",
+                      "deploy", "publish", "pages", "up", "functions", "run", "app", "--prod", "--prebuilt"}  # a closed list: an argument (a token) is never a label word
 MODEL_LITERAL_RE = re.compile(r"(?<![A-Za-z0-9])(?:gpt-[0-9][A-Za-z0-9.-]*|claude-[a-z0-9.-]+|gemini-[a-z0-9.-]+|llama[-_]?[0-9][A-Za-z0-9.-]*|mistral-[a-z0-9.-]+|o[134]-mini|o3)(?![A-Za-z0-9])")
 SPEND_CAP_RE = re.compile(r"\b(?:max_tokens|maxTokens|rate_limit|rateLimit|spend_cap|budget_limit|maxDuration)\b")
 HEALTH_ROUTE_RE = re.compile(r"[\"'`]/(?:api/)?health(?:z|check|-check)?[\"'`]")
@@ -315,7 +329,6 @@ _prefix_alt = "|".join(re.escape(p) for p in BROWSER_PREFIXES)
 PREFILTER_RE = re.compile(NAMED_KEY_ALT + r"|eyJ[A-Za-z0-9_-]{8,}|(?:[Ss]ecret|SECRET|[Ss]ervice|SERVICE|[Kk]ey|KEY|[Tt]oken|TOKEN)[A-Za-z0-9_]{0,64}[\"']?[ \t]*[:=]|" + _prefix_alt)
 
 AUTH_DEPS = {"next-auth", "@auth/core", "@auth/nextjs", "@clerk/nextjs", "@clerk/clerk-react", "@clerk/clerk-sdk-node", "@supabase/auth-helpers-nextjs", "@supabase/auth-helpers-react", "@supabase/ssr", "@supabase/auth-ui-react", "passport", "lucia", "better-auth", "jsonwebtoken", "jose", "firebase-admin", "@kinde-oss/kinde-auth-nextjs", "@auth0/nextjs-auth0", "auth0", "django-allauth", "devise", "flask-login", "authlib", "pyjwt", "python-jose"}
-AI_DEPS = {"openai", "@anthropic-ai/sdk", "anthropic", "ai", "@ai-sdk/openai", "@ai-sdk/anthropic", "@ai-sdk/google", "langchain", "@langchain/core", "@langchain/openai", "@langchain/anthropic", "@google/generative-ai", "google-generativeai", "@google/genai", "cohere-ai", "cohere", "replicate", "@mistralai/mistralai", "mistralai", "groq-sdk", "groq", "together-ai", "litellm", "ollama", "openrouter", "@huggingface/inference", "transformers"}
 MONITORING_DEPS = {"sentry-sdk", "dd-trace", "datadog", "newrelic", "@axiomhq/js", "next-axiom", "node-cron", "cron", "bull", "bullmq", "agenda", "@vercel/cron", "pino", "winston", "better-stack",
                    "elastic-apm-node", "logrocket", "logfire",  # JavaScript
                    "sentry-ruby", "sentry-rails", "honeybadger", "rollbar", "bugsnag", "airbrake", "scout_apm", "newrelic_rpm", "appsignal", "skylight",  # Ruby
@@ -693,6 +706,13 @@ class ScanState(object):
             # a row that decides the answer must never be crowded out by evidence-only rows
             for i in range(len(rows) - 1, -1, -1):
                 if CHECKS[rows[i]["check"]][1] != "no":
+                    del rows[i]
+                    rows.append(row)
+                    break
+        elif effect == "hint":
+            # a bare model mention never hides a hint the skill leads with
+            for i in range(len(rows) - 1, -1, -1):
+                if rows[i]["check"] == "model-mentioned":
                     del rows[i]
                     rows.append(row)
                     break
@@ -1769,18 +1789,63 @@ def detect_model_hints(sf, state, opts):
     _finditer_lines(MODEL_ENV_RE, text, sf, state, "model-env-var", counter, lambda m: m.group(1))
     if "env" in sf.kinds or "env-template" in sf.kinds:
         return  # env lines are never echoed; the variable name above is all the hint needed
-    reaches_provider = AI_JS_IMPORT_RE.search(text) or AI_PY_IMPORT_RE.search(text) or PROVIDER_HOST_RE.search(text) or MODEL_ENV_RE.search(text)
-    _finditer_lines(MODEL_LITERAL_RE, text, sf, state, "model-literal" if reaches_provider else "model-mentioned", counter, _clause)
+    if MODEL_LITERAL_RE.search(text):  # the provider-context searches only run when there is a model name to classify
+        reaches_provider = AI_JS_IMPORT_RE.search(text) or AI_PY_IMPORT_RE.search(text) or PROVIDER_REF_RE.search(text) or MODEL_ENV_RE.search(text)
+        _finditer_lines(MODEL_LITERAL_RE, text, sf, state, "model-literal" if reaches_provider else "model-mentioned", counter, _clause)
     _finditer_lines(SPEND_CAP_RE, text, sf, state, "spend-cap-word", counter, lambda m: m.group(0))
     _finditer_lines(HEALTH_ROUTE_RE, text, sf, state, "health-route", counter, _clause)
 
 
-def _deploy_label(m):
-    """Name the deploy step by its action or its command words only: a `--token=…` argument never reaches the row."""
-    if m.re is DEPLOY_ACTION_RE:
-        return m.group(1)
-    words = [w for w in m.group(1).split() if DEPLOY_LABEL_TOKEN_RE.match(w)]
-    return " ".join(words[:3])
+def _strip_shell_comment(line):
+    """Cut a `#` comment that starts a word outside quotes: `echo 'build #1'; vercel deploy` keeps its deploy."""
+    quote = None
+    for i, ch in enumerate(line):
+        if quote:
+            if ch == quote:
+                quote = None
+        elif ch in "'\"":
+            quote = ch
+        elif ch == "#" and (i == 0 or line[i - 1] in " \t"):
+            return line[:i]
+    return line
+
+
+def _run_commands(text):
+    """Yield (line number, command) for each shell command in a workflow's `run:` steps, block scalars included."""
+    lines = text.split("\n")
+    i = 0
+    while i < len(lines):
+        m = WORKFLOW_RUN_RE.match(lines[i])
+        if not m:
+            i += 1
+            continue
+        indent, value = len(m.group(1)), _strip_shell_comment(m.group(2)).strip()
+        body = []
+        if value[:1] in ("|", ">"):
+            j = i + 1
+            while j < len(lines) and (not lines[j].strip() or len(lines[j]) - len(lines[j].lstrip()) > indent):
+                body.append((j + 1, lines[j]))
+                j += 1
+            i = j
+        else:
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+                value = value[1:-1]
+            body.append((i + 1, value))
+            i += 1
+        for line_no, line in body:
+            for command in COMMAND_SPLIT_RE.split(_strip_shell_comment(line)):
+                yield line_no, COMMAND_PREFIX_RE.sub("", command.strip())
+
+
+def _deploy_label(command):
+    """The tool and subcommand words from the closed list, then --prod / --prebuilt: an argument never reaches the row."""
+    words = [w.rsplit("/", 1)[-1].split("@", 1)[0] for w in command.split()]  # ./node_modules/.bin/vercel@33 -> vercel
+    lead = []
+    for w in words:
+        if w not in DEPLOY_LABEL_WORDS:
+            break
+        lead.append(w)
+    return " ".join(lead + [w for w in words[len(lead):] if w in ("--prod", "--prebuilt") and w not in lead])
 
 
 def detect_workflow(sf, state, opts):
@@ -1788,12 +1853,21 @@ def detect_workflow(sf, state, opts):
     if not REVIEW_NAME_RE.search(sf.base.lower()):  # a file already named for review has its row from the layout pass
         _finditer_lines(REVIEW_ACTION_RE, sf.text, sf, state, "review-workflow", {}, lambda m: m.group(1))
     state.tick()
-    text = WORKFLOW_COMMENT_RE.sub(r"\1", sf.text)  # a commented-out deploy step is not a deploy path
-    hits = [m for m in (DEPLOY_ACTION_RE.search(text), DEPLOY_CLI_RE.search(text)) if m]
-    if hits:
-        first = min(hits, key=lambda m: m.start())
+    if sf.rel.count("/") != 2 or WORKFLOW_DISABLED_RE.search(sf.text):
+        return  # GitHub never runs .github/workflows/<subdir>/; any `if: false` makes the whole file unproven
+    found = []
+    m = DEPLOY_ACTION_RE.search(sf.text)
+    if m:
+        found.append((line_of(sf.text, m.start()), m.group(1)))
+    for line_no, command in _run_commands(sf.text):
+        state.tick()
+        if DEPLOY_CLI_RE.match(command):
+            found.append((line_no, _deploy_label(command)))
+            break
+    if found:
+        line, label = min(found)
         state.deploy_configs.append(sf.rel)
-        state.add("deploy-config", sf.rel, line_of(text, first.start()), _deploy_label(first))
+        state.add("deploy-config", sf.rel, line, label)
 
 
 def detect_pii_schema(sf, state, opts):
@@ -2585,7 +2659,8 @@ def resolve(state):
         c = state.cls_counts
         q2.insert(0, _row("client-server-split", "%d code files: %d as browser code, %d as server code, %d unclear" % (code_files, c["client"], c["server"], c["other"])))
     out["q2"] = _q("dont-know", "med" if ev["q2"] else "low", q2[:MAX_EVIDENCE])  # the split alone is not a hint
-    out["q8"] = _q("dont-know", "med" if ev["q8"] else "low", ev["q8"])
+    # from every row, not the capped list: a model name alone (model-mentioned) says nothing about a call
+    out["q8"] = _q("dont-know", "med" if "hint" in state.effects["q8"] else "low", ev["q8"])
     if complete and not ev["q9"] and state.dependencies and not state.gaps["q9"]:
         out["q9"] = _q("nothing-found", "med", [_row("nothing-found-monitoring", "%s read: no error tracking, no Sentry config, no health route, no cron" % _n(state.dependencies, "dependency", "dependencies"))])
     else:
