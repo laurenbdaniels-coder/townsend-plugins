@@ -248,6 +248,8 @@ USING_TRUE_RE = re.compile(r"\busing\s*\((?:\s*\()*\s*true(?:\s*::\s*bool(?:ean)
 RELEASE_USING_TRUE_RE = re.compile(r"\busing\s{0,20}\((?:\s{0,20}\(){0,3}\s{0,20}true(?:\s{0,5}::\s{0,5}bool(?:ean)?)?(?:\s{0,20}\)){1,4}", re.I)
 RELEASE_FIREBASE_ALLOW_TRUE_RE = re.compile(r"\ballow[ \t]{1,20}([a-z]+(?:[ \t]*,[ \t]*[a-z]+){0,10})[ \t]*:[ \t]*if[ \t]{1,20}true\b", re.I)
 MAX_PREDICATE_CHARS = 4000
+RELEASE_RLS_DISABLED_RE = re.compile(r"disable\s{1,20}row\s{1,20}level\s{1,20}security", re.I)  # 0.3.2, verbatim
+RELEASE_POLICY_SELECT_RE = re.compile(r"\bfor\s{1,20}select\b", re.I)  # 0.3.2, verbatim
 RELEASE_LINE_COMMENT_RE = re.compile(r"--[^\n]*")  # 0.3.2's line-comment rule, which also cut through strings
 SQL_BOOL_CAST_RE = re.compile(r"\s*::\s*bool(?:ean)?\b")
 SQL_OR_RE = re.compile(r"\bor\b")
@@ -1204,9 +1206,12 @@ def detect_sql(sf, state, opts):
     release = _release_sql_view(sf.text)  # what 0.3.2 read, at the same offsets
     if unclosed:
         state.gaps["q3"] += 1  # a quote that never closes: what follows it could not be read as code
+    decisive_at = set()  # starts of the decisive rows this file already has
     for m in RLS_DISABLED_RE.finditer(text):
         state.tick()
         check = _decisive_or_string(m, code, release, "rls-disabled")
+        if check == "rls-disabled":
+            decisive_at.add(m.start())
         if _cap(counter, check):
             state.add(check, sf.rel, line_of(text, m.start()), _clause(m))
     for m in USING_TRUE_RE.finditer(text):
@@ -1225,8 +1230,17 @@ def detect_sql(sf, state, opts):
         if not RELEASE_USING_TRUE_RE.match(text, m.start()) and not _sql_predicate_open(text, m.start()):
             check = "policy-true-unevaluated"  # beyond 0.3.2's pattern and not provably open: evidence only
         check = _decisive_or_string(m, code, release, check)
+        if check in ("rls-disabled", "policy-using-true", "policy-select-true", "policy-altered-true"):
+            decisive_at.add(m.start())
         if _cap(counter, check):
             state.add(check, sf.rel, line_of(text, m.start()), _clause(m))
+    # the floor: 0.3.2's own patterns over 0.3.2's own view of the file; any decisive row it gave that the
+    # reads above did not is added as it was, so no No from the release is ever lost
+    for start, check, clause in _release_decisive(release):
+        state.tick()
+        if start not in decisive_at and _cap(counter, check):
+            decisive_at.add(start)
+            state.add(check, sf.rel, line_of(release, start), clause)
     _finditer_lines(WITH_CHECK_TRUE_RE, text, sf, state, "policy-with-check-true", counter, _clause)
     _finditer_lines(POLICY_TO_ANON_RE, text, sf, state, "policy-to-anon", counter, _clause)
     _finditer_lines(STORAGE_BUCKET_TRUE_RE, text, sf, state, "storage-bucket-public-sql", counter, _clause)
@@ -1346,6 +1360,23 @@ def _sql_predicate_open(code, start):
 def _release_sql_view(text):
     """The text 0.3.2's decisive checks read: block comments blanked, then `--` to the end of the line, strings ignored."""
     return RELEASE_LINE_COMMENT_RE.sub(lambda m: " " * len(m.group(0)), _blank_block_comments(text))
+
+
+def _release_decisive(release):
+    """0.3.2's decisive Q3 rows, exactly as 0.3.2 made them from its view of a SQL file: (start, check, clause)."""
+    for m in RELEASE_RLS_DISABLED_RE.finditer(release):
+        yield m.start(), "rls-disabled", _clause(m)
+    for m in RELEASE_USING_TRUE_RE.finditer(release):
+        window = QUOTED_SQL_RE.sub(lambda q: " " * len(q.group(0)), release[max(0, m.start() - 2000):m.start()]).lower()
+        cp = window.rfind("create policy")
+        ap = window.rfind("alter policy")
+        if ap > cp:
+            check = "policy-altered-true"
+        elif cp >= 0 and RELEASE_POLICY_SELECT_RE.search(window[cp:]):
+            check = "policy-select-true"
+        else:
+            check = "policy-using-true"
+        yield m.start(), check, _clause(m)
 
 
 def _decisive_or_string(m, code, release, check):
