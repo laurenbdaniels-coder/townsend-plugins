@@ -3384,20 +3384,24 @@ class WindowsReadTests(ScanCase):
         self.assertEqual(r["stats"]["files_errored"], 0)
         self.assertIn("server-path-key-literal", evidence_checks(r["questions"]["q1"]))
 
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
     def test_every_os_open_asks_for_binary_mode(self):
         self.write("src/a.ts", "x\n")
-        self.write(".git", "gitdir: ../elsewhere/.git\n")  # reaches the second opener too
+        self.init_repo(commits=1)  # a real repo, so .git/config goes through the second opener
         real_open, native = os.open, hasattr(os, "O_BINARY")
         flag = os.O_BINARY if native else 1 << 29  # a stand-in bit on POSIX, stripped before the real call
+        repo = os.path.realpath(self.repo)
         seen = []
 
         def spy(path, flags, *a, **kw):
-            seen.append(flags)
+            if os.path.realpath(str(path)).startswith(repo):  # subprocess opens os.devnull itself, without the flag
+                seen.append((str(path).replace(os.sep, "/"), flags))
             return real_open(path, flags if native else flags & ~flag, *a, **kw)
         with mock.patch.object(cs.os, "O_BINARY", flag, create=True), mock.patch.object(cs.os, "open", spy):
             self.scan()
-        self.assertTrue(seen)
-        self.assertTrue(all(f & flag for f in seen), seen)
+        self.assertTrue(any(p.endswith("/src/a.ts") for p, _ in seen), seen)
+        self.assertTrue(any(p.endswith("/.git/config") for p, _ in seen), "the git config opener was never reached")
+        self.assertTrue(all(f & flag for _, f in seen), seen)
 
 
 class WindowsJunctionTests(ScanCase):
@@ -3455,6 +3459,17 @@ class KilledGitTests(ScanCase):
         self.assertFalse(r["partial"], "a floor answers Q5's any-tags question; it is not a gap")
         history = [e for e in r["questions"]["q5"]["code"]["evidence"] if e["check"] == "git-history"][0]
         self.assertIn("%d+ tags" % r["git"]["tags"], history["snippet"])
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_tag_cut_mid_name_is_not_counted(self):
+        self.init_repo(commits=1)
+        for i in range(40):
+            self.git("tag", "t%03d" % i)
+        entry = len("refs/tags/t000\n")
+        with mock.patch.object(cs, "GIT_OUTPUT_LIMIT", 30 * entry + len("refs/tag")), \
+                mock.patch.object(cs.subprocess, "Popen", KilledLatePopen):
+            r = self.scan()
+        self.assertEqual(r["git"]["tags"], 30)
 
     @unittest.skipUnless(HAVE_GIT, "git not installed")
     def test_unicode_line_separators_in_tag_names_count_once(self):
