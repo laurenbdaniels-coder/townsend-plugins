@@ -3429,8 +3429,12 @@ class _Reparse(object):
     def __init__(self, st):
         self._st = st
 
+    tag = 0xA0000003  # IO_REPARSE_TAG_MOUNT_POINT, a junction
+
     def __getattr__(self, name):
-        return cs.FILE_ATTRIBUTE_REPARSE_POINT if name == "st_file_attributes" else getattr(self._st, name)
+        if name == "st_file_attributes":
+            return cs.FILE_ATTRIBUTE_REPARSE_POINT
+        return self.tag if name == "st_reparse_tag" else getattr(self._st, name)
 
 
 class GitJunctionTests(ScanCase):
@@ -3454,6 +3458,30 @@ class GitJunctionTests(ScanCase):
                 self.assertIn("git-config-not-vouched", self._q5(r), suffix)
                 self.assertIsNone(r["git"]["commits"], suffix)
         self.assertIn("git-history", self._q5(self.scan()), "without a reparse point the same repo is read")
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_a_data_only_reparse_point_is_not_refused(self):
+        self.init_repo(commits=2)
+        real_lstat = os.lstat
+
+        class Placeholder(_Reparse):
+            tag = 0x9000001A  # IO_REPARSE_TAG_CLOUD_A: a OneDrive placeholder stores data, it does not redirect
+
+        def lstat(path, *a, **kw):
+            st = real_lstat(path, *a, **kw)
+            return Placeholder(st) if str(path).replace(os.sep, "/").endswith("/.git/config") else st
+        with mock.patch.object(cs.os, "lstat", lstat):
+            self.assertIn("git-history", self._q5(self.scan()))
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_grafts_are_refused(self):
+        self.init_repo(commits=2)
+        os.makedirs(os.path.join(self.repo, ".git", "info"), exist_ok=True)
+        with open(os.path.join(self.repo, ".git", "info", "grafts"), "w") as fh:
+            fh.write("")  # even an empty, in-tree grafts file rewrites history git reports
+        r = self.scan()
+        self.assertIn("git-config-not-vouched", self._q5(r))
+        self.assertIsNone(r["git"]["commits"])
 
     @unittest.skipUnless(os.name == "nt" and HAVE_GIT, "NTFS junctions are Windows-only")
     def test_a_dot_git_junction_to_another_checkout_is_refused(self):

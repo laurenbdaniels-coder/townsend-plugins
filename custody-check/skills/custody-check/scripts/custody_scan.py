@@ -1612,11 +1612,16 @@ def _git_config_safe(text):
 
 
 FILE_ATTRIBUTE_REPARSE_POINT = 0x400
+IO_REPARSE_TAG_NAME_SURROGATE = 0x20000000  # set for junctions and symlinks; clear for OneDrive placeholders and dedup files
 
 
 def _is_reparse(st):
-    """A Windows reparse point: a junction reports itself as a plain directory and islink() misses it before 3.12."""
-    return bool(getattr(st, "st_file_attributes", 0) & FILE_ATTRIBUTE_REPARSE_POINT)
+    """A Windows junction or symlink: a junction reports itself as a plain directory and islink() misses it before 3.12.
+    A reparse point that only stores data (a OneDrive placeholder) is not a redirect; an unknown tag counts as one."""
+    if not getattr(st, "st_file_attributes", 0) & FILE_ATTRIBUTE_REPARSE_POINT:
+        return False
+    tag = getattr(st, "st_reparse_tag", None)
+    return tag is None or bool(tag & IO_REPARSE_TAG_NAME_SURROGATE)
 
 
 def _git_tree_plain(gitdir, state=None):
@@ -1712,7 +1717,7 @@ def _git_pointer_ok(real_repo, state=None):
             return False
     except OSError:
         return False
-    for pointer in ("commondir", "gitdir", "config.worktree", os.path.join("objects", "info", "alternates")):
+    for pointer in ("commondir", "gitdir", "config.worktree", os.path.join("objects", "info", "alternates"), os.path.join("info", "grafts")):
         if os.path.lexists(os.path.join(gitdir, pointer)):
             return False
     for entry in GIT_DIR_ENTRIES:
