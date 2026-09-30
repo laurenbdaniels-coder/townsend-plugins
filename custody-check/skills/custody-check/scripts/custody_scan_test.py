@@ -5069,6 +5069,49 @@ class NeverWorseThanMainTests(unittest.TestCase):
         stale = (set(self.ALLOW_SOFTER) | set(self.ALLOW_NEW_NO)) - used
         self.assertEqual(stale, set(), "an allowed exception that no longer happens should be removed")
 
+    # (case, question, check) -> why a hint, yes-part or No the baseline did not give on these files is right
+    ALLOW_NEW_CHECK = {
+        ("mts client key", "q1", "client-key-literal"): "PR #24: .mts is read as code; a key in a browser folder is a No, as in a .ts file",
+        ("mts server only", "q1", "client-key-literal"): "PR #24: .mts is read as code; 0.3.2 gives the same No for this file as .ts (server-only never softens a No)",
+        ("sentry vue", "q9", "monitoring-dependency"): "PR #24: every @sentry/ package is error tracking; 0.3.2 listed only six of them",
+        ("mentions before a real call", "q8", "spend-cap-word"): "#17: 0.3.2 found max_tokens too, but twelve model-name rows crowded its row out; a mention no longer hides a hint",
+    }
+
+    def _strong_checks(self, files):
+        tmp = tempfile.mkdtemp(prefix="custody differential ")
+        try:
+            for rel, body in files.items():
+                for k, v in self.KEYS.items():
+                    body = body.replace(k, v)
+                path = os.path.join(tmp, rel)
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write(body)
+            q = cs.scan(tmp)["questions"]
+            halves = {"q5.code": q["q5"]["code"], "q5.data": q["q5"]["data"]}
+            halves.update({k: v for k, v in q.items() if k != "q5"})
+            return {k: {e["check"] for e in v["evidence"] if cs.CHECKS[e["check"]][1] != "evidence"} for k, v in halves.items()}
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_no_new_alarm_or_yes_part(self):
+        """A hint, yes-part or No the baseline did not give on the same files is a new alarm (or a more trusting
+        yes); it needs a reason in ALLOW_NEW_CHECK. Answers alone miss this for Q8 (always Don't know) and for
+        Q5's code half (Yes only with git history)."""
+        with open(os.path.join(SCRIPT_DIR, "fixtures", "differential", "cases.json"), encoding="utf-8") as fh:
+            data = json.load(fh)
+        self.assertTrue(all("main_checks" in c for c in data["cases"]), "regenerate cases.json with build_cases.py")
+        used = set()
+        for c in data["cases"]:
+            new = self._strong_checks(c["files"])
+            for q, base in sorted(c["main_checks"].items()):
+                for check in sorted(new.get(q, set()) - set(base)):
+                    key = (c["name"], q, check)
+                    with self.subTest(case=c["name"], question=q, check=check):
+                        self.assertIn(key, self.ALLOW_NEW_CHECK, "%s %s: new %s the baseline did not give" % key)
+                        used.add(key)
+        self.assertEqual(set(self.ALLOW_NEW_CHECK) - used, set(), "an allowed exception that no longer happens should be removed")
+
 
 class DeployWorkflowTests(ScanCase):
     """#16: a workflow is deploy evidence only when a step actually deploys."""

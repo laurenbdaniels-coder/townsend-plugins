@@ -11,6 +11,22 @@
     "q3": "nothing-found",
     "q9": "dont-know"
    },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
    "name": "supabase init migration"
   },
   {
@@ -22,6 +38,22 @@
     "q1": "nothing-found",
     "q3": "nothing-found",
     "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
    },
    "name": "pg_dump quoted"
   },
@@ -35,6 +67,24 @@
     "q3": "no",
     "q9": "dont-know"
    },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [
+     "policy-using-true"
+    ],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
    "name": "pg_dump open policy"
   },
   {
@@ -46,6 +96,22 @@
     "q1": "nothing-found",
     "q3": "dont-know",
     "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
    },
    "name": "table without rls"
   },
@@ -59,6 +125,24 @@
     "q3": "no",
     "q9": "dont-know"
    },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [
+     "rls-disabled"
+    ],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
    "name": "rls disabled"
   },
   {
@@ -70,6 +154,24 @@
     "q1": "nothing-found",
     "q3": "no",
     "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [
+     "policy-using-true"
+    ],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
    },
    "name": "using true for all"
   },
@@ -83,6 +185,22 @@
     "q3": "dont-know",
     "q9": "dont-know"
    },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
    "name": "using true select only"
   },
   {
@@ -94,6 +212,22 @@
     "q1": "nothing-found",
     "q3": "nothing-found",
     "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
    },
    "name": "do block enables"
   },
@@ -107,6 +241,24 @@
     "q3": "no",
     "q9": "dont-know"
    },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [
+     "rls-disabled"
+    ],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
    "name": "do block disables"
   },
   {
@@ -118,6 +270,24 @@
     "q1": "nothing-found",
     "q3": "no",
     "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [
+     "rls-disabled"
+    ],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
    },
    "name": "function then real disable"
   },
@@ -131,6 +301,22 @@
     "q3": "nothing-found",
     "q9": "dont-know"
    },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
    "name": "seed only"
   },
   {
@@ -142,6 +328,22 @@
     "q1": "nothing-found",
     "q3": "nothing-found",
     "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
    },
    "name": "comment mentions rls"
   },
@@ -155,6 +357,22 @@
     "q3": "nothing-found",
     "q9": "dont-know"
    },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
    "name": "block comment mentions rls"
   },
   {
@@ -166,6 +384,22 @@
     "q1": "nothing-found",
     "q3": "dont-know",
     "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
    },
    "name": "glob in block comment"
   },
@@ -179,6 +413,22 @@
     "q3": "nothing-found",
     "q9": "dont-know"
    },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
    "name": "glob then commented disable"
   },
   {
@@ -190,6 +440,24 @@
     "q1": "nothing-found",
     "q3": "no",
     "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [
+     "rls-disabled"
+    ],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
    },
    "name": "nested comment with quote"
   },
@@ -203,6 +471,24 @@
     "q3": "no",
     "q9": "dont-know"
    },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [
+     "policy-using-true"
+    ],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
    "name": "nested comment with apostrophe"
   },
   {
@@ -214,6 +500,24 @@
     "q1": "nothing-found",
     "q3": "no",
     "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [
+     "rls-disabled"
+    ],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
    },
    "name": "dash dash in string then disable"
   },
@@ -227,6 +531,24 @@
     "q3": "no",
     "q9": "dont-know"
    },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [
+     "rls-disabled"
+    ],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
    "name": "do then function then disable"
   },
   {
@@ -238,6 +560,24 @@
     "q1": "nothing-found",
     "q3": "no",
     "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [
+     "rls-disabled"
+    ],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
    },
    "name": "do language disables"
   },
@@ -251,6 +591,22 @@
     "q3": "nothing-found",
     "q9": "dont-know"
    },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
    "name": "string mentions enable"
   },
   {
@@ -262,6 +618,24 @@
     "q1": "nothing-found",
     "q3": "no",
     "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [
+     "policy-using-true"
+    ],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
    },
    "name": "string mentions using true"
   },
@@ -275,6 +649,24 @@
     "q3": "no",
     "q9": "dont-know"
    },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [
+     "rls-disabled"
+    ],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
    "name": "index named disable"
   },
   {
@@ -286,6 +678,22 @@
     "q1": "nothing-found",
     "q3": "nothing-found",
     "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
    },
    "name": "index named enable"
   },
@@ -300,6 +708,22 @@
     "q3": "nothing-found",
     "q9": "dont-know"
    },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
    "name": "drop and recreate"
   },
   {
@@ -311,6 +735,22 @@
     "q1": "nothing-found",
     "q3": "nothing-found",
     "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
    },
    "name": "rerunnable schema"
   },
@@ -324,6 +764,22 @@
     "q3": "nothing-found",
     "q9": "dont-know"
    },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
    "name": "public view"
   },
   {
@@ -335,6 +791,22 @@
     "q1": "nothing-found",
     "q3": "nothing-found",
     "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
    },
    "name": "invoker view"
   },
@@ -348,6 +820,22 @@
     "q3": "nothing-found",
     "q9": "dont-know"
    },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
    "name": "view column named invoker"
   },
   {
@@ -359,6 +847,22 @@
     "q1": "nothing-found",
     "q3": "nothing-found",
     "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
    },
    "name": "using true and false"
   },
@@ -372,6 +876,24 @@
     "q3": "no",
     "q9": "dont-know"
    },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [
+     "policy-using-true"
+    ],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
    "name": "using true or"
   },
   {
@@ -383,6 +905,24 @@
     "q1": "nothing-found",
     "q3": "no",
     "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [
+     "policy-using-true"
+    ],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
    },
    "name": "using true cast"
   },
@@ -396,6 +936,22 @@
     "q3": "nothing-found",
     "q9": "dont-know"
    },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
    "name": "unclosed quote"
   },
   {
@@ -407,6 +963,22 @@
     "q1": "nothing-found",
     "q3": "nothing-found",
     "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
    },
    "name": "fb owner only"
   },
@@ -420,6 +992,24 @@
     "q3": "no",
     "q9": "dont-know"
    },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [
+     "firebase-rules-open"
+    ],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
    "name": "fb if true"
   },
   {
@@ -431,6 +1021,22 @@
     "q1": "nothing-found",
     "q3": "nothing-found",
     "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
    },
    "name": "fb test mode"
   },
@@ -444,6 +1050,24 @@
     "q3": "no",
     "q9": "dont-know"
    },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [
+     "firebase-rules-open"
+    ],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
    "name": "fb true or auth"
   },
   {
@@ -455,6 +1079,24 @@
     "q1": "nothing-found",
     "q3": "no",
     "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [
+     "firebase-rules-open"
+    ],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
    },
    "name": "fb true and auth"
   },
@@ -468,6 +1110,22 @@
     "q3": "nothing-found",
     "q9": "dont-know"
    },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
    "name": "fb negated group"
   },
   {
@@ -479,6 +1137,24 @@
     "q1": "nothing-found",
     "q3": "no",
     "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [
+     "firebase-rules-open"
+    ],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
    },
    "name": "fb precedence"
   },
@@ -492,6 +1168,24 @@
     "q3": "no",
     "q9": "dont-know"
    },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [
+     "firebase-rules-open"
+    ],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
    "name": "fb no semicolon nested match"
   },
   {
@@ -503,6 +1197,24 @@
     "q1": "nothing-found",
     "q3": "no",
     "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [
+     "firebase-rules-open"
+    ],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
    },
    "name": "rtdb open"
   },
@@ -516,6 +1228,22 @@
     "q3": "nothing-found",
     "q9": "dont-know"
    },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
    "name": "rtdb auth"
   },
   {
@@ -527,6 +1255,24 @@
     "q1": "no",
     "q3": "dont-know",
     "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [
+     "client-key-literal"
+    ],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
    },
    "name": "client key"
   },
@@ -540,6 +1286,22 @@
     "q3": "dont-know",
     "q9": "dont-know"
    },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
    "name": "lib key"
   },
   {
@@ -551,6 +1313,24 @@
     "q1": "no",
     "q3": "dont-know",
     "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [
+     "client-key-literal"
+    ],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
    },
    "name": "server only key in components"
   },
@@ -564,6 +1344,22 @@
     "q3": "dont-know",
     "q9": "dont-know"
    },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
    "name": "type import next server in pages"
   },
   {
@@ -575,6 +1371,22 @@
     "q1": "dont-know",
     "q3": "dont-know",
     "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
    },
    "name": "type import next server in vite src"
   },
@@ -588,6 +1400,22 @@
     "q3": "dont-know",
     "q9": "dont-know"
    },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
    "name": "long header use client"
   },
   {
@@ -599,6 +1427,24 @@
     "q1": "no",
     "q3": "dont-know",
     "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [
+     "client-key-literal"
+    ],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
    },
    "name": "type import next server in pages, key"
   },
@@ -612,6 +1458,24 @@
     "q3": "dont-know",
     "q9": "dont-know"
    },
+   "main_checks": {
+    "q1": [
+     "client-key-literal"
+    ],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
    "name": "type import next server in vite src, key"
   },
   {
@@ -623,6 +1487,24 @@
     "q1": "no",
     "q3": "dont-know",
     "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [
+     "client-key-literal"
+    ],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
    },
    "name": "next headers import in components, key"
   },
@@ -636,6 +1518,24 @@
     "q3": "dont-know",
     "q9": "dont-know"
    },
+   "main_checks": {
+    "q1": [
+     "client-key-literal"
+    ],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
    "name": "long header use client, key"
   },
   {
@@ -648,6 +1548,24 @@
     "q3": "dont-know",
     "q9": "dont-know"
    },
+   "main_checks": {
+    "q1": [
+     "client-key-literal"
+    ],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
    "name": "commented server-only import"
   },
   {
@@ -659,6 +1577,24 @@
     "q1": "no",
     "q3": "dont-know",
     "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [
+     "client-key-literal"
+    ],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
    },
    "name": "template string server-only"
   },
@@ -673,6 +1609,24 @@
     "q3": "dont-know",
     "q9": "nothing-found"
    },
+   "main_checks": {
+    "q1": [
+     "client-key-literal"
+    ],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
    "name": "vite server-only import"
   },
   {
@@ -684,6 +1638,24 @@
     "q1": "no",
     "q3": "dont-know",
     "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [
+     "client-key-literal"
+    ],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
    },
    "name": "public lib server-only"
   },
@@ -697,6 +1669,24 @@
     "q3": "no",
     "q9": "dont-know"
    },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [
+     "rls-disabled"
+    ],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
    "name": "glob comment balanced by line comment"
   },
   {
@@ -708,6 +1698,24 @@
     "q1": "nothing-found",
     "q3": "no",
     "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [
+     "policy-using-true"
+    ],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
    },
    "name": "using true is not false"
   },
@@ -721,6 +1729,24 @@
     "q3": "no",
     "q9": "dont-know"
    },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [
+     "policy-using-true"
+    ],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
    "name": "using true equals true"
   },
   {
@@ -732,6 +1758,24 @@
     "q1": "nothing-found",
     "q3": "no",
     "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [
+     "policy-using-true"
+    ],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
    },
    "name": "using true or long list"
   },
@@ -745,6 +1789,24 @@
     "q3": "no",
     "q9": "dont-know"
    },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [
+     "firebase-rules-open"
+    ],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
    "name": "fb true equals true"
   },
   {
@@ -756,6 +1818,22 @@
     "q1": "nothing-found",
     "q3": "nothing-found",
     "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
    },
    "name": "dash dash then string rule"
   },
@@ -829,6 +1907,22 @@
     "q3": "dont-know",
     "q9": "dont-know"
    },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
    "name": "mts client key"
   },
   {
@@ -840,6 +1934,22 @@
     "q1": "nothing-found",
     "q3": "dont-know",
     "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
    },
    "name": "mts server only"
   },
@@ -853,6 +1963,22 @@
     "q3": "dont-know",
     "q9": "dont-know"
    },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
    "name": "mcp in roo"
   },
   {
@@ -863,6 +1989,22 @@
     "q1": "nothing-found",
     "q3": "dont-know",
     "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
    },
    "name": "clean app"
   },
@@ -876,6 +2018,22 @@
     "q3": "dont-know",
     "q9": "nothing-found"
    },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
    "name": "sentry vue"
   },
   {
@@ -887,6 +2045,22 @@
     "q1": "nothing-found",
     "q3": "dont-know",
     "q9": "nothing-found"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
    },
    "name": "no monitoring"
   },
@@ -901,7 +2075,1111 @@
     "q3": "dont-know",
     "q9": "nothing-found"
    },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
    "name": "pipfile"
+  },
+  {
+   "files": {
+    ".github/workflows/ci.yml": "on: push\njobs:\n  d:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: npm run lint\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [
+     "deploy-config"
+    ],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
+   "name": "workflow lint only"
+  },
+  {
+   "files": {
+    ".github/workflows/review.yml": "on: push\njobs:\n  d:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: anthropics/claude-code-action@v1\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [
+     "deploy-config"
+    ],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
+   "name": "workflow review bot only"
+  },
+  {
+   "files": {
+    ".github/workflows/deploy.yml": "on: push\njobs:\n  d:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: npm test\n    environment: test\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [
+     "deploy-config"
+    ],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
+   "name": "workflow environment key only"
+  },
+  {
+   "files": {
+    ".github/workflows/deploy.yml": "on: push\njobs:\n  d:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: npm ci\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [
+     "deploy-config"
+    ],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
+   "name": "workflow named deploy, no deploy step"
+  },
+  {
+   "files": {
+    ".github/workflows/deploy.yml": "on: push\njobs:\n  d:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      # - run: vercel deploy --prod\n      - run: npm test\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [
+     "deploy-config"
+    ],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
+   "name": "workflow commented deploy"
+  },
+  {
+   "files": {
+    ".github/workflows/deploy.yml": "on: push\njobs:\n  d:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - name: firebase deploy\n        run: echo \"remember to firebase deploy by hand\"\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [
+     "deploy-config"
+    ],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
+   "name": "workflow echo mentions deploy"
+  },
+  {
+   "files": {
+    ".github/workflows/deploy.yml": "on: push\njobs:\n  d:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: npx vercel build --prod\n      - run: vercel pull --yes\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [
+     "deploy-config"
+    ],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
+   "name": "workflow vercel build only"
+  },
+  {
+   "files": {
+    ".github/workflows/deploy.yml": "on: push\njobs:\n  d:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: npm i -g vercel && pnpm install --prod\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [
+     "deploy-config"
+    ],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
+   "name": "workflow install then prod flag"
+  },
+  {
+   "files": {
+    ".github/workflows/deploy.yml": "on: push\njobs:\n  d:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: echo vercel rocks && npm run build -- --prod\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [
+     "deploy-config"
+    ],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
+   "name": "workflow vercel word then prod flag"
+  },
+  {
+   "files": {
+    ".github/workflows/deploy.yml": "on: push\njobs:\n  d:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: |\n          true # ; vercel deploy --prod\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [
+     "deploy-config"
+    ],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
+   "name": "workflow comment then split deploy"
+  },
+  {
+   "files": {
+    ".github/workflows/off.yml": "on: push\njobs:\n  d:\n    if: false\n    steps:\n      - run: vercel deploy --prod\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [
+     "deploy-config"
+    ],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
+   "name": "workflow disabled job"
+  },
+  {
+   "files": {
+    ".github/workflows/archive/old.yml": "on: push\njobs:\n  d:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: vercel deploy --prod\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [
+     "deploy-config"
+    ],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
+   "name": "workflow in subfolder"
+  },
+  {
+   "files": {
+    ".github/workflows/deploy.yml": "on: push\njobs:\n  d:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: npx vercel --prod --token=${{ secrets.VERCEL_TOKEN }}\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [
+     "deploy-config"
+    ],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
+   "name": "workflow vercel prod"
+  },
+  {
+   "files": {
+    ".github/workflows/deploy.yml": "on: push\njobs:\n  d:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: npx --yes vercel@latest deploy\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [
+     "deploy-config"
+    ],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
+   "name": "workflow vercel pinned"
+  },
+  {
+   "files": {
+    ".github/workflows/deploy.yml": "on: push\njobs:\n  d:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: ./node_modules/.bin/vercel deploy --prod\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [
+     "deploy-config"
+    ],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
+   "name": "workflow vercel local bin"
+  },
+  {
+   "files": {
+    ".github/workflows/deploy.yml": "on: push\njobs:\n  d:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: netlify deploy --prod\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [
+     "deploy-config"
+    ],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
+   "name": "workflow netlify"
+  },
+  {
+   "files": {
+    ".github/workflows/deploy.yml": "on: push\njobs:\n  d:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: cloudflare/wrangler-action@v3\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [
+     "deploy-config"
+    ],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
+   "name": "workflow wrangler action"
+  },
+  {
+   "files": {
+    ".github/workflows/deploy.yml": "on: push\njobs:\n  d:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: firebase deploy --only hosting\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [
+     "deploy-config"
+    ],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
+   "name": "workflow firebase"
+  },
+  {
+   "files": {
+    ".github/workflows/deploy.yml": "on: push\njobs:\n  d:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: flyctl deploy --remote-only\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [
+     "deploy-config"
+    ],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
+   "name": "workflow fly"
+  },
+  {
+   "files": {
+    ".github/workflows/deploy.yml": "on: push\njobs:\n  d:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: |\n          npm ci\n          echo 'build #1'; vercel deploy --prod\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [
+     "deploy-config"
+    ],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
+   "name": "workflow block scalar"
+  },
+  {
+   "files": {
+    ".github/workflows/deploy.yml": "on: push\njobs:\n  d:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/deploy-pages@v4\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [
+     "deploy-config"
+    ],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
+   "name": "workflow pages action"
+  },
+  {
+   "files": {
+    "scripts/research.py": "MODELS = [\"gpt-4o\", \"claude-3-opus\", \"gemini-1.5-pro\"]\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [
+     "model-literal"
+    ],
+    "q9": []
+   },
+   "name": "model name in research script"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "src/copy.ts": "export const blurb = \"Built with gpt-4o\";\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [
+     "model-literal"
+    ],
+    "q9": []
+   },
+   "name": "model name in ui copy"
+  },
+  {
+   "files": {
+    "data/bench.json": "{\"models\": [\"gpt-4o\"]}\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [],
+    "q9": []
+   },
+   "name": "model name in json data"
+  },
+  {
+   "files": {
+    "src/ai.ts": "import OpenAI from \"openai\";\nconst m = \"gpt-4o\";\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [
+     "model-literal"
+    ],
+    "q9": []
+   },
+   "name": "model name with sdk import"
+  },
+  {
+   "files": {
+    "app/llm.py": "from anthropic import Anthropic\nMODEL = \"claude-3-5-sonnet\"\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [
+     "model-literal"
+    ],
+    "q9": []
+   },
+   "name": "model name with python sdk"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "src/f.ts": "await fetch(\"https://api.anthropic.com/v1/messages\", {body: JSON.stringify({model: \"claude-3-haiku\"})});\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [
+     "model-literal"
+    ],
+    "q9": []
+   },
+   "name": "model name with provider host"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "src/k.ts": "const k = process.env.OPENAI_API_KEY;\nconst m = \"gpt-4o\";\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [
+     "model-env-var",
+     "model-literal"
+    ],
+    "q9": []
+   },
+   "name": "model name with provider key"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/functions/chat/index.ts": "import OpenAI from \"npm:openai@4.20.0\";\nconst m = \"gpt-4o\";\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "api-route-dir",
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [
+     "model-literal"
+    ],
+    "q9": []
+   },
+   "name": "deno npm import"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/functions/a/index.ts": "import Anthropic from \"https://esm.sh/@anthropic-ai/sdk@0.20.0\";\nconst m = \"claude-3-haiku\";\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "api-route-dir",
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [
+     "model-literal"
+    ],
+    "q9": []
+   },
+   "name": "esm.sh import"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/functions/lov/index.ts": "await fetch(\"https://ai.gateway.lovable.dev/v1/chat/completions\", {body: JSON.stringify({model: \"google/gemini-2.5-flash\"})});\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "api-route-dir",
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [
+     "model-literal"
+    ],
+    "q9": []
+   },
+   "name": "lovable gateway"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/functions/key/index.ts": "const k = Deno.env.get(\"LOVABLE_API_KEY\");\nconst m = \"gemini-2.5-flash\";\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "api-route-dir",
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [
+     "model-literal"
+    ],
+    "q9": []
+   },
+   "name": "lovable key"
+  },
+  {
+   "files": {
+    "app/br.py": "import boto3\nc = boto3.client(\"bedrock-runtime\")\nm = \"claude-3-sonnet\"\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [
+     "model-literal"
+    ],
+    "q9": []
+   },
+   "name": "bedrock client"
+  },
+  {
+   "files": {
+    "package.json": "{\"dependencies\": {\"@ai-sdk/gateway\": \"1.0.0\"}}",
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "src/g.ts": "import { gateway } from \"@ai-sdk/gateway\";\nconst m = \"gpt-4o\";\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "nothing-found"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [
+     "model-literal"
+    ],
+    "q9": []
+   },
+   "name": "newer sdk import"
+  },
+  {
+   "files": {
+    "app/f.py": "import openai_helpers\nm = \"gpt-4o\"\n",
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "src/f.ts": "import x from \"ai-utils\";\nconst m = \"gpt-4o\";\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [
+     "model-literal"
+    ],
+    "q9": []
+   },
+   "name": "lookalike import"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "src/m0.ts": "const a0 = \"gpt-4o-0\";\nconst a1 = \"gpt-4o-1\";\nconst a2 = \"gpt-4o-2\";\nconst a3 = \"gpt-4o-3\";\nconst a4 = \"gpt-4o-4\";\n",
+    "src/m1.ts": "const a0 = \"gpt-4o-0\";\nconst a1 = \"gpt-4o-1\";\nconst a2 = \"gpt-4o-2\";\nconst a3 = \"gpt-4o-3\";\nconst a4 = \"gpt-4o-4\";\n",
+    "src/m2.ts": "const a0 = \"gpt-4o-0\";\nconst a1 = \"gpt-4o-1\";\nconst a2 = \"gpt-4o-2\";\nconst a3 = \"gpt-4o-3\";\nconst a4 = \"gpt-4o-4\";\n",
+    "src/zz_ai.ts": "import OpenAI from \"openai\";\nconst r = {model: \"gpt-4o\", max_tokens: 100};\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_checks": {
+    "q1": [],
+    "q10": [],
+    "q11": [],
+    "q2": [
+     "client-server-split"
+    ],
+    "q3": [],
+    "q4": [],
+    "q5.code": [],
+    "q5.data": [],
+    "q6": [],
+    "q7": [],
+    "q8": [
+     "model-literal"
+    ],
+    "q9": []
+   },
+   "name": "mentions before a real call"
   }
  ]
 }

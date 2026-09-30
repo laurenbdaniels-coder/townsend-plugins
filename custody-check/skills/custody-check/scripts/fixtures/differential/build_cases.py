@@ -1,11 +1,11 @@
 """Build cases.json for NeverWorseThanMainTests: realistic files plus every repro from review, with the answers
-the released baseline scanner gives on them (Q1, Q3, Q9).
+the released baseline scanner gives on them (Q1, Q3, Q9), and every check per question that is not evidence-only.
 
 Usage: git show <release>:custody-check/skills/custody-check/scripts/custody_scan.py > /tmp/baseline.py
        python3 build_cases.py /tmp/baseline.py cases.json
 
 Add a case for every input a review finds; regenerate from the new release after each merge."""
-import json, os, shutil, subprocess, sys, tempfile
+import importlib.util, json, os, shutil, subprocess, sys, tempfile
 
 MAIN = sys.argv[1]
 OUT = sys.argv[2]
@@ -103,6 +103,50 @@ case("sentry vue", {"package.json": '{"dependencies": {"@sentry/vue": "1"}}'})
 case("no monitoring", {"package.json": '{"dependencies": {"react": "18"}}'})
 case("pipfile", {"package.json": '{"dependencies": {"react": "18"}}', "Pipfile": "sentry-sdk\n"})
 
+# ---- Q5 code half: a workflow is a deploy path only when a command deploys (#16)
+W = ".github/workflows/%s.yml"
+STEPS = "on: push\njobs:\n  d:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n%s"
+def wf(name, steps, file="deploy"):
+    case(name, {W % file: STEPS % steps})
+wf("workflow lint only", "      - run: npm run lint\n", "ci")
+wf("workflow review bot only", "      - uses: anthropics/claude-code-action@v1\n", "review")
+wf("workflow environment key only", "      - run: npm test\n    environment: test\n")
+wf("workflow named deploy, no deploy step", "      - run: npm ci\n")
+wf("workflow commented deploy", "      # - run: vercel deploy --prod\n      - run: npm test\n")
+wf("workflow echo mentions deploy", "      - name: firebase deploy\n        run: echo \"remember to firebase deploy by hand\"\n")
+wf("workflow vercel build only", "      - run: npx vercel build --prod\n      - run: vercel pull --yes\n")
+wf("workflow install then prod flag", "      - run: npm i -g vercel && pnpm install --prod\n")
+wf("workflow vercel word then prod flag", "      - run: echo vercel rocks && npm run build -- --prod\n")
+wf("workflow comment then split deploy", "      - run: |\n          true # ; vercel deploy --prod\n")
+case("workflow disabled job", {W % "off": "on: push\njobs:\n  d:\n    if: false\n    steps:\n      - run: vercel deploy --prod\n"})
+case("workflow in subfolder", {".github/workflows/archive/old.yml": STEPS % "      - run: vercel deploy --prod\n"})
+wf("workflow vercel prod", "      - run: npx vercel --prod --token=${{ secrets.VERCEL_TOKEN }}\n")
+wf("workflow vercel pinned", "      - run: npx --yes vercel@latest deploy\n")
+wf("workflow vercel local bin", "      - run: ./node_modules/.bin/vercel deploy --prod\n")
+wf("workflow netlify", "      - run: netlify deploy --prod\n")
+wf("workflow wrangler action", "      - uses: cloudflare/wrangler-action@v3\n")
+wf("workflow firebase", "      - run: firebase deploy --only hosting\n")
+wf("workflow fly", "      - run: flyctl deploy --remote-only\n")
+wf("workflow block scalar", "      - run: |\n          npm ci\n          echo 'build #1'; vercel deploy --prod\n")
+wf("workflow pages action", "      - uses: actions/deploy-pages@v4\n")
+# ---- Q8: a model name is a hint only near a provider (#17)
+case("model name in research script", {"scripts/research.py": 'MODELS = ["gpt-4o", "claude-3-opus", "gemini-1.5-pro"]\n'})
+case("model name in ui copy", {"src/copy.ts": 'export const blurb = "Built with gpt-4o";\n'})
+case("model name in json data", {"data/bench.json": '{"models": ["gpt-4o"]}\n'})
+case("model name with sdk import", {"src/ai.ts": 'import OpenAI from "openai";\nconst m = "gpt-4o";\n'})
+case("model name with python sdk", {"app/llm.py": 'from anthropic import Anthropic\nMODEL = "claude-3-5-sonnet"\n'})
+case("model name with provider host", {"src/f.ts": 'await fetch("https://api.anthropic.com/v1/messages", {body: JSON.stringify({model: "claude-3-haiku"})});\n'})
+case("model name with provider key", {"src/k.ts": 'const k = process.env.OPENAI_API_KEY;\nconst m = "gpt-4o";\n'})
+case("deno npm import", {"supabase/functions/chat/index.ts": 'import OpenAI from "npm:openai@4.20.0";\nconst m = "gpt-4o";\n'})
+case("esm.sh import", {"supabase/functions/a/index.ts": 'import Anthropic from "https://esm.sh/@anthropic-ai/sdk@0.20.0";\nconst m = "claude-3-haiku";\n'})
+case("lovable gateway", {"supabase/functions/lov/index.ts": 'await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {body: JSON.stringify({model: "google/gemini-2.5-flash"})});\n'})
+case("lovable key", {"supabase/functions/key/index.ts": 'const k = Deno.env.get("LOVABLE_API_KEY");\nconst m = "gemini-2.5-flash";\n'})
+case("bedrock client", {"app/br.py": 'import boto3\nc = boto3.client("bedrock-runtime")\nm = "claude-3-sonnet"\n'})
+case("newer sdk import", {"package.json": '{"dependencies": {"@ai-sdk/gateway": "1.0.0"}}', "src/g.ts": 'import { gateway } from "@ai-sdk/gateway";\nconst m = "gpt-4o";\n'})
+case("lookalike import", {"src/f.ts": 'import x from "ai-utils";\nconst m = "gpt-4o";\n', "app/f.py": 'import openai_helpers\nm = "gpt-4o"\n'})
+case("mentions before a real call", dict({"src/m%d.ts" % i: "".join('const a%d = "gpt-4o-%d";\n' % (j, j) for j in range(5)) for i in range(3)},
+                                         **{"src/zz_ai.ts": 'import OpenAI from "openai";\nconst r = {model: "gpt-4o", max_tokens: 100};\n'}))
+
 def answers(scanner, files):
     tmp = tempfile.mkdtemp()
     try:
@@ -115,11 +159,21 @@ def answers(scanner, files):
             open(p, "w").write(body)
         out = subprocess.run([sys.executable, "-I", scanner, "--repo", "app"], cwd=tmp, capture_output=True, text=True).stdout
         q = json.loads(out)["questions"]
-        return {k: q[k]["answer"] for k in ("q1", "q3", "q9")}
+        return {k: q[k]["answer"] for k in ("q1", "q3", "q9")}, strong_checks(q)
     finally:
         shutil.rmtree(tmp)
 
+spec = importlib.util.spec_from_file_location("baseline", MAIN)
+BASELINE = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(BASELINE)
+
+def strong_checks(q):
+    """Per question, the checks that change an answer or that the skill leads with: every effect except evidence."""
+    halves = {"q5.code": q["q5"]["code"], "q5.data": q["q5"]["data"]}
+    halves.update({k: v for k, v in q.items() if k != "q5"})
+    return {k: sorted({e["check"] for e in v["evidence"] if BASELINE.CHECKS[e["check"]][1] != "evidence"}) for k, v in sorted(halves.items())}
+
 for c in cases:
-    c["main"] = answers(MAIN, c["files"])
+    c["main"], c["main_checks"] = answers(MAIN, c["files"])
 json.dump({"baseline": sys.argv[3] if len(sys.argv) > 3 else "unrecorded", "cases": cases}, open(OUT, "w"), indent=1, sort_keys=True)
 print(len(cases), "cases written")
