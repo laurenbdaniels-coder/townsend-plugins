@@ -31,6 +31,22 @@
       "prompt": "review my PR and ship this branch",
       "expected": "custody-check does NOT fire. Code review and shipping belong to other skills. No verdict, no scanner run.",
       "verified": "not yet run"
+    },
+    {
+      "id": 6,
+      "name": "custody-16-lint-only-workflow",
+      "prompt": "run custody-check on ./lint-only-app",
+      "setup": "A git repo with 12 commits whose only deploy-looking file is .github/workflows/ci.yml running `npm run lint` (no vercel.json, Dockerfile or other deploy config).",
+      "expected": "Q5 code half renders Don't know (scanner), not Yes: the workflow has no deploy step, so no deploy-config row. Adding a `vercel deploy --prod` step to the same workflow turns it back to Yes (medium) with a deploy-config row naming `vercel deploy --prod`.",
+      "verified": "not yet run"
+    },
+    {
+      "id": 7,
+      "name": "custody-17-model-mentioned",
+      "prompt": "run custody-check on ./research-app",
+      "setup": "An app with no AI SDK import, provider host or provider key in its code; scripts/compare.py lists model names (gpt-4o, claude-3-opus) in a Python list.",
+      "expected": "Q8 shows `model-mentioned` evidence, never `model-literal`. The rails gating question is still asked (\"does your app call an AI model?\"), but it is not led with \"your code names a model\"; the founder's answer decides.",
+      "verified": "not yet run"
     }
   ]
 }

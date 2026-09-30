@@ -44,7 +44,7 @@ The scanner answers only what a file tree can prove. A scanner **no** is evidenc
 
 Two halves, scored separately; the verdict shows the lower one.
 
-- **Code half.** Scanner **yes (medium)** when the repository has real history (a tag or ten or more commits), is not a shallow clone, and a deploy configuration exists (`vercel.json`, `netlify.toml`, `fly.toml`, `render.yaml`, `railway.json`, `Dockerfile`, `Procfile`, or a GitHub workflow). That proves a previous version exists and a redeploy path exists, not that you have rehearsed a rollback. **High** only from you, after you have rolled back once.
+- **Code half.** Scanner **yes (medium)** when the repository has real history (a tag or ten or more commits), is not a shallow clone, and a deploy configuration exists (`vercel.json`, `netlify.toml`, `fly.toml`, `render.yaml`, `railway.json`, `Dockerfile`, `Procfile`, or a GitHub workflow with a step that deploys: a deploy action or a deploy command such as `vercel --prod`, `netlify deploy`, `wrangler deploy`, `firebase deploy` or `fly deploy`; the `deploy-config` row names it). A workflow that only lints, tests or runs a review bot doesn't count, and neither does an `environment:` key on its own. That proves a previous version exists and a redeploy path exists, not that you have rehearsed a rollback. **High** only from you, after you have rolled back once.
   - `git-not-a-repo`: the folder is not a git repository (a zip export, for example). Nothing to do here; answer from what your platform offers.
   - `git-unavailable`: git is not installed (on macOS, install the Command Line Tools). Answer by hand.
   - `git-timeout`: git did not answer in time; try again.
@@ -70,7 +70,7 @@ Two halves, scored separately; the verdict shows the lower one.
 
 - **Yes** only from you, with a number: cost per user or per action, and a cap that stops spending.
 - **No** only from you: no cap, and the bill is a surprise.
-- Scanner hints: `ai-sdk-dependency`, `model-env-var`, `model-literal`, `spend-cap-word` show that a model is called and whether cap-shaped words appear; they never change the answer.
+- Scanner hints: `ai-sdk-dependency`, `model-env-var`, `model-literal`, `spend-cap-word` show that a model is called and whether cap-shaped words appear; they never change the answer. `model-literal` is a model name in a file that also imports a provider SDK, names a provider's API host or reads a provider key; a model name anywhere else (a research script, marketing copy) is `model-mentioned`, evidence only.
 - **By hand (60 s):** open your AI provider's billing page and your host's usage page. Write down last month's total and divide by your user count. Then find the spend cap setting and set one.
 
 ## Q9. How would I find out it's broken? One real alert to a named person. (Watch)
@@ -196,7 +196,7 @@ Every `check` the scanner can emit, by question. The skill accepts scanner outpu
 - **Q5 (code half):** `backup-script` (evidence), `deploy-config` (yes-part), `git-config-not-vouched` (evidence), `git-history` (evidence), `git-not-a-repo` (evidence), `git-shallow` (evidence), `git-subdir` (evidence), `git-timeout` (evidence), `git-unavailable` (evidence), `migration-path` (evidence)
 - **Q6:** `env-name` (yes-part), `preview-deploys-default` (evidence)
 - **Q7:** `review-workflow` (evidence)
-- **Q8:** `ai-sdk-dependency` (hint), `model-env-var` (hint), `model-literal` (hint), `spend-cap-word` (hint)
+- **Q8:** `ai-sdk-dependency` (hint), `model-env-var` (hint), `model-literal` (hint), `model-mentioned` (evidence), `spend-cap-word` (hint)
 - **Q9:** `cron-schedule` (hint), `health-route` (hint), `manifest-not-parsed` (evidence), `monitoring-dependency` (hint), `nothing-found-monitoring` (evidence), `sentry-config` (hint)
 - **Q10:** `pii-field` (evidence), `pii-form-input` (evidence)
 - **Q11:** `code-history-local` (evidence), `builder-dependency` (evidence), `builder-file` (evidence), `builder-readme` (evidence), `container-config` (evidence)

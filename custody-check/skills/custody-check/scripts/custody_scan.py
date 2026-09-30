@@ -151,7 +151,7 @@ CHECKS = {
     "git-timeout": ("q5.code", "evidence"), "git-subdir": ("q5.code", "evidence"), "git-shallow": ("q5.code", "evidence"),
     "env-name": ("q6", "yes-part"), "preview-deploys-default": ("q6", "evidence"),
     "review-workflow": ("q7", "evidence"),
-    "model-env-var": ("q8", "hint"), "model-literal": ("q8", "hint"), "spend-cap-word": ("q8", "hint"), "ai-sdk-dependency": ("q8", "hint"),
+    "model-env-var": ("q8", "hint"), "model-literal": ("q8", "hint"), "model-mentioned": ("q8", "evidence"), "spend-cap-word": ("q8", "hint"), "ai-sdk-dependency": ("q8", "hint"),
     "monitoring-dependency": ("q9", "hint"), "sentry-config": ("q9", "hint"), "health-route": ("q9", "hint"), "cron-schedule": ("q9", "hint"), "nothing-found-monitoring": ("q9", "evidence"), "manifest-not-parsed": ("q9", "evidence"),
     "pii-field": ("q10", "evidence"), "pii-form-input": ("q10", "evidence"),
     "builder-file": ("q11", "evidence"), "builder-dependency": ("q11", "evidence"), "builder-readme": ("q11", "evidence"), "container-config": ("q11", "evidence"), "code-history-local": ("q11", "evidence"),
@@ -276,6 +276,28 @@ VERCEL_ENV_RE = re.compile(r"\"(production|preview|staging)\"\s*:")
 MODEL_PROVIDER_ALT = "OPENAI|ANTHROPIC|CLAUDE|GEMINI|GOOGLE_AI|GOOGLE_GENERATIVE_AI|MISTRAL|COHERE|GROQ|TOGETHER|REPLICATE|HUGGINGFACE|AZURE_OPENAI|OPENROUTER|XAI|DEEPSEEK|PERPLEXITY|FIREWORKS"
 MODEL_PROVIDER_RE = re.compile(r"(?:" + MODEL_PROVIDER_ALT + r")_", re.I)
 MODEL_ENV_RE = re.compile(r"\b((?:" + MODEL_PROVIDER_ALT + r"|HF)_[A-Z0-9_]*(?:KEY|TOKEN|SECRET))\b")  # HF_ is too short to trust as a provider prefix on a Google key
+# A model name is a runtime-call hint only in a file that also reaches a provider: an SDK import, a provider
+# API host, or a provider key. Anywhere else (a research script, UI copy) it is only a mention (#17).
+AI_JS_PACKAGES = ("openai", "@anthropic-ai/sdk", "ai", "@ai-sdk/openai", "@ai-sdk/anthropic", "@ai-sdk/google", "@ai-sdk/mistral", "@ai-sdk/groq", "@ai-sdk/gateway",
+                  "langchain", "@langchain/core", "@langchain/openai", "@langchain/anthropic", "@langchain/google-genai", "@google/generative-ai", "@google/genai",
+                  "cohere-ai", "replicate", "@mistralai/mistralai", "groq-sdk", "together-ai", "ollama", "@openrouter/ai-sdk-provider", "@huggingface/inference")
+AI_JS_IMPORT_RE = re.compile(r"(?:\bfrom[ \t]*|\brequire[ \t]*\([ \t]*|\bimport[ \t]*\([ \t]*|^[ \t]*import[ \t]+)[\"'](?:"
+                             + "|".join(re.escape(p) for p in AI_JS_PACKAGES) + r")(?:/[^\"'\n]{0,80})?[\"']", re.M)
+AI_PY_IMPORT_RE = re.compile(r"^[ \t]*(?:(?:from|import)[ \t]+(?:openai|anthropic|langchain[a-z_]*|cohere|replicate|mistralai|groq|litellm|ollama|together|transformers|huggingface_hub|vertexai|google\.generativeai|google\.genai)\b"
+                             r"|from[ \t]+google[ \t]+import[ \t]+(?:genai|generativeai)\b)", re.M)
+PROVIDER_HOST_RE = re.compile(r"api\.openai\.com|api\.anthropic\.com|generativelanguage\.googleapis\.com|aiplatform\.googleapis\.com|api\.mistral\.ai|api\.groq\.com"
+                              r"|api\.together\.(?:xyz|ai)|openrouter\.ai/api|api\.cohere\.(?:ai|com)|api\.replicate\.com|api-inference\.huggingface\.co|router\.huggingface\.co"
+                              r"|api\.perplexity\.ai|api\.deepseek\.com|api\.x\.ai|api\.fireworks\.ai|bedrock-runtime\.|openai\.azure\.com|ai-gateway\.vercel\.sh", re.I)
+# A workflow counts as a deploy path only when a step deploys (#16): a known deploy action, or a deploy CLI
+# with its deploy verb. An `environment:` key, a release step or a file named deploy.yml proves nothing.
+WORKFLOW_COMMENT_RE = re.compile(r"(^|[ \t])#[^\n]*", re.M)
+DEPLOY_ACTION_RE = re.compile(r"^[ \t]*(?:-[ \t]*)?uses:[ \t]*[\"']?(amondnet/vercel-action|nwtgck/actions-netlify|netlify/actions/cli|cloudflare/wrangler-action|cloudflare/pages-action"
+                              r"|FirebaseExtended/action-hosting-deploy|w9jds/firebase-action|google-github-actions/deploy-(?:cloudrun|appengine)|aws-actions/amazon-ecs-deploy-task-definition"
+                              r"|azure/webapps-deploy|peaceiris/actions-gh-pages|JamesIves/github-pages-deploy-action|actions/deploy-pages)(?![A-Za-z0-9_-])", re.M | re.I)
+DEPLOY_CLI_RE = re.compile(r"(?<![\w./-])((?:vercel(?:[ \t]+deploy\b|[^\n]{0,120}?[ \t]--(?:prod|prebuilt)\b)|netlify[ \t]+deploy\b|wrangler[ \t]+(?:deploy|publish|pages[ \t]+deploy)\b"
+                           r"|firebase[ \t]+deploy\b|fly(?:ctl)?[ \t]+deploy\b|railway[ \t]+up\b|supabase[ \t]+functions[ \t]+deploy\b|gcloud[ \t]+(?:run|app|functions)[ \t]+deploy\b"
+                           r"|(?:serverless|sls|cdk|eb)[ \t]+deploy\b))")
+DEPLOY_LABEL_TOKEN_RE = re.compile(r"^(?:[a-z]+|--prod|--prebuilt)$")
 MODEL_LITERAL_RE = re.compile(r"(?<![A-Za-z0-9])(?:gpt-[0-9][A-Za-z0-9.-]*|claude-[a-z0-9.-]+|gemini-[a-z0-9.-]+|llama[-_]?[0-9][A-Za-z0-9.-]*|mistral-[a-z0-9.-]+|o[134]-mini|o3)(?![A-Za-z0-9])")
 SPEND_CAP_RE = re.compile(r"\b(?:max_tokens|maxTokens|rate_limit|rateLimit|spend_cap|budget_limit|maxDuration)\b")
 HEALTH_ROUTE_RE = re.compile(r"[\"'`]/(?:api/)?health(?:z|check|-check)?[\"'`]")
@@ -1747,15 +1769,31 @@ def detect_model_hints(sf, state, opts):
     _finditer_lines(MODEL_ENV_RE, text, sf, state, "model-env-var", counter, lambda m: m.group(1))
     if "env" in sf.kinds or "env-template" in sf.kinds:
         return  # env lines are never echoed; the variable name above is all the hint needed
-    _finditer_lines(MODEL_LITERAL_RE, text, sf, state, "model-literal", counter, _clause)
+    reaches_provider = AI_JS_IMPORT_RE.search(text) or AI_PY_IMPORT_RE.search(text) or PROVIDER_HOST_RE.search(text) or MODEL_ENV_RE.search(text)
+    _finditer_lines(MODEL_LITERAL_RE, text, sf, state, "model-literal" if reaches_provider else "model-mentioned", counter, _clause)
     _finditer_lines(SPEND_CAP_RE, text, sf, state, "spend-cap-word", counter, lambda m: m.group(0))
     _finditer_lines(HEALTH_ROUTE_RE, text, sf, state, "health-route", counter, _clause)
+
+
+def _deploy_label(m):
+    """Name the deploy step by its action or its command words only: a `--token=…` argument never reaches the row."""
+    if m.re is DEPLOY_ACTION_RE:
+        return m.group(1)
+    words = [w for w in m.group(1).split() if DEPLOY_LABEL_TOKEN_RE.match(w)]
+    return " ".join(words[:3])
 
 
 def detect_workflow(sf, state, opts):
     _finditer_lines(CRON_WORKFLOW_RE, sf.text, sf, state, "cron-schedule", {}, lambda m: "cron")
     if not REVIEW_NAME_RE.search(sf.base.lower()):  # a file already named for review has its row from the layout pass
         _finditer_lines(REVIEW_ACTION_RE, sf.text, sf, state, "review-workflow", {}, lambda m: m.group(1))
+    state.tick()
+    text = WORKFLOW_COMMENT_RE.sub(r"\1", sf.text)  # a commented-out deploy step is not a deploy path
+    hits = [m for m in (DEPLOY_ACTION_RE.search(text), DEPLOY_CLI_RE.search(text)) if m]
+    if hits:
+        first = min(hits, key=lambda m: m.start())
+        state.deploy_configs.append(sf.rel)
+        state.add("deploy-config", sf.rel, line_of(text, first.start()), _deploy_label(first))
 
 
 def detect_pii_schema(sf, state, opts):
@@ -1839,7 +1877,7 @@ def layout_checks(rel, base, state):
         state.add("auth-path", rel, 0, "")
     fly = FLY_ENV_TOML_RE.match(b)
     is_workflow = len(dirs) >= 2 and dirs[0] == ".github" and dirs[1] == "workflows" and (b.endswith(".yml") or b.endswith(".yaml"))
-    is_deploy = b in DEPLOY_CONFIG_BASENAMES or is_workflow or bool(fly)
+    is_deploy = b in DEPLOY_CONFIG_BASENAMES or bool(fly)  # a workflow counts only when a step deploys: detect_workflow
     if is_deploy:
         state.deploy_configs.append(rel)
         state.add("deploy-config", rel, 0, "")

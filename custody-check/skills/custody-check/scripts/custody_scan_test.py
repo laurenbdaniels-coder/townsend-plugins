@@ -1488,7 +1488,8 @@ class LinearityTests(unittest.TestCase):
     def test_multiline_patterns_are_linear_on_blank_lines(self):
         blank = "\n" * 524288
         spaced = " \n" * 262144
-        for regex in (cs.CLIENT_IMPORT_RE, cs.CRON_WORKFLOW_RE, cs.TOML_PUBLIC_TRUE_RE, cs.NETLIFY_CONTEXT_RE, cs.WRANGLER_ENV_RE, cs.CRON_WRANGLER_RE, cs.USE_CLIENT_RE, cs.GEM_RE, cs.GO_REQUIRE_RE):
+        for regex in (cs.CLIENT_IMPORT_RE, cs.CRON_WORKFLOW_RE, cs.TOML_PUBLIC_TRUE_RE, cs.NETLIFY_CONTEXT_RE, cs.WRANGLER_ENV_RE, cs.CRON_WRANGLER_RE, cs.USE_CLIENT_RE, cs.GEM_RE, cs.GO_REQUIRE_RE,
+                      cs.AI_JS_IMPORT_RE, cs.AI_PY_IMPORT_RE, cs.DEPLOY_ACTION_RE, cs.WORKFLOW_COMMENT_RE):
             t0 = time.perf_counter()
             regex.search(blank)
             regex.search(spaced)
@@ -2166,7 +2167,7 @@ class ShipCoverageTests(ScanCase):
         self.assertEqual(evidence_checks(r["questions"]["q1"]), ["scan-summary"])  # a value too long to judge is not a look
 
     def test_content_hits_are_capped_at_five_per_file_per_check(self):
-        self.write("src/ai.ts", "".join('const m%d = "gpt-4o";\n' % i for i in range(7)))
+        self.write("src/ai.ts", 'import OpenAI from "openai";\n' + "".join('const m%d = "gpt-4o";\n' % i for i in range(7)))
         q8 = self.scan()["questions"]["q8"]
         self.assertEqual(evidence_checks(q8).count("model-literal"), cs.MAX_HITS_PER_FILE_PER_CHECK)
 
@@ -5051,6 +5052,118 @@ class NeverWorseThanMainTests(unittest.TestCase):
                         used.add(key)
         stale = (set(self.ALLOW_SOFTER) | set(self.ALLOW_NEW_NO)) - used
         self.assertEqual(stale, set(), "an allowed exception that no longer happens should be removed")
+
+
+class DeployWorkflowTests(ScanCase):
+    """#16: a workflow is deploy evidence only when a step actually deploys."""
+
+    def deploy_rows(self, q):
+        return [e for e in q["q5"]["code"]["evidence"] if e["check"] == "deploy-config"]
+
+    def test_workflows_that_deploy_count_and_name_what_deploys(self):
+        cases = {
+            "vercel": "      - run: npx vercel --prod --token=${{ secrets.VERCEL_TOKEN }}\n",
+            "netlify": "      - run: netlify deploy --prod\n",
+            "wrangler": "      - uses: cloudflare/wrangler-action@v3\n",
+            "firebase": "      - run: firebase deploy --only hosting\n",
+            "fly": "      - run: flyctl deploy --remote-only\n",
+        }
+        for tool, step in cases.items():
+            with self.subTest(tool=tool):
+                shutil.rmtree(self.repo)
+                os.makedirs(self.repo)
+                self.write(".github/workflows/deploy.yml", "on: push\njobs:\n  d:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n" + step)
+                rows = self.deploy_rows(self.scan()["questions"])
+                self.assertEqual(len(rows), 1)
+                self.assertEqual(rows[0]["path"], ".github/workflows/deploy.yml")
+                self.assertIn(tool, rows[0]["snippet"].lower(), "the row names what it found")
+                self.assertGreater(rows[0]["line"], 0)
+
+    def test_the_row_never_echoes_a_token_argument(self):
+        token = "vtok" + rand(24)
+        self.write(".github/workflows/deploy.yml", "on: push\njobs:\n  d:\n    steps:\n      - run: vercel --token=%s --prod --yes\n" % token)
+        rows = self.deploy_rows(self.scan()["questions"])
+        self.assertEqual([r["snippet"] for r in rows], ["vercel --prod"])
+        self.assert_no_secret(json.dumps(self.scan()), token)
+
+    def test_workflows_that_only_lint_test_or_review_do_not_count(self):
+        self.write(".github/workflows/lint.yml", "on: push\njobs:\n  l:\n    steps:\n      - run: npm run lint\n")
+        self.write(".github/workflows/review.yml", "on: pull_request\njobs:\n  r:\n    steps:\n      - uses: anthropics/claude-code-action@v1\n")
+        self.write(".github/workflows/test.yml", "on: push\njobs:\n  t:\n    environment: test\n    steps:\n      - run: npm test\n      - run: echo release notes\n")
+        self.write(".github/workflows/commented.yml", "on: push\njobs:\n  t:\n    steps:\n      # - run: vercel --prod\n      - run: npm test\n")
+        self.write(".github/workflows/deploy.yml", "on: push\n")  # the name alone is not a deploy
+        self.assertEqual(self.deploy_rows(self.scan()["questions"]), [])
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_a_lint_only_workflow_no_longer_makes_q5_code_yes(self):
+        # named eval case custody-16-lint-only-workflow: Q5 code half drops from Yes to Don't know
+        self.write(".github/workflows/ci.yml", "on: push\njobs:\n  l:\n    steps:\n      - run: npm run lint\n")
+        self.init_repo(commits=12)
+        code = self.scan()["questions"]["q5"]["code"]
+        self.assertEqual(code["answer"], "dont-know")
+        self.write(".github/workflows/ci.yml", "on: push\njobs:\n  l:\n    steps:\n      - run: npm run lint\n      - run: vercel deploy --prod\n")
+        self.assertEqual(self.scan()["questions"]["q5"]["code"]["answer"], "yes")
+
+    def test_deploy_config_files_still_count_by_name(self):
+        self.write("vercel.json", "{}\n")
+        rows = self.deploy_rows(self.scan()["questions"])
+        self.assertEqual([r["path"] for r in rows], ["vercel.json"])
+
+
+class ModelLiteralTests(ScanCase):
+    """#17: a model name is a runtime-call hint only next to a provider SDK, host or key."""
+
+    def q8(self):
+        return self.scan()["questions"]["q8"]
+
+    def test_model_name_beside_an_sdk_import_is_a_hint(self):
+        for rel, src in (("src/ai.ts", 'import OpenAI from "openai";\nconst m = "gpt-4o";\n'),
+                         ("src/chat.ts", 'import { generateText } from "ai";\nimport { anthropic } from "@ai-sdk/anthropic";\nconst m = "claude-sonnet-4";\n'),
+                         ("app/llm.py", 'from anthropic import Anthropic\nMODEL = "claude-3-5-sonnet"\n'),
+                         ("app/g.py", 'import google.generativeai as genai\nm = "gemini-1.5-pro"\n'),
+                         ("lib/r.js", 'const OpenAI = require("openai");\nconst m = "gpt-4o-mini";\n')):
+            with self.subTest(rel=rel):
+                shutil.rmtree(self.repo)
+                os.makedirs(self.repo)
+                self.write(rel, src)
+                checks = evidence_checks(self.q8())
+                self.assertIn("model-literal", checks)
+                self.assertNotIn("model-mentioned", checks)
+
+    def test_model_name_beside_a_provider_host_or_key_is_a_hint(self):
+        self.write("src/fetch.ts", 'await fetch("https://api.anthropic.com/v1/messages", {body: JSON.stringify({model: "claude-3-haiku"})});\n')
+        self.assertIn("model-literal", evidence_checks(self.q8()))
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.write("src/k.ts", 'const k = process.env.OPENAI_API_KEY;\nconst m = "gpt-4o";\n')
+        self.assertIn("model-literal", evidence_checks(self.q8()))
+
+    def test_model_name_alone_is_only_mentioned(self):
+        self.write("scripts/research.py", 'MODELS = ["gpt-4o", "claude-3-opus", "gemini-1.5-pro"]\nprint(MODELS)\n')
+        self.write("src/copy.ts", 'export const blurb = "Built with gpt-4o";\n')
+        checks = evidence_checks(self.q8())
+        self.assertNotIn("model-literal", checks)
+        self.assertIn("model-mentioned", checks)
+        self.assertEqual(cs.CHECKS["model-mentioned"], ("q8", "evidence"))
+
+    def test_model_name_in_a_json_data_file_gives_no_hint(self):
+        self.write("data/benchmarks.json", '{"models": ["gpt-4o", "claude-3-opus"]}\n')
+        self.assertNotIn("model-literal", evidence_checks(self.q8()))
+
+    def test_an_sdk_dependency_elsewhere_does_not_promote_a_bare_mention(self):
+        self.write("package.json", '{"dependencies": {"openai": "4.0.0"}}')
+        self.write("src/copy.ts", 'export const blurb = "Built with gpt-4o";\n')
+        checks = evidence_checks(self.q8())
+        self.assertIn("ai-sdk-dependency", checks)
+        self.assertNotIn("model-literal", checks)
+        self.assertIn("model-mentioned", checks)
+
+    def test_the_skill_and_appendix_name_model_mentioned(self):
+        q = open(os.path.join(SKILL_DIR, "references", "questions.md"), encoding="utf-8").read()
+        appendix = q.split("## All check names")[1]
+        self.assertIn("`model-mentioned` (evidence)", appendix)
+        k = open(os.path.join(SKILL_DIR, "SKILL.md"), encoding="utf-8").read()
+        self.assertIn("model-mentioned", k)
 
 
 if __name__ == "__main__":
