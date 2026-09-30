@@ -4292,5 +4292,64 @@ class NothingFoundGapTests(ScanCase):
         self.assertEqual(self.scan()["stats"]["files_skipped_oversize_relevant"], 0)
 
 
+
+class FooterBookingTests(unittest.TestCase):
+    """The verdict's last line sends a founder to the Free Assessment, tagged so a booking can be traced,
+    with one next-step sentence chosen by verdict state (offer ladder, approved 2026-09-24)."""
+
+    URL = "townsendaistudio.com/assessment?src=custody-check"
+
+    def _read(self, *parts):
+        with open(os.path.join(*parts), encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_every_surface_carries_the_booking_link_and_not_the_old_offer(self):
+        for label, text in (("template", self._read(SKILL_DIR, "assets", "verdict-template.md")),
+                            ("SKILL.md", self._read(SKILL_DIR, "SKILL.md")),
+                            ("README", self._read(PLUGIN_DIR, "README.md"))):
+            self.assertIn(self.URL, text, label)
+            self.assertNotIn("Want the routing I run", text, label)
+            self.assertNotIn("townsendaistudio.com/?src=", text, label)
+
+    def _footer_lines(self):
+        template = self._read(SKILL_DIR, "assets", "verdict-template.md")
+        rule = template.split("- **Footer next step**")[1].split("\n- **")[0]
+        lines = {}
+        for raw in rule.splitlines():
+            raw = raw.strip()
+            if raw.startswith("- ") and "→" in raw:
+                key, _, quoted = raw[2:].partition("→")
+                lines[key.strip()] = quoted.strip().strip('"')
+        return rule, lines
+
+    def test_footer_states_are_ranked_stop_line_first(self):
+        rule, lines = self._footer_lines()
+        keys = list(lines)
+        self.assertEqual(len(keys), 4, keys)
+        self.assertTrue(keys[0].startswith("stop-line"), keys)
+        self.assertTrue(keys[1].startswith("scanner unavailable"), keys)
+        self.assertIn("partial", keys[2])
+        self.assertEqual(keys[3], "otherwise")
+        skill = self._read(SKILL_DIR, "SKILL.md").split("## Footer")[1]
+        self.assertIn("Footer next step", skill)
+
+    def test_each_footer_line_is_one_sentence_and_only_stop_line_has_no_link(self):
+        _, lines = self._footer_lines()
+        for key, line in lines.items():
+            body = line.replace(self.URL, "")
+            self.assertNotRegex(body, r"[.!?]\s+[A-Z]", "one sentence only: " + key)
+            if key.startswith("stop-line"):
+                self.assertNotIn("townsendaistudio.com/assessment", line, "a stop-line app is never sent to the free step")
+                self.assertIn("written scope", line)
+            else:
+                self.assertEqual(line.count(self.URL), 1, key)
+                self.assertTrue(line.endswith(self.URL), key)
+                self.assertEqual(line.count("Free Assessment"), 1, "no duplicate call to action: " + key)
+        # the footer line in the rendered block is only the rule's output, never a second CTA
+        template = self._read(SKILL_DIR, "assets", "verdict-template.md")
+        block = template.split("```markdown")[1].split("```")[0]
+        self.assertNotIn(self.URL, block)
+
+
 if __name__ == "__main__":
     unittest.main()

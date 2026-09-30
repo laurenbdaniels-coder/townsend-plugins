@@ -2,6 +2,13 @@
 
 The footer of every verdict names the version that produced it. Later entries carry a "What changed since the workshop" line so an attendee can tell whether an answer would come out differently today.
 
+## 0.3.2 (2026-09-29)
+
+What changed since the workshop build: the last line of every verdict now points to a Free Assessment, with one next step chosen by your verdict.
+
+- **Changed.** The footer's closing line links to townsendaistudio.com/assessment?src=custody-check instead of offering "the routing I run". It opens with one sentence that fits your verdict: if the stop-line is ticked, it says the app needs a written scope and a free check isn't the right first step; if the scanner couldn't run, it offers to run it together; if the scan stopped early, it says to rerun first; otherwise, it offers to test on your own screen what the files couldn't show.
+- The link is still a plain string. Nothing is sent anywhere by this skill.
+
 ## 0.3.1 (2026-09-29)
 
 What changed since the workshop build: a Stripe secret key or a private key is now caught in code, config and env files, and a committed key file counts. Before, the scan could say "Nothing found" for Secrets with one of them there. Files the scanner still doesn't read for keys (`Dockerfile`, shell scripts, `.properties`, Android `strings.xml`, iOS `Info.plist`) are tracked in issue #20.
