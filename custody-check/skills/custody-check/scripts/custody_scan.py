@@ -719,11 +719,15 @@ def count_files(path, deadline=None):
     return n
 
 
+def _safe_open_flags():
+    """Read-only, never following a symlink or blocking on a fifo, and binary: Windows text mode turns CRLF into LF, a short read."""
+    return os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NONBLOCK", 0)
+
+
 def open_regular(path):
     """Open without following symlinks; reject anything that is not a plain single-link file."""
-    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NONBLOCK", 0)  # O_BINARY: Windows text mode turns CRLF into LF, a short read
     try:
-        fd = os.open(path, flags)
+        fd = os.open(path, _safe_open_flags())
     except OSError:
         return None
     try:
@@ -1650,14 +1654,15 @@ GIT_CONFIG_MAX_BYTES = 65536
 def _read_small_regular(path, limit):
     """Read a plain regular file of at most `limit` bytes without following symlinks or blocking on a fifo; None otherwise."""
     try:
-        fd = os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0))
+        fd = os.open(path, _safe_open_flags())
     except OSError:
         return None
     try:
         st = os.fstat(fd)
         if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_size > limit:
             return None
-        return read_bytes(fd, st.st_size)
+        data = read_bytes(fd, st.st_size)
+        return data if len(data) == st.st_size else None  # a file that changed under us is not vouched for on a prefix
     except OSError:
         return None
     finally:
@@ -1873,7 +1878,7 @@ def git_facts(repo, state):
             if real_repo.startswith(toplevel + os.sep):
                 subdir = True
                 tracked_here = run(["ls-files", "-z", "--", "."])
-                if tracked_here.returncode != 0 or not tracked_here.stdout.strip("\0"):
+                if (tracked_here.returncode != 0 and not tracked_here.truncated) or not tracked_here.stdout.strip("\0"):  # a listing cut at the cap still names tracked files
                     state.add("git-not-a-repo", "", 0, "this folder is not tracked by git (an export inside another repository)")
                     return
             else:
@@ -1885,7 +1890,10 @@ def git_facts(repo, state):
             state.partial = True
             state.stats["git_index_partial"] += 1
         if tracked.returncode == 0 or tracked.truncated:
-            for p in tracked.stdout.split("\0"):
+            paths = tracked.stdout.split("\0")
+            if tracked.truncated:
+                paths = paths[:-1]  # the last path may be cut mid-name: ".env.production" read as ".env.pro"
+            for p in paths:
                 if not p:
                     continue
                 b = p.rsplit("/", 1)[-1]
@@ -1904,10 +1912,9 @@ def git_facts(repo, state):
             check = "tracked-env-file-nonprod" if stem in NONPROD_ENV_STEMS else "tracked-env-file"
             state.add(check, p, 0, "")
         tags = run(["for-each-ref", "--count=1000", "--format=%(refname)", "refs/tags"])
-        tag_lines = tags.stdout.splitlines()
-        if tags.truncated:  # git was killed at the cap, so its exit code says nothing; what was read is a floor
-            tag_lines = tag_lines[:-1]  # the last line may be cut mid-name
-            state.partial = True
+        tag_lines = tags.stdout.split("\n")  # never splitlines(): a tag name may hold U+2028 and other breaks git does not split on
+        if tags.truncated:  # git was killed at the cap, so its exit code says nothing; what was read is a floor,
+            tag_lines = tag_lines[:-1]  # and a floor is all Q5 asks ("any tags?"), so the scan is not partial for it
         state.git["tags"] = len([t for t in tag_lines if t.strip()]) if tags.returncode == 0 or tags.truncated else 0
         shallow = run(["rev-parse", "--is-shallow-repository"])
         state.git["shallow"] = shallow.stdout.strip() == "true" or _read_small_regular(os.path.join(_git_dir(toplevel), "shallow"), 4096) is not None
@@ -1917,7 +1924,7 @@ def git_facts(repo, state):
             state.add("git-subdir", "", 0, "the app folder is inside a larger repository")
         if state.git["shallow"]:
             state.add("git-shallow", "", 0, "shallow clone")
-        state.add("git-history", "", 0, "%d commits, %d tags" % (state.git["commits"], state.git["tags"]))
+        state.add("git-history", "", 0, "%d commits, %d%s tags" % (state.git["commits"], state.git["tags"], "+" if tags.truncated else ""))
     except subprocess.TimeoutExpired:
         state.git["commits"] = None  # keep the index facts already gathered; history stays unknown
         state.git["tags"] = None

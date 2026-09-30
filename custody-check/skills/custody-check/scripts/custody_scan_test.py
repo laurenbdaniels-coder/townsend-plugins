@@ -125,7 +125,10 @@ def rm_tree(path):
     def clear_and_retry(func, target, _exc):
         os.chmod(target, stat.S_IWRITE)
         func(target)
-    shutil.rmtree(path, onerror=clear_and_retry)
+    if sys.version_info >= (3, 12):
+        shutil.rmtree(path, onexc=clear_and_retry)  # onerror is deprecated from 3.12
+    else:
+        shutil.rmtree(path, onerror=clear_and_retry)
 
 
 class ScanCase(unittest.TestCase):
@@ -3381,7 +3384,7 @@ class WindowsReadTests(ScanCase):
         self.assertEqual(r["stats"]["files_errored"], 0)
         self.assertIn("server-path-key-literal", evidence_checks(r["questions"]["q1"]))
 
-    def test_every_open_asks_for_binary_mode(self):
+    def test_every_os_open_asks_for_binary_mode(self):
         self.write("src/a.ts", "x\n")
         self.write(".git", "gitdir: ../elsewhere/.git\n")  # reaches the second opener too
         real_open, native = os.open, hasattr(os, "O_BINARY")
@@ -3397,31 +3400,97 @@ class WindowsReadTests(ScanCase):
         self.assertTrue(all(f & flag for f in seen), seen)
 
 
-class GitTagCountTests(ScanCase):
-    """A tag list cut at the output cap is a floor, whatever exit code the killed git reports."""
+class WindowsJunctionTests(ScanCase):
+    """Before 3.12, os.walk descends into an NTFS junction (islink is False for it); the containment check must still stop it."""
+
+    @unittest.skipUnless(os.name == "nt", "NTFS junctions are Windows-only")
+    def test_a_junction_out_of_the_app_folder_is_not_read(self):
+        outside = os.path.join(self.tmp, "outside")
+        os.makedirs(os.path.join(outside, "api"))
+        with open(os.path.join(outside, "api", "route.ts"), "w") as fh:
+            fh.write('const k = "%s";\n' % SK)
+        self.write("src/a.ts", "x\n")
+        subprocess.run(["cmd", "/c", "mklink", "/J", os.path.join(self.repo, "src", "linked"), outside], check=True, capture_output=True)
+        r = self.scan()
+        self.assertEqual(r["files_scanned"], 1)
+        self.assertNotIn("server-path-key-literal", evidence_checks(r["questions"]["q1"]))
+
+
+class SmallReadTests(ScanCase):
+    def test_a_file_that_shrinks_under_the_read_is_not_vouched_for(self):
+        path = os.path.join(self.tmp, "config")
+        with open(path, "wb") as fh:
+            fh.write(b"[core]\n\thooksPath = x\n")
+        self.assertIsNotNone(cs._read_small_regular(path, 4096))
+        with mock.patch.object(cs, "read_bytes", lambda fd, size: b"[core]\n"):
+            self.assertIsNone(cs._read_small_regular(path, 4096))
+
+
+class KilledLatePopen(subprocess.Popen):
+    """The race Windows loses: git is still alive when the reader kills it at the output cap, so it exits non-zero."""
+
+    def kill(self):
+        super().kill()
+        self._killed = True
+
+    def wait(self, timeout=None):
+        rc = super().wait(timeout)
+        if getattr(self, "_killed", False):
+            self.returncode = rc = -9
+        return rc
+
+
+class KilledGitTests(ScanCase):
+    """Output cut at the cap is a floor, whatever exit code the killed git reports."""
 
     @unittest.skipUnless(HAVE_GIT, "git not installed")
     def test_truncated_tag_list_still_counts(self):
         self.init_repo(commits=1)
         for i in range(40):
             self.git("tag", "t%03d" % i)
-        real_popen = subprocess.Popen
-
-        class KilledLate(real_popen):  # the race Windows loses: git is still alive when the reader kills it
-            def kill(self):
-                super().kill()
-                self._killed = True
-
-            def wait(self, timeout=None):
-                rc = super().wait(timeout)
-                if getattr(self, "_killed", False):
-                    self.returncode = rc = -9
-                return rc
-        with mock.patch.object(cs, "GIT_OUTPUT_LIMIT", 512), mock.patch.object(cs.subprocess, "Popen", KilledLate):
+        with mock.patch.object(cs, "GIT_OUTPUT_LIMIT", 512), mock.patch.object(cs.subprocess, "Popen", KilledLatePopen):
             r = self.scan()
         self.assertGreaterEqual(r["git"]["tags"], 1)
         self.assertLess(r["git"]["tags"], 40)
+        self.assertFalse(r["partial"], "a floor answers Q5's any-tags question; it is not a gap")
+        history = [e for e in r["questions"]["q5"]["code"]["evidence"] if e["check"] == "git-history"][0]
+        self.assertIn("%d+ tags" % r["git"]["tags"], history["snippet"])
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_unicode_line_separators_in_tag_names_count_once(self):
+        self.init_repo(commits=1)
+        for i in range(40):
+            self.git("tag", "t%03d" % i + "\u2028x\u2029y\x85z" * 10)  # git allows these; str.splitlines() splits on them
+        self.assertEqual(self.scan()["git"]["tags"], 40)
+        with mock.patch.object(cs, "GIT_OUTPUT_LIMIT", 2000), mock.patch.object(cs.subprocess, "Popen", KilledLatePopen):
+            r = self.scan()  # 2000 bytes holds the repo path but only part of the tag list
+        self.assertGreaterEqual(r["git"]["tags"], 1)
+        self.assertLess(r["git"]["tags"], 40)
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_env_path_cut_at_the_cap_is_not_reported(self):
+        for i in range(10):
+            self.write("d%03d/.env.staging" % i, "x\n")
+        self.init_repo(commits=1)
+        entry = len("d000/.env.staging\0")
+        with mock.patch.object(cs, "GIT_OUTPUT_LIMIT", 9 * entry + len("d009/.env.sta")):  # the tenth path is cut to ".env.sta"
+            r = self.scan()
         self.assertTrue(r["partial"])
+        self.assertEqual(len(r["git"]["tracked_env_files"]), 9)
+        for p in r["git"]["tracked_env_files"]:
+            self.assertTrue(p.endswith("/.env.staging"), p)
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_large_subdir_listing_is_still_tracked(self):
+        for i in range(60):
+            self.write("apps/web/src/f%03d.ts" % i, "x\n")
+        self.init_repo(commits=2)
+        with mock.patch.object(cs, "GIT_OUTPUT_LIMIT", 512), mock.patch.object(cs.subprocess, "Popen", KilledLatePopen):
+            r = self.scan(repo=os.path.join(self.repo, "apps", "web"))
+        q5 = evidence_checks(r["questions"]["q5"]["code"])
+        self.assertNotIn("git-not-a-repo", q5)
+        self.assertIn("git-subdir", q5)
+        self.assertEqual(r["git"]["commits"], 2)
 
 
 class GitConfigOverriddenKeysTests(ScanCase):
