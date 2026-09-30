@@ -721,7 +721,7 @@ def count_files(path, deadline=None):
 
 def open_regular(path):
     """Open without following symlinks; reject anything that is not a plain single-link file."""
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NONBLOCK", 0)
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NONBLOCK", 0)  # O_BINARY: Windows text mode turns CRLF into LF, a short read
     try:
         fd = os.open(path, flags)
     except OSError:
@@ -1650,7 +1650,7 @@ GIT_CONFIG_MAX_BYTES = 65536
 def _read_small_regular(path, limit):
     """Read a plain regular file of at most `limit` bytes without following symlinks or blocking on a fifo; None otherwise."""
     try:
-        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0))
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0))
     except OSError:
         return None
     try:
@@ -1904,7 +1904,11 @@ def git_facts(repo, state):
             check = "tracked-env-file-nonprod" if stem in NONPROD_ENV_STEMS else "tracked-env-file"
             state.add(check, p, 0, "")
         tags = run(["for-each-ref", "--count=1000", "--format=%(refname)", "refs/tags"])
-        state.git["tags"] = len([t for t in tags.stdout.splitlines() if t.strip()]) if tags.returncode == 0 else 0
+        tag_lines = tags.stdout.splitlines()
+        if tags.truncated:  # git was killed at the cap, so its exit code says nothing; what was read is a floor
+            tag_lines = tag_lines[:-1]  # the last line may be cut mid-name
+            state.partial = True
+        state.git["tags"] = len([t for t in tag_lines if t.strip()]) if tags.returncode == 0 or tags.truncated else 0
         shallow = run(["rev-parse", "--is-shallow-repository"])
         state.git["shallow"] = shallow.stdout.strip() == "true" or _read_small_regular(os.path.join(_git_dir(toplevel), "shallow"), 4096) is not None
         commits = run(["rev-list", "--count", "--exclude-promisor-objects", "HEAD"])  # the only object walk: last, never lazy-fetching

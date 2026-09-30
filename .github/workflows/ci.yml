@@ -65,13 +65,12 @@ jobs:
   custody-check-windows:
     runs-on: windows-latest
     timeout-minutes: 15
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.9"
-      - name: Scanner unit tests on Windows (informational until the first green run)
+      - name: Scanner unit tests on Windows
         env:
           CUSTODY_SLOW: "1"
           CUSTODY_PERF_BUDGET_S: "60"
