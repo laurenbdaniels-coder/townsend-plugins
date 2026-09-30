@@ -4550,7 +4550,7 @@ class FalseNothingFoundTests(ScanCase):
 
 
 class FalseNothingFoundReviewTests(ScanCase):
-    """Pre-merge review of the 0.3.2 fixes: variants that sidestepped them, and two older false "no" answers."""
+    """Pre-merge review of the 0.3.3 fixes: variants that sidestepped them, and two older false "no" answers."""
 
     def base_app(self):
         self.write("src/components/A.tsx", "export const A = () => null;\n")
@@ -4784,7 +4784,7 @@ class StringBlankingIsOnlyEverCautiousTests(ScanCase):
 
 
 class ReviewCycleThreeRegressionTests(ScanCase):
-    """Final review cycle of 0.3.2: two regressions against 0.3.1 and the gaps behind them. Comments, strings,
+    """Final review cycle of 0.3.3: two regressions against 0.3.1 and the gaps behind them. Comments, strings,
     dollar bodies and quoted identifiers are now read in one left-to-right pass."""
 
     RLS = "create table public.notes (id int);\nalter table public.notes enable row level security;\n"

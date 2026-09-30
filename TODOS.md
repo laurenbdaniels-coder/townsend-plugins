@@ -124,7 +124,7 @@
 
 ### Smaller v0.3.0 review leftovers
 
-**What:** Four evidence-only or observability items from the v0.3.0 pre-merge review, kept as designed for now: (1) `alter table t add column x, enable row level security` (comma-joined actions) is not recognised as enabling RLS, so `table-without-rls` can name a table that is covered; (2) the synthetic Q2 `client-server-split` and Q11 `code-history-local` rows are inserted at index 0 and can push out the twelfth real row without counting as trimmed; (3) `state.gaps` is never emitted, so a withheld Nothing found is indistinguishable in `stats` from the old "0 hits" (adding a `gaps` object to `stats` is contract-safe per SKILL.md); (4) `.claude/settings.local.json` can carry MCP server env tokens but is counted as an agent file, not a Q1 gap (the MCP-only paths such as `.kiro/settings/mcp.json` became `mcp-config-not-opened` gaps in 0.3.2); every Claude Code project has one, so gating Q1 on it needs the workshop corpus first.
+**What:** Four evidence-only or observability items from the v0.3.0 pre-merge review, kept as designed for now: (1) `alter table t add column x, enable row level security` (comma-joined actions) is not recognised as enabling RLS, so `table-without-rls` can name a table that is covered; (2) the synthetic Q2 `client-server-split` and Q11 `code-history-local` rows are inserted at index 0 and can push out the twelfth real row without counting as trimmed; (3) `state.gaps` is never emitted, so a withheld Nothing found is indistinguishable in `stats` from the old "0 hits" (adding a `gaps` object to `stats` is contract-safe per SKILL.md); (4) `.claude/settings.local.json` can carry MCP server env tokens but is counted as an agent file, not a Q1 gap (the MCP-only paths such as `.kiro/settings/mcp.json` became `mcp-config-not-opened` gaps in 0.3.3); every Claude Code project has one, so gating Q1 on it needs the workshop corpus first.
 
 **Why:** None changes an answer or the door; each is a wording or visibility nit worth one small PR together.
 
@@ -148,7 +148,7 @@
 
 ### Open-rule shapes the Q3 "nothing found" row still does not cover
 
-**What:** After 0.3.2 (test mode, `if (true)`, string literals, dropped tables and public views), three shapes still pass every Q3 check: Postgres `using (1=1)`, `using (true or auth.uid() = owner)`, and `using (auth.uid() is not null)`, which lets every signed-in user read every row.
+**What:** After 0.3.3 (test mode, `if (true)`, string literals, dropped tables and public views), three shapes still pass every Q3 check: Postgres `using (1=1)`, `using (true or auth.uid() = owner)`, and `using (auth.uid() is not null)`, which lets every signed-in user read every row.
 
 **Why:** A rules file holding only those earns Q3 Nothing found. Found by the adversarial passes in the v0.3.0 pre- and post-merge reviews.
 
@@ -160,7 +160,7 @@
 
 ### Q1 and Q3 claims the file tree cannot settle
 
-**What:** (1) A `.env` committed and later `git rm --cached` still holds its key in history, but Q1 says "no tracked env file". (2) The scanner does not replay migration order across files, so 0.3.2 withholds Nothing found on any cross-file drop; it could order `supabase/migrations/*` by filename instead. (3) A down migration (`*.down.sql`) that disables RLS gives Q3 a high-confidence `no` for a state production never runs.
+**What:** (1) A `.env` committed and later `git rm --cached` still holds its key in history, but Q1 says "no tracked env file". (2) The scanner does not replay migration order across files, so 0.3.3 withholds Nothing found on any cross-file drop; it could order `supabase/migrations/*` by filename instead. (3) A down migration (`*.down.sql`) that disables RLS gives Q3 a high-confidence `no` for a state production never runs.
 
 **Why:** Each is either a false reassurance (1) or a false alarm (2, 3). From the v0.3.0 post-merge adversarial review.
 
@@ -170,11 +170,11 @@
 **Priority:** P2
 **Depends on:** None
 
-### Leftovers from the v0.3.2 review
+### Leftovers from the v0.3.3 review
 
 **What:** (1) A key in `src/components/` is client code even when the file imports `server-only`, so it is a decisive No (true for `.ts` since 0.1; `.mts` inherits it). (2) A Supabase edge function importing `npm:@sentry/deno` with no manifest is not seen by Q9. (3) Never-open folder lookups are case-sensitive on Linux (`.Roo/MCP.json`), matching the tools themselves there. (4) A file of only `drop table` statements reports "no SQL or security-rules file among them", though one was read.
 
-**Why:** (1) is a false No, the worst answer the scanner can give; the rest are wording or reach. From the adversarial and Codex passes on the v0.3.2 branch.
+**Why:** (1) is a false No, the worst answer the scanner can give; the rest are wording or reach. From the adversarial and Codex passes on the v0.3.3 branch.
 
 **Context:** (1) let `SERVER_ONLY_IMPORT_RE` override the client folder in `classify`, with a test that a `"use client"` file still wins. (2) a code-import check for `npm:@sentry/` and `jsr:` specifiers under `supabase/functions/`.
 
@@ -196,7 +196,7 @@
 **Priority:** P2
 **Depends on:** None
 
-**Completed:** v0.3.2 (2026-09-29)
+**Completed:** v0.3.3 (2026-09-30)
 
 ### Test fixtures use real .env filenames
 
