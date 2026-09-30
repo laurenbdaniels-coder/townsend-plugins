@@ -3533,7 +3533,9 @@ class KilledGitTests(ScanCase):
     @unittest.skipUnless(HAVE_GIT, "git not installed")
     def test_one_tag_longer_than_the_cap_still_counts(self):
         self.init_repo(commits=1)
-        self.git("tag", "t" + "x" * 230)  # one ref name longer than the cap: nothing whole is read, but a tag exists
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        with open(os.path.join(self.repo, ".git", "packed-refs"), "w") as fh:  # packed, so no file path limit applies (Windows MAX_PATH)
+            fh.write("# pack-refs with: peeled fully-peeled sorted \n%s refs/tags/t%s\n" % (head, "x" * 230))  # longer than the cap
         with mock.patch.object(cs, "GIT_OUTPUT_LIMIT", 200), mock.patch.object(cs.subprocess, "Popen", KilledLatePopen):
             r = self.scan()
         self.assertEqual(r["git"]["commits"], 1, "the cap must still hold the repo path, or this test proves nothing")
