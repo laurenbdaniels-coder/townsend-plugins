@@ -1786,7 +1786,7 @@ def git_facts(repo, state):
         return
     base = [git_bin, "-c", "core.fsmonitor=", "-c", "core.hooksPath=/dev/null", "-c", "core.pager=cat", "-c", "core.sshCommand=", "-c", "credential.helper=", "-C", real_repo]
     env = dict((k, v) for k, v in os.environ.items() if not k.startswith("GIT_"))
-    env.update(GIT_TERMINAL_PROMPT="0", GIT_OPTIONAL_LOCKS="0", GIT_NO_LAZY_FETCH="1", GIT_CONFIG_NOSYSTEM="1",
+    env.update(GIT_TERMINAL_PROMPT="0", GIT_OPTIONAL_LOCKS="0", GIT_NO_LAZY_FETCH="1", GIT_NO_REPLACE_OBJECTS="1", GIT_CONFIG_NOSYSTEM="1",
                GIT_CEILING_DIRECTORIES=os.path.dirname(root))  # discovery can never pass the folder guarded above
     started = time.monotonic()
 

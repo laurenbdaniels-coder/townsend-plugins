@@ -3474,6 +3474,13 @@ class GitJunctionTests(ScanCase):
             self.assertIn("git-history", self._q5(self.scan()))
 
     @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_replace_refs_do_not_rewrite_history(self):
+        self.init_repo(commits=5)
+        root = self.git("rev-list", "--max-parents=0", "HEAD").stdout.strip()
+        self.git("replace", "--graft", "HEAD", root)  # a plain file under refs/replace/: grafts' modern replacement
+        self.assertEqual(self.scan()["git"]["commits"], 5)
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
     def test_grafts_are_refused(self):
         self.init_repo(commits=2)
         os.makedirs(os.path.join(self.repo, ".git", "info"), exist_ok=True)
