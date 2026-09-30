@@ -142,7 +142,7 @@ CHECKS = {
     "scan-summary": ("q1", "evidence"),
     "nothing-found-keys": ("q1", "evidence"), "mcp-config-not-opened": ("q1", "evidence"), "build-output-unread": ("q1", "evidence"),
     "api-route-dir": ("q2", "hint"), "framework-config": ("q2", "hint"), "client-server-split": ("q2", "hint"),
-    "rls-disabled": ("q3", "no"), "open-rule-in-string": ("q3", "evidence"), "policy-true-unevaluated": ("q3", "evidence"), "policy-using-true": ("q3", "no"), "policy-select-true": ("q3", "evidence"), "policy-altered-true": ("q3", "evidence"), "policy-with-check-true": ("q3", "evidence"),
+    "rls-disabled": ("q3", "no"), "policy-true-unevaluated": ("q3", "evidence"), "open-rule-in-string": ("q3", "evidence"), "policy-using-true": ("q3", "no"), "policy-select-true": ("q3", "evidence"), "policy-altered-true": ("q3", "evidence"), "policy-with-check-true": ("q3", "evidence"),
     "policy-to-anon": ("q3", "evidence"), "table-without-rls": ("q3", "evidence"), "storage-bucket-public-sql": ("q3", "evidence"), "nothing-found-rules": ("q3", "evidence"),
     "firebase-rules-open": ("q3", "no"), "firebase-rules-public-read": ("q3", "evidence"), "firebase-rules-test-mode": ("q3", "evidence"), "firebase-rules-true-unevaluated": ("q3", "evidence"), "public-view": ("q3", "evidence"), "storage-bucket-public": ("q3", "evidence"),
     "auth-path": ("q4", "evidence"), "auth-dependency": ("q4", "evidence"),
@@ -238,14 +238,17 @@ IDENT_ASSIGN_TOKEN_RE = re.compile(r"\b(?P<ident>[A-Za-z_][A-Za-z0-9_]*)[\"']?[ 
 USE_CLIENT_RE = re.compile(r"^[ \t]*[\"']use client[\"']", re.M)
 CLIENT_IMPORT_RE = re.compile(r"(?m)^[ \t]*import\b[^\n]{0,200}\bfrom[ \t]+[\"'](?:react|react-dom|vue|svelte|next|@sveltejs/kit|@angular/[a-z-]{1,40})(?:/[^\"'\n]{0,80})?[\"']|require\([\"'](?:react|vue|svelte|next)[\"']\)")
 SERVER_ONLY_IMPORT_RE = re.compile(r"(?m)^[ \t]*import\b[^\n]{0,200}[\"'](?:next/(?:headers|server|cache)|server-only)[\"']")
-SERVER_ONLY_SIDE_EFFECT_RE = re.compile(r"(?m)^[ \t]*import[ \t]+[\"']server-only[\"'][ \t]*;?[ \t]*$")  # the one import that breaks a browser build
 ANGULAR_IMPORT_RE = re.compile(r"(?m)^[ \t]*import\b[^\n]{0,200}\bfrom[ \t]+[\"']@angular/")
 PAGES_DATA_FN_RE = re.compile(r"\b(?:getServerSideProps|getStaticProps|getStaticPaths)\b")
 TEST_MODE_KEY_RE = re.compile(r"^(?:sk|rk)_test_")  # Stripe test mode cannot move real money
 TEST_PATH_RE = re.compile(r"(?:^|/)(?:__tests__|tests?|fixtures?)/|\.(?:test|spec|stories)\.[^/]+$")
 RLS_DISABLED_RE = re.compile(r"disable\s+row\s+level\s+security", re.I)
 USING_TRUE_RE = re.compile(r"\busing\s*\((?:\s*\()*\s*true(?:\s*::\s*bool(?:ean)?)?(?:\s*\))+", re.I)  # any depth: using (((true)))
+# 0.3.2's decisive patterns, verbatim: wherever they fire the answer stays No (never worse than the release)
+RELEASE_USING_TRUE_RE = re.compile(r"\busing\s{0,20}\((?:\s{0,20}\(){0,3}\s{0,20}true(?:\s{0,5}::\s{0,5}bool(?:ean)?)?(?:\s{0,20}\)){1,4}", re.I)
+RELEASE_FIREBASE_ALLOW_TRUE_RE = re.compile(r"\ballow[ \t]{1,20}([a-z]+(?:[ \t]*,[ \t]*[a-z]+){0,10})[ \t]*:[ \t]*if[ \t]{1,20}true\b", re.I)
 MAX_PREDICATE_CHARS = 4000
+RELEASE_LINE_COMMENT_RE = re.compile(r"--[^\n]*")  # 0.3.2's line-comment rule, which also cut through strings
 SQL_BOOL_CAST_RE = re.compile(r"\s*::\s*bool(?:ean)?\b")
 SQL_OR_RE = re.compile(r"\bor\b")
 SQL_AND_RE = re.compile(r"\band\b")
@@ -883,13 +886,10 @@ def classify(rel, base, ext, text):
         cls = "other"
     else:
         use_client = bool(USE_CLIENT_RE.search(text[:500]))
-        server_only = bool(SERVER_ONLY_SIDE_EFFECT_RE.search(text))
         client_import = bool(CLIENT_IMPORT_RE.search(text)) and not SERVER_ONLY_IMPORT_RE.search(text)
         native_import = bool(RN_IMPORT_RE.search(text))
         angular_import = bool(ANGULAR_IMPORT_RE.search(text))
-        if server_only and not USE_CLIENT_RE.search(text):
-            cls = "server"  # `import "server-only"` fails the build if a browser bundle ever imports it, whatever the folder
-        elif any(d in NEUTRAL_SEGMENTS for d in lower_dirs):
+        if any(d in NEUTRAL_SEGMENTS for d in lower_dirs):
             cls = "client" if (use_client or client_import or native_import) else "other"
         elif top == "app":
             cls = "client" if (use_client or native_import or angular_import) else "other"
@@ -1201,16 +1201,12 @@ def _clause(m):
 def detect_sql(sf, state, opts):
     counter = {}
     text, code, bare, unclosed = _lex_sql(sf.text)  # same offsets: text keeps strings, code has none, bare no names either
+    release = _release_sql_view(sf.text)  # what 0.3.2 read, at the same offsets
     if unclosed:
         state.gaps["q3"] += 1  # a quote that never closes: what follows it could not be read as code
     for m in RLS_DISABLED_RE.finditer(text):
         state.tick()
-        # `comment on table … is 'never disable row level security'` disables nothing; `execute '… disable …'` in a
-        # DO block does, so a match inside a string is evidence, never dropped
-        where = _sql_where(m, code, bare)
-        if where == "name":
-            continue  # `create index "disable row level security"` names an index; it disables nothing
-        check = "rls-disabled" if where == "code" else "open-rule-in-string"
+        check = _decisive_or_string(m, code, release, "rls-disabled")
         if _cap(counter, check):
             state.add(check, sf.rel, line_of(text, m.start()), _clause(m))
     for m in USING_TRUE_RE.finditer(text):
@@ -1226,13 +1222,9 @@ def detect_sql(sf, state, opts):
             check = "policy-select-true"
         else:
             check = "policy-using-true"
-        where = _sql_where(m, code, bare)
-        if where == "name":
-            continue
-        if where == "string":
-            check = "open-rule-in-string"  # quoted text, or an `execute '…'` that may run: evidence, never a No
-        elif not _sql_predicate_open(code, m.start()):
-            check = "policy-true-unevaluated"  # `using (((true)) and x)`: true is only part of the predicate
+        if not RELEASE_USING_TRUE_RE.match(text, m.start()) and not _sql_predicate_open(text, m.start()):
+            check = "policy-true-unevaluated"  # beyond 0.3.2's pattern and not provably open: evidence only
+        check = _decisive_or_string(m, code, release, check)
         if _cap(counter, check):
             state.add(check, sf.rel, line_of(text, m.start()), _clause(m))
     _finditer_lines(WITH_CHECK_TRUE_RE, text, sf, state, "policy-with-check-true", counter, _clause)
@@ -1351,31 +1343,18 @@ def _sql_predicate_open(code, start):
     return False
 
 
-def _sql_where(m, code, bare):
-    """Where a match on the comment-free text sits: "string" (evidence), "name" (a quoted identifier: nothing), or "code"."""
+def _release_sql_view(text):
+    """The text 0.3.2's decisive checks read: block comments blanked, then `--` to the end of the line, strings ignored."""
+    return RELEASE_LINE_COMMENT_RE.sub(lambda m: " " * len(m.group(0)), _blank_block_comments(text))
+
+
+def _decisive_or_string(m, code, release, check):
+    """Keep a decisive check wherever 0.3.2 would have fired it. A match that sits inside a string and that 0.3.2
+    could not see (a `--` earlier on the line hid it) is evidence instead, so the branch never adds a false No."""
     g = m.group(0)
-    if code[m.start():m.end()] != g:
-        return "string"
-    return "name" if bare[m.start():m.end()] != g else "code"
-
-
-def _block_comment_end(text, pos):
-    """Index of the `*/` that closes a /* opened just before `pos`, counting nested /* */ the way Postgres does;
-    -1 when it never closes. One forward pass over the comment."""
-    depth = 1
-    while True:
-        a = text.find("/*", pos)
-        b = text.find("*/", pos)
-        if b < 0:
-            return -1
-        if 0 <= a < b:
-            depth += 1
-            pos = a + 2
-            continue
-        depth -= 1
-        if depth == 0:
-            return b
-        pos = b + 2
+    if code[m.start():m.end()] == g or release[m.start():m.end()] == g:
+        return check
+    return "open-rule-in-string"
 
 
 def _blank(chunk):
@@ -1411,9 +1390,7 @@ def _lex_sql(text, depth=0):
             for out in (nc, code, bare):
                 out.append(_blank(text[m.start():stop]))
         elif tok == "/*":
-            k = -1 if no_block_close else _block_comment_end(text, m.end())
-            if k < 0 and not no_block_close:
-                k = text.find("*/", m.end())  # nesting never balances (`/* files under avatars/* */`): close at the first */, as 0.3.2 did
+            k = -1 if no_block_close else text.find("*/", m.end())  # the first */ closes, as in 0.3.2
             if k < 0:
                 no_block_close = True  # no */ anywhere after this: later openers skip the search, keeping one pass
                 for out in (nc, code, bare):
@@ -1433,11 +1410,13 @@ def _lex_sql(text, depth=0):
                 pos = n
                 break
             stop = body.end()
-            nc.append(text[m.start():stop])
             if "\n" in text[m.start():stop]:
-                code.append(_blank(text[m.start():stop]))  # a real name never spans lines: treat it as a string, so nothing inside is dropped
-            else:
-                code.append(text[m.start():stop])  # names stay in code: pg_dump quotes every table it enables RLS on
+                for out in (nc, code, bare):
+                    out.append(tok)  # a real name never spans lines: this quote is just a character, so read on
+                pos = m.end()
+                continue
+            nc.append(text[m.start():stop])
+            code.append(text[m.start():stop])  # names stay in code: pg_dump quotes every table it enables RLS on
             bare.append(_blank(text[m.start():stop]))
         elif tok.startswith("$"):
             close = text.find(tok, m.end())
@@ -1535,8 +1514,17 @@ def detect_rules(sf, state, opts):
     counter = {}
     # JSON rules files have no // comments, and a URL inside a string would eat the rest of the line
     text = _blank_block_comments(sf.text) if sf.base.lower().endswith(".json") else _strip_slash_comments(sf.text)
+    released = set()
+    for m in RELEASE_FIREBASE_ALLOW_TRUE_RE.finditer(text):  # 0.3.2's rule, unchanged: a No it gave stays a No
+        state.tick()
+        released.add(m.start())
+        check = "firebase-rules-open" if FIREBASE_WRITE_RE.search(m.group(1)) else "firebase-rules-public-read"
+        if _cap(counter, check):
+            state.add(check, sf.rel, line_of(text, m.start()), _clause(m))
     for m in FIREBASE_IF_RE.finditer(text):
         state.tick()
+        if m.start() in released:
+            continue
         verdict = _firebase_condition(m.group(2))
         if verdict == "open":
             check = "firebase-rules-open" if FIREBASE_WRITE_RE.search(m.group(1)) else "firebase-rules-public-read"

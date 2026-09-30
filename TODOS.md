@@ -182,6 +182,18 @@
 **Priority:** P2 for (1), P3 for the rest
 **Depends on:** None
 
+### False Nos kept from 0.3.2
+
+**What:** 0.3.2 answers No, wrongly, for (1) `disable row level security` or `using (true)` inside a SQL string or comment string (`comment on table … is 'never disable row level security'`), (2) the same words as a quoted name (`create index "disable row level security"`), (3) Firebase `if true && request.auth != null`, (4) a key in a browser folder in a file with a bare `import "server-only"` (in Next.js the build refuses to bundle it; in Vite it does not), and (5) a disable line after an unbalanced nested comment (`/* avatars/* */ … -- old block ended here */`), which Postgres treats as commented out. 0.3.3 keeps every one of these Nos on purpose.
+
+**Why:** PR #24 changed all five and each change broke a correct No somewhere else (a commented-out `import "server-only"`, a `/* … avatars/* … */` glob). The rule since then: a fix never makes an answer less cautious than the release. Each of these needs its own PR, its own cases in the differential corpus, and a proof that no correct No is lost.
+
+**Context:** the lexer already knows where strings, names and comments are (`_lex_sql`), so (1) and (2) need only the decision; (4) needs framework detection (Next/RSC only) and comment-free matching; (3) needs `&&` evaluated as "depends on auth" rather than open.
+
+**Effort:** M
+**Priority:** P2
+**Depends on:** None
+
 ## Completed
 
 ### Q3 "nothing found" from a lone seed.sql

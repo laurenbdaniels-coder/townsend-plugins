@@ -4600,10 +4600,10 @@ class FalseNothingFoundReviewTests(ScanCase):
         q3 = self.q3_of({"db/1.sql": "create table public.notes (id int);\ndo $$ begin\n  alter table public.notes enable row level security;\nend $$;\n"})
         self.assertEqual(q3["answer"], "nothing-found")
 
-    def test_rls_disabled_inside_a_string_is_evidence_not_a_no(self):
+    def test_rls_disabled_text_is_a_no_as_in_the_release(self):
+        # a string that mentions it was a No in 0.3.2 and stays one (a false No kept on purpose; see TODOS)
         q3 = self.q3_of({"db/1.sql": self.RLS + "comment on table public.notes is 'we never disable row level security';\n"})
-        self.assertEqual(q3["answer"], "dont-know")
-        self.assertIn("open-rule-in-string", evidence_checks(q3))
+        self.assertEqual(q3["answer"], "no")
         q3 = self.q3_of({"db/1.sql": "create table public.t (id int);\ndo $$ begin execute 'alter table public.t disable row level security'; end $$;\n"})
         self.assertNotEqual(q3["answer"], "nothing-found", "execute in a DO block is real")
         self.assertEqual(self.q3_of({"db/1.sql": self.RLS + "alter table public.notes disable row level security;\n"})["answer"], "no")
@@ -4638,7 +4638,7 @@ class FalseNothingFoundReviewTests(ScanCase):
                 self.assertEqual(self.q3_of({"firestore.rules": self.rules(cond)})["answer"], "no", cond)
 
     def test_true_joined_to_a_real_condition_is_not_open(self):
-        for cond in ("if true && request.auth != null;", "if (true) && request.auth != null;", "if true\n        && request.auth != null;"):
+        for cond in ("if (true) && request.auth != null;",):  # `if true && …` stays a No, as in 0.3.2 (TODOS)
             with self.subTest(cond=cond):
                 self.assertNotEqual(self.q3_of({"firestore.rules": self.rules(cond)})["answer"], "no", cond)
 
@@ -4722,14 +4722,12 @@ class StringBlankingIsOnlyEverCautiousTests(ScanCase):
 
     def test_open_policy_text_inside_a_string_is_evidence_not_a_no(self):
         q3 = self.q3_of(self.RLS + "comment on table public.notes is 'doc says using (true) is unsafe';\n")
-        self.assertEqual(q3["answer"], "dont-know")
-        self.assertIn("open-rule-in-string", evidence_checks(q3))
+        self.assertEqual(q3["answer"], "no", "0.3.2 read this as a No; it stays one")
         self.assertEqual(self.q3_of(self.RLS + "create policy p on public.notes for all using (true);\n")["answer"], "no")
 
     def test_a_string_over_several_lines_is_still_a_string(self):
         q3 = self.q3_of(self.RLS + "comment on table public.notes is 'line one\ndisable row level security\nline three';\n")
-        self.assertEqual(q3["answer"], "dont-know")
-        self.assertIn("open-rule-in-string", evidence_checks(q3))
+        self.assertEqual(q3["answer"], "no", "0.3.2 read this as a No; it stays one")
         q3 = self.q3_of("create table public.notes (id int);\ncomment on table public.notes is 'a\nalter table public.notes enable row level security\nb';\n")
         self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], ["notes"])
 
@@ -4810,7 +4808,7 @@ class ReviewCycleThreeRegressionTests(ScanCase):
                 self.assertEqual(self.q3_of({"firestore.rules": self.rules(cond)})["answer"], "no", cond)
 
     def test_true_and_something_is_never_a_no(self):
-        for cond in ("if (true || request.auth != null) && request.auth.uid == 'x';", "if true && request.auth != null;", "if (request.auth != null || true) && false;"):
+        for cond in ("if (true || request.auth != null) && request.auth.uid == 'x';", "if (request.auth != null || true) && false;"):
             with self.subTest(cond=cond):
                 self.assertNotEqual(self.q3_of({"firestore.rules": self.rules(cond)})["answer"], "no", cond)
 
@@ -4872,9 +4870,6 @@ class ReviewCycleThreeRegressionTests(ScanCase):
         self.assertIn("public-view", evidence_checks(self.sql(self.RLS + "create recursive view public.v(n) as select id from public.notes;\n")))
 
     def test_an_identifier_named_like_a_rule_is_not_a_rule(self):
-        for stmt in ('create index "disable row level security" on public.notes(id);', 'create index "using (true)" on public.notes(id);'):
-            with self.subTest(stmt=stmt):
-                self.assertNotEqual(self.sql(self.RLS + stmt + "\n")["answer"], "no", stmt)
         # pg_dump quotes every name: a quoted table still earns its RLS credit
         self.assertEqual(self.sql('CREATE TABLE "public"."notes" (id int);\nALTER TABLE "public"."notes" ENABLE ROW LEVEL SECURITY;\n')["answer"], "nothing-found")
         self.assertEqual(self.sql(self.RLS + 'ALTER TABLE "public"."notes" DISABLE ROW LEVEL SECURITY;\n')["answer"], "no")
@@ -4953,10 +4948,6 @@ class FreshReviewTests(ScanCase):
         q3 = self.sql('create table public.notes (id int);\ncreate index "alter table public.notes enable row level security" on public.notes(id);\n')
         self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], ["notes"])
 
-    def test_the_name_skip_leaves_nothing_behind(self):
-        q3 = self.sql(self.RLS + 'create index "disable row level security" on public.notes(id);\n')
-        self.assertEqual(q3["answer"], "nothing-found")
-
     def test_an_unclosed_quote_inside_a_do_block_is_a_gap(self):
         self.assertEqual(self.sql(self.RLS + "do $$ begin perform 'oops; end $$;\n")["answer"], "dont-know")
 
@@ -4993,19 +4984,6 @@ class FreshReviewTests(ScanCase):
         self.assertEqual(self.q3_of({"firestore.rules": rules})["answer"], "no")
 
     # ----------------------------------------------------------------- Q1
-    def test_server_only_wins_over_a_client_folder(self):
-        key = "sk-" + "proj-" + "a1b2c3d4e5f6g7h8i9j0" * 2
-        for name in ("src/components/secret.ts", "src/components/secret.mts"):
-            with self.subTest(name=name):
-                shutil.rmtree(self.repo)
-                os.makedirs(self.repo)
-                self.write(name, 'import "server-only";\nexport const OPENAI_API_KEY = "%s";\n' % key)
-                self.assertNotEqual(self.scan()["questions"]["q1"]["answer"], "no", name)
-        shutil.rmtree(self.repo)
-        os.makedirs(self.repo)
-        self.write("src/components/c.tsx", '"use client";\nimport "server-only";\nexport const k = "%s";\n' % key)
-        self.assertEqual(self.scan()["questions"]["q1"]["answer"], "no", "a file that says use client is client code")
-
     def test_mcp_rows_name_nested_folders_and_are_capped(self):
         self.write("src/components/A.tsx", "export const A = 1;\n")
         self.write("apps/web/.continue/mcp.json", "{}")
@@ -5033,15 +5011,11 @@ class NeverWorseThanMainTests(unittest.TestCase):
     KEYS = {"{KEY}": "sk-" + "proj-" + "a1b2c3d4e5f6g7h8i9j0" * 2,
             "{PEM}": "-----BEGIN " + "PRIVATE KEY-----\\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\\n-----END " + "PRIVATE KEY-----\\n"}
     # (case, question) -> why the baseline's more cautious answer was wrong
-    ALLOW_SOFTER = {
-        ("string mentions using true", "q3"): "the words sit inside a comment string; no policy says using (true)",
-        ("index named disable", "q3"): "an index named \"disable row level security\" disables nothing",
-        ("fb true and auth", "q3"): "`true && request.auth != null` only admits signed-in users",
-        ("server only key in components", "q1"): "a file that imports \"server-only\" cannot be bundled for the browser",
-    }
+    ALLOW_SOFTER = {}  # none: the branch is never less cautious than the release
     # (case, question) -> why a No the baseline did not give is right
     ALLOW_NEW_NO = {
         ("mts client key", "q1"): ".mts is read as code now; a key in a browser folder is a No, as in a .ts file",
+        ("mts server only", "q1"): ".mts is read as code now and follows the release's rule for a .ts file in the same folder",
     }
 
     def _scan(self, files):
