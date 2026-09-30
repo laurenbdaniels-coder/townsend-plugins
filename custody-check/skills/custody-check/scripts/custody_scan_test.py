@@ -4871,6 +4871,23 @@ class ReviewCycleThreeRegressionTests(ScanCase):
     def test_a_recursive_view_is_evidence(self):
         self.assertIn("public-view", evidence_checks(self.sql(self.RLS + "create recursive view public.v(n) as select id from public.notes;\n")))
 
+    def test_an_identifier_named_like_a_rule_is_not_a_rule(self):
+        for stmt in ('create index "disable row level security" on public.notes(id);', 'create index "using (true)" on public.notes(id);'):
+            with self.subTest(stmt=stmt):
+                self.assertNotEqual(self.sql(self.RLS + stmt + "\n")["answer"], "no", stmt)
+        # pg_dump quotes every name: a quoted table still earns its RLS credit
+        self.assertEqual(self.sql('CREATE TABLE "public"."notes" (id int);\nALTER TABLE "public"."notes" ENABLE ROW LEVEL SECURITY;\n')["answer"], "nothing-found")
+        self.assertEqual(self.sql(self.RLS + 'ALTER TABLE "public"."notes" DISABLE ROW LEVEL SECURITY;\n')["answer"], "no")
+
+    def test_an_unclosed_identifier_is_a_gap(self):
+        q3 = self.sql('create table public.notes (id int);\n"unterminated\nalter table public.notes enable row level security;\n')
+        self.assertEqual(q3["answer"], "dont-know")
+        self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], ["notes"])
+
+    def test_a_firebase_condition_too_long_to_read_is_a_gap(self):
+        cond = "if " + "request.auth != null || " * 25 + "true;"
+        self.assertNotEqual(self.q3_of({"firestore.rules": self.rules(cond)})["answer"], "nothing-found")
+
     def test_a_crowded_agent_folder_is_walked_in_linear_time(self):
         d = os.path.join(self.repo, ".codex")
         os.makedirs(d)

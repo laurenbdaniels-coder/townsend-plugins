@@ -249,6 +249,7 @@ POLICY_TO_ANON_RE = re.compile(r"\bcreate\s+policy\b[^\n]{0,300}?\bto\s+anon\b",
 STORAGE_BUCKET_TRUE_RE = re.compile(r"storage\.buckets\b[^\n]{0,300}?\btrue\b", re.I)
 FIREBASE_ALLOW_ALL_RE = re.compile(r"\ballow[ \t]{1,20}([a-z]+(?:[ \t]*,[ \t]*[a-z]+){0,10})[ \t]*;", re.I)
 FIREBASE_IF_RE = re.compile(r"\ballow\s{1,20}([a-z]+(?:\s{0,20},\s{0,20}[a-z]+){0,10})\s{0,20}:\s{0,20}if(?=[\s(])([^;}]{0,400})(?=[;}])", re.I)
+FIREBASE_IF_LONG_RE = re.compile(r"\ballow\s{1,20}[a-z]+(?:\s{0,20},\s{0,20}[a-z]+){0,10}\s{0,20}:\s{0,20}if(?=[\s(])[^;}]{401}", re.I)  # past what FIREBASE_IF_RE reads
 TRUE_TOKEN_RE = re.compile(r"(?<![\w.])true(?![\w.])")
 # the console's generated "test mode": open to everyone until a date, then closed
 FIREBASE_TEST_MODE_RE = re.compile(r"\ballow\s{1,20}[a-z]+(?:\s{0,20},\s{0,20}[a-z]+){0,10}\s{0,20}:\s{0,20}if(?=[\s(])\s{0,20}(?:\(\s{0,20})*(?:request\.time\s{0,20}<|timestamp\.date\([^)\n]{0,40}\)\s{0,20}>\s{0,20}request\.time)", re.I)
@@ -1190,14 +1191,17 @@ def _clause(m):
 
 def detect_sql(sf, state, opts):
     counter = {}
-    text, code, unclosed = _lex_sql(sf.text)  # same offsets: text keeps strings, code has none
+    text, code, bare, unclosed = _lex_sql(sf.text)  # same offsets: text keeps strings, code has none, bare no names either
     if unclosed:
         state.gaps["q3"] += 1  # a quote that never closes: what follows it could not be read as code
     for m in RLS_DISABLED_RE.finditer(text):
         state.tick()
         # `comment on table … is 'never disable row level security'` disables nothing; `execute '… disable …'` in a
         # DO block does, so a match inside a string is evidence, never dropped
-        check = "rls-disabled" if code[m.start():m.end()] == m.group(0) else "open-rule-in-string"
+        where = _sql_where(m, code, bare)
+        if where == "name":
+            continue  # `create index "disable row level security"` names an index; it disables nothing
+        check = "rls-disabled" if where == "code" else "open-rule-in-string"
         if _cap(counter, check):
             state.add(check, sf.rel, line_of(text, m.start()), _clause(m))
     for m in USING_TRUE_RE.finditer(text):
@@ -1213,7 +1217,10 @@ def detect_sql(sf, state, opts):
             check = "policy-select-true"
         else:
             check = "policy-using-true"
-        if code[m.start():m.end()] != m.group(0):
+        where = _sql_where(m, code, bare)
+        if where == "name":
+            continue
+        if where == "string":
             check = "open-rule-in-string"  # quoted text, or an `execute '…'` that may run: evidence, never a No
         if _cap(counter, check):
             state.add(check, sf.rel, line_of(text, m.start()), _clause(m))
@@ -1322,21 +1329,30 @@ def _strip_sql_comments(text):
     return SQL_LINE_COMMENT_RE.sub(lambda m: " " * len(m.group(0)), text)
 
 
+def _sql_where(m, code, bare):
+    """Where a match on the comment-free text sits: "string" (evidence), "name" (a quoted identifier: nothing), or "code"."""
+    g = m.group(0)
+    if code[m.start():m.end()] != g:
+        return "string"
+    return "name" if bare[m.start():m.end()] != g else "code"
+
+
 def _blank(chunk):
     return "".join(c if c == "\n" else " " for c in chunk)
 
 
 def _lex_sql(text, depth=0):
     """Read SQL once, left to right, taking whichever of `--`, `/* */`, a quoted identifier, '…', E'…' or
-    $tag$…$tag$ comes first. Returns (no_comments, code, unclosed), both copies at the same offsets as `text`:
-    `no_comments` keeps strings, `code` blanks them too. A DO block's body runs, so it is lexed in place and
+    $tag$…$tag$ comes first. Returns (no_comments, code, bare, unclosed), every copy at the same offsets as
+    `text`: `no_comments` keeps strings, `code` blanks them, `bare` also blanks quoted identifiers, so a
+    decisive match that sits inside a name (`create index "disable row level security"`) is never a rule. A DO block's body runs, so it is lexed in place and
     the scan resumes after its closing tag; a function body only runs when called, so it is a string.
 
     Good signals (RLS turned on, a rule file read) are read from `code`; bad ones from `no_comments`. An
     unclosed quote or dollar tag blanks the rest of `code` (so nothing after it earns credit) and sets
     `unclosed`, which the caller counts as a gap. An unclosed /* stays visible, so no decisive line can hide
     behind a comment that never ends."""
-    nc, code = [], []
+    nc, code, bare = [], [], []
     pos = 0
     n = len(text)
     unclosed = False
@@ -1346,61 +1362,74 @@ def _lex_sql(text, depth=0):
         if not m:
             break
         tok = m.group(0)
-        nc.append(text[pos:m.start()])
-        code.append(text[pos:m.start()])
+        for out in (nc, code, bare):
+            out.append(text[pos:m.start()])
         if tok == "--":
             stop = text.find("\n", m.start())
             stop = n if stop < 0 else stop
-            nc.append(_blank(text[m.start():stop]))
-            code.append(_blank(text[m.start():stop]))
+            for out in (nc, code, bare):
+                out.append(_blank(text[m.start():stop]))
         elif tok == "/*":
             k = -1 if no_block_close else text.find("*/", m.end())
             if k < 0:
                 no_block_close = True  # no */ anywhere after this: later openers skip the search, keeping one pass
-                nc.append(tok)
-                code.append(tok)
+                for out in (nc, code, bare):
+                    out.append(tok)
                 pos = m.end()
                 continue
             stop = k + 2
-            nc.append(_blank(text[m.start():stop]))
-            code.append(_blank(text[m.start():stop]))
+            for out in (nc, code, bare):
+                out.append(_blank(text[m.start():stop]))
         elif tok == '"':
             body = SQL_IDENT_BODY_RE.match(text, m.end())
-            stop = body.end() if body else n  # an unclosed identifier: keep the rest as it is
+            if not body:
+                unclosed = True  # a name that never closes: nothing after it can be read as code
+                nc.append(text[m.start():])
+                code.append(_blank(text[m.start():]))
+                bare.append(_blank(text[m.start():]))
+                pos = n
+                break
+            stop = body.end()
             nc.append(text[m.start():stop])
-            code.append(text[m.start():stop])
+            code.append(text[m.start():stop])  # names stay in code: pg_dump quotes every table it enables RLS on
+            bare.append(_blank(text[m.start():stop]))
         elif tok.startswith("$"):
             close = text.find(tok, m.end())
             if close < 0:
                 unclosed = True
                 nc.append(text[m.start():])
                 code.append(_blank(text[m.start():]))
+                bare.append(_blank(text[m.start():]))
                 pos = n
                 break
             stop = close + len(tok)
             if depth < MAX_DO_NESTING and DO_BEFORE_RE.search(text, max(0, m.start() - 40), m.start()):
-                inner_nc, inner_code, inner_unclosed = _lex_sql(text[m.end():close], depth + 1)
+                inner_nc, inner_code, inner_bare, inner_unclosed = _lex_sql(text[m.end():close], depth + 1)
                 unclosed = unclosed or inner_unclosed
                 nc.append(tok + inner_nc + tok)
                 code.append(tok + inner_code + tok)
+                bare.append(tok + inner_bare + tok)
             else:
                 nc.append(text[m.start():stop])
                 code.append(_blank(text[m.start():stop]))
+                bare.append(_blank(text[m.start():stop]))
         else:
             body = (SQL_ESCAPE_BODY_RE if tok[0] in "Ee" else SQL_PLAIN_BODY_RE).match(text, m.end())
             if not body:
                 unclosed = True
                 nc.append(text[m.start():])
                 code.append(_blank(text[m.start():]))
+                bare.append(_blank(text[m.start():]))
                 pos = n
                 break
             stop = body.end()
             nc.append(text[m.start():stop])
             code.append(_blank(text[m.start():stop]))
+            bare.append(_blank(text[m.start():stop]))
         pos = stop
-    nc.append(text[pos:])
-    code.append(text[pos:])
-    return "".join(nc), "".join(code), unclosed
+    for out in (nc, code, bare):
+        out.append(text[pos:])
+    return "".join(nc), "".join(code), "".join(bare), unclosed
 
 
 def _strip_slash_comments(text):
@@ -1435,6 +1464,9 @@ def detect_rules(sf, state, opts):
             continue
         if _cap(counter, check):
             state.add(check, sf.rel, line_of(text, m.start()), _clause(m))
+    for m in FIREBASE_IF_LONG_RE.finditer(text):
+        state.tick()
+        state.gaps["q3"] += 1  # a condition longer than the scanner reads: it was not worked out
     for m in FIREBASE_ALLOW_ALL_RE.finditer(text):
         state.tick()
         check = "firebase-rules-open" if FIREBASE_WRITE_RE.search(m.group(1)) else "firebase-rules-public-read"
