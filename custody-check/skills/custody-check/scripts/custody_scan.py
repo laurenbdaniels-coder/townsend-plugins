@@ -238,12 +238,17 @@ IDENT_ASSIGN_TOKEN_RE = re.compile(r"\b(?P<ident>[A-Za-z_][A-Za-z0-9_]*)[\"']?[ 
 USE_CLIENT_RE = re.compile(r"^[ \t]*[\"']use client[\"']", re.M)
 CLIENT_IMPORT_RE = re.compile(r"(?m)^[ \t]*import\b[^\n]{0,200}\bfrom[ \t]+[\"'](?:react|react-dom|vue|svelte|next|@sveltejs/kit|@angular/[a-z-]{1,40})(?:/[^\"'\n]{0,80})?[\"']|require\([\"'](?:react|vue|svelte|next)[\"']\)")
 SERVER_ONLY_IMPORT_RE = re.compile(r"(?m)^[ \t]*import\b[^\n]{0,200}[\"'](?:next/(?:headers|server|cache)|server-only)[\"']")
+SERVER_ONLY_SIDE_EFFECT_RE = re.compile(r"(?m)^[ \t]*import[ \t]+[\"']server-only[\"'][ \t]*;?[ \t]*$")  # the one import that breaks a browser build
 ANGULAR_IMPORT_RE = re.compile(r"(?m)^[ \t]*import\b[^\n]{0,200}\bfrom[ \t]+[\"']@angular/")
 PAGES_DATA_FN_RE = re.compile(r"\b(?:getServerSideProps|getStaticProps|getStaticPaths)\b")
 TEST_MODE_KEY_RE = re.compile(r"^(?:sk|rk)_test_")  # Stripe test mode cannot move real money
 TEST_PATH_RE = re.compile(r"(?:^|/)(?:__tests__|tests?|fixtures?)/|\.(?:test|spec|stories)\.[^/]+$")
 RLS_DISABLED_RE = re.compile(r"disable\s+row\s+level\s+security", re.I)
 USING_TRUE_RE = re.compile(r"\busing\s*\((?:\s*\()*\s*true(?:\s*::\s*bool(?:ean)?)?(?:\s*\))+", re.I)  # any depth: using (((true)))
+MAX_PREDICATE_CHARS = 4000
+SQL_BOOL_CAST_RE = re.compile(r"\s*::\s*bool(?:ean)?\b")
+SQL_OR_RE = re.compile(r"\bor\b")
+SQL_AND_RE = re.compile(r"\band\b")
 WITH_CHECK_TRUE_RE = re.compile(r"\bwith\s+check\s*\(\s*true\s*\)", re.I)
 POLICY_TO_ANON_RE = re.compile(r"\bcreate\s+policy\b[^\n]{0,300}?\bto\s+anon\b", re.I)
 STORAGE_BUCKET_TRUE_RE = re.compile(r"storage\.buckets\b[^\n]{0,300}?\btrue\b", re.I)
@@ -878,11 +883,11 @@ def classify(rel, base, ext, text):
         cls = "other"
     else:
         use_client = bool(USE_CLIENT_RE.search(text[:500]))
-        server_only = bool(SERVER_ONLY_IMPORT_RE.search(text))
-        client_import = bool(CLIENT_IMPORT_RE.search(text)) and not server_only
+        server_only = bool(SERVER_ONLY_SIDE_EFFECT_RE.search(text))
+        client_import = bool(CLIENT_IMPORT_RE.search(text)) and not SERVER_ONLY_IMPORT_RE.search(text)
         native_import = bool(RN_IMPORT_RE.search(text))
         angular_import = bool(ANGULAR_IMPORT_RE.search(text))
-        if server_only and not use_client:
+        if server_only and not USE_CLIENT_RE.search(text):
             cls = "server"  # `import "server-only"` fails the build if a browser bundle ever imports it, whatever the folder
         elif any(d in NEUTRAL_SEGMENTS for d in lower_dirs):
             cls = "client" if (use_client or client_import or native_import) else "other"
@@ -1226,7 +1231,7 @@ def detect_sql(sf, state, opts):
             continue
         if where == "string":
             check = "open-rule-in-string"  # quoted text, or an `execute '…'` that may run: evidence, never a No
-        elif m.group(0).count(")") < m.group(0).count("("):
+        elif not _sql_predicate_open(code, m.start()):
             check = "policy-true-unevaluated"  # `using (((true)) and x)`: true is only part of the predicate
         if _cap(counter, check):
             state.add(check, sf.rel, line_of(text, m.start()), _clause(m))
@@ -1331,6 +1336,21 @@ def _blank_block_comments(text):
     return "".join(out)
 
 
+def _sql_predicate_open(code, start):
+    """Whether the `using (…)` group that starts at `start` is open: `true`, `true or …`, `(true)::bool`, read
+    with the same top-level ||/&& rule as a Firebase condition. A group that does not close is not open."""
+    open_at = code.find("(", start)
+    level = 0
+    for i in range(open_at, min(len(code), open_at + MAX_PREDICATE_CHARS)):
+        level += code[i] == "("
+        level -= code[i] == ")"
+        if level == 0:
+            expr = SQL_BOOL_CAST_RE.sub("", code[open_at:i + 1].lower())
+            expr = SQL_OR_RE.sub("||", SQL_AND_RE.sub("&&", expr))
+            return _firebase_open(re.sub(r"\s+", "", expr), 0)
+    return False
+
+
 def _sql_where(m, code, bare):
     """Where a match on the comment-free text sits: "string" (evidence), "name" (a quoted identifier: nothing), or "code"."""
     g = m.group(0)
@@ -1392,6 +1412,8 @@ def _lex_sql(text, depth=0):
                 out.append(_blank(text[m.start():stop]))
         elif tok == "/*":
             k = -1 if no_block_close else _block_comment_end(text, m.end())
+            if k < 0 and not no_block_close:
+                k = text.find("*/", m.end())  # nesting never balances (`/* files under avatars/* */`): close at the first */, as 0.3.2 did
             if k < 0:
                 no_block_close = True  # no */ anywhere after this: later openers skip the search, keeping one pass
                 for out in (nc, code, bare):
@@ -1462,10 +1484,10 @@ def _strip_slash_comments(text):
 
 
 def _firebase_condition(cond):
-    """"open" when the condition is `true`, or `true` joined by `||` at the top level with no `&&` there, with
-    fully parenthesised groups read the same way (`(a || true)`); "unevaluated" when `true` appears in anything
-    else (`true && …`, `!(… || true)`, `x == (… || true)`, `f(… || true)`), which is evidence and keeps Q3 off
-    Nothing found; None when `true` is not there at all."""
+    """"open" when the condition is `true`, or has a top-level `||` operand that is `true` (`&&` binds tighter, so
+    `true || false && x` is open), with fully parenthesised groups read the same way (`(a || true)`); "unevaluated"
+    when `true` appears in anything else (`true && …`, `!(… || true)`, `x == (… || true)`, `f(… || true)`), which
+    is evidence and keeps Q3 off Nothing found; None when `true` is not there at all."""
     if not TRUE_TOKEN_RE.search(cond):
         return None
     return "open" if _firebase_open(re.sub(r"\s+", "", cond), 0) else "unevaluated"
@@ -1484,8 +1506,6 @@ def _firebase_open(expr, depth):
             level += 1
         elif c == ")":
             level -= 1
-        if level == 0 and expr.startswith("&&", i):
-            return False  # an && at the top level: the scanner does not work that out
         if level == 0 and expr.startswith("||", i):
             parts.append("".join(cur))
             cur = []
@@ -1495,7 +1515,7 @@ def _firebase_open(expr, depth):
         i += 1
     parts.append("".join(cur))
     if len(parts) == 1:
-        return False  # one operand that is not `true` itself: `!(…)`, `x == (…)`, `f(…)`
+        return False  # one operand that is not `true` itself: `true && x`, `!(…)`, `x == (…)`, `f(…)`
     return any(_firebase_open(part, depth + 1) for part in parts)
 
 

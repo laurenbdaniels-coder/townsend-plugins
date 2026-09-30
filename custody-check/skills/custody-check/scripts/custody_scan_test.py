@@ -5018,5 +5018,66 @@ class FreshReviewTests(ScanCase):
         self.assertEqual(q1["answer"], "dont-know")
 
 
+
+class NeverWorseThanMainTests(unittest.TestCase):
+    """The scanner on this branch against the answers the released baseline gave on the same files
+    (fixtures/differential/cases.json: realistic shapes plus every repro from review). Two rules:
+
+    1. never more trusting: an answer may not move toward Nothing found (no > don't know > nothing found);
+    2. never a new No: a No the baseline did not give needs a reason, because a false No is the worst answer.
+
+    An exception is allowed only when it is listed below with the reason the baseline was wrong. To move the
+    baseline after a release, regenerate cases.json from the released scanner (see fixtures/differential/README.md)."""
+
+    RANK = {"no": 2, "dont-know": 1, "nothing-found": 0, "yes": 0}
+    KEYS = {"{KEY}": "sk-" + "proj-" + "a1b2c3d4e5f6g7h8i9j0" * 2,
+            "{PEM}": "-----BEGIN " + "PRIVATE KEY-----\\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\\n-----END " + "PRIVATE KEY-----\\n"}
+    # (case, question) -> why the baseline's more cautious answer was wrong
+    ALLOW_SOFTER = {
+        ("string mentions using true", "q3"): "the words sit inside a comment string; no policy says using (true)",
+        ("index named disable", "q3"): "an index named \"disable row level security\" disables nothing",
+        ("fb true and auth", "q3"): "`true && request.auth != null` only admits signed-in users",
+        ("server only key in components", "q1"): "a file that imports \"server-only\" cannot be bundled for the browser",
+    }
+    # (case, question) -> why a No the baseline did not give is right
+    ALLOW_NEW_NO = {
+        ("mts client key", "q1"): ".mts is read as code now; a key in a browser folder is a No, as in a .ts file",
+    }
+
+    def _scan(self, files):
+        tmp = tempfile.mkdtemp(prefix="custody differential ")
+        try:
+            for rel, body in files.items():
+                for k, v in self.KEYS.items():
+                    body = body.replace(k, v)
+                path = os.path.join(tmp, rel)
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write(body)
+            q = cs.scan(tmp)["questions"]
+            return {k: q[k]["answer"] for k in ("q1", "q3", "q9")}
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_never_worse_than_the_baseline(self):
+        with open(os.path.join(SCRIPT_DIR, "fixtures", "differential", "cases.json"), encoding="utf-8") as fh:
+            data = json.load(fh)
+        self.assertGreater(len(data["cases"]), 40, "the corpus must stay broad")
+        used = set()
+        for c in data["cases"]:
+            new = self._scan(c["files"])
+            for q, base in sorted(c["main"].items()):
+                with self.subTest(case=c["name"], question=q):
+                    key = (c["name"], q)
+                    if self.RANK[new[q]] < self.RANK[base]:
+                        self.assertIn(key, self.ALLOW_SOFTER, "%s %s: %s -> %s is more trusting than the baseline" % (c["name"], q, base, new[q]))
+                        used.add(key)
+                    if new[q] == "no" and base != "no":
+                        self.assertIn(key, self.ALLOW_NEW_NO, "%s %s: a new No the baseline did not give" % (c["name"], q))
+                        used.add(key)
+        stale = (set(self.ALLOW_SOFTER) | set(self.ALLOW_NEW_NO)) - used
+        self.assertEqual(stale, set(), "an allowed exception that no longer happens should be removed")
+
+
 if __name__ == "__main__":
     unittest.main()

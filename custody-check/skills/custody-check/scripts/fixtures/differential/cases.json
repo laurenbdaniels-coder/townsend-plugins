@@ -1,0 +1,726 @@
+{
+ "baseline": "custody-check 0.3.2 (main 12621fd)",
+ "cases": [
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/migrations/20240101000000_init.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\ncreate policy \"own rows\" on public.notes for select using (auth.uid() = owner);\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "supabase init migration"
+  },
+  {
+   "files": {
+    "db/schema.sql": "CREATE TABLE \"public\".\"notes\" (id int);\nALTER TABLE \"public\".\"notes\" ENABLE ROW LEVEL SECURITY;\nCREATE POLICY \"p\" ON \"public\".\"notes\" FOR SELECT USING ((auth.uid() = owner));\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "pg_dump quoted"
+  },
+  {
+   "files": {
+    "db/schema.sql": "CREATE TABLE \"public\".\"notes\" (id int);\nALTER TABLE \"public\".\"notes\" ENABLE ROW LEVEL SECURITY;\nCREATE POLICY \"p\" ON \"public\".\"notes\" USING (true);\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "no",
+    "q9": "dont-know"
+   },
+   "name": "pg_dump open policy"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.notes (id int);\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "name": "table without rls"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\nalter table public.notes disable row level security;\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "no",
+    "q9": "dont-know"
+   },
+   "name": "rls disabled"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\ncreate policy p on public.notes for all using (true);\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "no",
+    "q9": "dont-know"
+   },
+   "name": "using true for all"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\ncreate policy p on public.notes for select using (true);\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "name": "using true select only"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.notes (id int);\ndo $$ begin alter table public.notes enable row level security; end $$;\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "do block enables"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\ndo $$ begin alter table public.notes disable row level security; end $$;\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "no",
+    "q9": "dont-know"
+   },
+   "name": "do block disables"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\ncreate or replace function public.touch() returns trigger language plpgsql as $$ begin new.updated_at = now(); return new; end; $$;\nalter table public.notes disable row level security;\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "no",
+    "q9": "dont-know"
+   },
+   "name": "function then real disable"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/seed.sql": "insert into notes values (1);\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "seed only"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\n-- remember: never disable row level security\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "comment mentions rls"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\n/* do not: alter table public.notes disable row level security; */\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "block comment mentions rls"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.notes (id int);\n/* files under avatars/* are public */\n/* todo: alter table public.notes enable row level security; */\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "name": "glob in block comment"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\n/* files under avatars/* are public */\n/* never: alter table public.notes disable row level security */\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "glob then commented disable"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\n/* old /* inner */ 27\" monitor */\nalter table public.notes disable row level security;\n-- 27\" again\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "no",
+    "q9": "dont-know"
+   },
+   "name": "nested comment with quote"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\n/* /* x */ we don't need this */\ncreate policy p on public.notes for all using (true);\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "no",
+    "q9": "dont-know"
+   },
+   "name": "nested comment with apostrophe"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\ninsert into public.log(msg) values ('a -- b');\nalter table public.notes disable row level security;\nselect 'x';\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "no",
+    "q9": "dont-know"
+   },
+   "name": "dash dash in string then disable"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.notes (id int);\ndo $$ begin perform 1; end $$;\nalter table public.notes disable row level security;\ncreate or replace function public.t() returns trigger language plpgsql as $$ begin return new; end; $$;\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "no",
+    "q9": "dont-know"
+   },
+   "name": "do then function then disable"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\ndo language plpgsql $$ begin alter table public.notes disable row level security; end $$;\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "no",
+    "q9": "dont-know"
+   },
+   "name": "do language disables"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.notes (id int);\ncomment on table public.notes is 'alter table public.notes enable row level security';\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "string mentions enable"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\ncomment on table public.notes is 'using (true) is unsafe';\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "no",
+    "q9": "dont-know"
+   },
+   "name": "string mentions using true"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\ncreate index \"disable row level security\" on public.notes(id);\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "no",
+    "q9": "dont-know"
+   },
+   "name": "index named disable"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.notes (id int);\ncreate index \"alter table public.notes enable row level security\" on public.notes(id);\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "index named enable"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\n",
+    "db/2.sql": "drop table public.notes;\ncreate table public.notes (id int);\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "drop and recreate"
+  },
+  {
+   "files": {
+    "db/schema.sql": "drop table if exists public.notes;\ncreate table public.notes (id int);\nalter table public.notes enable row level security;\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "rerunnable schema"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\ncreate view public.v as select * from public.notes;\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "public view"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\ncreate view public.v with (security_invoker = on) as select * from public.notes;\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "invoker view"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\ncreate view public.v (security_invoker) as select id from public.notes;\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "view column named invoker"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\ncreate policy own on public.notes for all using (((((true))) and false));\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "using true and false"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\ncreate policy own on public.notes for all using ((true) or auth.uid() = id);\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "no",
+    "q9": "dont-know"
+   },
+   "name": "using true or"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\ncreate policy own on public.notes for all using ((true)::bool);\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "no",
+    "q9": "dont-know"
+   },
+   "name": "using true cast"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\nselect 'x;\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "unclosed quote"
+  },
+  {
+   "files": {
+    "firestore.rules": "service cloud.firestore {\n  match /databases/{db}/documents {\n    match /{doc=**} {\n      allow read, write: if request.auth != null && request.auth.uid == resource.data.owner;\n    }\n  }\n}\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "fb owner only"
+  },
+  {
+   "files": {
+    "firestore.rules": "service cloud.firestore {\n  match /databases/{db}/documents {\n    match /{doc=**} {\n      allow read, write: if true;\n    }\n  }\n}\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "no",
+    "q9": "dont-know"
+   },
+   "name": "fb if true"
+  },
+  {
+   "files": {
+    "firestore.rules": "service cloud.firestore {\n  match /databases/{db}/documents {\n    match /{doc=**} {\n      allow read, write: if request.time < timestamp.date(2026, 12, 31);\n    }\n  }\n}\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "fb test mode"
+  },
+  {
+   "files": {
+    "firestore.rules": "service cloud.firestore {\n  match /databases/{db}/documents {\n    match /{doc=**} {\n      allow read, write: if true || request.auth != null;\n    }\n  }\n}\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "no",
+    "q9": "dont-know"
+   },
+   "name": "fb true or auth"
+  },
+  {
+   "files": {
+    "firestore.rules": "service cloud.firestore {\n  match /databases/{db}/documents {\n    match /{doc=**} {\n      allow read, write: if true && request.auth != null;\n    }\n  }\n}\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "no",
+    "q9": "dont-know"
+   },
+   "name": "fb true and auth"
+  },
+  {
+   "files": {
+    "firestore.rules": "service cloud.firestore {\n  match /databases/{db}/documents {\n    match /{doc=**} {\n      allow read, write: if !(request.auth == null || true);\n    }\n  }\n}\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "fb negated group"
+  },
+  {
+   "files": {
+    "firestore.rules": "service cloud.firestore {\n  match /databases/{db}/documents {\n    match /{doc=**} {\n      allow read, write: if true || false && request.auth != null;\n    }\n  }\n}\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "no",
+    "q9": "dont-know"
+   },
+   "name": "fb precedence"
+  },
+  {
+   "files": {
+    "firestore.rules": "service cloud.firestore {\n  match /notes/{id} {\n    allow write: if true\n    match /c/{c} { allow read: if request.auth != null; }\n  }\n}\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "no",
+    "q9": "dont-know"
+   },
+   "name": "fb no semicolon nested match"
+  },
+  {
+   "files": {
+    "database.rules.json": "{\"rules\": {\".read\": true, \".write\": true}}\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "no",
+    "q9": "dont-know"
+   },
+   "name": "rtdb open"
+  },
+  {
+   "files": {
+    "database.rules.json": "{\"rules\": {\".read\": \"auth != null\", \".write\": \"auth != null\"}}\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "rtdb auth"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "src/components/k.ts": "export const k = \"{KEY}\";\n"
+   },
+   "main": {
+    "q1": "no",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "name": "client key"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "src/lib/k.ts": "export const k = \"{KEY}\";\n"
+   },
+   "main": {
+    "q1": "dont-know",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "name": "lib key"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "src/components/s.ts": "import \"server-only\";\nexport const k = \"{KEY}\";\n"
+   },
+   "main": {
+    "q1": "no",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "name": "server only key in components"
+  },
+  {
+   "files": {
+    "pages/index.tsx": "import type { NextRequest } from \"next/server\";\nexport const sa = {\"private_key\": \"{PEM}\"};\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "dont-know",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "name": "type import next server in pages"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "src/util.ts": "import type { NextRequest } from \"next/server\";\nexport const sa = {\"private_key\": \"{PEM}\"};\n"
+   },
+   "main": {
+    "q1": "dont-know",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "name": "type import next server in vite src"
+  },
+  {
+   "files": {
+    "components/x.tsx": "/*\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n */\n\"use client\";\nimport type { NextRequest } from \"next/server\";\nexport const sa = {\"private_key\": \"{PEM}\"};\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "dont-know",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "name": "long header use client"
+  },
+  {
+   "files": {
+    "pages/index.tsx": "import type { NextRequest } from \"next/server\";\nexport const k = \"{KEY}\";\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "no",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "name": "type import next server in pages, key"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "src/util.ts": "import type { NextRequest } from \"next/server\";\nexport const k = \"{KEY}\";\n"
+   },
+   "main": {
+    "q1": "no",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "name": "type import next server in vite src, key"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "src/components/h.ts": "import { cookies } from \"next/headers\";\nexport const k = \"{KEY}\";\n"
+   },
+   "main": {
+    "q1": "no",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "name": "next headers import in components, key"
+  },
+  {
+   "files": {
+    "components/x.tsx": "/*\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n * license line\n */\n\"use client\";\nimport \"server-only\";\nexport const k = \"{KEY}\";\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "no",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "name": "long header use client, key"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "src/components/k.mts": "export const k = \"{KEY}\";\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "name": "mts client key"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "src/components/s.mts": "import \"server-only\";\nexport const k = \"{KEY}\";\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "name": "mts server only"
+  },
+  {
+   "files": {
+    ".roo/mcp.json": "{\"mcpServers\": {}}",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "name": "mcp in roo"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "name": "clean app"
+  },
+  {
+   "files": {
+    "package.json": "{\"dependencies\": {\"@sentry/vue\": \"1\"}}",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "nothing-found"
+   },
+   "name": "sentry vue"
+  },
+  {
+   "files": {
+    "package.json": "{\"dependencies\": {\"react\": \"18\"}}",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "nothing-found"
+   },
+   "name": "no monitoring"
+  },
+  {
+   "files": {
+    "Pipfile": "sentry-sdk\n",
+    "package.json": "{\"dependencies\": {\"react\": \"18\"}}",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "nothing-found"
+   },
+   "name": "pipfile"
+  }
+ ]
+}
