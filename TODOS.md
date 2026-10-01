@@ -14,17 +14,29 @@
 **Priority:** P3
 **Depends on:** None
 
-### Make the scanner work on Windows
+### Try the full skill run on Windows
 
-**What:** 116 of the scanner's unit tests fail on the `windows-latest` CI job. The git reader (non-blocking pipes, `select`, process groups), the fifo and symlink guards, and the permission and temp-directory handling in the tests are all written for macOS and Linux.
+**What:** The scanner's unit tests pass on `windows-latest` and gate the build, including a check that an NTFS junction cannot pull files from outside the app folder into the scan. Nobody has run the whole skill on a Windows machine yet: `py -3` in place of `python3`, the verdict template, and the paths shown in evidence rows.
 
-**Why:** The workshop is macOS and Linux only, so this does not block the giveaway, but a Windows attendee currently gets the by-hand interview with no scan. The job already runs and is informational, so the failure count is visible.
+**Why:** The workshop is macOS and Linux only. Before the README can say Windows is supported, one end-to-end run on a real Windows machine has to go right.
 
-**Context:** The CI job is `custody-check-windows` in `.github/workflows/ci.yml`, kept `continue-on-error: true` until it is green. The plan's drop order named the Windows job as the first thing to cut, and it was cut. Start with the threaded reader path in `git_facts` (already written for platforms without non-blocking pipes) and the `tearDown` permission handling in `ScanCase`.
+**Context:** CI job `custody-check-windows` in `.github/workflows/ci.yml`. Two known Windows differences stay as they are: a git killed at the output cap is ended without a process-group kill, and the perf-timed tests run on shared Windows runners with `CUSTODY_TIME_SLACK=3`.
 
-**Effort:** L
+**Effort:** S
 **Priority:** P3
 **Depends on:** None
+
+### Harden the git facts against files the scanned folder controls
+
+**What:** Reviews of the Windows fix found ways a scanned folder can change what git reports, all present on main. Written and tested on branch `fix/git-history-hardening` (each fix fails its test when reverted): refuse `.git/info/grafts`; `GIT_NO_REPLACE_OBJECTS=1` (replace refs); `-c core.commitGraph=false` (a forged commit-graph cut 5 commits to 2); count tags split on LF only (U+2028 names turned 30 tags into 262,076); reject a git config that grows or shrinks mid-read; treat an existing `.git/shallow` as shallow even when it cannot be vouched for; drop the cut-off last path of a truncated env listing; accept a truncated subdir listing as tracked. Not yet written: refuse `objects/pack/*.promisor` (an empty marker makes the commit count 0); a packed-refs file that claims `sorted` but is not can hide tags from `for-each-ref refs/tags` (filter in Python instead).
+
+**Why:** A founder scanning their own app gains little by lying to themselves, but a verdict should not be this easy to steer. Residual that no flag fixes: git does not re-hash objects on a history walk, so a copied object file can still change the commit count; say so in the README's Residual risk.
+
+**Context:** Rebase `fix/git-history-hardening` onto main once the Windows fix merges; the diff left is exactly this list. It needs the same differential test against the released scanner.
+
+**Effort:** M
+**Priority:** P2
+**Depends on:** The Windows fix (PR from `fix/windows-binary-read`)
 
 ### Stream large directory listings
 

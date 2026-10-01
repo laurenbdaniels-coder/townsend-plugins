@@ -2,6 +2,15 @@
 
 The footer of every verdict names the version that produced it. Later entries carry a "What changed since the workshop" line so an attendee can tell whether an answer would come out differently today.
 
+## 0.3.3 (2026-10-01)
+
+What changed since the workshop build: on Windows the scanner now reads your files. Before, it read none of them, so every Windows scan came back with nothing found. On macOS and Linux answers are unchanged, except one rare case on Q5 (below). Windows is still not supported for the workshop.
+
+- **Fixed.** On Windows, every file with Windows line endings was read a few bytes short and thrown away as "changed during the scan". The scanner now opens files in binary mode.
+- **Fixed.** When git's tag list hits the scanner's 1 MiB output cap, the tags read so far now count, so Q5 can answer from them. Before, the scan reported 0 tags; on Windows that happened with far smaller lists. The evidence row shows the count as a floor ("34+ tags").
+- **Added.** On Windows, a junction (a folder shortcut) inside the app's `.git` folder means git is not asked, so another project's history can never be reported as this app's.
+- The Windows test run now blocks a release, and every release is checked against the previous one on the same apps: a new version may never give a friendlier answer or a new alarm without a written reason.
+
 ## 0.3.2 (2026-09-29)
 
 What changed since the workshop build: the last line of every verdict now points to a Free Assessment, with one next step chosen by your verdict.
