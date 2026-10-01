@@ -719,11 +719,16 @@ def count_files(path, deadline=None):
     return n
 
 
+def _safe_open_flags():
+    """Read-only and binary (Windows text mode turns CRLF into LF, a short read). Where the platform has them, also never
+    following a symlink or blocking on a fifo; Windows has neither flag, so there the lstat before every open is the guard."""
+    return os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NONBLOCK", 0)
+
+
 def open_regular(path):
     """Open without following symlinks; reject anything that is not a plain single-link file."""
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NONBLOCK", 0)
     try:
-        fd = os.open(path, flags)
+        fd = os.open(path, _safe_open_flags())
     except OSError:
         return None
     try:
@@ -1606,13 +1611,26 @@ def _git_config_safe(text):
     return True
 
 
+FILE_ATTRIBUTE_REPARSE_POINT = 0x400
+IO_REPARSE_TAG_NAME_SURROGATE = 0x20000000  # set for junctions and symlinks; clear for OneDrive placeholders and dedup files
+
+
+def _is_reparse(st):
+    """A Windows junction or symlink: a junction reports itself as a plain directory and islink() misses it before 3.12.
+    A reparse point that only stores data (a OneDrive placeholder) is not a redirect; an unknown tag counts as one."""
+    if not getattr(st, "st_file_attributes", 0) & FILE_ATTRIBUTE_REPARSE_POINT:
+        return False
+    tag = getattr(st, "st_reparse_tag", None)
+    return tag is None or bool(tag & IO_REPARSE_TAG_NAME_SURROGATE)
+
+
 def _git_tree_plain(gitdir, state=None):
-    """Everything git will open under refs/, logs/ and objects/ is a plain file or directory (no fifo, no link)."""
+    """Everything git will open under refs/, logs/ and objects/ is a plain file or directory (no fifo, no link, no junction)."""
     seen = 0
     for sub in ("refs", "logs", "objects"):
         top = os.path.join(gitdir, sub)
         if not os.path.isdir(top):
-            continue
+            continue  # refs/, logs/ and objects/ themselves were vetted with the other entries git touches
         for root, dirs, files in os.walk(top, followlinks=False, onerror=lambda e: None):
             if state is not None and state.deadline is not None and time.monotonic() > state.deadline:
                 return False
@@ -1624,7 +1642,7 @@ def _git_tree_plain(gitdir, state=None):
                     st = os.lstat(os.path.join(root, name))
                 except OSError:
                     return False
-                if not (stat.S_ISREG(st.st_mode) or stat.S_ISDIR(st.st_mode)):
+                if not (stat.S_ISREG(st.st_mode) or stat.S_ISDIR(st.st_mode)) or _is_reparse(st):
                     return False
     return True
 
@@ -1650,7 +1668,7 @@ GIT_CONFIG_MAX_BYTES = 65536
 def _read_small_regular(path, limit):
     """Read a plain regular file of at most `limit` bytes without following symlinks or blocking on a fifo; None otherwise."""
     try:
-        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0))
+        fd = os.open(path, _safe_open_flags())
     except OSError:
         return None
     try:
@@ -1693,6 +1711,11 @@ def _git_pointer_ok(real_repo, state=None):
         return False
     if os.path.islink(gitdir) or not os.path.isdir(gitdir):
         return False
+    try:
+        if _is_reparse(os.lstat(gitdir)):
+            return False
+    except OSError:
+        return False
     for pointer in ("commondir", "gitdir", "config.worktree", os.path.join("objects", "info", "alternates")):
         if os.path.lexists(os.path.join(gitdir, pointer)):
             return False
@@ -1701,7 +1724,7 @@ def _git_pointer_ok(real_repo, state=None):
             est = os.lstat(os.path.join(gitdir, entry))
         except OSError:
             continue
-        if not (stat.S_ISREG(est.st_mode) or stat.S_ISDIR(est.st_mode)):
+        if not (stat.S_ISREG(est.st_mode) or stat.S_ISDIR(est.st_mode)) or _is_reparse(est):
             return False
     cfg = os.path.join(gitdir, "config")
     if os.path.lexists(cfg):
@@ -1904,7 +1927,12 @@ def git_facts(repo, state):
             check = "tracked-env-file-nonprod" if stem in NONPROD_ENV_STEMS else "tracked-env-file"
             state.add(check, p, 0, "")
         tags = run(["for-each-ref", "--count=1000", "--format=%(refname)", "refs/tags"])
-        state.git["tags"] = len([t for t in tags.stdout.splitlines() if t.strip()]) if tags.returncode == 0 else 0
+        tag_lines = tags.stdout.splitlines()
+        if tags.truncated:  # git was killed at the cap, so its exit code says nothing; what was read is a floor,
+            tag_lines = tag_lines[:-1]  # and a floor is all Q5 asks ("any tags?"), so the scan is not partial for it
+        state.git["tags"] = len([t for t in tag_lines if t.strip()]) if tags.returncode == 0 or tags.truncated else 0
+        if tags.truncated:
+            state.git["tags"] = max(state.git["tags"], 1)  # output hit the cap, so at least one tag exists, however long its name
         shallow = run(["rev-parse", "--is-shallow-repository"])
         state.git["shallow"] = shallow.stdout.strip() == "true" or _read_small_regular(os.path.join(_git_dir(toplevel), "shallow"), 4096) is not None
         commits = run(["rev-list", "--count", "--exclude-promisor-objects", "HEAD"])  # the only object walk: last, never lazy-fetching
@@ -1913,7 +1941,7 @@ def git_facts(repo, state):
             state.add("git-subdir", "", 0, "the app folder is inside a larger repository")
         if state.git["shallow"]:
             state.add("git-shallow", "", 0, "shallow clone")
-        state.add("git-history", "", 0, "%d commits, %d tags" % (state.git["commits"], state.git["tags"]))
+        state.add("git-history", "", 0, "%d commits, %d%s tags" % (state.git["commits"], state.git["tags"], "+" if tags.truncated else ""))
     except subprocess.TimeoutExpired:
         state.git["commits"] = None  # keep the index facts already gathered; history stays unknown
         state.git["tags"] = None
