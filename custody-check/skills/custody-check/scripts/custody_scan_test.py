@@ -4989,12 +4989,95 @@ class FreshReviewTests(ScanCase):
         self.write("apps/web/.continue/mcp.json", "{}")
         q1 = self.scan()["questions"]["q1"]
         self.assertEqual([e["path"] for e in q1["evidence"] if e["check"] == "mcp-config-not-opened"], ["apps/web/.continue/mcp.json"])
-        for i in range(cs.MAX_NEVER_OPEN_MCP_ROWS + 3):
+        for i in range(cs.MAX_HITS_PER_FILE_PER_CHECK + 3):
             self.write(".roo/mcp%d.json" % i, "{}")
         q1 = self.scan()["questions"]["q1"]
-        self.assertEqual(len([e for e in q1["evidence"] if e["check"] == "mcp-config-not-opened"]), cs.MAX_NEVER_OPEN_MCP_ROWS)
+        self.assertEqual(len([e for e in q1["evidence"] if e["check"] == "mcp-config-not-opened"]), cs.MAX_HITS_PER_FILE_PER_CHECK)
         self.assertEqual(q1["answer"], "dont-know")
 
+
+
+class PreMergeReviewFourTests(ScanCase):
+    """The fresh pre-merge review of e5644ce: the floor kept by start and kind, RLS credit capped at 0.3.2's read,
+    linear paren handling, the Firebase ternary, Unicode dollar tags, manifest names under code folders, and the
+    MCP path check that never follows a link."""
+
+    RLS = "create table public.notes (id int);\nalter table public.notes enable row level security;\n"
+
+    def answers(self, files):
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.write("src/components/A.tsx", "export const A = () => null;\n")
+        for rel, body in files.items():
+            self.write(rel, body)
+        return self.scan()["questions"]
+
+    def test_a_select_or_altered_row_never_stands_in_for_the_releases_no(self):
+        for body in ('create policy "x--y" on public.notes for select\nusing (true);\n',
+                     "create policy p on public.notes for /* reviewed 2026-09: public read is intended */ select using (true);\n"):  # longer than 0.3.2's 20 spaces
+            with self.subTest(body=body):
+                self.assertEqual(self.answers({"db/1.sql": self.RLS + body})["q3"]["answer"], "no")
+
+    def test_an_enable_the_release_did_not_read_earns_no_credit(self):
+        for body in ("create table public.t (id int);\ninsert into public.log(m) values ('--'); alter table public.t enable row level security;\n",
+                     "create table public.t (id int);\nalter table public.t" + " " * 30 + "enable row level security;\n"):
+            with self.subTest(body=body):
+                q3 = self.answers({"db/1.sql": body})["q3"]
+                self.assertEqual(q3["answer"], "dont-know")
+                self.assertIn("table-without-rls", evidence_checks(q3))
+
+    def test_a_unicode_dollar_tag_body_is_a_string(self):
+        text = "select $\u00e9$ alter table public.t enable row level security; $\u00e9$;"
+        nc, code, bare, unclosed = cs._lex_sql(text)
+        self.assertNotIn("enable", code)
+        self.assertIn("enable", nc)
+        self.assertFalse(unclosed)
+        self.assertEqual(len(code), len(text))
+
+    def test_a_firebase_ternary_is_not_worked_out(self):
+        self.assertEqual(cs._firebase_condition("request.auth==null?false:request.auth.uid==id||true"), "unevaluated")
+        self.assertEqual(cs._firebase_condition("(request.auth==null?false:true)||true"), "open")
+
+    def test_setup_py_under_tests_or_src_is_not_a_manifest(self):
+        for rel in ("tests/setup.py", "src/setup.py", "app/__tests__/setup.py"):
+            with self.subTest(rel=rel):
+                q9 = self.answers({"requirements.txt": "flask\n", rel: "def setup(): pass\n"})["q9"]
+                self.assertNotIn("manifest-not-parsed", evidence_checks(q9))
+        q9 = self.answers({"requirements.txt": "flask\n", "setup.py": "from setuptools import setup\n"})["q9"]
+        self.assertIn("manifest-not-parsed", evidence_checks(q9))
+
+    @unittest.skipUnless(hasattr(os, "symlink"), "needs symlinks")
+    def test_the_mcp_path_check_never_follows_a_link(self):
+        outside = os.path.join(self.tmp, "outside")
+        os.makedirs(outside)
+        with open(os.path.join(outside, "mcp.json"), "w") as fh:
+            fh.write("{}")
+        kiro = os.path.join(self.tmp, "kiro")
+        os.makedirs(kiro)
+        os.symlink(outside, os.path.join(kiro, "settings"))
+        self.assertFalse(cs._lexists_inside(kiro, "settings/mcp.json"))
+        os.makedirs(os.path.join(kiro, "real"))
+        with open(os.path.join(kiro, "real", "mcp.json"), "w") as fh:
+            fh.write("{}")
+        self.assertTrue(cs._lexists_inside(kiro, "real/mcp.json"))
+
+    def test_strip_outer_parens_is_linear_in_depth(self):
+        def deep(d):
+            return "(" * d + "true" + ")" * d
+        t_small = _fastest(lambda: cs._firebase_open(deep(20000), 0))
+        t_big = _fastest(lambda: cs._firebase_open(deep(40000), 0))
+        self.assertGreater(t_small, _RATIO_FLOOR_S, "too fast to time, the ratio would assert nothing")
+        self.assertLess(t_big / t_small, 3.0, "deep parens grew %.1fx when the depth doubled" % (t_big / t_small))
+
+    def test_deep_and_unclosed_using_groups_stay_near_release_speed(self):
+        deep = "create policy p on public.notes for all using (" + "(" * 1990 + "true" + ")" * 1991 + ";\n"
+        unclosed = "using(((((true)\n"
+        for name, unit, reps in (("deep", deep, 120), ("unclosed", unclosed, 30000)):
+            with self.subTest(shape=name):
+                self.write("db/1.sql", self.RLS + unit * reps)
+                t0 = time.perf_counter()
+                self.scan()
+                self.assertLess(time.perf_counter() - t0, bound(3.0), "%s using groups must not be read char by char per match" % name)
 
 
 class NeverWorseThanMainTests(unittest.TestCase):
@@ -5016,6 +5099,10 @@ class NeverWorseThanMainTests(unittest.TestCase):
     ALLOW_NEW_NO = {
         ("mts client key", "q1"): ".mts is read as code now; a key in a browser folder is a No, as in a .ts file",
         ("mts server only", "q1"): ".mts is read as code now and follows the release's rule for a .ts file in the same folder",
+        ("cts client key", "q1"): ".cts is read as code now; a key in a browser folder is a No, as in a .ts file",
+        ("disable with long whitespace", "q3"): "the release capped the spaces inside `disable row level security` at 20; the statement still turns RLS off",
+        ("using true six parens", "q3"): "the release read `true` only up to three parens deep; `using ((((((true))))))` is the same open policy",
+        ("rtdb true as string", "q3"): "`\".read\": \"true\"` is the same open rule as `true`; the release only read the bare boolean",
     }
 
     def _scan(self, files):

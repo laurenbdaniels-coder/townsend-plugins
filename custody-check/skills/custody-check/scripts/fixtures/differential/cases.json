@@ -821,6 +821,225 @@
   },
   {
    "files": {
+    "db/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\ncreate policy \"x--y\" on public.notes for select\nusing (true);\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "no",
+    "q9": "dont-know"
+   },
+   "name": "dash dash in policy name, select"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\ncreate policy \"read--all\" on public.notes for select using (true);\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "dash dash in policy name, select same line"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\ncomment on table public.notes is 'a -- b';\ncreate policy p on public.notes for select\nusing (true);\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "name": "dash dash string then select policy"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\ncreate policy p on public.notes for /* reviewed 2026-09: public read is intended */ select using (true);\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "no",
+    "q9": "dont-know"
+   },
+   "name": "comment between for and select"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\ncreate policy p on public.notes for -- anyone may read published notes, reviewed\n  select using (true);\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "no",
+    "q9": "dont-know"
+   },
+   "name": "line comment between for and select"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.t (id int);\ninsert into public.log(m) values ('--'); alter table public.t enable row level security;\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "name": "enable after dash dash string"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.t (id int);\nalter table public.t                              enable row level security;\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "name": "enable with long whitespace"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.t (id int);\nselect '/*';\nalter table public.t enable row level security;\nselect '*/';\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "name": "enable between block comment strings"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.t (id int);\ncreate function f() returns void as $\u00e9$ select '--'; alter table public.t enable row level security; $\u00e9$ language sql;\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "name": "enable in unicode dollar function"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\nalter table public.notes disable                         row level security;\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "disable with long whitespace"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\ncreate policy p on public.notes for all using ((((((true))))));\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "using true six parens"
+  },
+  {
+   "files": {
+    "src/client/k.cts": "export const k = \"{KEY}\";\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "name": "cts client key"
+  },
+  {
+   "files": {
+    "database.rules.json": "{\"rules\": {\".read\": \"true\", \".write\": \"true\"}}\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "rtdb true as string"
+  },
+  {
+   "files": {
+    "firestore.rules": "service cloud.firestore {\n  match /databases/{db}/documents {\n    match /{doc=**} {\n      allow read, write: if request.auth == null ? false : request.auth.uid == resource.data.owner || true;\n    }\n  }\n}\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "fb ternary then true"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\ncomment on table public.notes is 'create view public.v as select 1';\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "view text in a comment string"
+  },
+  {
+   "files": {
+    "requirements.txt": "flask\n",
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "tests/setup.py": "def setup(): pass\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "nothing-found"
+   },
+   "name": "setup.py under tests"
+  },
+  {
+   "files": {
+    "requirements.txt": "flask\n",
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "src/setup.py": "def setup(): pass\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "nothing-found"
+   },
+   "name": "setup.py under src"
+  },
+  {
+   "files": {
+    "requirements.txt": "flask\n",
+    "setup.py": "from setuptools import setup\nsetup(install_requires=['sentry-sdk'])\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "nothing-found"
+   },
+   "name": "setup.py at the root"
+  },
+  {
+   "files": {
     "src/components/A.tsx": "export const A = () => null;\n",
     "src/components/k.mts": "export const k = \"{KEY}\";\n"
    },

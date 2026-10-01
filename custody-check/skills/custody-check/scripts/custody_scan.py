@@ -71,7 +71,6 @@ NEVER_OPEN_MCP_PATHS = {".kiro": ("settings/mcp.json",), ".amazonq": ("cli-agent
                         ".continue": ("config.json", "config.yaml"), ".codex": ("config.toml",)}  # configs whose names do not say mcp
 NEVER_OPEN_MCP_NAME_RE = re.compile(r"mcp", re.I)  # any file or folder with mcp in its name inside a never-open agent folder
 NEVER_OPEN_SECRET_FILE_RE = re.compile(r"^(?:opencode\.jsonc?|\.aider[^/]*\.ya?ml)$", re.I)  # never-open files that carry MCP servers or API keys
-MAX_NEVER_OPEN_MCP_ROWS = 5
 SKIP_BASENAMES = {"package-lock.json", "yarn.lock", "pnpm-lock.yaml", "bun.lockb", "poetry.lock", "cargo.lock", "composer.lock", "gemfile.lock"}
 SKIP_EXT_SUFFIXES = (".map", ".min.js", ".min.css", ".bundle.js")
 BROWSER_PREFIXES = ("NEXT_PUBLIC_", "VITE_", "REACT_APP_", "EXPO_PUBLIC_", "PUBLIC_", "NUXT_PUBLIC_", "GATSBY_")
@@ -247,10 +246,12 @@ USING_TRUE_RE = re.compile(r"\busing\s*\((?:\s*\()*\s*true(?:\s*::\s*bool(?:ean)
 # 0.3.2's decisive patterns, verbatim: wherever they fire the answer stays No (never worse than the release)
 RELEASE_USING_TRUE_RE = re.compile(r"\busing\s{0,20}\((?:\s{0,20}\(){0,3}\s{0,20}true(?:\s{0,5}::\s{0,5}bool(?:ean)?)?(?:\s{0,20}\)){1,4}", re.I)
 RELEASE_FIREBASE_ALLOW_TRUE_RE = re.compile(r"\ballow[ \t]{1,20}([a-z]+(?:[ \t]*,[ \t]*[a-z]+){0,10})[ \t]*:[ \t]*if[ \t]{1,20}true\b", re.I)
-MAX_PREDICATE_CHARS = 4000
 RELEASE_RLS_DISABLED_RE = re.compile(r"disable\s{1,20}row\s{1,20}level\s{1,20}security", re.I)  # 0.3.2, verbatim
 RELEASE_POLICY_SELECT_RE = re.compile(r"\bfor\s{1,20}select\b", re.I)  # 0.3.2, verbatim
 RELEASE_LINE_COMMENT_RE = re.compile(r"--[^\n]*")  # 0.3.2's line-comment rule, which also cut through strings
+MAX_PREDICATE_CHARS = 4000
+PAREN_RE = re.compile(r"[()]")
+OR_SPLIT_RE = re.compile(r"[()]|\|\||\?")  # `?` for the ternary, which binds looser than ||
 SQL_BOOL_CAST_RE = re.compile(r"\s*::\s*bool(?:ean)?\b")
 SQL_OR_RE = re.compile(r"\bor\b")
 SQL_AND_RE = re.compile(r"\band\b")
@@ -319,7 +320,7 @@ MAX_DROP_LIST_CHARS = 20000
 DROP_TABLE_RE = re.compile(r"\bdrop\s+table\s+(?:if\s+exists\s+)?([^;]{1,%d})" % MAX_DROP_LIST_CHARS, re.I)
 DROP_ITEM_RE = re.compile(r"\s{0,20}" + _SQL_TABLE)
 CREATE_VIEW_RE = re.compile(r"\bcreate\s+(?:or\s+replace\s+)?(?:recursive\s+)?(materialized\s+)?view\s+(?:if\s+not\s+exists\s+)?" + _SQL_TABLE + r"([^;]{0,400})", re.I)
-SQL_LEX_OPENER_RE = re.compile(r"--|/\*|\"|(?<![A-Za-z0-9_])[Ee]'|'|\$(?:[A-Za-z_][A-Za-z0-9_]{0,30})?\$")  # whichever comes first
+SQL_LEX_OPENER_RE = re.compile(r"--|/\*|\"|(?<![A-Za-z0-9_])[Ee]'|'|\$(?:[^\W\d]\w{0,30})?\$")  # whichever comes first; a dollar tag may use any letter, $é$ as well as $x$
 SQL_PLAIN_BODY_RE = re.compile(r"(?:[^']|'')*'")  # a SQL string may span lines
 SQL_ESCAPE_BODY_RE = re.compile(r"(?:[^'\\]|\\[\s\S]|'')*'")
 SQL_IDENT_BODY_RE = re.compile(r'(?:[^"]|"")*"')  # a quoted identifier: "o'brien_idx" holds no string
@@ -331,6 +332,8 @@ VIEW_WITH_RE = re.compile(r"\bwith\s*\(([^)]{0,400})\)", re.I)
 # a SQL file that defines access, as opposed to a seed file of inserts; only these count as "rule files read"
 RULE_SQL_RE = re.compile(_CREATE_TABLE_HEAD + r"\b|\bcreate\s+policy\b|\brow\s+level\s+security\b|\bstorage\.buckets\b", re.I)
 ENABLE_RLS_RE = re.compile(r"\balter\s+table\s+(?:if\s+exists\s+)?(?:only\s+)?" + _SQL_TABLE + r"\s+enable\s+row\s+level\s+security", re.I)
+_RELEASE_SQL_TABLE = "(" + _SQL_IDENT + r"(?:\s{0,5}\.\s{0,5}" + _SQL_IDENT + ")?)"  # 0.3.2, verbatim
+RELEASE_ENABLE_RLS_RE = re.compile(r"\balter\s{1,20}table\s{1,20}(?:if\s{1,20}exists\s{1,20})?(?:only\s{1,20})?" + _RELEASE_SQL_TABLE + r"\s{1,20}enable\s{1,20}row\s{1,20}level\s{1,20}security", re.I)  # 0.3.2, verbatim: the ceiling on RLS credit
 TABLE_PART_RE = re.compile(r'"[^"]*"|[^.\s]+')  # a dot inside quotes is part of the name, not a schema separator
 MANIFEST_BASENAMES = {"package.json", "requirements.txt", "pyproject.toml", "gemfile", "go.mod"}
 # dependency manifests no parser here reads; one of these can name the error tracker, so Q9 cannot claim "nothing found"
@@ -766,12 +769,13 @@ def count_files(path, deadline=None):
 def _mcp_configs_inside(path, name, deadline=None):
     """Paths, relative to a never-open agent folder, of anything that looks like an MCP server config. Only names are
     read, never contents, and the walk is bounded like count_files."""
-    found = [inner for inner in NEVER_OPEN_MCP_PATHS.get(name, ()) if os.path.lexists(os.path.join(path, *inner.split("/")))]
+    found = [inner for inner in NEVER_OPEN_MCP_PATHS.get(name, ()) if _lexists_inside(path, inner)]
     seen = set(found)
     entries = 0
     for dirpath, dirs, files in os.walk(path, followlinks=False, onerror=lambda e: None):
         rel = os.path.relpath(dirpath, path).replace(os.sep, "/")
-        if rel != "." and any(rel == x or rel.startswith(x + "/") for x in _ancestors(rel) if x in seen):
+        parts = rel.split("/")
+        if rel != "." and any("/".join(parts[:i]) in seen for i in range(1, len(parts) + 1)):
             dirs[:] = []  # inside a folder already reported
             continue
         for f in dirs + files:
@@ -785,9 +789,14 @@ def _mcp_configs_inside(path, name, deadline=None):
     return found
 
 
-def _ancestors(rel):
-    parts = rel.split("/")
-    return ["/".join(parts[:i]) for i in range(1, len(parts) + 1)]
+def _lexists_inside(path, inner):
+    """Whether path/inner exists without following a symlink at any step, so a linked folder cannot make the
+    scanner look outside the app."""
+    for part in inner.split("/")[:-1]:
+        path = os.path.join(path, part)
+        if os.path.islink(path) or not os.path.isdir(path):
+            return False
+    return os.path.lexists(os.path.join(path, inner.split("/")[-1]))
 
 
 def open_regular(path):
@@ -903,11 +912,6 @@ def classify(rel, base, ext, text):
 
 
 # ---------------------------------------------------------------- detectors
-
-def _cap_n(counter, limit):
-    counter["n"] = counter.get("n", 0) + 1
-    return counter["n"] <= limit
-
 
 def _cap(counter, check):
     counter[check] = counter.get(check, 0) + 1
@@ -1206,16 +1210,18 @@ def detect_sql(sf, state, opts):
     release = _release_sql_view(sf.text)  # what 0.3.2 read, at the same offsets
     if unclosed:
         state.gaps["q3"] += 1  # a quote that never closes: what follows it could not be read as code
-    decisive_at = set()  # starts of the decisive rows this file already has
+    rows_at = {}  # start -> the checks this file's reads above gave there
+    closes, budget = None, {"left": len(text) + MAX_PREDICATE_CHARS}
     for m in RLS_DISABLED_RE.finditer(text):
         state.tick()
         check = _decisive_or_string(m, code, release, "rls-disabled")
-        if check == "rls-disabled":
-            decisive_at.add(m.start())
+        rows_at.setdefault(m.start(), set()).add(check)
         if _cap(counter, check):
             state.add(check, sf.rel, line_of(text, m.start()), _clause(m))
     for m in USING_TRUE_RE.finditer(text):
         state.tick()
+        if closes is None:
+            closes = _paren_closes(text)  # only for files that have a using (true) at all
         # a public-read policy (`for select using (true)`) is a design choice the by-hand test decides;
         # `for all`, insert/update/delete, or no FOR clause opens writes and is a no
         window = QUOTED_SQL_RE.sub(lambda q: " " * len(q.group(0)), text[max(0, m.start() - 2000):m.start()]).lower()
@@ -1227,19 +1233,21 @@ def detect_sql(sf, state, opts):
             check = "policy-select-true"
         else:
             check = "policy-using-true"
-        if not RELEASE_USING_TRUE_RE.match(text, m.start()) and not _sql_predicate_open(text, m.start()):
+        if not RELEASE_USING_TRUE_RE.match(text, m.start()) and not _sql_predicate_open(text, m.start(), closes, budget):
             check = "policy-true-unevaluated"  # beyond 0.3.2's pattern and not provably open: evidence only
         check = _decisive_or_string(m, code, release, check)
-        if check in ("rls-disabled", "policy-using-true", "policy-select-true", "policy-altered-true"):
-            decisive_at.add(m.start())
+        rows_at.setdefault(m.start(), set()).add(check)
         if _cap(counter, check):
             state.add(check, sf.rel, line_of(text, m.start()), _clause(m))
-    # the floor: 0.3.2's own patterns over 0.3.2's own view of the file; any decisive row it gave that the
-    # reads above did not is added as it was, so no No from the release is ever lost
+    # the floor: 0.3.2's own patterns over 0.3.2's own view of the file. A No it gave is added as it was unless
+    # this file already has a No at the same place; any other row it gave is added where this file has none,
+    # so the release's answer is never softened (a select or altered row does not stand in for its No)
     for start, check, clause in _release_decisive(release):
         state.tick()
-        if start not in decisive_at and _cap(counter, check):
-            decisive_at.add(start)
+        have = rows_at.get(start, set())
+        needed = not any(CHECKS[c][1] == "no" for c in have) if CHECKS[check][1] == "no" else not have
+        if needed and _cap(counter, check):
+            rows_at.setdefault(start, set()).add(check)
             state.add(check, sf.rel, line_of(release, start), clause)
     _finditer_lines(WITH_CHECK_TRUE_RE, text, sf, state, "policy-with-check-true", counter, _clause)
     _finditer_lines(POLICY_TO_ANON_RE, text, sf, state, "policy-to-anon", counter, _clause)
@@ -1269,7 +1277,10 @@ def detect_sql(sf, state, opts):
         if bare[m.start():m.start(1)] != code[m.start():m.start(1)] or bare[m.end(1):m.end()] != code[m.end(1):m.end()]:
             continue  # `create index "alter table t enable row level security"` names an index; it enables nothing
         name = _public_table(m.group(1))
-        if name:
+        # the ceiling: credit an enable only where 0.3.2 read the same one, so no answer is softer than the release's
+        # (0.3.2 cut lines at a `--` inside a string and capped whitespace; a looser read here would clear its gaps)
+        rm = RELEASE_ENABLE_RLS_RE.match(release, m.start())
+        if name and rm and _public_table(rm.group(1)) == name:
             enabled_at[name] = m.start()
             if len(state.rls_enabled) < MAX_SEEN:
                 state.rls_enabled.add(name)
@@ -1342,19 +1353,30 @@ def _blank_block_comments(text):
     return "".join(out)
 
 
-def _sql_predicate_open(code, start):
+def _sql_predicate_open(text, start, closes, budget):
     """Whether the `using (…)` group that starts at `start` is open: `true`, `true or …`, `(true)::bool`, read
-    with the same top-level ||/&& rule as a Firebase condition. A group that does not close is not open."""
-    open_at = code.find("(", start)
-    level = 0
-    for i in range(open_at, min(len(code), open_at + MAX_PREDICATE_CHARS)):
-        level += code[i] == "("
-        level -= code[i] == ")"
-        if level == 0:
-            expr = SQL_BOOL_CAST_RE.sub("", code[open_at:i + 1].lower())
-            expr = SQL_OR_RE.sub("||", SQL_AND_RE.sub("&&", expr))
-            return _firebase_open(re.sub(r"\s+", "", expr), 0)
-    return False
+    with the same top-level ||/&& rule as a Firebase condition. A group that does not close within
+    MAX_PREDICATE_CHARS is not open. `closes` maps each '(' in the file to its ')' (one pass per file), and
+    `budget` caps the characters read across the file, so overlapping groups cannot multiply the work."""
+    open_at = text.find("(", start)
+    close = closes.get(open_at)
+    if close is None or close - open_at >= MAX_PREDICATE_CHARS or budget["left"] < close - open_at:
+        return False
+    budget["left"] -= close - open_at
+    expr = SQL_BOOL_CAST_RE.sub("", text[open_at:close + 1].lower())
+    expr = SQL_OR_RE.sub("||", SQL_AND_RE.sub("&&", expr))
+    return _firebase_open(re.sub(r"\s+", "", expr), 0)
+
+
+def _paren_closes(text):
+    """Each '(' offset mapped to the offset of the ')' that brings the level back down: one pass, linear."""
+    closes, stack = {}, []
+    for m in PAREN_RE.finditer(text):
+        if m.group(0) == "(":
+            stack.append(m.start())
+        elif stack:
+            closes[stack.pop()] = m.start()
+    return closes
 
 
 def _release_sql_view(text):
@@ -1408,83 +1430,71 @@ def _lex_sql(text, depth=0):
     n = len(text)
     unclosed = False
     no_block_close = False
+
+    def emit(raw, in_code, in_bare):
+        nc.append(raw)
+        code.append(in_code)
+        bare.append(in_bare)
+
     while pos < n:
         m = SQL_LEX_OPENER_RE.search(text, pos)
         if not m:
             break
         tok = m.group(0)
-        for out in (nc, code, bare):
-            out.append(text[pos:m.start()])
+        plain = text[pos:m.start()]
+        emit(plain, plain, plain)
+        stop = None  # where the token ends; stays None when it never closes
         if tok == "--":
             stop = text.find("\n", m.start())
             stop = n if stop < 0 else stop
-            for out in (nc, code, bare):
-                out.append(_blank(text[m.start():stop]))
+            gap = _blank(text[m.start():stop])
+            emit(gap, gap, gap)
         elif tok == "/*":
             k = -1 if no_block_close else text.find("*/", m.end())  # the first */ closes, as in 0.3.2
             if k < 0:
                 no_block_close = True  # no */ anywhere after this: later openers skip the search, keeping one pass
-                for out in (nc, code, bare):
-                    out.append(tok)
+                emit(tok, tok, tok)
                 pos = m.end()
                 continue
             stop = k + 2
-            for out in (nc, code, bare):
-                out.append(_blank(text[m.start():stop]))
+            gap = _blank(text[m.start():stop])
+            emit(gap, gap, gap)
         elif tok == '"':
             body = SQL_IDENT_BODY_RE.match(text, m.end())
-            if not body:
-                unclosed = True  # a name that never closes: nothing after it can be read as code
-                nc.append(text[m.start():])
-                code.append(_blank(text[m.start():]))
-                bare.append(_blank(text[m.start():]))
-                pos = n
-                break
-            stop = body.end()
-            if "\n" in text[m.start():stop]:
-                for out in (nc, code, bare):
-                    out.append(tok)  # a real name never spans lines: this quote is just a character, so read on
-                pos = m.end()
-                continue
-            nc.append(text[m.start():stop])
-            code.append(text[m.start():stop])  # names stay in code: pg_dump quotes every table it enables RLS on
-            bare.append(_blank(text[m.start():stop]))
+            if body:
+                stop = body.end()
+                if "\n" in text[m.start():stop]:
+                    emit(tok, tok, tok)  # a real name never spans lines: this quote is just a character, so read on
+                    pos = m.end()
+                    continue
+                name = text[m.start():stop]
+                emit(name, name, _blank(name))  # names stay in code: pg_dump quotes every table it enables RLS on
         elif tok.startswith("$"):
             close = text.find(tok, m.end())
-            if close < 0:
-                unclosed = True
-                nc.append(text[m.start():])
-                code.append(_blank(text[m.start():]))
-                bare.append(_blank(text[m.start():]))
-                pos = n
-                break
-            stop = close + len(tok)
-            if depth < MAX_DO_NESTING and DO_BEFORE_RE.search(text, max(0, m.start() - 40), m.start()):
-                inner_nc, inner_code, inner_bare, inner_unclosed = _lex_sql(text[m.end():close], depth + 1)
-                unclosed = unclosed or inner_unclosed
-                nc.append(tok + inner_nc + tok)
-                code.append(tok + inner_code + tok)
-                bare.append(tok + inner_bare + tok)
-            else:
-                nc.append(text[m.start():stop])
-                code.append(_blank(text[m.start():stop]))
-                bare.append(_blank(text[m.start():stop]))
+            if close >= 0:
+                stop = close + len(tok)
+                if depth < MAX_DO_NESTING and DO_BEFORE_RE.search(text, max(0, m.start() - 40), m.start()):
+                    inner_nc, inner_code, inner_bare, inner_unclosed = _lex_sql(text[m.end():close], depth + 1)
+                    unclosed = unclosed or inner_unclosed
+                    emit(tok + inner_nc + tok, tok + inner_code + tok, tok + inner_bare + tok)
+                else:
+                    body = text[m.start():stop]
+                    emit(body, _blank(body), _blank(body))
         else:
             body = (SQL_ESCAPE_BODY_RE if tok[0] in "Ee" else SQL_PLAIN_BODY_RE).match(text, m.end())
-            if not body:
-                unclosed = True
-                nc.append(text[m.start():])
-                code.append(_blank(text[m.start():]))
-                bare.append(_blank(text[m.start():]))
-                pos = n
-                break
-            stop = body.end()
-            nc.append(text[m.start():stop])
-            code.append(_blank(text[m.start():stop]))
-            bare.append(_blank(text[m.start():stop]))
+            if body:
+                stop = body.end()
+                chunk = text[m.start():stop]
+                emit(chunk, _blank(chunk), _blank(chunk))
+        if stop is None:
+            unclosed = True  # a quote, name or tag that never closes: nothing after it can be read as code
+            rest = text[m.start():]
+            emit(rest, _blank(rest), _blank(rest))
+            pos = n
+            break
         pos = stop
-    for out in (nc, code, bare):
-        out.append(text[pos:])
+    plain = text[pos:]
+    emit(plain, plain, plain)
     return "".join(nc), "".join(code), "".join(bare), unclosed
 
 
@@ -1509,36 +1519,50 @@ def _firebase_open(expr, depth):
         return True
     if depth > 20:
         return False
-    parts, level, cur, i = [], 0, [], 0
-    while i < len(expr):
-        c = expr[i]
-        if c == "(":
+    parts, level, last = [], 0, 0
+    for m in OR_SPLIT_RE.finditer(expr):  # parens and top-level ||, found by the regex engine, not char by char
+        tok = m.group(0)
+        if tok == "(":
             level += 1
-        elif c == ")":
+        elif tok == ")":
             level -= 1
-        if level == 0 and expr.startswith("||", i):
-            parts.append("".join(cur))
-            cur = []
-            i += 2
-            continue
-        cur.append(c)
-        i += 1
-    parts.append("".join(cur))
+        elif level == 0 and tok == "?":
+            return False  # `a ? b : c || true` is open only when a holds: not worked out here
+        elif level == 0:
+            parts.append(expr[last:m.start()])
+            last = m.end()
+    parts.append(expr[last:])
     if len(parts) == 1:
         return False  # one operand that is not `true` itself: `true && x`, `!(…)`, `x == (…)`, `f(…)`
     return any(_firebase_open(part, depth + 1) for part in parts)
 
 
 def _strip_outer_parens(expr):
-    while expr.startswith("(") and expr.endswith(")"):
-        level = 0
-        for i, c in enumerate(expr):
-            level += c == "("
-            level -= c == ")"
-            if level == 0 and i < len(expr) - 1:
-                return expr  # `(a) || (b)`: the first group closes early, so these are not outer parens
-        expr = expr[1:-1]
-    return expr
+    """Drop the outer pairs that wrap the whole expression: `((a || b))` -> `a || b`, never `(a) || (b)`. A pair
+    is outer when the level stays above zero until the last character. Linear: the levels are counted once."""
+    n = len(expr)
+    k = 0
+    while k < n - 1 - k and expr[k] == "(" and expr[n - 1 - k] == ")":
+        k += 1  # candidate pairs: leading ( facing trailing )
+    if not k:
+        return expr
+    levels, level = [], 0
+    for c in expr:
+        level += c == "("
+        level -= c == ")"
+        levels.append(level)
+    # strip pair j (0-based) only if every inner level, once j pairs are gone, stays above zero before the end:
+    # min(levels[j .. n-2-j]) > j. The windows shrink as j grows, so their minimums are built from the inside out.
+    lo, hi = k - 1, n - 1 - k
+    window_min = min(levels[lo:hi]) if hi > lo else levels[lo]
+    mins = [0] * k
+    for j in range(k - 1, -1, -1):
+        window_min = min(window_min, levels[j], levels[n - 2 - j])
+        mins[j] = window_min
+    j = 0
+    while j < k and mins[j] > j:
+        j += 1
+    return expr[j:n - j]
 
 
 def detect_rules(sf, state, opts):
@@ -1832,7 +1856,8 @@ def layout_checks(rel, base, state):
         state.add("api-route-dir", rel, 0, "")
     if FRAMEWORK_CONFIG_RE.match(b):
         state.add("framework-config", rel, 0, "")
-    if UNPARSED_MANIFEST_RE.match(b) or (dirs and dirs[-1] == "requirements" and b.endswith((".txt", ".in"))):
+    in_code = "src" in dirs or TEST_PATH_RE.search(lower)  # tests/setup.py and src/setup.py are code, not a package's manifest
+    if not in_code and (UNPARSED_MANIFEST_RE.match(b) or (dirs and dirs[-1] == "requirements" and b.endswith((".txt", ".in")))):
         state.gaps["q9"] += 1
         state.add("manifest-not-parsed", rel, 0, "")
     if any(d in AUTH_SEGMENTS for d in dirs) or stem in AUTH_SEGMENTS or "[...nextauth]" in lower:
@@ -2347,7 +2372,7 @@ def run_scan(repo, state, opts):
                 state.stats["files_never_open"] += count_files(full, deadline)
                 for inner in _mcp_configs_inside(full, d.lower(), deadline):  # names only; nothing inside is opened
                     state.gaps["q1"] += 1
-                    if _cap_n(mcp_rows, MAX_NEVER_OPEN_MCP_ROWS):
+                    if _cap(mcp_rows, "mcp-config-not-opened"):
                         state.add("mcp-config-not-opened", (rel_dir + "/" if rel_dir else "") + d + "/" + inner, 0, "")
                 continue
             if d.lower() in opts.excluded:
@@ -2369,7 +2394,7 @@ def run_scan(repo, state, opts):
                 state.stats["files_never_open"] += 1
                 if NEVER_OPEN_SECRET_FILE_RE.match(name):
                     state.gaps["q1"] += 1
-                    if _cap_n(mcp_rows, MAX_NEVER_OPEN_MCP_ROWS):
+                    if _cap(mcp_rows, "mcp-config-not-opened"):
                         state.add("mcp-config-not-opened", rel, 0, "")
                 continue
             if name == ".git":
