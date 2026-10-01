@@ -14,6 +14,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the differential test reads the released scanner from origin/main
       - uses: actions/setup-python@v5
         with:
           python-version: "3.9"
@@ -21,6 +23,7 @@ jobs:
         env:
           CUSTODY_SLOW: "1"
           CUSTODY_REQUIRE_GIT: "1"
+          CUSTODY_REQUIRE_BASELINE: "1"   # never worse than main: the differential test must run, not skip
           CUSTODY_PERF_BUDGET_S: "60"
           CUSTODY_TIME_SLACK: "3"   # shared runners are loaded; the linearity bounds still catch quadratic paths
         run: python3 -m unittest discover -s custody-check/skills/custody-check/scripts -p '*_test.py' -v
@@ -65,14 +68,16 @@ jobs:
   custody-check-windows:
     runs-on: windows-latest
     timeout-minutes: 15
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the differential test reads the released scanner from origin/main
       - uses: actions/setup-python@v5
         with:
           python-version: "3.9"
-      - name: Scanner unit tests on Windows (informational until the first green run)
+      - name: Scanner unit tests on Windows
         env:
+          CUSTODY_REQUIRE_BASELINE: "1"
           CUSTODY_SLOW: "1"
           CUSTODY_PERF_BUDGET_S: "60"
           CUSTODY_TIME_SLACK: "3"
