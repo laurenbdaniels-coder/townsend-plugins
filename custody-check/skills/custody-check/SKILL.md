@@ -2,7 +2,7 @@
 name: custody-check
 description: Runs the eleven custody questions from the workshop "It Said It Was Fine" on an AI-built (vibe-coded) app, read-only, and renders a verdict of what the founder can prove, what they can't, the tier of their next change, and the door (ship it, patch it, shelve it). Use when the user says "custody check", "run custody-check on", "run the eleven questions", "is my vibe-coded app safe to ship", "check my app before real users see it", "what can a stranger read in my app", or asks whether an app built with Lovable, Replit, Bolt, v0, Cursor or Claude Code is okay to put in front of people. Not for code review, PR review, running tests, fixing bugs, or shipping a branch.
 license: MIT
-compatibility: Requires python3 3.9 or newer on macOS or Linux (Windows untested); git optional. Run from the folder that contains the app, never from inside it.
+compatibility: Requires python3 3.9 or newer on macOS or Linux (on Windows the scanner is unit-tested in CI but the skill run is untried); git optional. Run from the folder that contains the app, never from inside it.
 ---
 
 # Custody check

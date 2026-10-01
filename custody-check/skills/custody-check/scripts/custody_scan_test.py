@@ -120,6 +120,17 @@ def evidence_checks(q):
     return [e["check"] for e in q["evidence"]]
 
 
+def rm_tree(path):
+    """shutil.rmtree that also removes read-only files: git writes its objects read-only, and Windows refuses to unlink them."""
+    def clear_and_retry(func, target, _exc):
+        os.chmod(target, stat.S_IWRITE)
+        func(target)
+    if sys.version_info >= (3, 12):
+        shutil.rmtree(path, onexc=clear_and_retry)  # onerror is deprecated from 3.12
+    else:
+        shutil.rmtree(path, onerror=clear_and_retry)
+
+
 class ScanCase(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="custody test ")
@@ -133,7 +144,10 @@ class ScanCase(unittest.TestCase):
                     os.chmod(os.path.join(root, d), 0o755)
                 except OSError:
                     pass
-        shutil.rmtree(self.tmp, ignore_errors=True)
+        try:
+            rm_tree(self.tmp)  # git objects are read-only, and Windows will not unlink them otherwise
+        except OSError:
+            shutil.rmtree(self.tmp, ignore_errors=True)
 
     def write(self, rel, content, binary=False):
         path = os.path.join(self.repo, rel)
@@ -185,7 +199,7 @@ class ScanCase(unittest.TestCase):
         tests fail for a reason that has nothing to do with the scanner.
         """
         dest = dest or self.repo
-        shutil.rmtree(dest)
+        rm_tree(dest)
         shutil.copytree(os.path.join(FIXTURES, name), dest, symlinks=True)
         for root, _, files in os.walk(dest):
             for f in files:
@@ -958,7 +972,7 @@ class Q5Tests(ScanCase):
         ]
         for commits, tag, deploy, answer, conf in cases:
             with self.subTest(commits=commits, tag=tag, deploy=deploy):
-                shutil.rmtree(self.repo)
+                rm_tree(self.repo)
                 os.makedirs(self.repo)
                 if deploy:
                     self.write(deploy, "{}\n" if deploy.endswith("json") else "FROM node\n")
@@ -1056,7 +1070,7 @@ class Q5Tests(ScanCase):
         probe = mock.Mock(return_value=False)
         with mock.patch.object(cs, "_darwin_git_ready", probe), mock.patch.object(cs.sys, "platform", "darwin"), \
                 mock.patch.object(cs, "_trusted_git", return_value=shutil.which("git")):
-            if shutil.which("git") != "/usr/bin/git":
+            if shutil.which("git") != "/usr/bin/git" and os.name != "nt":  # a macOS host with its own git; Windows cannot pretend to be one
                 r = self.scan()
                 probe.assert_not_called()
                 self.assertIn("git-history", evidence_checks(r["questions"]["q5"]["code"]))
@@ -1952,12 +1966,12 @@ class ReviewCycleThreeAdversarialTests(ScanCase):
                  ("app/index.tsx", 'import { View } from "react-native";\nconst k = "%s";\n' % SK)]
         for rel, text in cases:
             with self.subTest(rel=rel):
-                shutil.rmtree(self.repo)
+                rm_tree(self.repo)
                 os.makedirs(self.repo)
                 self.write(rel, text)
                 q1 = self.scan()["questions"]["q1"]
                 self.assertEqual(q1["answer"], "no", rel)
-        shutil.rmtree(self.repo)
+        rm_tree(self.repo)
         os.makedirs(self.repo)
         self.write("pages/api/x.ts", 'const k = "%s";\n' % SK)
         self.write("app/api/y/route.ts", 'const k = "%s";\n' % GHP)
@@ -1986,7 +2000,7 @@ class ReviewCycleThreeAdversarialTests(ScanCase):
         r = self.scan()
         self.assertTrue(r["partial"])
         self.assertEqual(r["stats"]["files_skipped_hardlink"], 1)
-        shutil.rmtree(self.repo)
+        rm_tree(self.repo)
         os.makedirs(self.repo)
         self.write("src/lib/config.ts", b"\x00" + SK.encode(), binary=True)
         r = self.scan()
@@ -2202,6 +2216,7 @@ class ShipCoverageTests(ScanCase):
         self.assertFalse(cs._git_pointer_ok(self.repo))
 
     @unittest.skipUnless(HAVE_GIT, "git not installed")
+    @unittest.skipIf(os.name == "nt", "Windows realpath calls os.getcwd itself, and Windows cannot delete a working directory")
     def test_getcwd_failure_is_tolerated(self):
         self.write("src/a.ts", "x\n")
         self.init_repo(commits=2)
@@ -2849,7 +2864,7 @@ class SecurityRetryTests(ScanCase):
         self.assertIn("git-config-not-vouched", self._q5(r))
         self.assertIsNone(r["git"]["shallow"])
         os.remove(os.path.join(self.repo, ".git", "shallow"))
-        shutil.rmtree(os.path.join(self.repo, ".git", "objects"))
+        rm_tree(os.path.join(self.repo, ".git", "objects"))
         os.symlink(os.path.join(other, ".git", "objects"), os.path.join(self.repo, ".git", "objects"))
         r = self.scan()
         self.assertIn("git-config-not-vouched", self._q5(r))
@@ -3000,7 +3015,7 @@ class ReviewCycleTwoShipTests(ScanCase):
         q1 = self.scan()["questions"]["q1"]
         self.assertEqual(q1["answer"], "no")
         self.assertIn("client-key-literal", evidence_checks(q1))
-        shutil.rmtree(os.path.join(self.repo, "public"))
+        rm_tree(os.path.join(self.repo, "public"))
         self.write(".env", "X=%s\n" % SK)
         self.assertIn("non-client-key-literal", evidence_checks(self.scan()["questions"]["q1"]))
 
@@ -3362,6 +3377,182 @@ class ReviewCycleThreeShipTests(ScanCase):
         self.assertIn("tracked-env-file-nonprod", evidence_checks(q1))
 
 
+class WindowsReadTests(ScanCase):
+    """Windows opens files in text mode unless asked not to: CRLF shrinks to LF and every such file reads short."""
+
+    def test_crlf_file_is_read_whole(self):
+        self.write("src/api/route.ts", ('const k = "%s";\r\nexport default k;\r\n' % SK).encode(), binary=True)
+        r = self.scan()
+        self.assertEqual(r["files_scanned"], 1)
+        self.assertEqual(r["stats"]["files_errored"], 0)
+        self.assertIn("server-path-key-literal", evidence_checks(r["questions"]["q1"]))
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_every_os_open_asks_for_binary_mode(self):
+        self.write("src/a.ts", "x\n")
+        self.init_repo(commits=1)  # a real repo, so .git/config goes through the second opener
+        real_open, native = os.open, hasattr(os, "O_BINARY")
+        flag = os.O_BINARY if native else 1 << 29  # a stand-in bit on POSIX, stripped before the real call
+        repo = os.path.realpath(self.repo)
+        seen = []
+
+        def spy(path, flags, *a, **kw):
+            if os.path.realpath(str(path)).startswith(repo):  # subprocess opens os.devnull itself, without the flag
+                seen.append((str(path).replace(os.sep, "/"), flags))
+            return real_open(path, flags if native else flags & ~flag, *a, **kw)
+        with mock.patch.object(cs.os, "O_BINARY", flag, create=True), mock.patch.object(cs.os, "open", spy):
+            self.scan()
+        self.assertTrue(any(p.endswith("/src/a.ts") for p, _ in seen), seen)
+        self.assertTrue(any(p.endswith("/.git/config") for p, _ in seen), "the git config opener was never reached")
+        self.assertTrue(all(f & flag for _, f in seen), seen)
+
+
+class WindowsJunctionTests(ScanCase):
+    """Before 3.12, os.walk descends into an NTFS junction (islink is False for it); the containment check must still stop it."""
+
+    @unittest.skipUnless(os.name == "nt", "NTFS junctions are Windows-only")
+    def test_a_junction_out_of_the_app_folder_is_not_read(self):
+        outside = os.path.join(self.tmp, "outside")
+        os.makedirs(os.path.join(outside, "api"))
+        with open(os.path.join(outside, "api", "route.ts"), "w") as fh:
+            fh.write('const k = "%s";\n' % SK)
+        self.write("src/a.ts", "x\n")
+        subprocess.run(["cmd", "/c", "mklink", "/J", os.path.join(self.repo, "src", "linked"), outside], check=True, capture_output=True)
+        r = self.scan()
+        self.assertEqual(r["files_scanned"], 1)
+        self.assertNotIn("server-path-key-literal", evidence_checks(r["questions"]["q1"]))
+
+
+class _Reparse(object):
+    """An lstat result that reports the Windows reparse-point attribute, the way a junction does."""
+
+    def __init__(self, st):
+        self._st = st
+
+    tag = 0xA0000003  # IO_REPARSE_TAG_MOUNT_POINT, a junction
+
+    def __getattr__(self, name):
+        if name == "st_file_attributes":
+            return cs.FILE_ATTRIBUTE_REPARSE_POINT
+        return self.tag if name == "st_reparse_tag" else getattr(self._st, name)
+
+
+class GitJunctionTests(ScanCase):
+    """A junction anywhere git reads must stop git from being asked, or another checkout's history becomes this app's."""
+
+    def _q5(self, r):
+        return evidence_checks(r["questions"]["q5"]["code"])
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_reparse_points_in_git_metadata_are_refused(self):
+        self.write("vercel.json", "{}\n")
+        self.init_repo(commits=12, tag="v1")
+        real_lstat = os.lstat
+        for suffix in (".git", "/.git/refs", "/.git/objects", "/.git/refs/tags", "/.git/HEAD"):
+            with self.subTest(suffix=suffix):
+                def lstat(path, *a, **kw):
+                    st = real_lstat(path, *a, **kw)
+                    return _Reparse(st) if str(path).replace(os.sep, "/").endswith(suffix) else st
+                with mock.patch.object(cs.os, "lstat", lstat):
+                    r = self.scan()
+                self.assertIn("git-config-not-vouched", self._q5(r), suffix)
+                self.assertIsNone(r["git"]["commits"], suffix)
+        self.assertIn("git-history", self._q5(self.scan()), "without a reparse point the same repo is read")
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_a_data_only_reparse_point_is_not_refused(self):
+        self.init_repo(commits=2)
+        real_lstat = os.lstat
+
+        class Placeholder(_Reparse):
+            tag = 0x9000001A  # IO_REPARSE_TAG_CLOUD_A: a OneDrive placeholder stores data, it does not redirect
+
+        def lstat(path, *a, **kw):
+            st = real_lstat(path, *a, **kw)
+            return Placeholder(st) if str(path).replace(os.sep, "/").endswith("/.git/config") else st
+        with mock.patch.object(cs.os, "lstat", lstat):
+            self.assertIn("git-history", self._q5(self.scan()))
+
+    @unittest.skipUnless(os.name == "nt" and HAVE_GIT, "NTFS junctions are Windows-only")
+    def test_a_dot_git_junction_to_another_checkout_is_refused(self):
+        other = os.path.join(self.tmp, "other")
+        os.makedirs(other)
+        self.git("init", "-q", cwd=other)
+        with open(os.path.join(other, "f"), "w") as fh:
+            fh.write("x\n")
+        self.git("add", "f", cwd=other)
+        self.git("commit", "-qm", "c", cwd=other)
+        self.git("tag", "v1", cwd=other)
+        self.write("vercel.json", "{}\n")
+        subprocess.run(["cmd", "/c", "mklink", "/J", os.path.join(self.repo, ".git"), os.path.join(other, ".git")], check=True, capture_output=True)
+        r = self.scan()
+        self.assertIn("git-config-not-vouched", self._q5(r))
+        self.assertIsNone(r["git"]["commits"])
+
+    @unittest.skipUnless(os.name == "nt" and HAVE_GIT, "NTFS junctions are Windows-only")
+    def test_a_refs_junction_inside_git_is_refused(self):
+        other = os.path.join(self.tmp, "other")
+        os.makedirs(other)
+        self.git("init", "-q", cwd=other)
+        self.init_repo(commits=1)
+        rm_tree(os.path.join(self.repo, ".git", "refs"))
+        subprocess.run(["cmd", "/c", "mklink", "/J", os.path.join(self.repo, ".git", "refs"), os.path.join(other, ".git", "refs")], check=True, capture_output=True)
+        r = self.scan()
+        self.assertIn("git-config-not-vouched", self._q5(r))
+
+
+class KilledLatePopen(subprocess.Popen):
+    """The race Windows loses: git is still alive when the reader kills it at the output cap, so it exits non-zero."""
+
+    def kill(self):
+        super().kill()
+        self._killed = True
+
+    def wait(self, timeout=None):
+        rc = super().wait(timeout)
+        if getattr(self, "_killed", False):
+            self.returncode = rc = -9
+        return rc
+
+
+class KilledGitTests(ScanCase):
+    """Output cut at the cap is a floor, whatever exit code the killed git reports."""
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_truncated_tag_list_still_counts(self):
+        self.init_repo(commits=1)
+        for i in range(40):
+            self.git("tag", "t%03d" % i)
+        with mock.patch.object(cs, "GIT_OUTPUT_LIMIT", 512), mock.patch.object(cs.subprocess, "Popen", KilledLatePopen):
+            r = self.scan()
+        self.assertGreaterEqual(r["git"]["tags"], 1)
+        self.assertLess(r["git"]["tags"], 40)
+        self.assertFalse(r["partial"], "a floor answers Q5's any-tags question; it is not a gap")
+        history = [e for e in r["questions"]["q5"]["code"]["evidence"] if e["check"] == "git-history"][0]
+        self.assertIn("%d+ tags" % r["git"]["tags"], history["snippet"])
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_one_tag_longer_than_the_cap_still_counts(self):
+        self.init_repo(commits=1)
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        with open(os.path.join(self.repo, ".git", "packed-refs"), "w", newline="\n") as fh:  # packed (no Windows MAX_PATH), LF only (CR is not a ref char)
+            fh.write("# pack-refs with: peeled fully-peeled sorted \n%s refs/tags/t%s\n" % (head, "x" * 230))  # longer than the cap
+        with mock.patch.object(cs, "GIT_OUTPUT_LIMIT", 200), mock.patch.object(cs.subprocess, "Popen", KilledLatePopen):
+            r = self.scan()
+        self.assertEqual(r["git"]["commits"], 1, "the cap must still hold the repo path, or this test proves nothing")
+        self.assertEqual(r["git"]["tags"], 1)
+
+    @unittest.skipUnless(HAVE_GIT, "git not installed")
+    def test_tag_cut_mid_name_is_not_counted(self):
+        self.init_repo(commits=1)
+        for i in range(40):
+            self.git("tag", "t%03d" % i)
+        entry = len("refs/tags/t000\n")
+        with mock.patch.object(cs, "GIT_OUTPUT_LIMIT", 30 * entry + len("refs/tag")), \
+                mock.patch.object(cs.subprocess, "Popen", KilledLatePopen):
+            r = self.scan()
+        self.assertEqual(r["git"]["tags"], 30)
+
 class GitConfigOverriddenKeysTests(ScanCase):
     """Keys we already neutralise on every git command line must not cost the founder their git facts."""
 
@@ -3372,7 +3563,7 @@ class GitConfigOverriddenKeysTests(ScanCase):
     def test_keys_we_override_on_the_command_line_are_not_a_refusal(self):
         self.init_repo(commits=2)
         self.write("vercel.json", "{}\n")
-        hooks = os.path.join(self.repo, ".git", "hooks")
+        hooks = os.path.join(self.repo, ".git", "hooks").replace(os.sep, "/")  # git config reads a backslash as an escape
         for stanza in ("[core]\n\thooksPath = %s\n" % hooks,          # husky and friends set this
                        "[core]\n\tfsmonitor = true\n",
                        "[core]\n\tpager = less\n",
@@ -3541,7 +3732,7 @@ class OversizeRelevanceTests(ScanCase):
         for name in ("src/big.ts", "public/app.html", "config/seed.json", "deploy.yaml", "wrangler.toml",
                      "supabase/migrations/1.sql", "firestore.rules", ".env.production", "prod.env"):
             with self.subTest(name=name):
-                shutil.rmtree(self.repo)
+                rm_tree(self.repo)
                 os.makedirs(self.repo)
                 self.write(name, "x" * self.BIG)
                 r = self.scan()
@@ -3609,7 +3800,7 @@ class NothingFoundTests(ScanCase):
     def test_q1_with_any_evidence_row_stays_dont_know(self):
         self.write("src/components/S.tsx", 'const c = createClient(url, "%s");\n' % ANON_JWT)
         self.assertEqual(self.scan()["questions"]["q1"]["answer"], "dont-know")
-        shutil.rmtree(self.repo)
+        rm_tree(self.repo)
         os.makedirs(self.repo)
         self.write(".env", "A=b\n")  # not a git repo: an env file on disk is worth a look, not "nothing"
         self.assertEqual(self.scan()["questions"]["q1"]["answer"], "dont-know")
@@ -3787,7 +3978,7 @@ class NothingFoundGapTests(ScanCase):
         for name, body in (("firestore.rules", b"\x00allow write: if true;"), (".mcp.json", b"\x00{\"TOKEN\": \"x\"}"),
                            ("db/2.sql", b"\x00alter table t disable row level security;"), ("conf.yaml", b"\x00a: b")):
             with self.subTest(name=name):
-                shutil.rmtree(self.repo)
+                rm_tree(self.repo)
                 os.makedirs(self.repo)
                 self.base_app()
                 self.write(name, body, binary=True)
@@ -3819,11 +4010,11 @@ class NothingFoundGapTests(ScanCase):
         self.assertEqual(len(rows), 1, "one row lists every skipped build folder; a monorepo must not fill the evidence with them")
         self.assertIn("2 build folders not read: build, packages/ui/dist", rows[0]["snippet"])
         self.assertEqual(self.q("q3")["answer"], "dont-know", "a build folder could hold a rules file too")
-        shutil.rmtree(os.path.join(self.repo, "build"))
-        shutil.rmtree(os.path.join(self.repo, "packages"))
+        rm_tree(os.path.join(self.repo, "build"))
+        rm_tree(os.path.join(self.repo, "packages"))
         self.write(".next/static/chunks/main.js", "x\n")  # the bundle the browser downloads
         self.assertEqual(self.q("q1")["answer"], "dont-know")
-        shutil.rmtree(os.path.join(self.repo, ".next"))
+        rm_tree(os.path.join(self.repo, ".next"))
         self.write("coverage/lcov-report/x.js", "x\n")  # a report is never source
         self.write("node_modules/x/index.js", "x\n")
         self.write("vendor/x/index.php", "x\n")  # a root vendor folder is dependencies
@@ -3975,7 +4166,7 @@ class NothingFoundGapTests(ScanCase):
         # found in cycle 2: widening the template separators made `defaults_store.tsx` an env template, and a client key inside it lost its `no`
         for name in ("src/components/defaults_store.tsx", "src/sample_data.ts", "src/template_engine.ts", "src/example_usage.tsx"):
             with self.subTest(name=name):
-                shutil.rmtree(self.repo)
+                rm_tree(self.repo)
                 os.makedirs(self.repo)
                 self.write(name, 'export const apiSecret = "%s";\n' % ("a1b2c3d4" * 8))
                 self.assertEqual(self.q("q1")["answer"], "no", name)
@@ -4090,11 +4281,11 @@ class NothingFoundGapTests(ScanCase):
     def test_health_routes_in_every_layout_are_seen(self):
         for path in ("pages/api/health.ts", "app/api/health/route.ts", "src/app/api/healthz/route.ts", "src/routes/health/+server.ts", "server/api/health.get.ts", "api/health/index.ts"):
             with self.subTest(path=path):
-                shutil.rmtree(self.repo)
+                rm_tree(self.repo)
                 os.makedirs(self.repo)
                 self.write(path, "export default () => 1;\n")
                 self.assertIn("health-route", evidence_checks(self.q("q9")), path)
-        shutil.rmtree(self.repo)
+        rm_tree(self.repo)
         os.makedirs(self.repo)
         self.write("src/healthy/index.ts", "x\n")
         self.assertNotIn("health-route", evidence_checks(self.q("q9")))
@@ -4139,7 +4330,7 @@ class NothingFoundGapTests(ScanCase):
     def test_precompressed_bundle_is_browser_code(self):
         for name in ("public/app.js.gz", "public/app.js.br", "static/index.html.br"):
             with self.subTest(name=name):
-                shutil.rmtree(self.repo)
+                rm_tree(self.repo)
                 os.makedirs(self.repo)
                 self.base_app()
                 self.write(name, b"\x01" * 600000, binary=True)
@@ -4147,12 +4338,12 @@ class NothingFoundGapTests(ScanCase):
                 self.assertFalse(r["partial"], "an unreadable bundle is a gap, not an incomplete scan")
                 self.assertEqual(r["questions"]["q1"]["answer"], "dont-know")
                 self.assertEqual(r["stats"]["files_skipped_generated"], 1)
-        shutil.rmtree(self.repo)
+        rm_tree(self.repo)
         os.makedirs(self.repo)
         self.base_app()
         self.write("public/app.js.br", "var k = 1;\n")  # brotli has no header: a small one can decode as text, and must still not count as read
         self.assertEqual(self.q("q1")["answer"], "dont-know")
-        shutil.rmtree(self.repo)
+        rm_tree(self.repo)
         os.makedirs(self.repo)
         self.base_app()
         for name in ("backups/archive.tar.gz", "src/data.json.gz", "public/hero.png", "docs/deck.pdf"):
@@ -4279,14 +4470,14 @@ class NothingFoundGapTests(ScanCase):
     def test_oversize_relevant_stat_and_env_names_without_extension(self):
         for name in (".env", ".envrc", ".mcp.json", "package.json"):
             with self.subTest(name=name):
-                shutil.rmtree(self.repo)
+                rm_tree(self.repo)
                 os.makedirs(self.repo)
                 self.base_app()
                 self.write(name, "x" * 600000)
                 r = self.scan()
                 self.assertTrue(r["partial"], name)
                 self.assertEqual(r["stats"]["files_skipped_oversize_relevant"], 1, name)
-        shutil.rmtree(self.repo)
+        rm_tree(self.repo)
         os.makedirs(self.repo)
         self.write("public/a.jpeg", b"\xff" * 600000, binary=True)
         self.assertEqual(self.scan()["stats"]["files_skipped_oversize_relevant"], 0)
