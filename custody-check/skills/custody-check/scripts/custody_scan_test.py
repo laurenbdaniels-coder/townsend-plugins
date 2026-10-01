@@ -5185,7 +5185,7 @@ class DeployWorkflowTests(ScanCase):
         self.assertEqual([(r["snippet"], r["line"]) for r in rows], [("vercel deploy --prod", 5)])
 
     def test_a_named_deploy_script_counts(self):
-        for step, label in (("      - run: npm run deploy\n", "npm run deploy"), ("      - run: pnpm run deploy:prod\n", "pnpm run deploy"),
+        for step, label in (("      - run: npm run deploy\n", "npm run deploy"), ("      - run: pnpm run deploy:prod\n", "pnpm run deploy:prod"),
                             ("      - run: yarn deploy\n", "yarn deploy"), ("      - run: bun run deploy\n", "bun run deploy"),
                             ("      - run: make deploy\n", "make deploy"), ("      - run: ./scripts/deploy.sh production\n", "deploy script"),
                             ("      - run: bash scripts/deploy-prod.sh\n", "deploy script")):
@@ -5194,6 +5194,29 @@ class DeployWorkflowTests(ScanCase):
                 os.makedirs(self.repo)
                 self.write(".github/workflows/d.yml", "on: push\njobs:\n  d:\n    steps:\n" + step)
                 self.assertEqual([r["snippet"] for r in self.deploy_rows(self.scan()["questions"])], [label])
+
+    def test_deploy_after_an_env_assignment_or_an_apostrophe_counts(self):
+        for step, label in (("      - run: DEPLOY_TOKEN=abc ./scripts/deploy.sh x\n", "deploy script"),
+                            ("      - run: FOO=1 npm run deploy\n", "npm run deploy"),
+                            ("      - run: echo don't && vercel deploy --prod\n", "vercel deploy --prod"),
+                            ("      - run: echo it's ok; npm run deploy\n", "npm run deploy"),
+                            ("      - run: npm run deploy:docs\n", "npm run deploy:docs")):
+            with self.subTest(step=step):
+                shutil.rmtree(self.repo)
+                os.makedirs(self.repo)
+                self.write(".github/workflows/d.yml", "on: push\njobs:\n  d:\n    steps:\n" + step)
+                self.assertEqual([r["snippet"] for r in self.deploy_rows(self.scan()["questions"])], [label])
+
+    def test_scripts_that_only_mention_deploy_do_not_count(self):
+        self.write(".github/workflows/n.yml", "on: push\njobs:\n  n:\n    steps:\n      - run: ./scripts/predeploy.sh\n"
+                                              "      - run: ./scripts/undeploy.sh\n      - run: bash deploy_test.sh\n      - run: ./deploy-check.sh\n")
+        self.assertEqual(self.deploy_rows(self.scan()["questions"]), [])
+
+    def test_deploy_label_stays_linear_on_a_hostile_line(self):
+        self.write(".github/workflows/h.yml", "on: push\njobs:\n  h:\n    steps:\n      - run: vercel deploy " + "app " * 32000 + "x " + "--prebuilt " * 32000 + "\n")
+        t0 = time.perf_counter()
+        self.scan()
+        self.assertLess(time.perf_counter() - t0, bound(2.0))
 
     def test_a_separator_inside_quotes_is_not_a_command(self):
         self.write(".github/workflows/q.yml", "on: push\njobs:\n  q:\n    steps:\n      - run: echo \"done; vercel deploy --prod\"\n"
@@ -5292,6 +5315,25 @@ class ModelLiteralTests(ScanCase):
                 q8 = self.q8()
                 self.assertEqual(evidence_checks(q8), ["model-literal"])
                 self.assertEqual(q8["confidence"], "med")
+
+    def test_app_routes_named_docs_or_evals_stay_hints(self):
+        for rel in ("app/docs/page.tsx", "src/app/docs/[slug]/page.tsx", "pages/docs/index.tsx", "src/scripts/llm.ts",
+                    "apps/docs/app/page.tsx", "src/examples/chat.ts", "app/evals/route.ts", "server/scripts/ai.py"):
+            with self.subTest(rel=rel):
+                self.fresh()
+                self.write(rel, 'm = "gpt-4o"\n')
+                q8 = self.q8()
+                self.assertEqual(evidence_checks(q8), ["model-literal"])
+                self.assertEqual(q8["confidence"], "med")
+
+    def test_more_import_forms_are_provider_context(self):
+        for rel, src in (("scripts/a.py", "import os, openai\nm = 'gpt-4o'\n"),
+                         ("scripts/b.ts", 'import OpenAI from\n  "openai";\nconst m = "gpt-4o";\n'),
+                         ("scripts/c.rb", 'require "openai"\nm = "gpt-4o"\n')):
+            with self.subTest(rel=rel):
+                self.fresh()
+                self.write(rel, src)
+                self.assertEqual(evidence_checks(self.q8()), ["model-literal"])
 
     def test_a_model_name_outside_runtime_code_is_only_mentioned(self):
         for rel in ("scripts/research.py", "research/compare.py", "notebooks/eval.py", "docs/snippets/a.ts", "examples/demo.ts",

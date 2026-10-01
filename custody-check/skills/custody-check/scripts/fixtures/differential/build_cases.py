@@ -163,6 +163,17 @@ wf("workflow separator inside quotes", "      - run: echo \"done; vercel deploy 
 wf("workflow run with no space", "      - run:vercel deploy --prod\n")
 case("workflow crlf if false", {W % "off": "on: push\r\njobs:\r\n  d:\r\n    if: false\r\n    steps:\r\n      - run: vercel deploy --prod\r\n"})
 
+# ---- review cycle 3 for #16/#17
+for rel in ("app/docs/page.tsx", "pages/docs/index.tsx", "src/scripts/llm.ts", "apps/docs/app/page.tsx", "app/evals/route.ts", "server/scripts/ai.py"):
+    case("model name in app route " + rel, {rel: 'm = "gpt-4o"\n'})
+case("python import list with openai", {"scripts/a.py": "import os, openai\nm = 'gpt-4o'\n"})
+case("js import across lines", {"scripts/b.ts": 'import OpenAI from\n  "openai";\nconst m = "gpt-4o";\n'})
+case("ruby require openai", {"scripts/c.rb": 'require "openai"\nm = "gpt-4o"\n'})
+wf("workflow env then deploy script", "      - run: DEPLOY_TOKEN=abc ./scripts/deploy.sh x\n")
+wf("workflow apostrophe then deploy", "      - run: echo don't && vercel deploy --prod\n")
+wf("workflow predeploy only", "      - run: ./scripts/predeploy.sh\n      - run: ./scripts/undeploy.sh\n      - run: bash deploy_test.sh\n")
+wf("workflow hostile label line", "      - run: vercel deploy " + "app " * 2000 + "x " + "--prebuilt " * 2000 + "\n")
+
 def answers(scanner, files):
     tmp = tempfile.mkdtemp()
     try:

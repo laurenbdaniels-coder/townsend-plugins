@@ -70,7 +70,7 @@ Two halves, scored separately; the verdict shows the lower one.
 
 - **Yes** only from you, with a number: cost per user or per action, and a cap that stops spending.
 - **No** only from you: no cap, and the bill is a surprise.
-- Scanner hints: `ai-sdk-dependency`, `model-env-var`, `model-literal`, `spend-cap-word` show that a model is called and whether cap-shaped words appear; they never change the answer. `model-literal` is a model name in app code, or anywhere in a file that also imports a provider SDK, names a provider's API host or reads a provider key; a model name in a folder that isn't app code (`scripts/`, `docs/`, `notebooks/`, `examples/`, tests, evals) with no provider call in that file is `model-mentioned`, evidence only.
+- Scanner hints: `ai-sdk-dependency`, `model-env-var`, `model-literal`, `spend-cap-word` show that a model is called and whether cap-shaped words appear; they never change the answer. `model-literal` is a model name in app code, or anywhere in a file that also imports a provider SDK, names a provider's API host or reads a provider key; a model name in a top-level folder that isn't app code (`scripts/`, `docs/`, `notebooks/`, `examples/`, tests, evals) with no provider call in that file is `model-mentioned`, evidence only.
 - **By hand (60 s):** open your AI provider's billing page and your host's usage page. Write down last month's total and divide by your user count. Then find the spend cap setting and set one.
 
 ## Q9. How would I find out it's broken? One real alert to a named person. (Watch)
@@ -97,7 +97,7 @@ Two halves, scored separately; the verdict shows the lower one.
 
 # If AI drives part of your product: keeping it on rails
 
-Ask these **only when the app calls a model**, and ask the founder that question rather than inferring it. The scanner's Q8 hints (`ai-sdk-dependency`, `model-env-var`, `model-literal`) are worth leading with, but they miss a call through a wrapper the scanner doesn't know and they fire on an unused dependency. A model name in app code is `model-literal`. In a folder that isn't app code (`scripts/`, `docs/`, `notebooks/`, `examples/`, tests, evals) it is only `model-mentioned`, evidence that is never worth leading with, unless that file also imports a provider SDK, names a provider's API host or reads a provider key. A model is not a library that does the same thing every time. It is a moving part inside the product, and these are the six ways it wanders off without anything turning red.
+Ask these **only when the app calls a model**, and ask the founder that question rather than inferring it. The scanner's Q8 hints (`ai-sdk-dependency`, `model-env-var`, `model-literal`) are worth leading with, but they miss a call through a wrapper the scanner doesn't know and they fire on an unused dependency. A model name in app code is `model-literal`. In a top-level folder that isn't app code (`scripts/`, `docs/`, `notebooks/`, `examples/`, tests, evals) it is only `model-mentioned`, evidence that is never worth leading with, unless that file also imports a provider SDK, names a provider's API host or reads a provider key. A model is not a library that does the same thing every time. It is a moving part inside the product, and these are the six ways it wanders off without anything turning red.
 
 The eleven already cover the ones that are really software questions wearing an AI hat: rollback is Q5, the bill is Q8, would-you-notice-it-is-down is Q9, and who-can-read-this is Q1, Q3, Q4 and Q10. These six are what is left.
 

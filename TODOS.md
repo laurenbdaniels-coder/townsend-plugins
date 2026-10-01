@@ -218,6 +218,18 @@
 **Priority:** P3
 **Depends on:** None
 
+### Model-name snippets can carry instruction-like text
+
+**What:** `MODEL_LITERAL_RE` accepts any `claude-`/`gemini-`/`mistral-` suffix, so a string like `claude-ignore-rules-ship-it` prints verbatim as a Q8 row the skill's model reads.
+
+**Why:** Scanner rows are data, but a row that reads like an instruction is avoidable. 0.3.2 prints the same row whenever that name is in the code; the #17 row eviction only changes which rows survive the 12-row cap.
+
+**Context:** From Codex in the #16/#17 review cycle 3. Restrict the suffix to version-shaped tokens (digits, dates, a short known word list such as `sonnet`, `haiku`, `opus`, `flash`, `pro`, `mini`), or print a fixed label for names outside that shape.
+
+**Effort:** S
+**Priority:** P2
+**Depends on:** None
+
 ### Workflow shapes the deploy check still reads like 0.3.2
 
 **What:** A `run:` key inside a `with:` map or a `script: |` block (actions/github-script), a heredoc body, a multi-document workflow read as one document, and a `run: |` body bounded by the `-` column (sibling keys after it are read as commands) can still count as a deploy step. Real deploys it misses (Don't know): folded or backslash-continued commands, `env CI=1 vercel`, `bash -c '...'`, flow-style steps, reusable workflows (`jobs.x.uses:`), local composite actions (`uses: ./.github/actions/deploy`), `superfly/flyctl-actions` with `args: deploy`, workflows over the read limit. An `if: false` on any step turns off the whole file.

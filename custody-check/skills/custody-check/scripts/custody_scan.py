@@ -278,17 +278,17 @@ MODEL_PROVIDER_RE = re.compile(r"(?:" + MODEL_PROVIDER_ALT + r")_", re.I)
 MODEL_ENV_RE = re.compile(r"\b((?:" + MODEL_PROVIDER_ALT + r"|HF)_[A-Z0-9_]*(?:KEY|TOKEN|SECRET))\b")  # HF_ is too short to trust as a provider prefix on a Google key
 # A model name is a hint, as in 0.3.2, except in a path that is not runtime code (NON_RUNTIME_PATH_RE, tests)
 # where it is only a mention unless that file also reaches a provider: an SDK import, a provider host or key (#17).
-NON_RUNTIME_PATH_RE = re.compile(r"(?:^|/)(?:scripts?|research|notebooks?|docs?|examples?|samples?|evals?|benchmarks?)/", re.I)
+NON_RUNTIME_PATH_RE = re.compile(r"^(?:scripts?|research|notebooks?|docs?|examples?|samples?|evals?|benchmarks?)/", re.I)  # repo root only: app/docs/page.tsx is a route
 AI_DEPS = {"openai", "@anthropic-ai/sdk", "anthropic", "ai", "@ai-sdk/openai", "@ai-sdk/anthropic", "@ai-sdk/google", "langchain", "@langchain/core", "@langchain/openai", "@langchain/anthropic", "@google/generative-ai", "google-generativeai", "@google/genai", "cohere-ai", "cohere", "replicate", "@mistralai/mistralai", "mistralai", "groq-sdk", "groq", "together-ai", "litellm", "ollama", "openrouter", "@huggingface/inference", "transformers"}
 # Imports that also show a provider call, beyond AI_DEPS. They are context for model names only; the
 # ai-sdk-dependency check keeps AI_DEPS as released (widening it is a TODO, not this change).
 AI_IMPORT_ONLY = {"@ai-sdk/mistral", "@ai-sdk/groq", "@ai-sdk/gateway", "@langchain/google-genai", "@openrouter/ai-sdk-provider", "@aws-sdk/client-bedrock-runtime"}
 # "openai", "npm:openai@4" (Deno and Supabase edge functions), "jsr:@anthropic-ai/sdk", "https://esm.sh/openai@4"
-AI_JS_IMPORT_RE = re.compile(r"(?:\bfrom[ \t]*|\brequire[ \t]*\([ \t]*|\bimport[ \t]*\([ \t]*|^[ \t]*import[ \t]+)[\"'](?:npm:|jsr:|https?://esm\.sh/|https?://cdn\.jsdelivr\.net/npm/)?(?:"
+AI_JS_IMPORT_RE = re.compile(r"(?:\bfrom\s{0,20}|\brequire[ \t]*\(?[ \t]*|\bimport[ \t]*\([ \t]*|^[ \t]*import[ \t]+)[\"'](?:npm:|jsr:|https?://esm\.sh/|https?://cdn\.jsdelivr\.net/npm/)?(?:"
                              + "|".join(re.escape(p) for p in sorted(AI_DEPS | AI_IMPORT_ONLY, key=len, reverse=True))
                              + r"|@ai-sdk/[\w.-]{1,60}|@anthropic-ai/[\w.-]{1,60}|@langchain/[\w.-]{1,60}|@google-cloud/vertexai|@azure/openai|openai-edge|llamaindex"
                              + r")(?:@[\w.^~-]{1,40})?(?:/[^\"'\n]{0,80})?[\"']", re.M)
-AI_PY_IMPORT_RE = re.compile(r"^[ \t]*(?:(?:from|import)[ \t]+(?:openai|anthropic|langchain(?:_[a-z_]+)?|cohere|replicate|mistralai|groq|litellm|ollama|together|transformers|huggingface_hub|vertexai|google\.generativeai|google\.genai)\b"
+AI_PY_IMPORT_RE = re.compile(r"^[ \t]*(?:(?:from|import)[ \t]+(?:[\w.]{1,60}[ \t]*,[ \t]*){0,20}(?:openai|anthropic|langchain(?:_[a-z_]+)?|cohere|replicate|mistralai|groq|litellm|ollama|together|transformers|huggingface_hub|vertexai|google\.generativeai|google\.genai)\b"
                              r"|from[ \t]+google[ \t]+import[ \t]+(?:genai|generativeai)\b)", re.M)
 # a provider API host, the Lovable AI gateway and its key, or a Bedrock runtime client
 PROVIDER_REF_RE = re.compile(r"api\.openai\.com|api\.anthropic\.com|generativelanguage\.googleapis\.com|aiplatform\.googleapis\.com|api\.mistral\.ai|api\.groq\.com"
@@ -303,8 +303,10 @@ DEPLOY_ACTION_RE = re.compile(r"^[ \t]*(?:-[ \t]*)?uses:[ \t]*[\"']?(amondnet/ve
 WORKFLOW_RUN_RE = re.compile(r"^([ \t]*)(?:-[ \t]+)?run[ \t]*:(?=[ \t\r]|$)[ \t]*(.*)$")  # `run:vercel` is a plain string, not a key
 WORKFLOW_DISABLED_RE = re.compile(r"^[ \t]*(?:-[ \t]+)?if[ \t]*:[ \t]*(?:\$\{\{[ \t]*false[ \t]*\}\}|false)[ \t]*(?:#[^\n]*)?\r?$", re.M)
 # a script named deploy: npm/pnpm/bun run deploy[:env], yarn deploy, make deploy, ./scripts/deploy.sh, bash deploy-prod.sh
-DEPLOY_SCRIPT_RE = re.compile(r"^(?:((?:npm|pnpm|bun)[ \t]+run|yarn(?:[ \t]+run)?|make)[ \t]+deploy(?::[\w-]{1,40})?|((?:(?:ba|z)?sh[ \t]+)?(?:\./)?[\w./-]{0,120}?deploy[\w.-]{0,40}\.sh))(?:[ \t]|$)")
+COMMAND_SPLIT_RE = re.compile(r"&&|\|\||[;&|]")
+DEPLOY_SCRIPT_RE = re.compile(r"^(?:((?:npm|pnpm|bun)[ \t]+run|yarn(?:[ \t]+run)?|make)[ \t]+(deploy(?::[\w-]{1,40})?)|((?:(?:ba|z)?sh[ \t]+)?(?:\./)?(?:[\w.-]{0,60}/){0,6}deploy(?![\w.-]*(?:test|check))[\w.-]{0,40}\.sh))(?:[ \t]|$)")
 # env assignments and package-runner wrappers in front of the tool: FORCE=1 npx --yes vercel, pnpm dlx vercel, npm exec -- vercel
+ENV_PREFIX_RE = re.compile(r"^(?:(?:[A-Za-z_][A-Za-z0-9_]*=[^ \t]*|sudo|env)[ \t]+)*")  # DEPLOY_TOKEN=x ./scripts/deploy.sh
 COMMAND_PREFIX_RE = re.compile(r"^(?:(?:[A-Za-z_][A-Za-z0-9_]*=[^ \t]*|sudo|npx|bunx|yarn|pnpm|npm|exec|dlx|--yes|-y|--)[ \t]+)*")
 _PIN = r"(?:@[\w.^~-]{1,40})?"  # npx vercel@latest, pnpm dlx vercel@33
 VERCEL_NOT_DEPLOY = r"(?![ \t]+(?:build|pull|env|link|login|logout|whoami|ls|list|inspect|logs|alias|dev|domains|dns|certs|secrets|teams|switch|init|git|project|projects|rm|remove|help)\b)"
@@ -1830,6 +1832,8 @@ def _split_commands(line):
                 i += 1
             start = i + 1
         i += 1
+    if quote:  # a quote that never closes is an apostrophe in prose, not a quoted string
+        return COMMAND_SPLIT_RE.split(line)
     out.append(line[start:])
     return out
 
@@ -1869,7 +1873,12 @@ def _deploy_label(command):
         if w not in DEPLOY_LABEL_WORDS:
             break
         lead.append(w)
-    return " ".join(lead + [w for w in words[len(lead):] if w in ("--prod", "--prebuilt") and w not in lead])
+    seen = set(lead)
+    for w in words[len(lead):]:
+        if w in ("--prod", "--prebuilt") and w not in seen:
+            seen.add(w)
+            lead.append(w)
+    return " ".join(lead)
 
 
 def detect_workflow(sf, state, opts):
@@ -1885,11 +1894,11 @@ def detect_workflow(sf, state, opts):
         found.append((line_of(sf.text, m.start()), m.group(1)))
     for line_no, command in _run_commands(sf.text):
         state.tick()
-        script = DEPLOY_SCRIPT_RE.match(command)
-        if script:
-            found.append((line_no, " ".join(script.group(1).split() + ["deploy"]) if script.group(1) else "deploy script"))
-            break
         tool = COMMAND_PREFIX_RE.sub("", command)
+        script = DEPLOY_SCRIPT_RE.match(command) or DEPLOY_SCRIPT_RE.match(ENV_PREFIX_RE.sub("", command))
+        if script:
+            found.append((line_no, " ".join(script.group(1).split() + [script.group(2)]) if script.group(1) else "deploy script"))
+            break
         if DEPLOY_CLI_RE.match(tool):
             found.append((line_no, _deploy_label(tool)))
             break
