@@ -5179,6 +5179,98 @@ class WorseThanMainPerformanceTests(ScanCase):
                 self.q_of(files)
                 self.assertLess(time.perf_counter() - t0, bound(3.0), "%s: a 512 KB file of nested conditions" % name)
 
+    # ----------------------------------------------------------------- P1-b: the never-open MCP walk
+    def agent_dir(self, name=".kiro"):
+        path = os.path.join(self.tmp, "agent", name)
+        os.makedirs(path)
+        return path
+
+    @staticmethod
+    def found(res):
+        """The names reported, from an McpScan or from 22797d9's plain list, so the guards run on both."""
+        return list(res.found if hasattr(res, "found") else res)
+
+    def touch(self, base, rel):
+        full = os.path.join(base, *rel.split("/"))
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        with open(full, "w") as fh:
+            fh.write("{}")
+
+    def test_the_mcp_walk_returns_found_and_truncated(self):
+        path = self.agent_dir(".claude")
+        self.touch(path, "mcp.json")
+        res = cs._mcp_configs_inside(path, ".claude")
+        found, truncated = res
+        self.assertEqual((res.found, res.truncated), (["mcp.json"], False))
+        self.assertEqual((found, truncated), (["mcp.json"], False))
+
+    @unittest.skipIf(platform.system() == "Windows", "a 400-deep chain is past MAX_PATH")
+    def test_a_deep_and_wide_agent_folder_walks_fast(self):
+        if os.environ.get("CUSTODY_SLOW") != "1":
+            self.skipTest("CUSTODY_SLOW=1 not set")
+        path = self.agent_dir(".claude")
+        bottom = os.path.join(path, *(["a"] * 400))
+        os.makedirs(bottom)
+        for i in range(9000):
+            os.mkdir(os.path.join(bottom, "d%d" % i))
+        t0 = time.perf_counter()
+        res = cs._mcp_configs_inside(path, ".claude", time.monotonic() + 120)
+        self.assertLess(time.perf_counter() - t0, bound(1.0), "the never-open MCP walk must be linear in folders")
+        # each folder walked counts toward the cap, as in count_files (9,400 entries + 401 folders > 10,000).
+        # Mutation: dropping the per-folder count leaves this untruncated and about 14x slower.
+        self.assertTrue(res.truncated)
+
+    def test_an_mcp_folder_inside_an_mcp_folder_reports_only_the_outer_one(self):
+        # GUARD 3. Mutation: deleting the prune reports both.
+        path = self.agent_dir(".claude")
+        self.touch(path, "mcp-servers/mcp.json")
+        self.touch(path, "mcp-servers/deeper/mcp-two.json")
+        self.assertEqual(self.found(cs._mcp_configs_inside(path, ".claude")), ["mcp-servers"])
+
+    def test_the_walk_never_goes_below_a_reported_folder(self):
+        # GUARD 4. Mutation: deleting the prune walks into mcp-servers/.
+        path = self.agent_dir(".claude")
+        self.touch(path, "mcp-servers/a/b/c.json")
+        self.touch(path, "other/x.json")
+        real, yielded = os.walk, []
+
+        def walk(top, *a, **kw):
+            for step in real(top, *a, **kw):
+                yielded.append(step[0])
+                yield step
+        with mock.patch.object(cs.os, "walk", walk):
+            found = self.found(cs._mcp_configs_inside(path, ".claude"))
+        self.assertEqual(list(found), ["mcp-servers"])
+        below = [d for d in yielded if d.startswith(os.path.join(path, "mcp-servers") + os.sep)]
+        self.assertEqual(below, [])
+        self.assertIn(os.path.join(path, "other"), yielded)
+
+    def test_a_trailing_separator_does_not_change_the_names(self):
+        # GUARD 4b. Mutation: dropping the rstrip cuts the first character of every nested name.
+        path = self.agent_dir(".claude")
+        self.touch(path, "tools/mcp.json")
+        self.assertEqual(self.found(cs._mcp_configs_inside(path + os.sep, ".claude")), ["tools/mcp.json"])
+
+    def test_pre_seeded_agent_paths_report_as_before(self):
+        # GUARD 5: the same lists 22797d9 gave.
+        kiro = self.agent_dir(".kiro")
+        self.touch(kiro, "settings/mcp.json")
+        self.touch(kiro, "settings/other-mcp.json")
+        self.assertEqual(self.found(cs._mcp_configs_inside(kiro, ".kiro")), ["settings/mcp.json", "settings/other-mcp.json"])
+        amazonq = self.agent_dir(".amazonq")
+        self.touch(amazonq, "cli-agents/mcp.json")
+        self.touch(amazonq, "mcp.json")
+        self.assertEqual(self.found(cs._mcp_configs_inside(amazonq, ".amazonq")), ["cli-agents", "mcp.json"])
+
+    def test_an_agent_folder_cut_off_by_the_cap_withholds_q1(self):
+        # GUARD 7. Mutation: dropping the q1 gap increment lets Q1 say nothing found.
+        self.assertEqual(self.q_of({".claude/x/f.txt": "x"}, "q1")["answer"], "nothing-found")
+        files = {".claude/x/sub/mcp.json": "{}"}
+        files.update({".claude/x/f%d.txt" % i: "x" for i in range(60)})
+        with mock.patch.object(cs, "MAX_NEVER_OPEN_COUNT", 50):
+            q1 = self.q_of(files, "q1")
+        self.assertNotEqual(q1["answer"], "nothing-found")
+
 
 class NeverWorseThanMainTests(unittest.TestCase):
     """The scanner on this branch against the answers the released baseline gave on the same files

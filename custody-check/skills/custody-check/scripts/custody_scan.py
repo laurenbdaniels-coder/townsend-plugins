@@ -42,6 +42,7 @@ if _guard is not None and __name__ == "__main__":
 import argparse
 import base64
 import bisect
+import collections
 import json
 import os
 import re
@@ -767,27 +768,36 @@ def count_files(path, deadline=None):
     return n
 
 
+McpScan = collections.namedtuple("McpScan", "found truncated")
+
+
 def _mcp_configs_inside(path, name, deadline=None):
     """Paths, relative to a never-open agent folder, of anything that looks like an MCP server config. Only names are
-    read, never contents, and the walk is bounded like count_files."""
+    read, never contents, and the walk is bounded like count_files: each folder and each entry counts once. Returns
+    McpScan(found, truncated); truncated means the walk stopped at the cap or the deadline, so a config past that
+    point was not looked at. A reported folder is never walked into."""
+    path = path.rstrip(os.sep + (os.altsep or "")) or path
     found = [inner for inner in NEVER_OPEN_MCP_PATHS.get(name, ()) if _lexists_inside(path, inner)]
     seen = set(found)
     entries = 0
+
+    def stop():
+        return entries >= MAX_NEVER_OPEN_COUNT or (deadline is not None and entries % DEADLINE_TICK == 0 and time.monotonic() > deadline)
     for dirpath, dirs, files in os.walk(path, followlinks=False, onerror=lambda e: None):
-        rel = os.path.relpath(dirpath, path).replace(os.sep, "/")
-        parts = rel.split("/")
-        if rel != "." and any("/".join(parts[:i]) in seen for i in range(1, len(parts) + 1)):
-            dirs[:] = []  # inside a folder already reported
-            continue
+        entries += 1
+        if stop():
+            return McpScan(found, True)
+        rel = "." if dirpath == path else dirpath[len(path) + 1:].replace(os.sep, "/")
         for f in dirs + files:
             entries += 1
-            if entries >= MAX_NEVER_OPEN_COUNT or (deadline is not None and entries % DEADLINE_TICK == 0 and time.monotonic() > deadline):
-                return found
+            if stop():
+                return McpScan(found, True)
             inner = f if rel == "." else rel + "/" + f
             if NEVER_OPEN_MCP_NAME_RE.search(f) and inner not in seen:
                 found.append(inner)
                 seen.add(inner)
-    return found
+        dirs[:] = [d for d in dirs if (d if rel == "." else rel + "/" + d) not in seen]  # pre-seeded or just reported
+    return McpScan(found, False)
 
 
 def _lexists_inside(path, inner):
@@ -2402,7 +2412,10 @@ def run_scan(repo, state, opts):
                 continue
             if is_never_open_dir(d, parent_name):
                 state.stats["files_never_open"] += count_files(full, deadline)
-                for inner in _mcp_configs_inside(full, d.lower(), deadline):  # names only; nothing inside is opened
+                found, truncated = _mcp_configs_inside(full, d.lower(), deadline)  # names only; nothing inside is opened
+                if truncated:
+                    state.gaps["q1"] += 1  # the walk stopped at the cap or the deadline: a config past it was not looked at
+                for inner in found:
                     state.gaps["q1"] += 1
                     if _cap(mcp_rows, "mcp-config-not-opened"):
                         state.add("mcp-config-not-opened", (rel_dir + "/" if rel_dir else "") + d + "/" + inner, 0, "")
