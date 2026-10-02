@@ -194,6 +194,42 @@
 **Priority:** P3
 **Depends on:** None
 
+### Never worse than 0.3.2 for time
+
+**What:** `NeverWorseThanMainTests` compares answers only. Add a time check per case: this branch's scan takes at most max(5 x 0.3.2's time, 0.3.2's time + 1 s), median of 3 runs each, honouring `CUSTODY_TIME_SLACK`, with both PR #24 performance repros (512 KB nested Firebase rules; a 400-deep, 9,000-folder `.claude/`) in the corpus.
+
+**Why:** Both PR #24 performance P1s (unbudgeted condition recursion; an O(depth²) never-open MCP walk) passed the answer-only differential test, and a reviewer had to find them. For PR #24, "not worse on time" meant no `partial: true` that 0.3.2 does not also give.
+
+**Context:** needs 0.3.2 runnable in CI (check out `12621fd`'s `custody_scan.py` beside the branch's), and a compact encoding for generated cases, since the repros are too big for `cases.json`'s `{rel: body}` format. The bench script in `HANDOFF-2026-10-01-pr24-false-nothing-found.md` builds every shape. First item of the next custody-check PR.
+
+**Effort:** M
+**Priority:** P1
+**Depends on:** None
+
+### One work budget per file, and a linear condition parser
+
+**What:** (1) Replace the per-condition recursion budgets (`_rec_budget`, `_charge`) with one work budget per scanned file, owned by the scan loop and passed to every evaluator added since 0.3.2, where running out leads to each check's unevaluated or gap path. (2) Parse a Firebase or SQL condition once into a tree instead of stripping and re-splitting at every level; build the paren levels at C speed (`itertools.accumulate` over a translated string) meanwhile.
+
+**Why:** After the PR #24 fix, conditions are linear but about 20x slower than 0.3.2 on adversarial input (0.57 s against 0.03 s on a 512 KB file of 64-deep groups; 38.7 s against 2.0 s for 70 such files, still under the 120 s deadline). Around 200 such files in one repo would reach the deadline. Agreed stop rule: if another review finds a superlinear path in code this branch added, do (1) rather than another per-function budget.
+
+**Context:** `_firebase_open`, `_strip_outer_parens`, `_sql_predicate_open` in `custody_scan.py`. The work-count tests in `WorseThanMainPerformanceTests` patch `_strip_outer_parens`; replace them with a budget-level oracle when the parser changes.
+
+**Effort:** M
+**Priority:** P2
+**Depends on:** None
+
+### One walk per never-open folder, and pruning heavy subtrees
+
+**What:** `count_files` and `_mcp_configs_inside` each walk a never-open agent folder; merge them into one bounded walk. In that walk, skip known heavy subtrees (`node_modules`, `.git`, `worktrees/*`) for the MCP name search, or count them without descending.
+
+**Why:** Each folder now counts toward the 10,000-entry cap twice in the MCP walk (as an entry and as a step), so a `.claude/worktrees/<name>/node_modules` checkout of about 5,000 folders stops the walk and withholds Q1, and mcp-named packages inside it become `mcp-config-not-opened` rows. Measured on 2026-10-02: zero Q1 drift on the owner's nine repos, but a synthetic `.claude/worktrees/x/node_modules` of 6,000 packages moves Q1 from Nothing found (0.3.2) to Don't know. Cautious, not wrong, but noisy.
+
+**Context:** `walk()` in `custody_scan.py`, where `is_never_open_dir` calls both functions. Keep `followlinks=False` and `_lexists_inside`.
+
+**Effort:** S
+**Priority:** P3
+**Depends on:** None
+
 ### False Nos kept from 0.3.2
 
 **What:** 0.3.2 answers No, wrongly, for (1) `disable row level security` or `using (true)` inside a SQL string or comment string (`comment on table … is 'never disable row level security'`), (2) the same words as a quoted name (`create index "disable row level security"`), (3) Firebase `if true && request.auth != null`, (4) a key in a browser folder in a file with a bare `import "server-only"` (in Next.js the build refuses to bundle it; in Vite it does not), and (5) a disable line after an unbalanced nested comment (`/* avatars/* */ … -- old block ended here */`), which Postgres treats as commented out. 0.3.3 keeps every one of these Nos on purpose.

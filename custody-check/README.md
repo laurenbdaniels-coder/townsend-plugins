@@ -74,7 +74,7 @@ Three rows of a real verdict:
 | 9 | How I'd find out it's broken | don't know | low | (you: "I'd hear it from a user") |
 ```
 
-"Nothing found" means the scanner read the files that could hold the answer and every check came back empty; it still carries a by-hand test, because files cannot show the running app. That is followed by the door ("Patch it: Q1, then Q9"), the five-if-only-five list, the Don't-know list with a sixty-second test for each, and the footer with the version and file count.
+"Nothing found" means the scanner read the files that could hold the answer and every check came back empty; it still carries a by-hand test, because files cannot show the running app. A row ending in `unevaluated` means the scanner saw `true` in a rule but could not work out whether it opens your data (for example, a condition nested too deeply to evaluate), so check that rule by hand; these limits are fixed on purpose so every scan finishes. That is followed by the door ("Patch it: Q1, then Q9"), the five-if-only-five list, the Don't-know list with a sixty-second test for each, and the footer with the version and file count.
 
 ## What it never does
 
