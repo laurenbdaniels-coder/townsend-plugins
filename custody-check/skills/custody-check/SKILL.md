@@ -72,7 +72,7 @@ Look for a fenced block headed `Founder answers` in the conversation (shape in `
 - A founder answer never changes a scanner `no`.
 - `next_change`, `stores`, `users`, `stop_line` feed the tier and the stop-line.
 
-If there is no block, ask **one question at a time**, only for questions still at Don't know or Nothing found (the scanner looking and finding nothing is not the founder's answer), in this order: `next_change` and `stop_line` first (they decide the tier and the door), then Q5 data half, then Q7, Q8, Q9, Q10, Q11, Q2, Q4, then Q1 and Q3 when the scanner left them at Nothing found (its files look clean; the running app is still the question, so offer the by-hand test), and Q1/Q3/Q5 code/Q6 if the scanner did not run. Offer the by-hand test with each question. Accept "don't know" immediately and move on; never argue.
+If there is no block, ask **one question at a time**, only for questions still at Don't know or Nothing found (the scanner looking and finding nothing is not the founder's answer), in this order: `next_change` and `stop_line` first (they decide the tier and the door), then Q5 data half, then Q7, Q8, Q9, Q10, Q11, Q2, Q4, then Q1 and Q3 when the scanner left them at Nothing found (none of its named checks fired in the files it read; the running app is still the question, so offer the by-hand test), and Q1/Q3/Q5 code/Q6 if the scanner did not run. Offer the by-hand test with each question. Accept "don't know" immediately and move on; never argue.
 
 ## If AI drives part of the product
 

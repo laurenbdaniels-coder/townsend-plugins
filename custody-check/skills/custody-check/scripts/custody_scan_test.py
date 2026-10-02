@@ -1454,7 +1454,7 @@ class LinearityTests(unittest.TestCase):
             ("prefilter keyword", cs.PREFILTER_RE, "secret:"),
             ("run sweep", cs.RUN_RE, "A1b2C3d4" * 4 + " "),
             ("client import", cs.CLIENT_IMPORT_RE, "import x from 'y'\n"),
-            ("firebase allow", cs.FIREBASE_ALLOW_TRUE_RE, "allow read, write: if x;\n"),
+            ("firebase allow", cs.FIREBASE_IF_RE, "allow read, write: if x;\n"),
         )
         # Sized so the fastest case still takes ~6x the floor below. At 20k units the two hottest
         # regexes measured 0.0021s and 0.0024s against a 0.002s floor, so a faster runner would have
@@ -1496,7 +1496,7 @@ class LinearityTests(unittest.TestCase):
 
     def test_firebase_and_sql_patterns_are_linear(self):
         t0 = time.perf_counter()
-        cs.FIREBASE_ALLOW_TRUE_RE.search("allow " * 80000)
+        cs.FIREBASE_IF_RE.search("allow " * 80000)
         cs.RLS_DISABLED_RE.search("disable " + " " * 400000)
         cs.RLS_DISABLED_RE.search("disable \n" * 60000)
         self.assertLess(time.perf_counter() - t0, bound(1.0))
@@ -1731,7 +1731,7 @@ class ReviewCycleThreeTests(ScanCase):
             self.write("src/lib/auth.ts", 'import { cookies } from "%s";\nexport const key = "%s";\n' % (mod, SK))
             q1 = self.scan()["questions"]["q1"]
             self.assertNotEqual(q1["answer"], "no", mod)
-            self.assertIn("non-client-key-literal", evidence_checks(q1), mod)
+            self.assertTrue({"non-client-key-literal", "server-path-key-literal"} & set(evidence_checks(q1)), mod)  # server-only now marks it server code
         self.write("src/lib/auth.ts", 'import Link from "next/link";\nexport const key = "%s";\n' % SK)
         self.assertEqual(self.scan()["questions"]["q1"]["answer"], "no")
 
@@ -1842,7 +1842,7 @@ class ReviewCycleThreeTests(ScanCase):
 
 class ReviewCycleThreeGateTests(ScanCase):
     def test_sql_comments_never_decide_q3(self):
-        self.write("supabase/migrations/1.sql", "-- do not use: alter table users disable row level security;\n/* create policy p on t using (true); */\nselect 1;\n")
+        self.write("supabase/migrations/1.sql", "-- do not use: alter table users disable row level security;\n/* create policy p on t using (true); */\ncreate table t (id int);\nalter table t enable row level security;\n")
         q3 = self.scan()["questions"]["q3"]
         self.assertEqual(q3["answer"], "nothing-found")  # read, and a commented-out line is not a finding
         self.write("supabase/migrations/2.sql", "alter table users disable row level security; -- oops\n")
@@ -1915,7 +1915,7 @@ class ReviewCycleThreeAdversarialTests(ScanCase):
 
     def test_single_long_whitespace_line_is_linear(self):
         line = " " * 400000
-        for regex in (cs.CRON_WORKFLOW_RE, cs.CLIENT_IMPORT_RE, cs.TOML_PUBLIC_TRUE_RE, cs.NETLIFY_CONTEXT_RE, cs.WRANGLER_ENV_RE, cs.CRON_WRANGLER_RE, cs.USE_CLIENT_RE, cs.FIREBASE_ALLOW_TRUE_RE, cs.GEM_RE, cs.GO_REQUIRE_RE):
+        for regex in (cs.CRON_WORKFLOW_RE, cs.CLIENT_IMPORT_RE, cs.TOML_PUBLIC_TRUE_RE, cs.NETLIFY_CONTEXT_RE, cs.WRANGLER_ENV_RE, cs.CRON_WRANGLER_RE, cs.USE_CLIENT_RE, cs.FIREBASE_IF_RE, cs.GEM_RE, cs.GO_REQUIRE_RE):
             t0 = time.perf_counter()
             regex.search(line)
             regex.search("\t" * 400000)
@@ -2311,7 +2311,7 @@ class ShipReviewTests(ScanCase):
     def test_block_comment_stripping_is_linear_on_unclosed_openers(self):
         text = "/* a" * 100000
         t0 = time.perf_counter()
-        cs._strip_sql_comments(text)
+        cs._lex_sql(text)[0]
         cs._strip_slash_comments(text)
         self.assertLess(time.perf_counter() - t0, bound(1.0))
         self.write("supabase/migrations/1.sql", "/* a" * 50000 + "\nalter table t disable row level security;\n")
@@ -2321,7 +2321,7 @@ class ShipReviewTests(ScanCase):
         self.assertEqual(r["questions"]["q3"]["answer"], "no")
 
     def test_block_comments_still_hide_decisive_lines(self):
-        self.assertEqual(cs._strip_sql_comments("/* disable row level security */\nselect 1;\n"), " " * 32 + "\nselect 1;\n")
+        self.assertEqual(cs._lex_sql("/* disable row level security */\nselect 1;\n")[0], " " * 32 + "\nselect 1;\n")
         self.assertEqual(cs._strip_slash_comments("a /* x\ny */ b // c\n"), "a     \n     b     \n")
 
     def test_env_name_detection_is_capped_and_fast(self):
@@ -3711,7 +3711,7 @@ class NothingFoundTests(ScanCase):
     def test_nothing_found_is_never_a_no_and_never_on_a_partial_scan(self):
         self.clean_app()
         self.write("package.json", json.dumps({"dependencies": {"next": "15"}}))
-        self.write("supabase/migrations/1.sql", "select 1;\n")
+        self.write("supabase/migrations/1.sql", "create table t (id int);\nalter table t enable row level security;\n")
         full = self.scan()
         self.write("src/big.ts", "x" * 600000)
         part = self.scan()
@@ -4101,7 +4101,7 @@ class NothingFoundGapTests(ScanCase):
 
     def test_precompressed_rules_and_sql_are_q3_gaps(self):
         self.base_app()
-        self.write("db/schema.sql", "select 1;\n")
+        self.write("db/schema.sql", "create table t (id int);\nalter table t enable row level security;\n")
         self.assertEqual(self.q("q3")["answer"], "nothing-found")
         self.write("db/dump.sql.gz", b"\x1f\x8b\x01", binary=True)
         r = self.scan()
@@ -4349,6 +4349,991 @@ class FooterBookingTests(unittest.TestCase):
         template = self._read(SKILL_DIR, "assets", "verdict-template.md")
         block = template.split("```markdown")[1].split("```")[0]
         self.assertNotIn(self.URL, block)
+
+
+class FalseNothingFoundTests(ScanCase):
+    """Post-merge review of v0.3.0: each case produced a false "nothing found" (or a missed hint) on the
+    merged build. Named key formats (Stripe, private keys) are covered by their own branch."""
+
+    def base_app(self):
+        self.write("src/components/A.tsx", "export const A = () => null;\n")
+
+    def fresh(self):
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.base_app()
+
+    def q(self, key, **kw):
+        return self.scan(**kw)["questions"][key]
+
+    def monitoring(self, q9):
+        return sorted(e["snippet"] for e in q9["evidence"] if e["check"] == "monitoring-dependency")
+
+    # ----------------------------------------------------------------- Q9
+    def test_dependency_groups_are_read(self):
+        self.base_app()
+        self.write("pyproject.toml", '[project]\ndependencies = ["requests"]\n[dependency-groups]\nobs = ["sentry-sdk"]\n')
+        self.assertEqual(self.monitoring(self.q("q9")), ["sentry-sdk"])
+
+    def test_gem_lines_count_as_dependencies_read(self):
+        self.base_app()
+        self.write("Gemfile", 'source "https://rubygems.org"\ngem "rails"\n')
+        q9 = self.q("q9")
+        self.assertEqual(q9["answer"], "nothing-found")
+        self.assertIn("1 dependency read", q9["evidence"][0]["snippet"])
+
+    def test_monitoring_families_match_by_prefix(self):
+        names = ["@sentry/vue", "@bugsnag/js", "@opentelemetry/api", "@datadog/browser-logs", "@honeybadger-io/js",
+                 "@rollbar/react", "ddtrace", "elastic-apm", "logfire", "opentelemetry-sdk", "logrocket", "appsignal"]
+        for name in names:
+            with self.subTest(name=name):
+                self.fresh()
+                self.write("package.json", json.dumps({"dependencies": {name: "1"}}))
+                self.assertEqual(self.monitoring(self.q("q9")), [name])
+
+    def test_every_listed_monitoring_dependency_is_recognised(self):
+        # table-driven so deleting any one entry fails; Go paths in go.mod, everything else by name in package.json
+        for name in sorted(cs.MONITORING_DEPS):
+            with self.subTest(name=name):
+                self.fresh()
+                if name.startswith(("github.com/", "gopkg.in/")):
+                    self.write("go.mod", "module x\n\nrequire %s v1.0.0\n" % name)
+                else:
+                    self.write("package.json", json.dumps({"dependencies": {name: "1"}}))
+                self.assertEqual(self.monitoring(self.q("q9")), [name])
+
+    def test_go_version_suffixes_are_stripped(self):
+        for path in ("gopkg.in/DataDog/dd-trace-go.v1", "github.com/newrelic/go-agent/v3"):
+            with self.subTest(path=path):
+                self.fresh()
+                self.write("go.mod", "module x\n\nrequire %s v1.2.3\n" % path)
+                self.assertTrue(self.monitoring(self.q("q9")), path)
+
+    def test_a_manifest_the_scanner_cannot_parse_is_a_q9_gap(self):
+        for rel in ("backend/Pipfile", "backend/requirements-prod.txt", "requirements/base.txt", "setup.py", "setup.cfg",
+                    "composer.json", "Cargo.toml", "pom.xml", "build.gradle", "build.gradle.kts", "pubspec.yaml", "app.gemspec", "deno.json"):
+            with self.subTest(rel=rel):
+                self.fresh()
+                self.write("package.json", json.dumps({"dependencies": {"react": "18"}}))
+                self.assertEqual(self.q("q9")["answer"], "nothing-found", "control")
+                self.write(rel, "sentry-sdk\n")
+                self.assertEqual(self.q("q9")["answer"], "dont-know", rel)
+
+    def test_precompressed_bundle_is_a_q9_gap_too(self):
+        self.base_app()
+        self.write("package.json", json.dumps({"dependencies": {"next": "15"}}))
+        self.assertEqual(self.q("q9")["answer"], "nothing-found", "control")
+        self.write("public/app.js.gz", b"\x1f\x8b" + b"\x01" * 200, binary=True)
+        self.assertEqual(self.q("q9")["answer"], "dont-know")
+
+    def test_a_linked_sentry_config_is_a_q9_gap(self):
+        self.base_app()
+        self.write("package.json", json.dumps({"dependencies": {"next": "15"}}))
+        os.symlink("/nonexistent/sentry.properties", os.path.join(self.repo, "sentry.properties"))
+        self.assertEqual(self.q("q9")["answer"], "dont-know")
+
+    # ----------------------------------------------------------------- Q1
+    def test_mts_and_cts_files_are_code(self):
+        key = "sk-" + "proj-" + "a1b2c3d4e5f6g7h8i9j0" * 2
+        for name, answer in (("src/components/ai.mts", "no"), ("src/components/ai.cts", "no"), ("src/lib/ai.mts", "dont-know")):
+            with self.subTest(name=name):  # src/lib is unclear territory, the same as a .ts there: evidence, not a no
+                self.fresh()
+                self.write(name, 'export const openai = new OpenAI({ apiKey: "%s" });\n' % key)
+                self.assertEqual(self.q("q1")["answer"], answer, name)
+
+    def test_mcp_config_inside_an_agent_folder_is_a_q1_gap(self):
+        token = "ghp_" + "aB3dE6gH9jK2mN5pQ8sT1vW4yZ7bC0eF3hJ6"
+        for rel in (".roo/mcp.json", ".kiro/settings/mcp.json", ".amazonq/mcp.json", ".gemini/settings.json", "opencode.json"):
+            with self.subTest(rel=rel):
+                self.fresh()
+                self.assertEqual(self.q("q1")["answer"], "nothing-found", "control")
+                self.write(rel, json.dumps({"mcpServers": {"gh": {"env": {"GITHUB_TOKEN": token}}}}))
+                r = self.scan()
+                self.assertEqual(r["questions"]["q1"]["answer"], "dont-know", rel)
+                self.assert_no_secret(json.dumps(r), token)
+
+    def test_zstd_bundle_is_browser_code(self):
+        self.base_app()
+        self.write("public/app.js.zst", b"\x28\xb5\x2f\xfd" + b"\x01" * 200, binary=True)
+        self.assertEqual(self.q("q1")["answer"], "dont-know")
+
+    def test_q1_row_says_what_was_checked(self):
+        self.base_app()
+        snippet = self.q("q1")["evidence"][0]["snippet"]
+        self.assertNotIn("no key in client code", snippet, "the row may only claim the patterns the detectors know")
+        self.assertIn("no named key format", snippet)
+
+    # ----------------------------------------------------------------- Q3
+    def rls_app(self):
+        self.base_app()
+        self.write("supabase/migrations/001.sql", "create table public.profiles (id uuid);\nalter table public.profiles enable row level security;\n")
+        self.assertEqual(self.q("q3")["answer"], "nothing-found", "control")
+
+    def test_firebase_test_mode_rules_are_not_nothing_found(self):
+        cases = {
+            "firestore.rules": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{db}/documents {\n    match /{doc=**} {\n      allow read, write: if request.time < timestamp.date(2026, 12, 31);\n    }\n  }\n}\n",
+            "database.rules.json": '{\n  "rules": {\n    ".read": "now < 1767139200000",\n    ".write": "now < 1767139200000"\n  }\n}\n',
+        }
+        for name, body in cases.items():
+            with self.subTest(name=name):
+                self.fresh()
+                self.write(name, body)
+                q3 = self.q("q3")
+                self.assertNotEqual(q3["answer"], "nothing-found", name)
+                self.assertIn("firebase-rules-test-mode", evidence_checks(q3), name)
+
+    def test_firebase_if_true_in_parentheses_is_open(self):
+        self.base_app()
+        self.write("storage.rules", "service firebase.storage {\n  match /b/{bucket}/o {\n    match /{all=**} {\n      allow read, write: if (true);\n    }\n  }\n}\n")
+        self.assertEqual(self.q("q3")["answer"], "no")
+
+    def test_rls_text_inside_a_string_does_not_enable_rls(self):
+        self.base_app()
+        self.write("db/1.sql", "create table public.orders (id int);\ncomment on table public.orders is 'TODO: alter table public.orders enable row level security';\n")
+        q3 = self.q("q3")
+        self.assertEqual(q3["answer"], "dont-know")
+        self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], ["orders"])
+
+    def test_a_dropped_and_recreated_table_is_not_nothing_found(self):
+        self.rls_app()
+        self.write("supabase/migrations/002.sql", "drop table public.profiles;\ncreate table public.profiles (id uuid, ssn text);\n")
+        self.assertEqual(self.q("q3")["answer"], "dont-know")
+
+    def test_a_rerunnable_schema_that_drops_and_reenables_rls_is_still_clean(self):
+        # the idempotent schema.sql shape: drop, create, enable, all in one file, in that order
+        self.base_app()
+        self.write("db/schema.sql", "drop table if exists public.profiles;\ncreate table public.profiles (id uuid);\nalter table public.profiles enable row level security;\n")
+        self.assertEqual(self.q("q3")["answer"], "nothing-found")
+        self.write("db/schema.sql", "alter table public.profiles enable row level security;\ndrop table if exists public.profiles;\ncreate table public.profiles (id uuid);\n")
+        self.assertEqual(self.q("q3")["answer"], "dont-know", "RLS turned on before the drop does not survive it")
+
+    def test_a_public_view_is_evidence(self):
+        self.rls_app()
+        self.write("supabase/migrations/002.sql", "create view public.profiles_public as select * from public.profiles;\n")
+        q3 = self.q("q3")
+        self.assertEqual(q3["answer"], "dont-know")
+        self.assertIn("public-view", evidence_checks(q3))
+        self.write("supabase/migrations/002.sql", "create view public.profiles_public with (security_invoker = true) as select * from public.profiles;\n")
+        self.assertEqual(self.q("q3")["answer"], "nothing-found", "a security_invoker view obeys the table's RLS")
+
+    def test_a_seed_file_alone_is_not_a_rule_file(self):
+        self.base_app()
+        self.write("supabase/seed.sql", "insert into profiles (id) values (1);\n")
+        self.assertEqual(self.q("q3")["answer"], "dont-know", "no table definition or policy was read")
+
+    def test_compressed_sql_is_a_q3_gap(self):
+        self.rls_app()
+        self.write("backups/dump.sql.gz", b"\x1f\x8b" + b"\x01" * 200, binary=True)
+        self.assertEqual(self.q("q3")["answer"], "dont-know")
+
+    def test_table_registry_gap_alone_withholds_nothing_found(self):
+        # isolated from the rls_enabled overflow: only the first table gets RLS, so that set never overflows
+        self.base_app()
+        self.write("db/1.sql", "create table a (id int);\nalter table a enable row level security;\ncreate table b (id int);\n")
+        with mock.patch.object(cs, "MAX_SEEN", 1):
+            self.assertEqual(self.q("q3")["answer"], "dont-know", "table b never entered the registry, so it was never checked")
+
+    def test_q3_row_says_what_was_checked(self):
+        self.rls_app()
+        snippet = self.q("q3")["evidence"][0]["snippet"]
+        self.assertTrue(snippet.endswith("no if-true or test-mode Firebase rule"), "the row must fit the snippet cap whole: " + snippet)
+
+    def test_q1_row_fits_the_snippet_cap_at_its_longest(self):
+        for i in range(12):
+            self.write("src/c%d.ts" % i, "export const a = 1;\n")
+        self.write("CLAUDE.md", "x\n")
+        self.write(".cursorrules", "x\n")
+        snippet = self.q("q1")["evidence"][0]["snippet"]
+        self.assertIn("no named key format", snippet)
+        self.assertTrue(snippet.endswith("agent files not opened"), "the row must fit the snippet cap whole: " + snippet)
+
+
+
+class FalseNothingFoundReviewTests(ScanCase):
+    """Pre-merge review of the 0.3.3 fixes: variants that sidestepped them, and two older false "no" answers."""
+
+    def base_app(self):
+        self.write("src/components/A.tsx", "export const A = () => null;\n")
+
+    def fresh(self):
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.base_app()
+
+    def q(self, key, **kw):
+        return self.scan(**kw)["questions"][key]
+
+    def q3_of(self, files):
+        self.fresh()
+        for rel, body in files.items():
+            self.write(rel, body)
+        return self.q("q3")
+
+    RLS = "create table public.notes (id int);\nalter table public.notes enable row level security;\n"
+
+    # ----------------------------------------------------------------- rule files
+    def test_words_in_a_seed_comment_or_string_do_not_make_it_a_rule_file(self):
+        for body in ("-- run after the create table migrations\ninsert into notes values (1);\n",
+                     "/* create policy docs */\ninsert into notes values (1);\n",
+                     "insert into docs values ('how to create policy for row level security');\n",
+                     "insert into docs values ($$create table in a dollar string$$);\n"):
+            with self.subTest(body=body):
+                self.assertEqual(self.q3_of({"supabase/seed.sql": body})["answer"], "dont-know")
+
+    def test_every_access_statement_makes_a_rule_file(self):
+        for body in ("alter table public.t enable row level security;\n", "create policy p on public.t for select using (auth.uid() = owner);\n",
+                     "insert into storage.buckets (id, public) values ('avatars', false);\n"):
+            with self.subTest(body=body):
+                self.assertEqual(self.q3_of({"db/1.sql": body})["answer"], "nothing-found")
+
+    # ----------------------------------------------------------------- strings
+    def test_dollar_and_escape_strings_do_not_enable_rls(self):
+        for tail in ("select $$alter table public.notes enable row level security$$;\n",
+                     "create function f() returns void language sql as $body$ alter table public.notes enable row level security $body$;\n",
+                     "comment on table public.notes is E'it\\'s alter table public.notes enable row level security';\n",
+                     "comment on table public.notes is 'it''s alter table public.notes enable row level security';\n"):
+            with self.subTest(tail=tail):
+                q3 = self.q3_of({"db/1.sql": "create table public.notes (id int);\n" + tail})
+                self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], ["notes"])
+
+    def test_a_do_block_really_runs(self):
+        q3 = self.q3_of({"db/1.sql": "create table public.notes (id int);\ndo $$ begin\n  alter table public.notes enable row level security;\nend $$;\n"})
+        self.assertEqual(q3["answer"], "nothing-found")
+
+    def test_rls_disabled_text_is_a_no_as_in_the_release(self):
+        # a string that mentions it was a No in 0.3.2 and stays one (a false No kept on purpose; see TODOS)
+        q3 = self.q3_of({"db/1.sql": self.RLS + "comment on table public.notes is 'we never disable row level security';\n"})
+        self.assertEqual(q3["answer"], "no")
+        q3 = self.q3_of({"db/1.sql": "create table public.t (id int);\ndo $$ begin execute 'alter table public.t disable row level security'; end $$;\n"})
+        self.assertNotEqual(q3["answer"], "nothing-found", "execute in a DO block is real")
+        self.assertEqual(self.q3_of({"db/1.sql": self.RLS + "alter table public.notes disable row level security;\n"})["answer"], "no")
+
+    # ----------------------------------------------------------------- drops and views
+    def test_every_table_in_a_drop_list_is_checked(self):
+        q3 = self.q3_of({"db/1.sql": "create table public.a (id int);\ncreate table public.notes (id int);\nalter table public.notes enable row level security;\n",
+                         "db/2.sql": "drop table public.a, public.notes cascade;\ncreate table public.a (id int);\ncreate table public.notes (id int);\nalter table public.a enable row level security;\n"})
+        self.assertEqual(q3["answer"], "dont-know")
+
+    def test_security_invoker_must_be_on(self):
+        for opt, flagged in (("with (security_invoker = false)", True), ("with (security_invoker=off)", True), ("with (security_invoker=on)", False),
+                             ("with (security_invoker = true)", False), ("with (security_invoker)", False), ("with (security_barrier)", True)):
+            with self.subTest(opt=opt):
+                q3 = self.q3_of({"db/1.sql": self.RLS + "create view public.v %s as select id as security_invoker from public.notes;\n" % opt})
+                self.assertEqual("public-view" in evidence_checks(q3), flagged, opt)
+
+    def test_view_kinds_and_schemas(self):
+        for stmt, flagged in (("create materialized view public.mv as select * from public.notes;", True),
+                              ("create or replace view public.v as select * from public.notes;", True),
+                              ("create view private.v as select * from public.notes;", False)):
+            with self.subTest(stmt=stmt):
+                self.assertEqual("public-view" in evidence_checks(self.q3_of({"db/1.sql": self.RLS + stmt + "\n"})), flagged, stmt)
+
+    # ----------------------------------------------------------------- Firebase
+    def rules(self, cond):
+        return "service cloud.firestore {\n  match /databases/{db}/documents {\n    match /{doc=**} {\n      allow read, write: %s\n    }\n  }\n}\n" % cond
+
+    def test_firebase_open_variants(self):
+        for cond in ("if ((true));", "if (true)\n", "if\n        true;", "if true;"):
+            with self.subTest(cond=cond):
+                self.assertEqual(self.q3_of({"firestore.rules": self.rules(cond)})["answer"], "no", cond)
+
+    def test_true_joined_to_a_real_condition_is_not_open(self):
+        for cond in ("if (true) && request.auth != null;",):  # `if true && …` stays a No, as in 0.3.2 (TODOS)
+            with self.subTest(cond=cond):
+                self.assertNotEqual(self.q3_of({"firestore.rules": self.rules(cond)})["answer"], "no", cond)
+
+    def test_firebase_test_mode_variants(self):
+        for cond in ("if (request.time < timestamp.date(2026, 12, 31));", "if request.time<timestamp.date(2026, 12, 31);",
+                     "if\n        request.time < timestamp.date(2026, 12, 31);", "if timestamp.date(2026, 12, 31) > request.time;"):
+            with self.subTest(cond=cond):
+                self.assertIn("firebase-rules-test-mode", evidence_checks(self.q3_of({"firestore.rules": self.rules(cond)})), cond)
+        q3 = self.q3_of({"database.rules.json": '{"rules": {".read": "now < 1767139200000", ".write": "auth != null"}}\n'})
+        self.assertIn("firebase-rules-test-mode", evidence_checks(q3))
+
+    def test_rtdb_true_as_a_string_is_open(self):
+        self.assertEqual(self.q3_of({"database.rules.json": '{"rules": {".read": "true", ".write": "true"}}\n'})["answer"], "no")
+
+    # ----------------------------------------------------------------- Q1 agent configs
+    def test_more_agent_configs_that_hold_tokens_are_q1_gaps(self):
+        token = "ghp_" + "aB3dE6gH9jK2mN5pQ8sT1vW4yZ7bC0eF3hJ6"
+        for rel in ("opencode.jsonc", ".aider.conf.yml", ".trae/mcp.json", ".amazonq/cli-agents/dev.json", ".windsurf/mcp_config.json",
+                    ".continue/config.yaml", ".continue/mcpServers/gh.json", ".junie/mcp/mcp.json", ".codex/config.toml",
+                    ".github/agents/mcp.json", ".roo/servers/team-mcp.json"):
+            with self.subTest(rel=rel):
+                self.fresh()
+                self.write(rel, json.dumps({"mcpServers": {"gh": {"env": {"GITHUB_TOKEN": token}}}}))
+                r = self.scan()
+                self.assertEqual(r["questions"]["q1"]["answer"], "dont-know", rel)
+                self.assert_no_secret(json.dumps(r), token)
+
+    def test_zstd_long_suffix_is_browser_code(self):
+        self.base_app()
+        self.write("public/app.js.zstd", b"\x28\xb5\x2f\xfd" + b"\x01" * 200, binary=True)
+        self.assertEqual(self.q("q1")["answer"], "dont-know")
+
+    # ----------------------------------------------------------------- Q9
+    EXPECTED_MONITORING = ["@sentry/node", "@sentry/nextjs", "sentry-sdk", "sentry_sdk", "dd-trace", "ddtrace", "datadog", "@datadog/browser-rum",
+                           "newrelic", "newrelic_rpm", "@axiomhq/js", "next-axiom", "node-cron", "cron", "bull", "bullmq", "agenda", "@vercel/cron",
+                           "pino", "winston", "better-stack", "elastic-apm", "elastic-apm-node", "logrocket", "logfire", "sentry-ruby", "sentry-rails",
+                           "honeybadger", "rollbar", "bugsnag", "airbrake", "scout_apm", "appsignal", "skylight", "structlog", "loguru",
+                           "@logtail/node", "@highlight-run/next", "@appsignal/nodejs", "@bugsnag/js", "@honeybadger-io/js", "@rollbar/react",
+                           "@opentelemetry/api", "opentelemetry-sdk",
+                           "github.com/getsentry/sentry-go", "github.com/rollbar/rollbar-go", "github.com/bugsnag/bugsnag-go",
+                           "github.com/newrelic/go-agent", "github.com/datadog/dd-trace-go", "gopkg.in/datadog/dd-trace-go"]
+
+    def test_each_expected_monitoring_name_is_recognised(self):
+        # a literal list, so deleting an entry from the scanner's set or prefixes fails here
+        for name in self.EXPECTED_MONITORING:
+            with self.subTest(name=name):
+                self.fresh()
+                if name.startswith(("github.com/", "gopkg.in/")):
+                    self.write("go.mod", "module x\n\nrequire %s v1.0.0\n" % name)
+                else:
+                    self.write("package.json", json.dumps({"dependencies": {name: "1"}}))
+                self.assertEqual(sorted(e["snippet"] for e in self.q("q9")["evidence"] if e["check"] == "monitoring-dependency"), [name])
+
+    def test_no_exact_monitoring_name_is_already_covered_by_a_prefix(self):
+        self.assertEqual(sorted(n for n in cs.MONITORING_DEPS if n.startswith(cs.MONITORING_PREFIXES)), [])
+
+    def test_more_manifest_shapes_are_q9_gaps(self):
+        for rel in ("requirements.in", "requirements-dev.in", "dev-requirements.txt", "environment.yml", "supabase/functions/import_map.json",
+                    "deno.jsonc", "api/App.csproj", "mix.exs", "requirements/dev.in"):
+            with self.subTest(rel=rel):
+                self.fresh()
+                self.write("package.json", json.dumps({"dependencies": {"react": "18"}}))
+                self.write(rel, "sentry-sdk\n")
+                self.assertEqual(self.q("q9")["answer"], "dont-know", rel)
+
+
+
+class StringBlankingIsOnlyEverCautiousTests(ScanCase):
+    """Review cycle two: blanking SQL strings may only make the scanner more careful. Good signals (RLS on, a rule
+    file read) come from code alone; bad ones (drops, disables, open policies) come from everywhere, and one inside a
+    string is evidence rather than a No."""
+
+    RLS = "create table public.notes (id int);\nalter table public.notes enable row level security;\n"
+
+    def q3_of(self, body):
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.write("src/components/A.tsx", "export const A = () => null;\n")
+        self.write("db/1.sql", body)
+        return self.scan()["questions"]["q3"]
+
+    def test_open_policy_text_inside_a_string_is_evidence_not_a_no(self):
+        q3 = self.q3_of(self.RLS + "comment on table public.notes is 'doc says using (true) is unsafe';\n")
+        self.assertEqual(q3["answer"], "no", "0.3.2 read this as a No; it stays one")
+        self.assertEqual(self.q3_of(self.RLS + "create policy p on public.notes for all using (true);\n")["answer"], "no")
+
+    def test_a_string_over_several_lines_is_still_a_string(self):
+        q3 = self.q3_of(self.RLS + "comment on table public.notes is 'line one\ndisable row level security\nline three';\n")
+        self.assertEqual(q3["answer"], "no", "0.3.2 read this as a No; it stays one")
+        q3 = self.q3_of("create table public.notes (id int);\ncomment on table public.notes is 'a\nalter table public.notes enable row level security\nb';\n")
+        self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], ["notes"])
+
+    def test_a_drop_inside_a_function_body_still_counts(self):
+        q3 = self.q3_of(self.RLS + "create function public.rebuild() returns void language plpgsql as $$ begin execute 'drop table public.notes'; execute 'create table public.notes (id int)'; end $$;\nselect public.rebuild();\n")
+        self.assertEqual(q3["answer"], "dont-know")
+
+    def test_a_drop_list_too_long_to_read_whole_is_a_gap(self):
+        items = ", ".join("private.f%04d" % i for i in range(180))  # past the 2000-character window, under every other cap
+        q3 = self.q3_of(self.RLS + "drop table %s, public.notes cascade;\ncreate table public.notes (id int);\n" % items)
+        self.assertEqual(q3["answer"], "dont-know")
+
+    def test_string_blanking_growth_is_linear(self):
+        for name, unit in (("closed quotes", "'a' "), ("escape strings", "E'a\\'b' "), ("dollar bodies", "$$a$$ "), ("doubled quotes", "'a''b' ")):
+            t_small = _fastest(lambda: cs._lex_sql(unit * 150000))
+            t_big = _fastest(lambda: cs._lex_sql(unit * 300000))
+            self.assertGreater(t_small, _RATIO_FLOOR_S, "%s: too fast to time, the ratio would assert nothing" % name)
+            self.assertLess(t_big / t_small, 3.0, "%s grew %.1fx when the input doubled" % (name, t_big / t_small))
+
+    def test_a_view_inside_a_function_body_still_counts(self):
+        q3 = self.q3_of(self.RLS + "create function public.mk() returns void language sql as $$ create view public.v as select * from public.notes $$;\n")
+        self.assertIn("public-view", evidence_checks(q3))
+
+    def test_a_long_drop_list_of_private_tables_is_still_read_whole(self):
+        items = ", ".join("private.f%04d" % i for i in range(180))  # ~2700 characters, all outside public
+        q3 = self.q3_of(self.RLS + "drop table %s cascade;\n" % items)
+        self.assertEqual(q3["answer"], "nothing-found", "nothing public was dropped, and the whole list was read")
+
+    def test_a_drop_list_cut_inside_a_table_name_is_still_a_gap(self):
+        # place the cut exactly inside a private table's name, so a stray public-looking fragment cannot pass the test
+        names = ["private.t%05d" % i for i in range(cs.MAX_DROP_LIST_CHARS // 10)]
+        pad = 0
+        while True:
+            names[0] = "private.t" + "x" * pad + "00000"
+            joined = ", ".join(names)
+            cut = joined[:cs.MAX_DROP_LIST_CHARS]
+            last = cut.split(",")[-1].strip()
+            if last.startswith("private.t") and len(last) > len("private.t"):
+                break
+            pad += 1
+        self.assertGreater(len(joined), cs.MAX_DROP_LIST_CHARS)
+        q3 = self.q3_of(self.RLS + "drop table %s, public.notes;\ncreate table public.notes (id int);\n" % joined)
+        self.assertEqual(q3["answer"], "dont-know", "public.notes sits past the cut, so the list was not read whole")
+
+    def test_firebase_true_in_any_depth_of_parentheses_is_open(self):
+        rules = "service cloud.firestore {\n  match /{d=**} {\n    allow read, write: if ((((((true))))));\n  }\n}\n"
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.write("firestore.rules", rules)
+        self.assertEqual(self.scan()["questions"]["q3"]["answer"], "no")
+
+
+
+class ReviewCycleThreeRegressionTests(ScanCase):
+    """Final review cycle of 0.3.3: two regressions against 0.3.1 and the gaps behind them. Comments, strings,
+    dollar bodies and quoted identifiers are now read in one left-to-right pass."""
+
+    RLS = "create table public.notes (id int);\nalter table public.notes enable row level security;\n"
+
+    def q3_of(self, files):
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.write("src/components/A.tsx", "export const A = () => null;\n")
+        for rel, body in files.items():
+            self.write(rel, body)
+        return self.scan()["questions"]["q3"]
+
+    def sql(self, body):
+        return self.q3_of({"db/1.sql": body})
+
+    # ----------------------------------------------------------------- regression 1: Firebase ||
+    def rules(self, cond):
+        return "service cloud.firestore {\n  match /{d=**} {\n    allow read, write: %s\n  }\n}\n" % cond
+
+    def test_true_or_anything_is_open(self):
+        for cond in ("if true || request.auth != null;", "if request.auth != null || true;", "if ((true) || request.auth != null);", "if false || true;"):
+            with self.subTest(cond=cond):
+                self.assertEqual(self.q3_of({"firestore.rules": self.rules(cond)})["answer"], "no", cond)
+
+    def test_true_and_something_is_never_a_no(self):
+        for cond in ("if (true || request.auth != null) && request.auth.uid == 'x';", "if (request.auth != null || true) && false;"):
+            with self.subTest(cond=cond):
+                self.assertNotEqual(self.q3_of({"firestore.rules": self.rules(cond)})["answer"], "no", cond)
+
+    def test_a_condition_with_true_the_scanner_did_not_evaluate_is_not_nothing_found(self):
+        for cond in ("if true == true;", "if true && request.auth != null;"):
+            with self.subTest(cond=cond):
+                q3 = self.q3_of({"firestore.rules": self.rules(cond)})
+                self.assertNotEqual(q3["answer"], "nothing-found", cond)
+
+    # ----------------------------------------------------------------- regression 2: parity
+    def test_a_double_dash_inside_a_string_is_not_a_comment(self):
+        q3 = self.sql(self.RLS + "insert into public.log(msg) values ('a -- b');\nalter table public.notes disable row level security;\nselect 'x';\n")
+        self.assertEqual(q3["answer"], "no")
+        q3 = self.sql("create table public.notes (id int);\ninsert into public.log(msg) values ('a -- b');\ncomment on table public.notes is 'alter table public.notes enable row level security';\n")
+        self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], ["notes"])
+
+    def test_a_do_block_does_not_flip_later_dollar_quotes(self):
+        do = "do $$ begin if not exists (select 1) then perform 1; end if; end $$;\n"
+        fn = "create or replace function public.touch() returns trigger language plpgsql as $$ begin return new; end; $$;\n"
+        q3 = self.sql("create table public.notes (id int);\n" + do + "alter table public.notes disable row level security;\n" + fn)
+        self.assertEqual(q3["answer"], "no")
+        q3 = self.sql("create table public.notes (id int);\n" + do + "create function f() returns void language plpgsql as $$ begin alter table public.notes enable row level security; end $$;\n")
+        self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], ["notes"], "a function body is not run")
+
+    def test_statements_inside_a_do_block_still_run(self):
+        self.assertEqual(self.sql("create table public.notes (id int);\ndo $body$ begin alter table public.notes enable row level security; end $body$;\n")["answer"], "nothing-found")
+        self.assertEqual(self.sql(self.RLS + "do $$ begin alter table public.notes disable row level security; end $$;\n")["answer"], "no")
+
+    def test_an_apostrophe_in_a_quoted_identifier_is_not_a_string(self):
+        q3 = self.sql("create table public.notes (id int);\ncreate index \"o'brien_idx\" on public.notes(id);\ncomment on table public.notes is 'alter table public.notes enable row level security';\n")
+        self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], ["notes"])
+
+    def test_an_unclosed_quote_is_a_gap(self):
+        q3 = self.sql(self.RLS + "select 'unterminated;\n")
+        self.assertEqual(q3["answer"], "dont-know")
+        q3 = self.sql("create table public.notes (id int);\nselect 'unterminated;\ncomment on table public.notes is 'alter table public.notes enable row level security';\n")
+        self.assertNotEqual(q3["answer"], "nothing-found")
+        # a quote that is really the last one: everything after it is inside a string that never ends
+        q3 = self.sql("create table public.notes (id int);\nselect 'unterminated;\nalter table public.notes enable row level security;\n")
+        self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], ["notes"],
+                         "nothing after an unclosed quote earns RLS credit, whatever the gap does")
+
+    def test_a_double_dash_inside_a_dollar_string_keeps_its_evidence(self):
+        q3 = self.sql(self.RLS + "comment on table public.notes is $$-- docs: create policy p on public.notes using (true)$$;\n")
+        self.assertIn("open-rule-in-string", evidence_checks(q3))
+
+    # ----------------------------------------------------------------- older regexes
+    def test_a_long_inline_comment_does_not_hide_a_rule(self):
+        pad = "/* " + "padding " * 10 + "*/"
+        self.assertEqual(self.sql(self.RLS + "alter table public.notes disable %s row level security;\n" % pad)["answer"], "no")
+        self.assertEqual(self.sql(self.RLS + "create policy open on public.notes for all using %s (true);\n" % pad)["answer"], "no")
+        q3 = self.sql(self.RLS + "drop %s table public.notes;\ncreate table public.notes (id int);\n" % pad)
+        self.assertEqual(q3["answer"], "dont-know")
+
+    def test_using_true_in_any_depth_of_parentheses(self):
+        self.assertEqual(self.sql(self.RLS + "create policy open on public.notes for all using (((((((true)))))));\n")["answer"], "no")
+
+    def test_a_recursive_view_is_evidence(self):
+        self.assertIn("public-view", evidence_checks(self.sql(self.RLS + "create recursive view public.v(n) as select id from public.notes;\n")))
+
+    def test_an_identifier_named_like_a_rule_is_not_a_rule(self):
+        # pg_dump quotes every name: a quoted table still earns its RLS credit
+        self.assertEqual(self.sql('CREATE TABLE "public"."notes" (id int);\nALTER TABLE "public"."notes" ENABLE ROW LEVEL SECURITY;\n')["answer"], "nothing-found")
+        self.assertEqual(self.sql(self.RLS + 'ALTER TABLE "public"."notes" DISABLE ROW LEVEL SECURITY;\n')["answer"], "no")
+
+    def test_an_unclosed_identifier_is_a_gap(self):
+        q3 = self.sql('create table public.notes (id int);\n"unterminated\nalter table public.notes enable row level security;\n')
+        self.assertEqual(q3["answer"], "dont-know")
+        self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], ["notes"])
+
+    def test_a_firebase_condition_too_long_to_read_is_a_gap(self):
+        cond = "if " + "request.auth != null || " * 25 + "true;"
+        self.assertNotEqual(self.q3_of({"firestore.rules": self.rules(cond)})["answer"], "nothing-found")
+
+    def test_a_crowded_agent_folder_is_walked_in_linear_time(self):
+        d = os.path.join(self.repo, ".codex")
+        os.makedirs(d)
+        for i in range(4000):
+            open(os.path.join(d, "mcp%05d" % i), "w").close()
+        t0 = time.perf_counter()
+        r = self.scan()
+        self.assertLess(time.perf_counter() - t0, bound(2.0))
+        self.assertEqual(r["questions"]["q1"]["answer"], "dont-know")
+
+
+
+class FreshReviewTests(ScanCase):
+    """Fresh pre-merge review of PR #24: cases the branch answered worse than 0.3.2, or where a guard had no
+    test that bites."""
+
+    RLS = "create table public.notes (id int);\nalter table public.notes enable row level security;\n"
+
+    def q3_of(self, files):
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.write("src/components/A.tsx", "export const A = () => null;\n")
+        for rel, body in files.items():
+            self.write(rel, body)
+        return self.scan()["questions"]["q3"]
+
+    def sql(self, body):
+        return self.q3_of({"db/1.sql": body})
+
+    def rules(self, cond):
+        return "service cloud.firestore {\n  match /{d=**} {\n    allow write: %s\n  }\n}\n" % cond
+
+    # ----------------------------------------------------------------- views
+    def test_only_the_with_clause_holds_view_options(self):
+        for stmt in ("create view public.v (security_invoker) as select id from public.notes;",
+                     "create view public.v as select id as security_invoker, id from public.notes;",
+                     "create view public.v as select 'with (security_invoker = on)' as note from public.notes;"):
+            with self.subTest(stmt=stmt):
+                self.assertIn("public-view", evidence_checks(self.sql(self.RLS + stmt + "\n")), stmt)
+
+    # ----------------------------------------------------------------- policies
+    def test_using_true_joined_to_more_is_evidence_not_a_no(self):
+        q3 = self.sql(self.RLS + "create policy own on public.notes for all using (((((true))) and false));\n")
+        self.assertNotEqual(q3["answer"], "no")
+        self.assertIn("policy-true-unevaluated", evidence_checks(q3))
+        self.assertEqual(self.sql(self.RLS + "create policy p on public.notes for all using (((true)));\n")["answer"], "no")
+
+    # ----------------------------------------------------------------- lexer
+    def test_do_with_a_language_still_runs(self):
+        self.assertEqual(self.sql(self.RLS + "do language plpgsql $$ begin alter table public.notes disable row level security; end $$;\n")["answer"], "no")
+
+    def test_block_comments_nest(self):
+        body = self.RLS + '/* old /* inner */ 27" monitor */\nalter table public.notes disable row level security;\n-- 27" again\n'
+        self.assertEqual(self.sql(body)["answer"], "no")
+        body = self.RLS + "/* /* x */ we don't need this */\ncreate policy p on public.notes for all using (true);\n"
+        self.assertEqual(self.sql(body)["answer"], "no")
+
+    def test_a_quoted_name_across_lines_never_hides_a_rule(self):
+        body = self.RLS + 'select "not a name\nalter table public.notes disable row level security;\n" from x;\n'
+        self.assertNotEqual(self.sql(body)["answer"], "nothing-found")
+
+    def test_rule_words_in_a_name_earn_no_credit(self):
+        q3 = self.sql('create table public.notes (id int);\ncreate index "alter table public.notes enable row level security" on public.notes(id);\n')
+        self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], ["notes"])
+
+    def test_an_unclosed_quote_inside_a_do_block_is_a_gap(self):
+        self.assertEqual(self.sql(self.RLS + "do $$ begin perform 'oops; end $$;\n")["answer"], "dont-know")
+
+    def test_do_blocks_nested_past_the_cap_still_finish(self):
+        depth = cs.MAX_DO_NESTING + 5
+        body = "".join("do $t%d$ " % i for i in range(depth)) + "select 1;" + "".join(" $t%d$" % i for i in reversed(range(depth)))
+        self.sql(self.RLS + body + "\n")  # completes without recursion errors
+
+    # ----------------------------------------------------------------- drops
+    def test_a_drop_list_past_the_character_cut_is_a_gap(self):
+        q3 = self.q3_of({"db/1.sql": self.RLS, "db/2.sql": "drop table other.a," + " " * (cs.MAX_DROP_LIST_CHARS + 1) + "public.notes;\ncreate table public.notes (id int);\n"})
+        self.assertEqual(q3["answer"], "dont-know")
+
+    def test_a_drop_list_past_the_item_cap_is_a_gap(self):
+        items = ", ".join("other.t%d" % i for i in range(cs.MAX_TABLE_MATCHES_PER_FILE + 1))
+        q3 = self.q3_of({"db/1.sql": self.RLS, "db/2.sql": "drop table %s, public.notes;\ncreate table public.notes (id int);\n" % items})
+        self.assertEqual(q3["answer"], "dont-know")
+
+    # ----------------------------------------------------------------- Firebase
+    def test_negated_or_compared_groups_are_never_open(self):
+        for cond in ("if !(request.auth == null || true);", "if false == (request.auth == null || true);", "if f(request.auth || true);"):
+            with self.subTest(cond=cond):
+                q3 = self.q3_of({"firestore.rules": self.rules(cond)})
+                self.assertNotEqual(q3["answer"], "no", cond)
+                self.assertIn("firebase-rules-true-unevaluated", evidence_checks(q3), cond)
+
+    def test_a_parenthesised_or_group_is_still_open(self):
+        for cond in ("if (request.auth == null || true);", "if ((false) || (true));"):
+            with self.subTest(cond=cond):
+                self.assertEqual(self.q3_of({"firestore.rules": self.rules(cond)})["answer"], "no", cond)
+
+    def test_a_rule_without_a_semicolon_before_a_nested_match(self):
+        rules = "service cloud.firestore {\n  match /notes/{id} {\n    allow write: if true\n    match /c/{c} { allow read: if request.auth != null; }\n  }\n}\n"
+        self.assertEqual(self.q3_of({"firestore.rules": rules})["answer"], "no")
+
+    # ----------------------------------------------------------------- Q1
+    def test_mcp_rows_name_nested_folders_and_are_capped(self):
+        self.write("src/components/A.tsx", "export const A = 1;\n")
+        self.write("apps/web/.continue/mcp.json", "{}")
+        q1 = self.scan()["questions"]["q1"]
+        self.assertEqual([e["path"] for e in q1["evidence"] if e["check"] == "mcp-config-not-opened"], ["apps/web/.continue/mcp.json"])
+        for i in range(cs.MAX_HITS_PER_FILE_PER_CHECK + 3):
+            self.write(".roo/mcp%d.json" % i, "{}")
+        q1 = self.scan()["questions"]["q1"]
+        self.assertEqual(len([e for e in q1["evidence"] if e["check"] == "mcp-config-not-opened"]), cs.MAX_HITS_PER_FILE_PER_CHECK)
+        self.assertEqual(q1["answer"], "dont-know")
+
+
+
+class PreMergeReviewFourTests(ScanCase):
+    """The fresh pre-merge review of e5644ce: the floor kept by start and kind, RLS credit capped at 0.3.2's read,
+    linear paren handling, the Firebase ternary, Unicode dollar tags, manifest names under code folders, and the
+    MCP path check that never follows a link."""
+
+    RLS = "create table public.notes (id int);\nalter table public.notes enable row level security;\n"
+
+    def answers(self, files):
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.write("src/components/A.tsx", "export const A = () => null;\n")
+        for rel, body in files.items():
+            self.write(rel, body)
+        return self.scan()["questions"]
+
+    def test_a_select_or_altered_row_never_stands_in_for_the_releases_no(self):
+        for body in ('create policy "x--y" on public.notes for select\nusing (true);\n',
+                     "create policy p on public.notes for /* reviewed 2026-09: public read is intended */ select using (true);\n"):  # longer than 0.3.2's 20 spaces
+            with self.subTest(body=body):
+                self.assertEqual(self.answers({"db/1.sql": self.RLS + body})["q3"]["answer"], "no")
+
+    def test_an_enable_the_release_did_not_read_earns_no_credit(self):
+        for body in ("create table public.t (id int);\ninsert into public.log(m) values ('--'); alter table public.t enable row level security;\n",
+                     "create table public.t (id int);\nalter table public.t" + " " * 30 + "enable row level security;\n"):
+            with self.subTest(body=body):
+                q3 = self.answers({"db/1.sql": body})["q3"]
+                self.assertEqual(q3["answer"], "dont-know")
+                self.assertIn("table-without-rls", evidence_checks(q3))
+
+    def test_a_unicode_dollar_tag_body_is_a_string(self):
+        text = "select $\u00e9$ alter table public.t enable row level security; $\u00e9$;"
+        nc, code, bare, unclosed = cs._lex_sql(text)
+        self.assertNotIn("enable", code)
+        self.assertIn("enable", nc)
+        self.assertFalse(unclosed)
+        self.assertEqual(len(code), len(text))
+
+    def test_a_firebase_ternary_is_not_worked_out(self):
+        self.assertEqual(cs._firebase_condition("request.auth==null?false:request.auth.uid==id||true"), "unevaluated")
+        self.assertEqual(cs._firebase_condition("(request.auth==null?false:true)||true"), "open")
+
+    def test_setup_py_under_tests_or_src_is_not_a_manifest(self):
+        for rel in ("tests/setup.py", "src/setup.py", "app/__tests__/setup.py"):
+            with self.subTest(rel=rel):
+                q9 = self.answers({"requirements.txt": "flask\n", rel: "def setup(): pass\n"})["q9"]
+                self.assertNotIn("manifest-not-parsed", evidence_checks(q9))
+        q9 = self.answers({"requirements.txt": "flask\n", "setup.py": "from setuptools import setup\n"})["q9"]
+        self.assertIn("manifest-not-parsed", evidence_checks(q9))
+
+    @unittest.skipUnless(hasattr(os, "symlink"), "needs symlinks")
+    def test_the_mcp_path_check_never_follows_a_link(self):
+        outside = os.path.join(self.tmp, "outside")
+        os.makedirs(outside)
+        with open(os.path.join(outside, "mcp.json"), "w") as fh:
+            fh.write("{}")
+        kiro = os.path.join(self.tmp, "kiro")
+        os.makedirs(kiro)
+        os.symlink(outside, os.path.join(kiro, "settings"))
+        self.assertFalse(cs._lexists_inside(kiro, "settings/mcp.json"))
+        os.makedirs(os.path.join(kiro, "real"))
+        with open(os.path.join(kiro, "real", "mcp.json"), "w") as fh:
+            fh.write("{}")
+        self.assertTrue(cs._lexists_inside(kiro, "real/mcp.json"))
+
+    def test_strip_outer_parens_is_linear_in_depth(self):
+        def deep(d):
+            return "(" * d + "true" + ")" * d
+        t_small = _fastest(lambda: cs._firebase_open(deep(20000), 0))
+        t_big = _fastest(lambda: cs._firebase_open(deep(40000), 0))
+        self.assertGreater(t_small, _RATIO_FLOOR_S, "too fast to time, the ratio would assert nothing")
+        self.assertLess(t_big / t_small, 3.0, "deep parens grew %.1fx when the depth doubled" % (t_big / t_small))
+
+    def test_deep_and_unclosed_using_groups_stay_near_release_speed(self):
+        deep = "create policy p on public.notes for all using (" + "(" * 1990 + "true" + ")" * 1991 + ";\n"
+        unclosed = "using(((((true)\n"
+        for name, unit, reps in (("deep", deep, 120), ("unclosed", unclosed, 30000)):
+            with self.subTest(shape=name):
+                self.write("db/1.sql", self.RLS + unit * reps)
+                t0 = time.perf_counter()
+                self.scan()
+                self.assertLess(time.perf_counter() - t0, bound(3.0), "%s using groups must not be read char by char per match" % name)
+
+
+class WorseThanMainPerformanceTests(ScanCase):
+    """PR #24's two worse-than-main performance P1s: Firebase/SQL condition recursion had no work budget, and the
+    never-open MCP walk rebuilt every path prefix for every folder. RED tests fail on 22797d9; GUARD tests pass
+    there and each has a recorded mutation that fails it."""
+
+    RLS = "create table public.notes (id int);\nalter table public.notes enable row level security;\n"
+    FIREBASE_UNIT = "(()||" * 64 + "true" + ")" * 64  # 388 chars, inside FIREBASE_IF_RE's 400
+    SQL_UNIT = "create policy p on t using ((((((true)) and x) or " + "(() or " * 64 + "x" + ")" * 64 + ")));\n"
+    OPS = ["request.auth.uid==resource.data.owner%d" % i for i in range(10)]
+
+    def rules(self, *conds):
+        allows = "".join("    allow write: if %s;\n" % c for c in conds)
+        return "service cloud.firestore {\n  match /{d=**} {\n%s  }\n}\n" % allows
+
+    def q_of(self, files, q="q3"):
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.write("src/components/A.tsx", "export const A = () => null;\n")
+        for rel, body in files.items():
+            self.write(rel, body)
+        return self.scan()["questions"][q]
+
+    def charged(self, fn):
+        """Implementation-specific guard: every `_firebase_open` call strips its input once, so the characters
+        handed to `_strip_outer_parens` are the recursion's work. Returns (result, chars, calls, first length)."""
+        real, seen = cs._strip_outer_parens, []
+
+        def wrap(expr):
+            seen.append(len(expr))
+            return real(expr)
+        with mock.patch.object(cs, "_strip_outer_parens", wrap):
+            result = fn()
+        return result, sum(seen), len(seen), (seen[0] if seen else 0)
+
+    def assert_linear_work(self, fn, what):
+        result, chars, calls, top = self.charged(fn)
+        self.assertGreater(calls, 0, "the work-count wrapper was never called, so this test measures nothing")
+        self.assertLessEqual(chars, 4 * top + 200, "%s: %d chars of recursion for a %d-char condition" % (what, chars, top))
+        return result
+
+    # ----------------------------------------------------------------- RED: P1-a
+    def test_firebase_condition_work_is_linear(self):
+        verdict = self.assert_linear_work(lambda: cs._firebase_condition(self.FIREBASE_UNIT), "firebase repro")
+        self.assertEqual(verdict, "unevaluated")
+
+    def test_a_condition_too_nested_to_evaluate_says_so(self):
+        q3 = self.q_of({"firestore.rules": self.rules(self.FIREBASE_UNIT)})
+        rows = [e for e in q3["evidence"] if e["check"] == "firebase-rules-true-unevaluated"]
+        self.assertTrue(rows)
+        self.assertIn("nested too deeply to evaluate", rows[0]["snippet"])
+        self.assertIn("review it by hand", rows[0]["snippet"])
+
+    def test_sql_predicate_work_is_linear(self):
+        text = self.SQL_UNIT
+        closes = cs._paren_closes(text)
+        start = cs.USING_TRUE_RE.search(text).start()
+        opened = self.assert_linear_work(lambda: cs._sql_predicate_open(text, start, closes, {"left": 10 ** 9}), "sql repro")
+        self.assertFalse(opened)
+
+    def test_a_depth_15_condition_with_long_operands_is_linear(self):
+        cond = "true"
+        for op in (self.OPS * 2)[:15]:
+            cond = "(%s||%s)" % (op, cond)
+        self.assert_linear_work(lambda: cs._firebase_condition(cond), "depth 15")
+
+    # ----------------------------------------------------------------- GUARD: P1-a
+    def test_a_nested_open_condition_stays_open(self):
+        # GUARD 1. Mutation: budget len + 200 makes this unevaluated.
+        cond = "(%s||%s)||(%s||(%s||(%s||(%s||true))))" % tuple(self.OPS[:6])
+        self.assertEqual(cs._firebase_condition(cond), "open")
+        self.assertEqual(self.q_of({"firestore.rules": self.rules(cond)})["answer"], "no")
+
+    def test_a_long_true_operand_after_a_deep_one_stays_open(self):
+        # GUARD 1b. Mutation: recursing in written order instead of cheapest first makes this unevaluated.
+        op = "request.auth.uid==resource.data.owner"
+        cond = "(((((%s||%s)||%s)||%s)||%s)||%s)||(request.auth.token.admin==false||true)" % ((op,) * 6)
+        self.assertEqual(cs._firebase_condition(cond), "open")
+
+    def test_an_open_condition_after_a_heavy_one_stays_open(self):
+        # GUARD 2: no starvation; each condition has its own budget.
+        q3 = self.q_of({"firestore.rules": self.rules(self.FIREBASE_UNIT, "(request.auth == null || true)")})
+        self.assertEqual(q3["answer"], "no")
+        self.assertIn("firebase-rules-open", evidence_checks(q3))
+
+    def test_the_two_argument_firebase_open_call_still_works(self):
+        self.assertTrue(cs._firebase_open("((a||true))", 0))
+        self.assertFalse(cs._firebase_open("a&&true", 0))
+
+    def test_rules_and_policy_files_stay_fast(self):
+        # GUARD 6, coarse: the work-count tests above are the real guard.
+        if os.environ.get("CUSTODY_SLOW") != "1":
+            self.skipTest("CUSTODY_SLOW=1 not set")
+        fire = "service cloud.firestore {\n  match /{d=**} {\n" + ("    allow write: if %s;\n" % self.FIREBASE_UNIT) * 1270 + "  }\n}\n"
+        sql = self.RLS + self.SQL_UNIT * 920
+        for name, files in (("firebase", {"firestore.rules": fire}), ("sql", {"db/1.sql": sql})):
+            with self.subTest(shape=name):
+                body = list(files.values())[0]
+                self.assertLessEqual(len(body), cs.DEFAULT_MAX_FILE_BYTES, "a file over the cap is skipped, not read")
+                t0 = time.perf_counter()
+                q3 = self.q_of(files)
+                self.assertLess(time.perf_counter() - t0, bound(3.0), "%s: a 512 KB file of nested conditions" % name)
+                self.assertTrue(q3["evidence"], "the file was read")
+
+    # ----------------------------------------------------------------- P1-b: the never-open MCP walk
+    def agent_dir(self, name=".kiro"):
+        path = os.path.join(self.tmp, "agent", name)
+        os.makedirs(path)
+        return path
+
+    @staticmethod
+    def found(res):
+        """The names reported, from an McpScan or from 22797d9's plain list, so the guards run on both."""
+        return list(res.found if hasattr(res, "found") else res)
+
+    def touch(self, base, rel):
+        full = os.path.join(base, *rel.split("/"))
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        with open(full, "w") as fh:
+            fh.write("{}")
+
+    def test_the_mcp_walk_returns_found_and_truncated(self):
+        path = self.agent_dir(".claude")
+        self.touch(path, "mcp.json")
+        res = cs._mcp_configs_inside(path, ".claude")
+        found, truncated = res
+        self.assertEqual((res.found, res.truncated), (["mcp.json"], False))
+        self.assertEqual((found, truncated), (["mcp.json"], False))
+
+    @unittest.skipIf(platform.system() == "Windows", "a 400-deep chain is past MAX_PATH")
+    def test_a_deep_and_wide_agent_folder_walks_fast(self):
+        if os.environ.get("CUSTODY_SLOW") != "1":
+            self.skipTest("CUSTODY_SLOW=1 not set")
+        path = self.agent_dir(".claude")
+        bottom = os.path.join(path, *(["a"] * 400))
+        os.makedirs(bottom)
+        for i in range(9000):
+            os.mkdir(os.path.join(bottom, "d%d" % i))
+        t0 = time.perf_counter()
+        res = cs._mcp_configs_inside(path, ".claude", time.monotonic() + 120)
+        self.assertLess(time.perf_counter() - t0, bound(1.0), "the never-open MCP walk must be linear in folders")
+        # each folder walked counts toward the cap, as in count_files (9,400 entries + 401 folders > 10,000).
+        # Mutation: dropping the per-folder count leaves this untruncated and about 14x slower.
+        self.assertTrue(res.truncated)
+
+    def test_an_mcp_folder_inside_an_mcp_folder_reports_only_the_outer_one(self):
+        # GUARD 3. Mutation: deleting the prune reports both.
+        path = self.agent_dir(".claude")
+        self.touch(path, "mcp-servers/mcp.json")
+        self.touch(path, "mcp-servers/deeper/mcp-two.json")
+        self.assertEqual(self.found(cs._mcp_configs_inside(path, ".claude")), ["mcp-servers"])
+
+    def test_the_walk_never_goes_below_a_reported_folder(self):
+        # GUARD 4. Mutation: deleting the prune walks into mcp-servers/.
+        path = self.agent_dir(".claude")
+        self.touch(path, "mcp-servers/a/b/c.json")
+        self.touch(path, "other/x.json")
+        real, yielded = os.walk, []
+
+        def walk(top, *a, **kw):
+            for step in real(top, *a, **kw):
+                yielded.append(step[0])
+                yield step
+        with mock.patch.object(cs.os, "walk", walk):
+            found = self.found(cs._mcp_configs_inside(path, ".claude"))
+        self.assertEqual(list(found), ["mcp-servers"])
+        below = [d for d in yielded if d.startswith(os.path.join(path, "mcp-servers") + os.sep)]
+        self.assertEqual(below, [])
+        self.assertIn(os.path.join(path, "other"), yielded)
+
+    def test_a_trailing_separator_does_not_change_the_names(self):
+        # GUARD 4b. Mutation: dropping the rstrip cuts the first character of every nested name.
+        path = self.agent_dir(".claude")
+        self.touch(path, "tools/mcp.json")
+        self.assertEqual(self.found(cs._mcp_configs_inside(path + os.sep, ".claude")), ["tools/mcp.json"])
+
+    def test_pre_seeded_agent_paths_report_as_before(self):
+        # GUARD 5: the same lists 22797d9 gave.
+        kiro = self.agent_dir(".kiro")
+        self.touch(kiro, "settings/mcp.json")
+        self.touch(kiro, "settings/other-mcp.json")
+        self.assertEqual(self.found(cs._mcp_configs_inside(kiro, ".kiro")), ["settings/mcp.json", "settings/other-mcp.json"])
+        amazonq = self.agent_dir(".amazonq")
+        self.touch(amazonq, "cli-agents/mcp.json")
+        self.touch(amazonq, "mcp.json")
+        self.assertEqual(self.found(cs._mcp_configs_inside(amazonq, ".amazonq")), ["cli-agents", "mcp.json"])
+
+    def test_an_agent_folder_cut_off_by_the_cap_withholds_q1(self):
+        # GUARD 7. Mutation: dropping the q1 gap increment lets Q1 say nothing found.
+        self.assertEqual(self.q_of({".claude/x/f.txt": "x"}, "q1")["answer"], "nothing-found")
+        files = {".claude/x/sub/mcp.json": "{}"}
+        files.update({".claude/x/f%d.txt" % i: "x" for i in range(60)})
+        with mock.patch.object(cs, "MAX_NEVER_OPEN_COUNT", 50):
+            q1 = self.q_of(files, "q1")
+        self.assertNotEqual(q1["answer"], "nothing-found")
+
+
+class NeverWorseThanMainTests(unittest.TestCase):
+    """The scanner on this branch against the answers the released baseline gave on the same files
+    (fixtures/differential/cases.json: realistic shapes plus every repro from review). Two rules:
+
+    1. never more trusting: an answer may not move toward Nothing found (no > don't know > nothing found);
+    2. never a new No: a No the baseline did not give needs a reason, because a false No is the worst answer.
+
+    An exception is allowed only when it is listed below with the reason the baseline was wrong. To move the
+    baseline after a release, regenerate cases.json from the released scanner (see fixtures/differential/README.md)."""
+
+    RANK = {"no": 2, "dont-know": 1, "nothing-found": 0, "yes": 0}
+    KEYS = {"{KEY}": "sk-" + "proj-" + "a1b2c3d4e5f6g7h8i9j0" * 2,
+            "{PEM}": "-----BEGIN " + "PRIVATE KEY-----\\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\\n-----END " + "PRIVATE KEY-----\\n"}
+    # (case, question) -> why the baseline's more cautious answer was wrong
+    ALLOW_SOFTER = {}  # none: the branch is never less cautious than the release
+    # (case, question) -> why a No the baseline did not give is right
+    ALLOW_NEW_NO = {
+        ("mts client key", "q1"): ".mts is read as code now; a key in a browser folder is a No, as in a .ts file",
+        ("mts server only", "q1"): ".mts is read as code now and follows the release's rule for a .ts file in the same folder",
+        ("cts client key", "q1"): ".cts is read as code now; a key in a browser folder is a No, as in a .ts file",
+        ("disable with long whitespace", "q3"): "the release capped the spaces inside `disable row level security` at 20; the statement still turns RLS off",
+        ("using true six parens", "q3"): "the release read `true` only up to three parens deep; `using ((((((true))))))` is the same open policy",
+        ("rtdb true as string", "q3"): "`\".read\": \"true\"` is the same open rule as `true`; the release only read the bare boolean",
+    }
+
+    def _scan(self, files):
+        tmp = tempfile.mkdtemp(prefix="custody differential ")
+        try:
+            for rel, body in files.items():
+                for k, v in self.KEYS.items():
+                    body = body.replace(k, v)
+                path = os.path.join(tmp, rel)
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write(body)
+            q = cs.scan(tmp)["questions"]
+            return {k: q[k]["answer"] for k in ("q1", "q3", "q9")}
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_never_worse_than_the_baseline(self):
+        with open(os.path.join(SCRIPT_DIR, "fixtures", "differential", "cases.json"), encoding="utf-8") as fh:
+            data = json.load(fh)
+        self.assertGreater(len(data["cases"]), 40, "the corpus must stay broad")
+        used = set()
+        for c in data["cases"]:
+            new = self._scan(c["files"])
+            for q, base in sorted(c["main"].items()):
+                with self.subTest(case=c["name"], question=q):
+                    key = (c["name"], q)
+                    if self.RANK[new[q]] < self.RANK[base]:
+                        self.assertIn(key, self.ALLOW_SOFTER, "%s %s: %s -> %s is more trusting than the baseline" % (c["name"], q, base, new[q]))
+                        used.add(key)
+                    if new[q] == "no" and base != "no":
+                        self.assertIn(key, self.ALLOW_NEW_NO, "%s %s: a new No the baseline did not give" % (c["name"], q))
+                        used.add(key)
+        stale = (set(self.ALLOW_SOFTER) | set(self.ALLOW_NEW_NO)) - used
+        self.assertEqual(stale, set(), "an allowed exception that no longer happens should be removed")
 
 
 if __name__ == "__main__":

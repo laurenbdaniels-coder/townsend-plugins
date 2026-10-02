@@ -10,7 +10,7 @@ Run it from the folder that CONTAINS the app:  python3 -I custody_scan.py --repo
 """
 import sys
 
-__version__ = "0.3.2"
+__version__ = "0.3.3"
 
 _DOCS = "README.md#when-it-goes-wrong"
 HINTS = {
@@ -42,6 +42,7 @@ if _guard is not None and __name__ == "__main__":
 import argparse
 import base64
 import bisect
+import collections
 import json
 import os
 import re
@@ -60,12 +61,17 @@ import warnings
 BUILD_OUTPUT_DIRS = {"dist", "build", "out", ".next", ".nuxt"}  # skipped like the rest, but they hold browser bundles, and people keep source under the first three
 NEVER_READ_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".heic", ".ico", ".bmp", ".tif", ".tiff", ".psd", ".mp4", ".mov", ".webm", ".mkv", ".avi", ".mp3", ".wav", ".ogg", ".flac",
               ".woff", ".woff2", ".ttf", ".otf", ".eot", ".pdf", ".zip", ".tar", ".tgz", ".7z", ".rar", ".dmg", ".exe", ".dll", ".so", ".dylib", ".wasm", ".pyc", ".class", ".jar"}  # media, fonts, archives, binaries: never opened, no detector wants them
-PRECOMPRESSED_EXTS = (".gz", ".br")  # app.js.gz is browser code no detector can read; data.json.gz is just data
+PRECOMPRESSED_EXTS = (".gz", ".br", ".zst", ".zstd")  # app.js.gz is browser code no detector can read; data.json.gz is just data
 EXCLUDED_DIRS = {".git", "node_modules", "dist", "build", ".next", ".nuxt", "out", "vendor", "venv", ".venv", "__pycache__", "coverage"}
 NEVER_OPEN_DIRS = {".claude", ".codex", ".agents", ".windsurf", ".clinerules", ".gemini", ".kiro", ".roo", ".trae", ".augment", ".amazonq", ".junie", ".continue", ".aider", ".opencode"}
 NEVER_OPEN_DIR_PAIRS = {(".cursor", "rules"), (".github", "instructions"), (".github", "prompts"), (".github", "agents")}
 NEVER_OPEN_FILE_RE = re.compile(r"^(?:claude|agents?|gemini|conventions|copilot-instructions)(?:[.-][^/]*)?\.md$|^\.aider.*$|.*\.prompt\.md$|.*\.agent\.md$|.*\.instructions\.md$|.*\.mdc$", re.I)
-NEVER_OPEN_FILES = {".cursorrules", ".windsurfrules", ".clinerules", ".rules", "opencode.json", ".roomodes"}
+NEVER_OPEN_FILES = {".cursorrules", ".windsurfrules", ".clinerules", ".rules", "opencode.json", "opencode.jsonc", ".roomodes"}
+# MCP server configs that live inside never-open agent folders: never opened, but each one could hold a token, so it is a Q1 gap
+NEVER_OPEN_MCP_PATHS = {".kiro": ("settings/mcp.json",), ".amazonq": ("cli-agents",), ".gemini": ("settings.json",),
+                        ".continue": ("config.json", "config.yaml"), ".codex": ("config.toml",)}  # configs whose names do not say mcp
+NEVER_OPEN_MCP_NAME_RE = re.compile(r"mcp", re.I)  # any file or folder with mcp in its name inside a never-open agent folder
+NEVER_OPEN_SECRET_FILE_RE = re.compile(r"^(?:opencode\.jsonc?|\.aider[^/]*\.ya?ml)$", re.I)  # never-open files that carry MCP servers or API keys
 SKIP_BASENAMES = {"package-lock.json", "yarn.lock", "pnpm-lock.yaml", "bun.lockb", "poetry.lock", "cargo.lock", "composer.lock", "gemfile.lock"}
 SKIP_EXT_SUFFIXES = (".map", ".min.js", ".min.css", ".bundle.js")
 BROWSER_PREFIXES = ("NEXT_PUBLIC_", "VITE_", "REACT_APP_", "EXPO_PUBLIC_", "PUBLIC_", "NUXT_PUBLIC_", "GATSBY_")
@@ -81,11 +87,12 @@ SOURCE_ROOTS = {"src", "app", "pages", "api", "server", "supabase", "prisma", "f
 _HAS_NONBLOCK = hasattr(os, "set_blocking") and sys.platform != "win32"
 CONFIG_VALUE_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 SQL_LIKE_EXTS = {".sql", ".psql", ".pgsql", ".ddl"}
-CODE_EXTS = {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".vue", ".svelte", ".astro", ".py", ".rb", ".go", ".java", ".kt", ".php", ".cs", ".swift", ".dart"}
+CODE_EXTS = {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".mts", ".cts", ".vue", ".svelte", ".astro", ".py", ".rb", ".go", ".java", ".kt", ".php", ".cs", ".swift", ".dart"}
 SCHEMA_EXTS = {".prisma", ".graphql", ".gql"}
 HTML_EXTS = {".html", ".htm", ".jsx", ".tsx", ".vue", ".svelte", ".astro"}
 MAX_EVIDENCE = 12
 MAX_SNIPPET = 120
+NESTED_DETAIL = "condition nested too deeply to evaluate (%d chars); review it by hand"
 MAX_HITS_PER_FILE_PER_CHECK = 5
 MAX_PATH_CHARS = 200
 BINARY_SNIFF_BYTES = 8192
@@ -134,11 +141,11 @@ CHECKS = {
     "server-path-key-literal": ("q1", "evidence"), "non-client-key-literal": ("q1", "evidence"),
     "placeholder-key-literal": ("q1", "evidence"), "test-path-key-literal": ("q1", "evidence"),
     "scan-summary": ("q1", "evidence"),
-    "nothing-found-keys": ("q1", "evidence"), "build-output-unread": ("q1", "evidence"),
+    "nothing-found-keys": ("q1", "evidence"), "mcp-config-not-opened": ("q1", "evidence"), "build-output-unread": ("q1", "evidence"),
     "api-route-dir": ("q2", "hint"), "framework-config": ("q2", "hint"), "client-server-split": ("q2", "hint"),
-    "rls-disabled": ("q3", "no"), "policy-using-true": ("q3", "no"), "policy-select-true": ("q3", "evidence"), "policy-altered-true": ("q3", "evidence"), "policy-with-check-true": ("q3", "evidence"),
+    "rls-disabled": ("q3", "no"), "policy-true-unevaluated": ("q3", "evidence"), "open-rule-in-string": ("q3", "evidence"), "policy-using-true": ("q3", "no"), "policy-select-true": ("q3", "evidence"), "policy-altered-true": ("q3", "evidence"), "policy-with-check-true": ("q3", "evidence"),
     "policy-to-anon": ("q3", "evidence"), "table-without-rls": ("q3", "evidence"), "storage-bucket-public-sql": ("q3", "evidence"), "nothing-found-rules": ("q3", "evidence"),
-    "firebase-rules-open": ("q3", "no"), "firebase-rules-public-read": ("q3", "evidence"), "storage-bucket-public": ("q3", "evidence"),
+    "firebase-rules-open": ("q3", "no"), "firebase-rules-public-read": ("q3", "evidence"), "firebase-rules-test-mode": ("q3", "evidence"), "firebase-rules-true-unevaluated": ("q3", "evidence"), "public-view": ("q3", "evidence"), "storage-bucket-public": ("q3", "evidence"),
     "auth-path": ("q4", "evidence"), "auth-dependency": ("q4", "evidence"),
     "deploy-config": ("q5.code", "yes-part"), "migration-path": ("q5.code", "evidence"), "backup-script": ("q5.code", "evidence"),
     "git-history": ("q5.code", "evidence"), "git-not-a-repo": ("q5.code", "evidence"), "git-config-not-vouched": ("q5.code", "evidence"), "git-index-unread": ("q1", "evidence"), "git-unavailable": ("q5.code", "evidence"),
@@ -146,7 +153,7 @@ CHECKS = {
     "env-name": ("q6", "yes-part"), "preview-deploys-default": ("q6", "evidence"),
     "review-workflow": ("q7", "evidence"),
     "model-env-var": ("q8", "hint"), "model-literal": ("q8", "hint"), "spend-cap-word": ("q8", "hint"), "ai-sdk-dependency": ("q8", "hint"),
-    "monitoring-dependency": ("q9", "hint"), "sentry-config": ("q9", "hint"), "health-route": ("q9", "hint"), "cron-schedule": ("q9", "hint"), "nothing-found-monitoring": ("q9", "evidence"),
+    "monitoring-dependency": ("q9", "hint"), "sentry-config": ("q9", "hint"), "health-route": ("q9", "hint"), "cron-schedule": ("q9", "hint"), "nothing-found-monitoring": ("q9", "evidence"), "manifest-not-parsed": ("q9", "evidence"),
     "pii-field": ("q10", "evidence"), "pii-form-input": ("q10", "evidence"),
     "builder-file": ("q11", "evidence"), "builder-dependency": ("q11", "evidence"), "builder-readme": ("q11", "evidence"), "container-config": ("q11", "evidence"), "code-history-local": ("q11", "evidence"),
 }
@@ -236,16 +243,33 @@ ANGULAR_IMPORT_RE = re.compile(r"(?m)^[ \t]*import\b[^\n]{0,200}\bfrom[ \t]+[\"'
 PAGES_DATA_FN_RE = re.compile(r"\b(?:getServerSideProps|getStaticProps|getStaticPaths)\b")
 TEST_MODE_KEY_RE = re.compile(r"^(?:sk|rk)_test_")  # Stripe test mode cannot move real money
 TEST_PATH_RE = re.compile(r"(?:^|/)(?:__tests__|tests?|fixtures?)/|\.(?:test|spec|stories)\.[^/]+$")
-RLS_DISABLED_RE = re.compile(r"disable\s{1,20}row\s{1,20}level\s{1,20}security", re.I)
-USING_TRUE_RE = re.compile(r"\busing\s{0,20}\((?:\s{0,20}\(){0,3}\s{0,20}true(?:\s{0,5}::\s{0,5}bool(?:ean)?)?(?:\s{0,20}\)){1,4}", re.I)
-WITH_CHECK_TRUE_RE = re.compile(r"\bwith\s{1,20}check\s{0,20}\(\s{0,20}true\s{0,20}\)", re.I)
+RLS_DISABLED_RE = re.compile(r"disable\s+row\s+level\s+security", re.I)
+USING_TRUE_RE = re.compile(r"\busing\s*\((?:\s*\()*\s*true(?:\s*::\s*bool(?:ean)?)?(?:\s*\))+", re.I)  # any depth: using (((true)))
+# 0.3.2's decisive patterns, verbatim: wherever they fire the answer stays No (never worse than the release)
+RELEASE_USING_TRUE_RE = re.compile(r"\busing\s{0,20}\((?:\s{0,20}\(){0,3}\s{0,20}true(?:\s{0,5}::\s{0,5}bool(?:ean)?)?(?:\s{0,20}\)){1,4}", re.I)
+RELEASE_FIREBASE_ALLOW_TRUE_RE = re.compile(r"\ballow[ \t]{1,20}([a-z]+(?:[ \t]*,[ \t]*[a-z]+){0,10})[ \t]*:[ \t]*if[ \t]{1,20}true\b", re.I)
+RELEASE_RLS_DISABLED_RE = re.compile(r"disable\s{1,20}row\s{1,20}level\s{1,20}security", re.I)  # 0.3.2, verbatim
+RELEASE_POLICY_SELECT_RE = re.compile(r"\bfor\s{1,20}select\b", re.I)  # 0.3.2, verbatim
+RELEASE_LINE_COMMENT_RE = re.compile(r"--[^\n]*")  # 0.3.2's line-comment rule, which also cut through strings
+MAX_PREDICATE_CHARS = 4000
+PAREN_RE = re.compile(r"[()]")
+OR_SPLIT_RE = re.compile(r"[()]|\|\||\?")  # `?` for the ternary, which binds looser than ||
+SQL_BOOL_CAST_RE = re.compile(r"\s*::\s*bool(?:ean)?\b")
+SQL_OR_RE = re.compile(r"\bor\b")
+SQL_AND_RE = re.compile(r"\band\b")
+WITH_CHECK_TRUE_RE = re.compile(r"\bwith\s+check\s*\(\s*true\s*\)", re.I)
 POLICY_TO_ANON_RE = re.compile(r"\bcreate\s+policy\b[^\n]{0,300}?\bto\s+anon\b", re.I)
 STORAGE_BUCKET_TRUE_RE = re.compile(r"storage\.buckets\b[^\n]{0,300}?\btrue\b", re.I)
 FIREBASE_ALLOW_ALL_RE = re.compile(r"\ballow[ \t]{1,20}([a-z]+(?:[ \t]*,[ \t]*[a-z]+){0,10})[ \t]*;", re.I)
-FIREBASE_ALLOW_TRUE_RE = re.compile(r"\ballow[ \t]{1,20}([a-z]+(?:[ \t]*,[ \t]*[a-z]+){0,10})[ \t]*:[ \t]*if[ \t]{1,20}true\b", re.I)
+FIREBASE_IF_RE = re.compile(r"\ballow\s{1,20}([a-z]+(?:\s{0,20},\s{0,20}[a-z]+){0,10})\s{0,20}:\s{0,20}if(?=[\s(])((?:[^;}\n]|\n(?![ \t]*(?:allow|match)\b)){0,400})(?=[;}]|\n[ \t]*(?:allow|match)\b)", re.I)  # a rule may leave off its ;
+FIREBASE_IF_LONG_RE = re.compile(r"\ballow\s{1,20}[a-z]+(?:\s{0,20},\s{0,20}[a-z]+){0,10}\s{0,20}:\s{0,20}if(?=[\s(])(?:[^;}\n]|\n(?![ \t]*(?:allow|match)\b)){401}", re.I)  # past what FIREBASE_IF_RE reads
+TRUE_TOKEN_RE = re.compile(r"(?<![\w.])true(?![\w.])")
+# the console's generated "test mode": open to everyone until a date, then closed
+FIREBASE_TEST_MODE_RE = re.compile(r"\ballow\s{1,20}[a-z]+(?:\s{0,20},\s{0,20}[a-z]+){0,10}\s{0,20}:\s{0,20}if(?=[\s(])\s{0,20}(?:\(\s{0,20})*(?:request\.time\s{0,20}<|timestamp\.date\([^)\n]{0,40}\)\s{0,20}>\s{0,20}request\.time)", re.I)
+RTDB_TEST_MODE_RE = re.compile(r"\"\.(?:read|write)\"\s{0,20}:\s{0,20}\"\s{0,5}now\s{0,5}<", re.I)
 FIREBASE_WRITE_RE = re.compile(r"\b(?:write|create|update|delete)\b", re.I)
-RTDB_WRITE_OPEN_RE = re.compile(r"\"\.write\"\s{0,20}:\s{0,20}true", re.I)
-RTDB_READ_OPEN_RE = re.compile(r"\"\.read\"\s{0,20}:\s{0,20}true", re.I)
+RTDB_WRITE_OPEN_RE = re.compile(r"\"\.write\"\s{0,20}:\s{0,20}(?:true|\"\s{0,5}true\s{0,5}\")", re.I)  # "true" as a string rule is the same rule
+RTDB_READ_OPEN_RE = re.compile(r"\"\.read\"\s{0,20}:\s{0,20}(?:true|\"\s{0,5}true\s{0,5}\")", re.I)
 SLASH_COMMENT_RE = re.compile(r"//[^\n]*")
 RN_IMPORT_RE = re.compile(r"(?m)^[ \t]*import\b[^\n]{0,200}\bfrom[ \t]+[\"'](?:react-native|expo|expo-router|@expo/[^\"'\n]{0,60})[\"']")
 TOML_PUBLIC_TRUE_RE = re.compile(r"^[ \t]*public[ \t]*=[ \t]*true\b", re.I | re.M)
@@ -264,7 +288,7 @@ CRON_WRANGLER_RE = re.compile(r"^[ \t]*crons[ \t]*=", re.M)
 CRON_SQL_RE = re.compile(r"cron\.schedule\(", re.I)
 PII_FIELD_RE = re.compile(r"(?<![a-z0-9])(email|phone|tel|ssn|social_security|dob|date_of_birth|birthdate|address|street|postal_code|zip_code|passport|credit_card|card_number|cc_number|iban|medical|diagnosis|salary)(?![a-z0-9])", re.I)
 CAMEL_SPLIT_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
-POLICY_SELECT_RE = re.compile(r"\bfor\s{1,20}select\b", re.I)
+POLICY_SELECT_RE = re.compile(r"\bfor\s+select\b", re.I)
 PII_INPUT_RE = re.compile(r"name=[\"'](email|tel|phone|address|street|cc-[a-z-]+|bday|ssn|dob)[\"']", re.I)
 BUILDER_URL_RE = re.compile(r"lovable\.(?:dev|app)|replit\.com|bolt\.new|base44\.com|v0\.(?:dev|app)", re.I)
 DEP_NAME_RE = re.compile(r"\"(@?[A-Za-z0-9_./-]+)\"\s*:")
@@ -273,10 +297,14 @@ PREFILTER_RE = re.compile(NAMED_KEY_ALT + r"|eyJ[A-Za-z0-9_-]{8,}|(?:[Ss]ecret|S
 
 AUTH_DEPS = {"next-auth", "@auth/core", "@auth/nextjs", "@clerk/nextjs", "@clerk/clerk-react", "@clerk/clerk-sdk-node", "@supabase/auth-helpers-nextjs", "@supabase/auth-helpers-react", "@supabase/ssr", "@supabase/auth-ui-react", "passport", "lucia", "better-auth", "jsonwebtoken", "jose", "firebase-admin", "@kinde-oss/kinde-auth-nextjs", "@auth0/nextjs-auth0", "auth0", "django-allauth", "devise", "flask-login", "authlib", "pyjwt", "python-jose"}
 AI_DEPS = {"openai", "@anthropic-ai/sdk", "anthropic", "ai", "@ai-sdk/openai", "@ai-sdk/anthropic", "@ai-sdk/google", "langchain", "@langchain/core", "@langchain/openai", "@langchain/anthropic", "@google/generative-ai", "google-generativeai", "@google/genai", "cohere-ai", "cohere", "replicate", "@mistralai/mistralai", "mistralai", "groq-sdk", "groq", "together-ai", "litellm", "ollama", "openrouter", "@huggingface/inference", "transformers"}
-MONITORING_DEPS = {"@sentry/node", "@sentry/nextjs", "@sentry/react", "@sentry/browser", "@sentry/sveltekit", "@sentry/remix", "sentry-sdk", "dd-trace", "datadog", "@datadog/browser-rum", "@logtail/node", "@logtail/next", "newrelic", "@highlight-run/next", "@highlight-run/node", "@axiomhq/js", "next-axiom", "node-cron", "cron", "bull", "bullmq", "agenda", "@vercel/cron", "pino", "winston", "better-stack",
-                   "sentry-ruby", "sentry-rails", "honeybadger", "rollbar", "bugsnag", "airbrake", "scout_apm", "newrelic_rpm",  # Ruby
-                   "github.com/getsentry/sentry-go", "github.com/rollbar/rollbar-go", "github.com/bugsnag/bugsnag-go", "github.com/newrelic/go-agent",  # Go
-                   "sentry_sdk", "rollbar", "bugsnag", "structlog", "loguru"}
+MONITORING_DEPS = {"sentry-sdk", "dd-trace", "datadog", "newrelic", "@axiomhq/js", "next-axiom", "node-cron", "cron", "bull", "bullmq", "agenda", "@vercel/cron", "pino", "winston", "better-stack",
+                   "elastic-apm-node", "logrocket", "logfire",  # JavaScript
+                   "sentry-ruby", "sentry-rails", "honeybadger", "rollbar", "bugsnag", "airbrake", "scout_apm", "newrelic_rpm", "appsignal", "skylight",  # Ruby
+                   "github.com/getsentry/sentry-go", "github.com/rollbar/rollbar-go", "github.com/bugsnag/bugsnag-go", "github.com/newrelic/go-agent",
+                   "github.com/datadog/dd-trace-go", "gopkg.in/datadog/dd-trace-go",  # Go, major-version suffix stripped
+                   "sentry_sdk", "ddtrace", "elastic-apm", "structlog", "loguru"}  # Python; logging libraries count like pino and winston
+# whole vendor scopes and families: @sentry/vue, @opentelemetry/api, opentelemetry-sdk are error tracking or tracing whatever the suffix
+MONITORING_PREFIXES = ("@sentry/", "@bugsnag/", "@opentelemetry/", "@datadog/", "@honeybadger-io/", "@rollbar/", "@logtail/", "@highlight-run/", "@appsignal/", "opentelemetry-")
 BUILDER_DEPS_RE = re.compile(r"^(?:lovable-tagger|@base44/sdk|@replit/.+)$")
 BUILDER_BASENAMES = {".replit", "replit.nix", ".bolt", ".lovable", "base44.config.json", ".v0"}
 FRAMEWORK_CONFIG_RE = re.compile(r"^(?:next|vite|nuxt|svelte|astro|remix|gatsby|angular|vue)\.config\.[a-z]+$", re.I)
@@ -287,16 +315,37 @@ HEALTH_PATH_RE = re.compile(r"(?:^|/)health(?:z|check|-check)?(?:\.[a-z]+|/(?:ro
 REVIEW_ACTION_RE = re.compile(r"^[ \t]*(?:-[ \t]*)?uses:[ \t]*[\"']?(anthropics/claude-code-action|coderabbitai/[A-Za-z0-9_.-]{1,60}|reviewdog/[A-Za-z0-9_.-]{1,60})", re.M)
 REVIEW_NAME_RE = re.compile(r"(?:^|[-_.])review")  # pr-review.yml, claude-code-review.yml; never preview.yml
 _SQL_IDENT = r"(?:\"[^\"\n]{1,63}\"|[A-Za-z_][A-Za-z0-9_$]{0,62})"  # a Postgres identifier: quoted as written, or bare
-_SQL_TABLE = "(" + _SQL_IDENT + r"(?:\s{0,5}\.\s{0,5}" + _SQL_IDENT + ")?)"  # optionally schema-qualified
-CREATE_TABLE_RE = re.compile(r"\bcreate\s{1,20}(?:(?:unlogged|foreign)\s{1,20})?table\s{1,20}(?:if\s{1,20}not\s{1,20}exists\s{1,20})?" + _SQL_TABLE, re.I)
-ENABLE_RLS_RE = re.compile(r"\balter\s{1,20}table\s{1,20}(?:if\s{1,20}exists\s{1,20})?(?:only\s{1,20})?" + _SQL_TABLE + r"\s{1,20}enable\s{1,20}row\s{1,20}level\s{1,20}security", re.I)
+_SQL_TABLE = "(" + _SQL_IDENT + r"(?:\s*\.\s*" + _SQL_IDENT + ")?)"  # optionally schema-qualified
+_CREATE_TABLE_HEAD = r"\bcreate\s+(?:(?:unlogged|foreign)\s+)?table"  # shared, so a table the scanner tracks always makes its file a rule file
+CREATE_TABLE_RE = re.compile(_CREATE_TABLE_HEAD + r"\s+(?:if\s+not\s+exists\s+)?" + _SQL_TABLE, re.I)
+MAX_DROP_LIST_CHARS = 20000
+DROP_TABLE_RE = re.compile(r"\bdrop\s+table\s+(?:if\s+exists\s+)?([^;]{1,%d})" % MAX_DROP_LIST_CHARS, re.I)
+DROP_ITEM_RE = re.compile(r"\s{0,20}" + _SQL_TABLE)
+CREATE_VIEW_RE = re.compile(r"\bcreate\s+(?:or\s+replace\s+)?(?:recursive\s+)?(materialized\s+)?view\s+(?:if\s+not\s+exists\s+)?" + _SQL_TABLE + r"([^;]{0,400})", re.I)
+SQL_LEX_OPENER_RE = re.compile(r"--|/\*|\"|(?<![A-Za-z0-9_])[Ee]'|'|\$(?:[^\W\d]\w{0,30})?\$")  # whichever comes first; a dollar tag may use any letter, $é$ as well as $x$
+SQL_PLAIN_BODY_RE = re.compile(r"(?:[^']|'')*'")  # a SQL string may span lines
+SQL_ESCAPE_BODY_RE = re.compile(r"(?:[^'\\]|\\[\s\S]|'')*'")
+SQL_IDENT_BODY_RE = re.compile(r'(?:[^"]|"")*"')  # a quoted identifier: "o'brien_idx" holds no string
+MAX_DO_NESTING = 8
+DO_BEFORE_RE = re.compile(r"\bdo(?:\s{1,20}language\s{1,20}[A-Za-z_][A-Za-z0-9_]{0,30})?\s{0,20}$", re.I)  # DO $$ … or DO LANGUAGE plpgsql $$ …
+SAFE_INVOKER_RE = re.compile(r"\bsecurity_invoker\s{0,20}(?:=\s{0,20}'?(?:on|true|1|yes)\b|(?=\s{0,20}[,)]))", re.I)
+VIEW_AS_RE = re.compile(r"\bas\b", re.I)
+VIEW_WITH_RE = re.compile(r"\bwith\s*\(([^)]{0,400})\)", re.I)
+# a SQL file that defines access, as opposed to a seed file of inserts; only these count as "rule files read"
+RULE_SQL_RE = re.compile(_CREATE_TABLE_HEAD + r"\b|\bcreate\s+policy\b|\brow\s+level\s+security\b|\bstorage\.buckets\b", re.I)
+ENABLE_RLS_RE = re.compile(r"\balter\s+table\s+(?:if\s+exists\s+)?(?:only\s+)?" + _SQL_TABLE + r"\s+enable\s+row\s+level\s+security", re.I)
+_RELEASE_SQL_TABLE = "(" + _SQL_IDENT + r"(?:\s{0,5}\.\s{0,5}" + _SQL_IDENT + ")?)"  # 0.3.2, verbatim
+RELEASE_ENABLE_RLS_RE = re.compile(r"\balter\s{1,20}table\s{1,20}(?:if\s{1,20}exists\s{1,20})?(?:only\s{1,20})?" + _RELEASE_SQL_TABLE + r"\s{1,20}enable\s{1,20}row\s{1,20}level\s{1,20}security", re.I)  # 0.3.2, verbatim: the ceiling on RLS credit
 TABLE_PART_RE = re.compile(r'"[^"]*"|[^.\s]+')  # a dot inside quotes is part of the name, not a schema separator
 MANIFEST_BASENAMES = {"package.json", "requirements.txt", "pyproject.toml", "gemfile", "go.mod"}
+# dependency manifests no parser here reads; one of these can name the error tracker, so Q9 cannot claim "nothing found"
+UNPARSED_MANIFEST_RE = re.compile(r"^(?:pipfile|setup\.py|setup\.cfg|composer\.json|cargo\.toml|pom\.xml|build\.gradle(?:\.kts)?|pubspec\.yaml|deno\.jsonc?|import_map\.json|environment\.ya?ml|mix\.exs|[^/]+\.csproj|[^/]+\.gemspec"
+                                  r"|requirements(?:[-_.][^/]+)?\.in|requirements[-_.][^/]+\.txt|[^/]+[-_]requirements\.(?:txt|in))$")
 # manifest entry shapes; anchored whitespace never crosses a newline, so a file of blank lines stays linear
 PY_DEP_ENTRY_RE = re.compile(r'"((?:\\.|[^"\\\n]){1,300})"|\x27([^\x27\n]{1,300})\x27')  # one quoted list entry, escapes and markers included
 PY_DEP_NAME_RE = re.compile(r"^[ \t]*([A-Za-z0-9][A-Za-z0-9_.-]{0,99})")  # the name at the front of an entry, before extras, version or marker
 QUOTED_RE = re.compile(r'"(?:\\.|[^"\\\n])*"|\x27[^\x27\n]*\x27')  # blanked before looking for the `]` that ends a list
-GO_MAJOR_SUFFIX_RE = re.compile(r"/v[0-9]+$")  # github.com/newrelic/go-agent/v3 is the go-agent module
+GO_MAJOR_SUFFIX_RE = re.compile(r"(?:/v[0-9]+|\.v[0-9]+)$")  # go-agent/v3 is go-agent; gopkg.in/DataDog/dd-trace-go.v1 is dd-trace-go
 TOML_KEY_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9_.-]{0,99})[ \t]*=[ \t]*(\[)?")
 GEM_RE = re.compile(r'^[ \t]*gem[ \t]+["\x27]([A-Za-z0-9][A-Za-z0-9_.-]{0,99})["\x27]', re.M)
 GO_REQUIRE_RE = re.compile(r'^[ \t]*(?:require[ \t]+)?([a-z0-9][a-z0-9.-]{0,99}/[^\s]{1,200})[ \t]+v[0-9]', re.M)
@@ -719,6 +768,48 @@ def count_files(path, deadline=None):
     return n
 
 
+McpScan = collections.namedtuple("McpScan", "found truncated")
+
+
+def _mcp_configs_inside(path, name, deadline=None):
+    """Paths, relative to a never-open agent folder, of anything that looks like an MCP server config. Only names are
+    read, never contents, and the walk is bounded like count_files: each folder and each entry counts once. Returns
+    McpScan(found, truncated); truncated means the walk stopped at the cap or the deadline, so a config past that
+    point was not looked at. A reported folder is never walked into."""
+    path = path.rstrip(os.sep + (os.altsep or "")) or path
+    found = [inner for inner in NEVER_OPEN_MCP_PATHS.get(name, ()) if _lexists_inside(path, inner)]
+    seen = set(found)
+    entries = 0
+
+    def stop():
+        return entries >= MAX_NEVER_OPEN_COUNT or (deadline is not None and entries % DEADLINE_TICK == 0 and time.monotonic() > deadline)
+    for dirpath, dirs, files in os.walk(path, followlinks=False, onerror=lambda e: None):
+        entries += 1
+        if stop():
+            return McpScan(found, True)
+        rel = "." if dirpath == path else dirpath[len(path) + 1:].replace(os.sep, "/")
+        for f in dirs + files:
+            entries += 1
+            if stop():
+                return McpScan(found, True)
+            inner = f if rel == "." else rel + "/" + f
+            if NEVER_OPEN_MCP_NAME_RE.search(f) and inner not in seen:
+                found.append(inner)
+                seen.add(inner)
+        dirs[:] = [d for d in dirs if (d if rel == "." else rel + "/" + d) not in seen]  # pre-seeded or just reported
+    return McpScan(found, False)
+
+
+def _lexists_inside(path, inner):
+    """Whether path/inner exists without following a symlink at any step, so a linked folder cannot make the
+    scanner look outside the app."""
+    for part in inner.split("/")[:-1]:
+        path = os.path.join(path, part)
+        if os.path.islink(path) or not os.path.isdir(path):
+            return False
+    return os.path.lexists(os.path.join(path, inner.split("/")[-1]))
+
+
 def open_regular(path):
     """Open without following symlinks; reject anything that is not a plain single-link file."""
     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NONBLOCK", 0)
@@ -1126,10 +1217,22 @@ def _clause(m):
 
 def detect_sql(sf, state, opts):
     counter = {}
-    text = _strip_sql_comments(sf.text)
-    _finditer_lines(RLS_DISABLED_RE, text, sf, state, "rls-disabled", counter, _clause)
+    text, code, bare, unclosed = _lex_sql(sf.text)  # same offsets: text keeps strings, code has none, bare no names either
+    release = _release_sql_view(sf.text)  # what 0.3.2 read, at the same offsets
+    if unclosed:
+        state.gaps["q3"] += 1  # a quote that never closes: what follows it could not be read as code
+    rows_at = {}  # start -> the checks this file's reads above gave there
+    closes, budget = None, {"left": len(text) + MAX_PREDICATE_CHARS}
+    for m in RLS_DISABLED_RE.finditer(text):
+        state.tick()
+        check = _decisive_or_string(m, code, release, "rls-disabled")
+        rows_at.setdefault(m.start(), set()).add(check)
+        if _cap(counter, check):
+            state.add(check, sf.rel, line_of(text, m.start()), _clause(m))
     for m in USING_TRUE_RE.finditer(text):
         state.tick()
+        if closes is None:
+            closes = _paren_closes(text)  # only for files that have a using (true) at all
         # a public-read policy (`for select using (true)`) is a design choice the by-hand test decides;
         # `for all`, insert/update/delete, or no FOR clause opens writes and is a no
         window = QUOTED_SQL_RE.sub(lambda q: " " * len(q.group(0)), text[max(0, m.start() - 2000):m.start()]).lower()
@@ -1141,8 +1244,24 @@ def detect_sql(sf, state, opts):
             check = "policy-select-true"
         else:
             check = "policy-using-true"
+        rec = {}
+        if not RELEASE_USING_TRUE_RE.match(text, m.start()) and not _sql_predicate_open(text, m.start(), closes, budget, rec):
+            check = "policy-true-unevaluated"  # beyond 0.3.2's pattern and not provably open: evidence only
+        check = _decisive_or_string(m, code, release, check)
+        rows_at.setdefault(m.start(), set()).add(check)
         if _cap(counter, check):
-            state.add(check, sf.rel, line_of(text, m.start()), _clause(m))
+            nested = check == "policy-true-unevaluated" and rec.get("exhausted")
+            state.add(check, sf.rel, line_of(text, m.start()), NESTED_DETAIL % rec["chars"] if nested else _clause(m))
+    # the floor: 0.3.2's own patterns over 0.3.2's own view of the file. A No it gave is added as it was unless
+    # this file already has a No at the same place; any other row it gave is added where this file has none,
+    # so the release's answer is never softened (a select or altered row does not stand in for its No)
+    for start, check, clause in _release_decisive(release):
+        state.tick()
+        have = rows_at.get(start, set())
+        needed = not any(CHECKS[c][1] == "no" for c in have) if CHECKS[check][1] == "no" else not have
+        if needed and _cap(counter, check):
+            rows_at.setdefault(start, set()).add(check)
+            state.add(check, sf.rel, line_of(release, start), clause)
     _finditer_lines(WITH_CHECK_TRUE_RE, text, sf, state, "policy-with-check-true", counter, _clause)
     _finditer_lines(POLICY_TO_ANON_RE, text, sf, state, "policy-to-anon", counter, _clause)
     _finditer_lines(STORAGE_BUCKET_TRUE_RE, text, sf, state, "storage-bucket-public-sql", counter, _clause)
@@ -1162,17 +1281,48 @@ def detect_sql(sf, state, opts):
                 state.tables[name] = (sf.rel, line)
             else:
                 state.gaps["q3"] += 1
-    for n, m in enumerate(ENABLE_RLS_RE.finditer(text)):
+    enabled_at = {}  # public table -> offset of its last `enable row level security` in this file
+    for n, m in enumerate(ENABLE_RLS_RE.finditer(code)):
         if n >= MAX_TABLE_MATCHES_PER_FILE:
             state.gaps["q3"] += 1
             break
         state.tick()
+        if bare[m.start():m.start(1)] != code[m.start():m.start(1)] or bare[m.end(1):m.end()] != code[m.end(1):m.end()]:
+            continue  # `create index "alter table t enable row level security"` names an index; it enables nothing
         name = _public_table(m.group(1))
-        if name:
+        # the ceiling: credit an enable only where 0.3.2 read the same one, so no answer is softer than the release's
+        # (0.3.2 cut lines at a `--` inside a string and capped whitespace; a looser read here would clear its gaps)
+        rm = RELEASE_ENABLE_RLS_RE.match(release, m.start())
+        if name and rm and _public_table(rm.group(1)) == name:
+            enabled_at[name] = m.start()
             if len(state.rls_enabled) < MAX_SEEN:
                 state.rls_enabled.add(name)
             else:
                 state.gaps["q3"] += 1
+    for n, m in enumerate(DROP_TABLE_RE.finditer(text)):
+        if n >= MAX_TABLE_MATCHES_PER_FILE:
+            state.gaps["q3"] += 1
+            break
+        state.tick()
+        parts = m.group(1).split(",")
+        if len(m.group(1)) >= MAX_DROP_LIST_CHARS or len(parts) > MAX_TABLE_MATCHES_PER_FILE:
+            state.gaps["q3"] += 1  # a drop list too long to read whole: a table past the cut was not looked at
+        for part in parts[:MAX_TABLE_MATCHES_PER_FILE]:
+            t = DROP_ITEM_RE.match(part)
+            name = _public_table(t.group(1)) if t else None
+            # a table dropped and made again loses its RLS; unless this file turns it back on afterwards, migration
+            # order across files decides, and the scanner does not replay migrations
+            if name and enabled_at.get(name, -1) < m.start():
+                state.gaps["q3"] += 1
+    counter_views = {}
+    for m in CREATE_VIEW_RE.finditer(text):
+        state.tick()
+        name = _public_table(m.group(2))
+        # a view runs as its owner and skips the table's RLS unless security_invoker is set; a materialized view has no RLS at all
+        head = VIEW_AS_RE.split(m.group(3), 1)[0]
+        options = " ".join(w.group(1) + ")" for w in VIEW_WITH_RE.finditer(head))  # only `with (…)`: a column list or alias named security_invoker is not an option
+        if name and (m.group(1) or not SAFE_INVOKER_RE.search(options)) and _cap(counter_views, "public-view"):
+            state.add("public-view", sf.rel, line_of(text, m.start()), name)
 
 
 def _public_table(raw):
@@ -1189,7 +1339,6 @@ def _public_table(raw):
     return parts[0] or None
 
 
-SQL_LINE_COMMENT_RE = re.compile(r"--[^\n]*")
 QUOTED_SQL_RE = re.compile(r"\"[^\"\n]*\"|'[^'\n]*'")  # identifiers and strings never name a FOR clause
 MCP_PAIR_RE = re.compile(r'"([^"\n]{1,80})"[ \t]*:[ \t]*"([^"\n]{32,8192})"')
 
@@ -1217,10 +1366,150 @@ def _blank_block_comments(text):
     return "".join(out)
 
 
-def _strip_sql_comments(text):
-    """Blank out comments (keeping newlines so line numbers hold) before the decisive Q3 checks."""
-    text = _blank_block_comments(text)
-    return SQL_LINE_COMMENT_RE.sub(lambda m: " " * len(m.group(0)), text)
+def _sql_predicate_open(text, start, closes, budget, rec_budget=None):
+    """Whether the `using (…)` group that starts at `start` is open: `true`, `true or …`, `(true)::bool`, read
+    with the same top-level ||/&& rule as a Firebase condition. A group that does not close within
+    MAX_PREDICATE_CHARS is not open. `closes` maps each '(' in the file to its ')' (one pass per file), and
+    `budget` caps the characters read across the file, so overlapping groups cannot multiply the work; rec_budget
+    caps the recursion inside this one group (see `_rec_budget`)."""
+    open_at = text.find("(", start)
+    close = closes.get(open_at)
+    if close is None or close - open_at >= MAX_PREDICATE_CHARS or budget["left"] < close - open_at:
+        return False
+    budget["left"] -= close - open_at
+    expr = SQL_BOOL_CAST_RE.sub("", text[open_at:close + 1].lower())
+    expr = SQL_OR_RE.sub("||", SQL_AND_RE.sub("&&", expr))
+    return _firebase_open(re.sub(r"\s+", "", expr), 0, rec_budget)
+
+
+def _paren_closes(text):
+    """Each '(' offset mapped to the offset of the ')' that brings the level back down: one pass, linear."""
+    closes, stack = {}, []
+    for m in PAREN_RE.finditer(text):
+        if m.group(0) == "(":
+            stack.append(m.start())
+        elif stack:
+            closes[stack.pop()] = m.start()
+    return closes
+
+
+def _release_sql_view(text):
+    """The text 0.3.2's decisive checks read: block comments blanked, then `--` to the end of the line, strings ignored."""
+    return RELEASE_LINE_COMMENT_RE.sub(lambda m: " " * len(m.group(0)), _blank_block_comments(text))
+
+
+def _release_decisive(release):
+    """0.3.2's decisive Q3 rows, exactly as 0.3.2 made them from its view of a SQL file: (start, check, clause)."""
+    for m in RELEASE_RLS_DISABLED_RE.finditer(release):
+        yield m.start(), "rls-disabled", _clause(m)
+    for m in RELEASE_USING_TRUE_RE.finditer(release):
+        window = QUOTED_SQL_RE.sub(lambda q: " " * len(q.group(0)), release[max(0, m.start() - 2000):m.start()]).lower()
+        cp = window.rfind("create policy")
+        ap = window.rfind("alter policy")
+        if ap > cp:
+            check = "policy-altered-true"
+        elif cp >= 0 and RELEASE_POLICY_SELECT_RE.search(window[cp:]):
+            check = "policy-select-true"
+        else:
+            check = "policy-using-true"
+        yield m.start(), check, _clause(m)
+
+
+def _decisive_or_string(m, code, release, check):
+    """Keep a decisive check wherever 0.3.2 would have fired it. A match that sits inside a string and that 0.3.2
+    could not see (a `--` earlier on the line hid it) is evidence instead, so the branch never adds a false No."""
+    g = m.group(0)
+    if code[m.start():m.end()] == g or release[m.start():m.end()] == g:
+        return check
+    return "open-rule-in-string"
+
+
+def _blank(chunk):
+    return "".join(c if c == "\n" else " " for c in chunk)
+
+
+def _lex_sql(text, depth=0):
+    """Read SQL once, left to right, taking whichever of `--`, `/* */`, a quoted identifier, '…', E'…' or
+    $tag$…$tag$ comes first. Returns (no_comments, code, bare, unclosed), every copy at the same offsets as
+    `text`: `no_comments` keeps strings, `code` blanks them, `bare` also blanks quoted identifiers, so a
+    decisive match that sits inside a name (`create index "disable row level security"`) is never a rule. A DO block's body runs, so it is lexed in place and
+    the scan resumes after its closing tag; a function body only runs when called, so it is a string.
+
+    Good signals (RLS turned on, a rule file read) are read from `code`; bad ones from `no_comments`. An
+    unclosed quote or dollar tag blanks the rest of `code` (so nothing after it earns credit) and sets
+    `unclosed`, which the caller counts as a gap. An unclosed /* stays visible, so no decisive line can hide
+    behind a comment that never ends."""
+    nc, code, bare = [], [], []
+    pos = 0
+    n = len(text)
+    unclosed = False
+    no_block_close = False
+
+    def emit(raw, in_code, in_bare):
+        nc.append(raw)
+        code.append(in_code)
+        bare.append(in_bare)
+
+    while pos < n:
+        m = SQL_LEX_OPENER_RE.search(text, pos)
+        if not m:
+            break
+        tok = m.group(0)
+        plain = text[pos:m.start()]
+        emit(plain, plain, plain)
+        stop = None  # where the token ends; stays None when it never closes
+        if tok == "--":
+            stop = text.find("\n", m.start())
+            stop = n if stop < 0 else stop
+            gap = _blank(text[m.start():stop])
+            emit(gap, gap, gap)
+        elif tok == "/*":
+            k = -1 if no_block_close else text.find("*/", m.end())  # the first */ closes, as in 0.3.2
+            if k < 0:
+                no_block_close = True  # no */ anywhere after this: later openers skip the search, keeping one pass
+                emit(tok, tok, tok)
+                pos = m.end()
+                continue
+            stop = k + 2
+            gap = _blank(text[m.start():stop])
+            emit(gap, gap, gap)
+        elif tok == '"':
+            body = SQL_IDENT_BODY_RE.match(text, m.end())
+            if body:
+                stop = body.end()
+                if "\n" in text[m.start():stop]:
+                    emit(tok, tok, tok)  # a real name never spans lines: this quote is just a character, so read on
+                    pos = m.end()
+                    continue
+                name = text[m.start():stop]
+                emit(name, name, _blank(name))  # names stay in code: pg_dump quotes every table it enables RLS on
+        elif tok.startswith("$"):
+            close = text.find(tok, m.end())
+            if close >= 0:
+                stop = close + len(tok)
+                if depth < MAX_DO_NESTING and DO_BEFORE_RE.search(text, max(0, m.start() - 40), m.start()):
+                    inner_nc, inner_code, inner_bare, inner_unclosed = _lex_sql(text[m.end():close], depth + 1)
+                    unclosed = unclosed or inner_unclosed
+                    emit(tok + inner_nc + tok, tok + inner_code + tok, tok + inner_bare + tok)
+                else:
+                    body = text[m.start():stop]
+                    emit(body, _blank(body), _blank(body))
+        else:
+            body = (SQL_ESCAPE_BODY_RE if tok[0] in "Ee" else SQL_PLAIN_BODY_RE).match(text, m.end())
+            if body:
+                stop = body.end()
+                chunk = text[m.start():stop]
+                emit(chunk, _blank(chunk), _blank(chunk))
+        if stop is None:
+            unclosed = True  # a quote, name or tag that never closes: nothing after it can be read as code
+            rest = text[m.start():]
+            emit(rest, _blank(rest), _blank(rest))
+            pos = n
+            break
+        pos = stop
+    plain = text[pos:]
+    emit(plain, plain, plain)
+    return "".join(nc), "".join(code), "".join(bare), unclosed
 
 
 def _strip_slash_comments(text):
@@ -1228,16 +1517,130 @@ def _strip_slash_comments(text):
     return SLASH_COMMENT_RE.sub(lambda m: " " * len(m.group(0)), text)
 
 
+def _firebase_condition(cond, rec_budget=None):
+    """"open" when the condition is `true`, or has a top-level `||` operand that is `true` (`&&` binds tighter, so
+    `true || false && x` is open), with fully parenthesised groups read the same way (`(a || true)`); "unevaluated"
+    when `true` appears in anything else (`true && …`, `!(… || true)`, `x == (… || true)`, `f(… || true)`), which
+    is evidence and keeps Q3 off Nothing found; None when `true` is not there at all."""
+    if not TRUE_TOKEN_RE.search(cond):
+        return None
+    return "open" if _firebase_open(re.sub(r"\s+", "", cond), 0, rec_budget) else "unevaluated"
+
+
+def _rec_budget(rec_budget, expr):
+    """The recursion budget for one condition, in characters handed to `_firebase_open`: 4 x the condition + 200,
+    so ordinary nesting is read in full and deep nesting stays linear. Filled in here when the caller passes None
+    or {}; `chars` keeps the condition's length for the "nested too deeply" detail."""
+    if rec_budget is None:
+        rec_budget = {}
+    if "left" not in rec_budget:
+        rec_budget["left"] = 4 * len(expr) + 200
+        rec_budget["chars"] = len(expr)
+    return rec_budget
+
+
+def _charge(rec_budget, n):
+    """Spend n characters of a recursion budget, checking first: False, with `exhausted` set, when fewer are left."""
+    if rec_budget["left"] < n:
+        rec_budget["exhausted"] = True
+        return False
+    rec_budget["left"] -= n
+    return True
+
+
+def _firebase_open(expr, depth, rec_budget=None):
+    """Whether expr is open (see `_firebase_condition`). rec_budget: the condition's recursion budget, shared by
+    every call below this one; when it runs out the answer is "not open", never "open"."""
+    rec_budget = _rec_budget(rec_budget, expr)
+    if not _charge(rec_budget, len(expr)):
+        return False
+    expr = _strip_outer_parens(expr)
+    if expr == "true":
+        return True
+    if depth > 20:
+        return False
+    parts, level, last = [], 0, 0
+    for m in OR_SPLIT_RE.finditer(expr):  # parens and top-level ||, found by the regex engine, not char by char
+        tok = m.group(0)
+        if tok == "(":
+            level += 1
+        elif tok == ")":
+            level -= 1
+        elif level == 0 and tok == "?":
+            return False  # `a ? b : c || true` is open only when a holds: not worked out here
+        elif level == 0:
+            parts.append(expr[last:m.start()])
+            last = m.end()
+    parts.append(expr[last:])
+    if len(parts) == 1:
+        return False  # one operand that is not `true` itself: `true && x`, `!(…)`, `x == (…)`, `f(…)`
+    # cheapest operand first, so a short `|| true` is reached before a deep operand spends the budget
+    return any(_firebase_open(part, depth + 1, rec_budget) for part in sorted(parts, key=len))
+
+
+def _strip_outer_parens(expr):
+    """Drop the outer pairs that wrap the whole expression: `((a || b))` -> `a || b`, never `(a) || (b)`. A pair
+    is outer when the level stays above zero until the last character. Linear: the levels are counted once."""
+    n = len(expr)
+    k = 0
+    while k < n - 1 - k and expr[k] == "(" and expr[n - 1 - k] == ")":
+        k += 1  # candidate pairs: leading ( facing trailing )
+    if not k:
+        return expr
+    levels, level = [], 0
+    for c in expr:
+        level += c == "("
+        level -= c == ")"
+        levels.append(level)
+    # strip pair j (0-based) only if every inner level, once j pairs are gone, stays above zero before the end:
+    # min(levels[j .. n-2-j]) > j. The windows shrink as j grows, so their minimums are built from the inside out.
+    lo, hi = k - 1, n - 1 - k
+    window_min = min(levels[lo:hi]) if hi > lo else levels[lo]
+    mins = [0] * k
+    for j in range(k - 1, -1, -1):
+        window_min = min(window_min, levels[j], levels[n - 2 - j])
+        mins[j] = window_min
+    j = 0
+    while j < k and mins[j] > j:
+        j += 1
+    return expr[j:n - j]
+
+
 def detect_rules(sf, state, opts):
     counter = {}
     # JSON rules files have no // comments, and a URL inside a string would eat the rest of the line
     text = _blank_block_comments(sf.text) if sf.base.lower().endswith(".json") else _strip_slash_comments(sf.text)
-    for regex in (FIREBASE_ALLOW_TRUE_RE, FIREBASE_ALLOW_ALL_RE):
-        for m in regex.finditer(text):
-            state.tick()
+    released = set()
+    for m in RELEASE_FIREBASE_ALLOW_TRUE_RE.finditer(text):  # 0.3.2's rule, unchanged: a No it gave stays a No
+        state.tick()
+        released.add(m.start())
+        check = "firebase-rules-open" if FIREBASE_WRITE_RE.search(m.group(1)) else "firebase-rules-public-read"
+        if _cap(counter, check):
+            state.add(check, sf.rel, line_of(text, m.start()), _clause(m))
+    for m in FIREBASE_IF_RE.finditer(text):
+        state.tick()
+        if m.start() in released:
+            continue
+        rec = {}
+        verdict = _firebase_condition(m.group(2), rec)
+        if verdict == "open":
             check = "firebase-rules-open" if FIREBASE_WRITE_RE.search(m.group(1)) else "firebase-rules-public-read"
-            if _cap(counter, check):
-                state.add(check, sf.rel, line_of(text, m.start()), _clause(m))
+        elif verdict == "unevaluated":
+            check = "firebase-rules-true-unevaluated"  # `true` in a condition the scanner did not work out
+        else:
+            continue
+        if _cap(counter, check):
+            state.add(check, sf.rel, line_of(text, m.start()), NESTED_DETAIL % rec["chars"] if rec.get("exhausted") else _clause(m))
+    for m in FIREBASE_IF_LONG_RE.finditer(text):
+        state.tick()
+        state.gaps["q3"] += 1  # a condition longer than the scanner reads: it was not worked out
+    for m in FIREBASE_ALLOW_ALL_RE.finditer(text):
+        state.tick()
+        check = "firebase-rules-open" if FIREBASE_WRITE_RE.search(m.group(1)) else "firebase-rules-public-read"
+        if _cap(counter, check):
+            state.add(check, sf.rel, line_of(text, m.start()), _clause(m))
+    _finditer_lines(FIREBASE_TEST_MODE_RE, text, sf, state, "firebase-rules-test-mode", counter, _clause)
+    _finditer_lines(RTDB_TEST_MODE_RE, text, sf, state, "firebase-rules-test-mode", counter, _clause)
     _finditer_lines(RTDB_WRITE_OPEN_RE, text, sf, state, "firebase-rules-open", counter, _clause)
     _finditer_lines(RTDB_READ_OPEN_RE, text, sf, state, "firebase-rules-public-read", counter, _clause)
 
@@ -1398,7 +1801,7 @@ def detect_manifest(sf, state, opts):
             state.add("auth-dependency", sf.rel, 0, name)
         if lname in AI_DEPS and _cap(counter, "ai-sdk-dependency"):
             state.add("ai-sdk-dependency", sf.rel, 0, name)
-        if lname in MONITORING_DEPS and _cap(counter, "monitoring-dependency"):
+        if (lname in MONITORING_DEPS or lname.startswith(MONITORING_PREFIXES)) and _cap(counter, "monitoring-dependency"):
             state.add("monitoring-dependency", sf.rel, 0, name)
         if BUILDER_DEPS_RE.match(lname) and _cap(counter, "builder-dependency"):
             state.add("builder-dependency", sf.rel, 0, name)
@@ -1425,7 +1828,7 @@ def detect_pii_schema(sf, state, opts):
     seen = set()
     ordinary = 0
     stopline = 0
-    text = _strip_sql_comments(sf.text) if "sql" in sf.kinds else _strip_slash_comments(sf.text)
+    text = _lex_sql(sf.text)[0] if "sql" in sf.kinds else _strip_slash_comments(sf.text)
     text = CAMEL_SPLIT_RE.sub("_", text)  # dateOfBirth -> date_Of_Birth so the stop-line vocabulary matches camelCase too
     for m in PII_FIELD_RE.finditer(text):
         state.tick()
@@ -1495,6 +1898,10 @@ def layout_checks(rel, base, state):
         state.add("api-route-dir", rel, 0, "")
     if FRAMEWORK_CONFIG_RE.match(b):
         state.add("framework-config", rel, 0, "")
+    in_code = "src" in dirs or TEST_PATH_RE.search(lower)  # tests/setup.py and src/setup.py are code, not a package's manifest
+    if not in_code and (UNPARSED_MANIFEST_RE.match(b) or (dirs and dirs[-1] == "requirements" and b.endswith((".txt", ".in")))):
+        state.gaps["q9"] += 1
+        state.add("manifest-not-parsed", rel, 0, "")
     if any(d in AUTH_SEGMENTS for d in dirs) or stem in AUTH_SEGMENTS or "[...nextauth]" in lower:
         state.add("auth-path", rel, 0, "")
     fly = FLY_ENV_TOML_RE.match(b)
@@ -1945,6 +2352,7 @@ def run_scan(repo, state, opts):
     git_facts(repo, state)
     git_present = state.git["tracked_env_files"] is not None
     nested_repos = set()
+    mcp_rows = {}
 
     def unreadable(err):
         state.stats["dirs_unreadable"] += 1
@@ -2004,6 +2412,13 @@ def run_scan(repo, state, opts):
                 continue
             if is_never_open_dir(d, parent_name):
                 state.stats["files_never_open"] += count_files(full, deadline)
+                found, truncated = _mcp_configs_inside(full, d.lower(), deadline)  # names only; nothing inside is opened
+                if truncated:
+                    state.gaps["q1"] += 1  # the walk stopped at the cap or the deadline: a config past it was not looked at
+                for inner in found:
+                    state.gaps["q1"] += 1
+                    if _cap(mcp_rows, "mcp-config-not-opened"):
+                        state.add("mcp-config-not-opened", (rel_dir + "/" if rel_dir else "") + d + "/" + inner, 0, "")
                 continue
             if d.lower() in opts.excluded:
                 note_unread_dir(state)  # the founder asked for this folder to be skipped
@@ -2022,6 +2437,10 @@ def run_scan(repo, state, opts):
             ext = os.path.splitext(name)[1].lower()
             if is_never_open_file(name):
                 state.stats["files_never_open"] += 1
+                if NEVER_OPEN_SECRET_FILE_RE.match(name):
+                    state.gaps["q1"] += 1
+                    if _cap(mcp_rows, "mcp-config-not-opened"):
+                        state.add("mcp-config-not-opened", rel, 0, "")
                 continue
             if name == ".git":
                 continue
@@ -2107,8 +2526,8 @@ def run_scan(repo, state, opts):
                     state.cls_counts[cls] += 1
                 if _pred_code_or_env(sf) or "mcp" in kinds:
                     state.q1_files += 1
-                if kinds & {"sql", "rules"}:
-                    state.rule_files += 1
+                if "rules" in kinds or ("sql" in kinds and RULE_SQL_RE.search(_lex_sql(text)[1])):
+                    state.rule_files += 1  # a seed file of inserts defines no access, so it is not a rule file read
                 if _q1_gate(sf, opts):
                     claimed = []
                     detect_browser_prefix(sf, state, opts, claimed)
@@ -2183,13 +2602,13 @@ def resolve(state):
     elif complete and not ev["q1"] and state.q1_files and not state.gaps["q1"]:
         env = "no tracked env file" if state.git["tracked_env_files"] is not None else "no env file"
         agents = "; %s not opened" % _n(state.stats["files_never_open"], "agent file") if state.stats["files_never_open"] else ""
-        out["q1"] = _q("nothing-found", "med", [_row("nothing-found-keys", "%s read: no key in client code, no MCP token, %s%s" % (_n(state.q1_files, "file"), env, agents))])
+        out["q1"] = _q("nothing-found", "med", [_row("nothing-found-keys", "%s read: no named key format in client code, no MCP token, %s%s" % (_n(state.q1_files, "file"), env, agents))])
     else:
         out["q1"] = _q("dont-know", "med", summary("q1"))
     if "no" in ef["q3"]:
         out["q3"] = _q("no", "high", ev["q3"])
     elif complete and not ev["q3"] and state.rule_files and not state.gaps["q3"]:
-        out["q3"] = _q("nothing-found", "med", [_row("nothing-found-rules", "%s read: no RLS disabled, no using (true) policy, no if-true Firebase rule" % _n(state.rule_files, "rule file"))])
+        out["q3"] = _q("nothing-found", "med", [_row("nothing-found-rules", "%s read: no RLS off, no using (true), no table without RLS, no if-true or test-mode Firebase rule" % _n(state.rule_files, "rule file"))])
     else:
         out["q3"] = _q("dont-know", "med", summary("q3", "" if state.rule_files else "; no SQL or security-rules file among them"))
     q2 = list(ev["q2"])
