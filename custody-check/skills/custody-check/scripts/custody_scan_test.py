@@ -5080,6 +5080,106 @@ class PreMergeReviewFourTests(ScanCase):
                 self.assertLess(time.perf_counter() - t0, bound(3.0), "%s using groups must not be read char by char per match" % name)
 
 
+class WorseThanMainPerformanceTests(ScanCase):
+    """PR #24's two worse-than-main performance P1s: Firebase/SQL condition recursion had no work budget, and the
+    never-open MCP walk rebuilt every path prefix for every folder. RED tests fail on 22797d9; GUARD tests pass
+    there and each has a recorded mutation that fails it."""
+
+    RLS = "create table public.notes (id int);\nalter table public.notes enable row level security;\n"
+    FIREBASE_UNIT = "(()||" * 64 + "true" + ")" * 64  # 388 chars, inside FIREBASE_IF_RE's 400
+    SQL_UNIT = "create policy p on t using ((((((true)) and x) or " + "(() or " * 64 + "x" + ")" * 64 + ")));\n"
+    OPS = ["request.auth.uid==resource.data.owner%d" % i for i in range(10)]
+
+    def rules(self, *conds):
+        allows = "".join("    allow write: if %s;\n" % c for c in conds)
+        return "service cloud.firestore {\n  match /{d=**} {\n%s  }\n}\n" % allows
+
+    def q_of(self, files, q="q3"):
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.write("src/components/A.tsx", "export const A = () => null;\n")
+        for rel, body in files.items():
+            self.write(rel, body)
+        return self.scan()["questions"][q]
+
+    def charged(self, fn):
+        """Implementation-specific guard: every `_firebase_open` call strips its input once, so the characters
+        handed to `_strip_outer_parens` are the recursion's work. Returns (result, chars, calls, first length)."""
+        real, seen = cs._strip_outer_parens, []
+
+        def wrap(expr):
+            seen.append(len(expr))
+            return real(expr)
+        with mock.patch.object(cs, "_strip_outer_parens", wrap):
+            result = fn()
+        return result, sum(seen), len(seen), (seen[0] if seen else 0)
+
+    def assert_linear_work(self, fn, what):
+        result, chars, calls, top = self.charged(fn)
+        self.assertGreater(calls, 0, "the work-count wrapper was never called, so this test measures nothing")
+        self.assertLessEqual(chars, 4 * top + 200, "%s: %d chars of recursion for a %d-char condition" % (what, chars, top))
+        return result
+
+    # ----------------------------------------------------------------- RED: P1-a
+    def test_firebase_condition_work_is_linear(self):
+        verdict = self.assert_linear_work(lambda: cs._firebase_condition(self.FIREBASE_UNIT), "firebase repro")
+        self.assertEqual(verdict, "unevaluated")
+
+    def test_a_condition_too_nested_to_evaluate_says_so(self):
+        q3 = self.q_of({"firestore.rules": self.rules(self.FIREBASE_UNIT)})
+        rows = [e for e in q3["evidence"] if e["check"] == "firebase-rules-true-unevaluated"]
+        self.assertTrue(rows)
+        self.assertIn("nested too deeply to evaluate", rows[0]["snippet"])
+        self.assertIn("review it by hand", rows[0]["snippet"])
+
+    def test_sql_predicate_work_is_linear(self):
+        text = self.SQL_UNIT
+        closes = cs._paren_closes(text)
+        start = cs.USING_TRUE_RE.search(text).start()
+        opened = self.assert_linear_work(lambda: cs._sql_predicate_open(text, start, closes, {"left": 10 ** 9}), "sql repro")
+        self.assertFalse(opened)
+
+    def test_a_depth_15_condition_with_long_operands_is_linear(self):
+        cond = "true"
+        for op in (self.OPS * 2)[:15]:
+            cond = "(%s||%s)" % (op, cond)
+        self.assert_linear_work(lambda: cs._firebase_condition(cond), "depth 15")
+
+    # ----------------------------------------------------------------- GUARD: P1-a
+    def test_a_nested_open_condition_stays_open(self):
+        # GUARD 1. Mutation: budget len + 200 makes this unevaluated.
+        cond = "(%s||%s)||(%s||(%s||(%s||(%s||true))))" % tuple(self.OPS[:6])
+        self.assertEqual(cs._firebase_condition(cond), "open")
+        self.assertEqual(self.q_of({"firestore.rules": self.rules(cond)})["answer"], "no")
+
+    def test_a_long_true_operand_after_a_deep_one_stays_open(self):
+        # GUARD 1b. Mutation: recursing in written order instead of cheapest first makes this unevaluated.
+        op = "request.auth.uid==resource.data.owner"
+        cond = "(((((%s||%s)||%s)||%s)||%s)||%s)||(request.auth.token.admin==false||true)" % ((op,) * 6)
+        self.assertEqual(cs._firebase_condition(cond), "open")
+
+    def test_an_open_condition_after_a_heavy_one_stays_open(self):
+        # GUARD 2: no starvation; each condition has its own budget.
+        q3 = self.q_of({"firestore.rules": self.rules(self.FIREBASE_UNIT, "(request.auth == null || true)")})
+        self.assertEqual(q3["answer"], "no")
+        self.assertIn("firebase-rules-open", evidence_checks(q3))
+
+    def test_the_two_argument_firebase_open_call_still_works(self):
+        self.assertTrue(cs._firebase_open("((a||true))", 0))
+        self.assertFalse(cs._firebase_open("a&&true", 0))
+
+    def test_rules_and_policy_files_stay_fast(self):
+        # GUARD 6, coarse: the work-count tests above are the real guard.
+        if os.environ.get("CUSTODY_SLOW") != "1":
+            self.skipTest("CUSTODY_SLOW=1 not set")
+        fire = "service cloud.firestore {\n  match /{d=**} {\n" + ("    allow write: if %s;\n" % self.FIREBASE_UNIT) * 1300 + "  }\n}\n"
+        for name, files in (("firebase", {"firestore.rules": fire}), ("sql", {"db/1.sql": self.RLS + self.SQL_UNIT * 1200})):
+            with self.subTest(shape=name):
+                t0 = time.perf_counter()
+                self.q_of(files)
+                self.assertLess(time.perf_counter() - t0, bound(3.0), "%s: a 512 KB file of nested conditions" % name)
+
+
 class NeverWorseThanMainTests(unittest.TestCase):
     """The scanner on this branch against the answers the released baseline gave on the same files
     (fixtures/differential/cases.json: realistic shapes plus every repro from review). Two rules:

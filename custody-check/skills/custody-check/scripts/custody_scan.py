@@ -91,6 +91,7 @@ SCHEMA_EXTS = {".prisma", ".graphql", ".gql"}
 HTML_EXTS = {".html", ".htm", ".jsx", ".tsx", ".vue", ".svelte", ".astro"}
 MAX_EVIDENCE = 12
 MAX_SNIPPET = 120
+NESTED_DETAIL = "condition nested too deeply to evaluate (%d chars); review it by hand"
 MAX_HITS_PER_FILE_PER_CHECK = 5
 MAX_PATH_CHARS = 200
 BINARY_SNIFF_BYTES = 8192
@@ -1233,12 +1234,14 @@ def detect_sql(sf, state, opts):
             check = "policy-select-true"
         else:
             check = "policy-using-true"
-        if not RELEASE_USING_TRUE_RE.match(text, m.start()) and not _sql_predicate_open(text, m.start(), closes, budget):
+        rec = {}
+        if not RELEASE_USING_TRUE_RE.match(text, m.start()) and not _sql_predicate_open(text, m.start(), closes, budget, rec):
             check = "policy-true-unevaluated"  # beyond 0.3.2's pattern and not provably open: evidence only
         check = _decisive_or_string(m, code, release, check)
         rows_at.setdefault(m.start(), set()).add(check)
         if _cap(counter, check):
-            state.add(check, sf.rel, line_of(text, m.start()), _clause(m))
+            nested = check == "policy-true-unevaluated" and rec.get("exhausted")
+            state.add(check, sf.rel, line_of(text, m.start()), NESTED_DETAIL % rec["chars"] if nested else _clause(m))
     # the floor: 0.3.2's own patterns over 0.3.2's own view of the file. A No it gave is added as it was unless
     # this file already has a No at the same place; any other row it gave is added where this file has none,
     # so the release's answer is never softened (a select or altered row does not stand in for its No)
@@ -1353,11 +1356,12 @@ def _blank_block_comments(text):
     return "".join(out)
 
 
-def _sql_predicate_open(text, start, closes, budget):
+def _sql_predicate_open(text, start, closes, budget, rec_budget=None):
     """Whether the `using (…)` group that starts at `start` is open: `true`, `true or …`, `(true)::bool`, read
     with the same top-level ||/&& rule as a Firebase condition. A group that does not close within
     MAX_PREDICATE_CHARS is not open. `closes` maps each '(' in the file to its ')' (one pass per file), and
-    `budget` caps the characters read across the file, so overlapping groups cannot multiply the work."""
+    `budget` caps the characters read across the file, so overlapping groups cannot multiply the work; rec_budget
+    caps the recursion inside this one group (see `_rec_budget`)."""
     open_at = text.find("(", start)
     close = closes.get(open_at)
     if close is None or close - open_at >= MAX_PREDICATE_CHARS or budget["left"] < close - open_at:
@@ -1365,7 +1369,7 @@ def _sql_predicate_open(text, start, closes, budget):
     budget["left"] -= close - open_at
     expr = SQL_BOOL_CAST_RE.sub("", text[open_at:close + 1].lower())
     expr = SQL_OR_RE.sub("||", SQL_AND_RE.sub("&&", expr))
-    return _firebase_open(re.sub(r"\s+", "", expr), 0)
+    return _firebase_open(re.sub(r"\s+", "", expr), 0, rec_budget)
 
 
 def _paren_closes(text):
@@ -1503,17 +1507,43 @@ def _strip_slash_comments(text):
     return SLASH_COMMENT_RE.sub(lambda m: " " * len(m.group(0)), text)
 
 
-def _firebase_condition(cond):
+def _firebase_condition(cond, rec_budget=None):
     """"open" when the condition is `true`, or has a top-level `||` operand that is `true` (`&&` binds tighter, so
     `true || false && x` is open), with fully parenthesised groups read the same way (`(a || true)`); "unevaluated"
     when `true` appears in anything else (`true && …`, `!(… || true)`, `x == (… || true)`, `f(… || true)`), which
     is evidence and keeps Q3 off Nothing found; None when `true` is not there at all."""
     if not TRUE_TOKEN_RE.search(cond):
         return None
-    return "open" if _firebase_open(re.sub(r"\s+", "", cond), 0) else "unevaluated"
+    return "open" if _firebase_open(re.sub(r"\s+", "", cond), 0, rec_budget) else "unevaluated"
 
 
-def _firebase_open(expr, depth):
+def _rec_budget(rec_budget, expr):
+    """The recursion budget for one condition, in characters handed to `_firebase_open`: 4 x the condition + 200,
+    so ordinary nesting is read in full and deep nesting stays linear. Filled in here when the caller passes None
+    or {}; `chars` keeps the condition's length for the "nested too deeply" detail."""
+    if rec_budget is None:
+        rec_budget = {}
+    if "left" not in rec_budget:
+        rec_budget["left"] = 4 * len(expr) + 200
+        rec_budget["chars"] = len(expr)
+    return rec_budget
+
+
+def _charge(rec_budget, n):
+    """Spend n characters of a recursion budget, checking first: False, with `exhausted` set, when fewer are left."""
+    if rec_budget["left"] < n:
+        rec_budget["exhausted"] = True
+        return False
+    rec_budget["left"] -= n
+    return True
+
+
+def _firebase_open(expr, depth, rec_budget=None):
+    """Whether expr is open (see `_firebase_condition`). rec_budget: the condition's recursion budget, shared by
+    every call below this one; when it runs out the answer is "not open", never "open"."""
+    rec_budget = _rec_budget(rec_budget, expr)
+    if not _charge(rec_budget, len(expr)):
+        return False
     expr = _strip_outer_parens(expr)
     if expr == "true":
         return True
@@ -1534,7 +1564,8 @@ def _firebase_open(expr, depth):
     parts.append(expr[last:])
     if len(parts) == 1:
         return False  # one operand that is not `true` itself: `true && x`, `!(…)`, `x == (…)`, `f(…)`
-    return any(_firebase_open(part, depth + 1) for part in parts)
+    # cheapest operand first, so a short `|| true` is reached before a deep operand spends the budget
+    return any(_firebase_open(part, depth + 1, rec_budget) for part in sorted(parts, key=len))
 
 
 def _strip_outer_parens(expr):
@@ -1580,7 +1611,8 @@ def detect_rules(sf, state, opts):
         state.tick()
         if m.start() in released:
             continue
-        verdict = _firebase_condition(m.group(2))
+        rec = {}
+        verdict = _firebase_condition(m.group(2), rec)
         if verdict == "open":
             check = "firebase-rules-open" if FIREBASE_WRITE_RE.search(m.group(1)) else "firebase-rules-public-read"
         elif verdict == "unevaluated":
@@ -1588,7 +1620,7 @@ def detect_rules(sf, state, opts):
         else:
             continue
         if _cap(counter, check):
-            state.add(check, sf.rel, line_of(text, m.start()), _clause(m))
+            state.add(check, sf.rel, line_of(text, m.start()), NESTED_DETAIL % rec["chars"] if rec.get("exhausted") else _clause(m))
     for m in FIREBASE_IF_LONG_RE.finditer(text):
         state.tick()
         state.gaps["q3"] += 1  # a condition longer than the scanner reads: it was not worked out
