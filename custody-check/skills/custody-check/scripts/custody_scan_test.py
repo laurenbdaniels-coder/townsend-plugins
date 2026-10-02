@@ -5172,12 +5172,16 @@ class WorseThanMainPerformanceTests(ScanCase):
         # GUARD 6, coarse: the work-count tests above are the real guard.
         if os.environ.get("CUSTODY_SLOW") != "1":
             self.skipTest("CUSTODY_SLOW=1 not set")
-        fire = "service cloud.firestore {\n  match /{d=**} {\n" + ("    allow write: if %s;\n" % self.FIREBASE_UNIT) * 1300 + "  }\n}\n"
-        for name, files in (("firebase", {"firestore.rules": fire}), ("sql", {"db/1.sql": self.RLS + self.SQL_UNIT * 1200})):
+        fire = "service cloud.firestore {\n  match /{d=**} {\n" + ("    allow write: if %s;\n" % self.FIREBASE_UNIT) * 1270 + "  }\n}\n"
+        sql = self.RLS + self.SQL_UNIT * 920
+        for name, files in (("firebase", {"firestore.rules": fire}), ("sql", {"db/1.sql": sql})):
             with self.subTest(shape=name):
+                body = list(files.values())[0]
+                self.assertLessEqual(len(body), cs.DEFAULT_MAX_FILE_BYTES, "a file over the cap is skipped, not read")
                 t0 = time.perf_counter()
-                self.q_of(files)
+                q3 = self.q_of(files)
                 self.assertLess(time.perf_counter() - t0, bound(3.0), "%s: a 512 KB file of nested conditions" % name)
+                self.assertTrue(q3["evidence"], "the file was read")
 
     # ----------------------------------------------------------------- P1-b: the never-open MCP walk
     def agent_dir(self, name=".kiro"):
