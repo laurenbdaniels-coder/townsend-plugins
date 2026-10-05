@@ -121,6 +121,48 @@ case("sentry vue", {"package.json": '{"dependencies": {"@sentry/vue": "1"}}'})
 case("no monitoring", {"package.json": '{"dependencies": {"react": "18"}}'})
 case("pipfile", {"package.json": '{"dependencies": {"react": "18"}}', "Pipfile": "sentry-sdk\n"})
 
+# ---- fresh review of 4b7d615 (2026-10-02): text inside strings and quoted names, and 0.3.2's table cap
+RLS_T = "create table public.t (id int, name text);\nalter table public.t enable row level security;\n"
+FB_P = "service cloud.firestore {\n  match /p/{id} {\n    allow write: if %s;\n  }\n}\n"
+case("quoted name, wide disable", {"db/1.sql": RLS_T + 'create index "disable' + " " * 25 + 'row level security" on public.t (id);\n'})
+case("quoted name, deep using true", {"db/1.sql": RLS_T + 'create index "using (((((true)))))" on public.t (id);\n'})
+case("firebase or true in a list string", {"firestore.rules": FB_P % 'request.auth != null && request.resource.data.tag in ["a||true||b"]'})
+case("firebase or true in a string", {"firestore.rules": FB_P % 'request.auth != null && request.resource.data.sep == "||true||"'})
+case("firebase or true in a single-quoted string", {"firestore.rules": FB_P % "request.auth != null && resource.data.x == 'y||true'"})
+case("firebase open with a string", {"firestore.rules": FB_P % 'request.auth.token.email == "a@b.co" || true'})
+case("sql or true in a string", {"db/1.sql": RLS_T + "create policy p on public.t for update using (((((true)) and false)) or name = 'x or true or y');\n"})
+case("sql deep and with or true in a string", {"db/1.sql": RLS_T + "create policy p on public.t for update using ((((((true)))) and name = 'a or true or b'));\n"})
+case("sql deep open outside strings", {"db/1.sql": RLS_T + "create policy p on public.t for update using ((((((true)))) or name = 'x'));\n"})
+case("enables in strings past the table cap", {"db/1.sql": "".join("create table public.t%d (id int);\nalter table public.t%d enable row level security;\n" % (i, i) for i in range(150)) + "insert into notes(body) values ('alter table public.x enable row level security');\n" * 60})
+
+# ---- fresh review of 4b7d615, pass 2 (2026-10-02): where this lexer and 0.3.2's disagree about comments and strings
+COPY_T = ("create table public.authors (id int, name text);\nalter table public.authors enable row level security;\n"
+          "copy public.authors (id, name) from stdin;\n1\tO'Brien\n\\.\n")
+case("dollar inside a table name", {"supabase/migrations/1.sql": RLS_T + "create table public.a$x$ (id int);\n-- old: $x$ alter table public.t disable row level security;\n"})
+case("nested block comment", {"db/1.sql": RLS_T + "/* old /* tmp */ '--' alter table public.t disable row level security; */\n"})
+case("nested comment then apostrophes", {"db/1.sql": RLS_T + "/* outer /* inner */ it's fine */\n-- don't: alter table public.t disable row level security\n"})
+case("copy data then a comment, disable", {"supabase/seed.sql": COPY_T + "-- Don't disable row level security on authors\n"})
+case("copy data then a comment, using true", {"supabase/seed.sql": COPY_T + "-- Don't add a policy with using (true) here\n"})
+case("sql concatenation, indented", {"db/1.sql": RLS_T + "create policy p on public.t for update using (\n" + " " * 24 + "(true) || name = 'x');\n"})
+case("sql concatenation, deep", {"db/1.sql": RLS_T + "create policy p on public.t for update using (((((true)))) || 'a' = 'b');\n"})
+case("storage comment markers in strings", {"storage.rules": "service firebase.storage {\n match /b/{bucket}/o {\n  match /{f} {\n   allow write: if (request.resource.contentType.matches('image/*')) && (request.resource.size < 100 || request.resource.name.matches('.*/a') || true);\n  }\n }\n}\n"})
+case("firebase true only in a string", {"firestore.rules": FB_P % 'request.auth != null && resource.data.visibility == "true"'})
+case("mcp-named skill folder", {".claude/skills/mcp-builder/SKILL.md": "# skill\n", ".cursor/rules/mcp.mdc": "rules\n"})
+case("paren inside a sql string, open", {"db/1.sql": RLS_T + "create policy p on public.t for update using ((((((true)))) and name = ')') or true);\n"})
+case("table cap boundary, 200 enables", {"db/1.sql": "".join("create table public.t%d (id int);\nalter table public.t%d enable row level security;\n" % (i, i) for i in range(150)) + "insert into notes(body) values ('alter table public.x enable row level security');\n" * 50})
+
+# ---- fresh review of 4b7d615, pass 3 (2026-10-04): every Q3 No from 0.3.2's patterns; the late reading; trimming
+FB_X = "service cloud.firestore {\n  match /x/{id} {\n    allow write: if %s;\n  }\n}\n"
+case("firebase map literal with or true", {"firestore.rules": FB_X % "request.resource.data == {'public': a || true}"})
+case("firebase rule runs into a function", {"firestore.rules": "service cloud.firestore {\n  match /x/{id} {\n    allow write: if isOwner()\n      function helper() { return a || true; }\n  }\n}\n"})
+case("nested comment inside a using group", {"db/1.sql": RLS_T + "create policy p on public.t for all using ((((((true)))) /* a /* b */ or true */ and auth.uid() = id));\n"})
+case("dollar names across a using group", {"db/1.sql": "create table public.t (id int, owner$q$ uuid, x$q$ int);\nalter table public.t enable row level security;\ncreate policy p on public.t for all using (((((true)))) and owner$q$ = auth.uid());\ncreate policy p2 on public.t for select using (x$q$ is null or true);\n"})
+case("copy apostrophe then a quoted policy", {"db/1.sql": RLS_T + "copy t (name) from stdin;\nit's\n\\.\ncomment on table public.t is 'create policy p on public.t for all using ((((((true))))))';\n"})
+case("quoted role name hides for select", {"db/1.sql": RLS_T + 'create policy p on public.t for select to "create policy q" using (true);\n'})
+case("commented enables past the table cap", {"db/1.sql": "".join("create table public.t%d (id int);\nalter table public.t%d enable row level security;\n" % (i, i) for i in range(150)) + "-- alter table public.x enable row level security;\n" * 60})
+case("open write indented 24 spaces after a rule without a semicolon", {"firestore.rules": "service cloud.firestore {\n  match /p/{id} {\n    allow read: if request.auth != null\n" + " " * 24 + "allow write: if request.auth != null || true;\n  }\n}\n"})
+case("mcp config inside an instruction folder", {".claude/skills/mcp-github/config.json": "{}"})
+
 def answers(scanner, files):
     tmp = tempfile.mkdtemp()
     try:

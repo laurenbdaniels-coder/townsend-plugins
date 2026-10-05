@@ -120,6 +120,13 @@ def evidence_checks(q):
     return [e["check"] for e in q["evidence"]]
 
 
+def assert_unconfirmed(tc, q, msg=None):
+    """A rule the scanner reads as open in a shape 0.3.2 did not check: never a new No (every Q3 No comes from
+    0.3.2's own patterns), never Nothing found, and the row names it."""
+    tc.assertEqual(q["answer"], "dont-know", msg)
+    tc.assertIn("open-rule-unconfirmed", evidence_checks(q), msg)
+
+
 class ScanCase(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="custody test ")
@@ -1207,7 +1214,7 @@ class SeededAppGoldenTest(ScanCase):
 
 class ContractTests(ScanCase):
     TOP_KEYS = ["ok", "partial", "version", "files_scanned", "stats", "warnings", "git", "questions"]
-    STATS_KEYS = ["files_skipped_oversize", "files_skipped_oversize_relevant", "files_skipped_binary", "files_skipped_generated", "files_never_open",
+    STATS_KEYS = ["files_skipped_oversize", "files_skipped_oversize_relevant", "files_skipped_binary", "files_skipped_generated", "files_never_open", "files_read_with_0_3_2_rules",
                   "files_skipped_special", "files_skipped_hardlink", "files_errored", "dirs_unreadable", "dirs_truncated", "mcp_capped", "git_index_partial", "output_trimmed", "max_files_hit", "max_total_bytes_hit", "deadline_hit", "config"]
 
     def test_json_shape(self):
@@ -4485,7 +4492,7 @@ class FalseNothingFoundTests(ScanCase):
     def test_firebase_if_true_in_parentheses_is_open(self):
         self.base_app()
         self.write("storage.rules", "service firebase.storage {\n  match /b/{bucket}/o {\n    match /{all=**} {\n      allow read, write: if (true);\n    }\n  }\n}\n")
-        self.assertEqual(self.q("q3")["answer"], "no")
+        assert_unconfirmed(self, self.q("q3"))
 
     def test_rls_text_inside_a_string_does_not_enable_rls(self):
         self.base_app()
@@ -4633,9 +4640,10 @@ class FalseNothingFoundReviewTests(ScanCase):
         return "service cloud.firestore {\n  match /databases/{db}/documents {\n    match /{doc=**} {\n      allow read, write: %s\n    }\n  }\n}\n" % cond
 
     def test_firebase_open_variants(self):
-        for cond in ("if ((true));", "if (true)\n", "if\n        true;", "if true;"):
+        self.assertEqual(self.q3_of({"firestore.rules": self.rules("if true;")})["answer"], "no")  # 0.3.2's own
+        for cond in ("if ((true));", "if (true)\n", "if\n        true;"):
             with self.subTest(cond=cond):
-                self.assertEqual(self.q3_of({"firestore.rules": self.rules(cond)})["answer"], "no", cond)
+                assert_unconfirmed(self, self.q3_of({"firestore.rules": self.rules(cond)}), cond)
 
     def test_true_joined_to_a_real_condition_is_not_open(self):
         for cond in ("if (true) && request.auth != null;",):  # `if true && …` stays a No, as in 0.3.2 (TODOS)
@@ -4651,7 +4659,8 @@ class FalseNothingFoundReviewTests(ScanCase):
         self.assertIn("firebase-rules-test-mode", evidence_checks(q3))
 
     def test_rtdb_true_as_a_string_is_open(self):
-        self.assertEqual(self.q3_of({"database.rules.json": '{"rules": {".read": "true", ".write": "true"}}\n'})["answer"], "no")
+        assert_unconfirmed(self, self.q3_of({"database.rules.json": '{"rules": {".read": "true", ".write": "true"}}\n'}))
+        self.assertEqual(self.q3_of({"database.rules.json": '{"rules": {".write": true}}\n'})["answer"], "no")  # 0.3.2's own
 
     # ----------------------------------------------------------------- Q1 agent configs
     def test_more_agent_configs_that_hold_tokens_are_q1_gaps(self):
@@ -4777,7 +4786,7 @@ class StringBlankingIsOnlyEverCautiousTests(ScanCase):
         shutil.rmtree(self.repo)
         os.makedirs(self.repo)
         self.write("firestore.rules", rules)
-        self.assertEqual(self.scan()["questions"]["q3"]["answer"], "no")
+        assert_unconfirmed(self, self.scan()["questions"]["q3"])
 
 
 
@@ -4803,9 +4812,10 @@ class ReviewCycleThreeRegressionTests(ScanCase):
         return "service cloud.firestore {\n  match /{d=**} {\n    allow read, write: %s\n  }\n}\n" % cond
 
     def test_true_or_anything_is_open(self):
-        for cond in ("if true || request.auth != null;", "if request.auth != null || true;", "if ((true) || request.auth != null);", "if false || true;"):
+        self.assertEqual(self.q3_of({"firestore.rules": self.rules("if true || request.auth != null;")})["answer"], "no")  # 0.3.2's `if true`
+        for cond in ("if request.auth != null || true;", "if ((true) || request.auth != null);", "if false || true;"):
             with self.subTest(cond=cond):
-                self.assertEqual(self.q3_of({"firestore.rules": self.rules(cond)})["answer"], "no", cond)
+                assert_unconfirmed(self, self.q3_of({"firestore.rules": self.rules(cond)}), cond)
 
     def test_true_and_something_is_never_a_no(self):
         for cond in ("if (true || request.auth != null) && request.auth.uid == 'x';", "if (request.auth != null || true) && false;"):
@@ -4858,13 +4868,13 @@ class ReviewCycleThreeRegressionTests(ScanCase):
     # ----------------------------------------------------------------- older regexes
     def test_a_long_inline_comment_does_not_hide_a_rule(self):
         pad = "/* " + "padding " * 10 + "*/"
-        self.assertEqual(self.sql(self.RLS + "alter table public.notes disable %s row level security;\n" % pad)["answer"], "no")
-        self.assertEqual(self.sql(self.RLS + "create policy open on public.notes for all using %s (true);\n" % pad)["answer"], "no")
+        for body in ("alter table public.notes disable %s row level security;\n" % pad, "create policy open on public.notes for all using %s (true);\n" % pad):
+            assert_unconfirmed(self, self.sql(self.RLS + body))
         q3 = self.sql(self.RLS + "drop %s table public.notes;\ncreate table public.notes (id int);\n" % pad)
         self.assertEqual(q3["answer"], "dont-know")
 
     def test_using_true_in_any_depth_of_parentheses(self):
-        self.assertEqual(self.sql(self.RLS + "create policy open on public.notes for all using (((((((true)))))));\n")["answer"], "no")
+        assert_unconfirmed(self, self.sql(self.RLS + "create policy open on public.notes for all using (((((((true)))))));\n"))
 
     def test_a_recursive_view_is_evidence(self):
         self.assertIn("public-view", evidence_checks(self.sql(self.RLS + "create recursive view public.v(n) as select id from public.notes;\n")))
@@ -4977,7 +4987,7 @@ class FreshReviewTests(ScanCase):
     def test_a_parenthesised_or_group_is_still_open(self):
         for cond in ("if (request.auth == null || true);", "if ((false) || (true));"):
             with self.subTest(cond=cond):
-                self.assertEqual(self.q3_of({"firestore.rules": self.rules(cond)})["answer"], "no", cond)
+                assert_unconfirmed(self, self.q3_of({"firestore.rules": self.rules(cond)}), cond)
 
     def test_a_rule_without_a_semicolon_before_a_nested_match(self):
         rules = "service cloud.firestore {\n  match /notes/{id} {\n    allow write: if true\n    match /c/{c} { allow read: if request.auth != null; }\n  }\n}\n"
@@ -5150,7 +5160,7 @@ class WorseThanMainPerformanceTests(ScanCase):
         # GUARD 1. Mutation: budget len + 200 makes this unevaluated.
         cond = "(%s||%s)||(%s||(%s||(%s||(%s||true))))" % tuple(self.OPS[:6])
         self.assertEqual(cs._firebase_condition(cond), "open")
-        self.assertEqual(self.q_of({"firestore.rules": self.rules(cond)})["answer"], "no")
+        assert_unconfirmed(self, self.q_of({"firestore.rules": self.rules(cond)}))
 
     def test_a_long_true_operand_after_a_deep_one_stays_open(self):
         # GUARD 1b. Mutation: recursing in written order instead of cheapest first makes this unevaluated.
@@ -5161,8 +5171,7 @@ class WorseThanMainPerformanceTests(ScanCase):
     def test_an_open_condition_after_a_heavy_one_stays_open(self):
         # GUARD 2: no starvation; each condition has its own budget.
         q3 = self.q_of({"firestore.rules": self.rules(self.FIREBASE_UNIT, "(request.auth == null || true)")})
-        self.assertEqual(q3["answer"], "no")
-        self.assertIn("firebase-rules-open", evidence_checks(q3))
+        assert_unconfirmed(self, q3)
 
     def test_the_two_argument_firebase_open_call_still_works(self):
         self.assertTrue(cs._firebase_open("((a||true))", 0))
@@ -5276,6 +5285,293 @@ class WorseThanMainPerformanceTests(ScanCase):
         self.assertNotEqual(q1["answer"], "nothing-found")
 
 
+class FreshReviewOfPerfFixTests(ScanCase):
+    """The fresh pre-merge review of 4b7d615: three new false Nos from text inside strings and quoted names, a Q3
+    gap 0.3.2 gave that the branch dropped, and SQL files lexed three times. The quoted-name, string, list, unclosed
+    quote, table-cap and lex-once tests fail on 4b7d615; the others are guards that also pass there."""
+
+    RLS = "create table public.t (id int, name text);\nalter table public.t enable row level security;\n"
+
+    def q_of(self, files, q="q3"):
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.write("src/components/A.tsx", "export const A = () => null;\n")
+        for rel, body in files.items():
+            self.write(rel, body)
+        return self.scan()["questions"][q]
+
+    def rules(self, cond):
+        return "service cloud.firestore {\n  match /p/{id} {\n    allow write: if %s;\n  }\n}\n" % cond
+
+    def test_a_rule_shape_inside_a_quoted_name_is_not_a_no(self):
+        for name in ('"disable' + " " * 25 + 'row level security"', '"using (((((true)))))"'):
+            with self.subTest(name=name):
+                q3 = self.q_of({"db/1.sql": self.RLS + "create index %s on public.t (id);\n" % name})
+                self.assertNotEqual(q3["answer"], "no")
+                self.assertIn("open-rule-in-string", evidence_checks(q3))
+
+    def test_the_release_no_for_a_quoted_name_is_kept(self):
+        # 0.3.2's own false No (TODOS: "False Nos kept from 0.3.2"); the floor keeps it until its own PR
+        q3 = self.q_of({"db/1.sql": self.RLS + 'create index "disable row level security" on public.t (id);\n'})
+        self.assertEqual(q3["answer"], "no")
+
+    def test_or_true_inside_a_firebase_string_is_not_open(self):
+        for cond in ('request.auth != null && request.resource.data.tag in ["a||true||b"]',
+                     'request.auth != null && request.resource.data.sep == "||true||"',
+                     "request.auth != null && resource.data.x == 'y||true'"):
+            with self.subTest(cond=cond):
+                self.assertNotEqual(cs._firebase_condition(cond), "open")
+                self.assertNotEqual(self.q_of({"firestore.rules": self.rules(cond)})["answer"], "no")
+
+    def test_an_or_true_in_a_list_is_not_top_level(self):
+        self.assertNotEqual(cs._firebase_condition("request.resource.data.v in [false || true || x]"), "open")
+
+    def test_open_firebase_rules_with_strings_stay_open(self):
+        for cond in ('request.auth.token.email == "a@b.co" || true', "(resource.data.kind == 'x||y') || true"):
+            with self.subTest(cond=cond):
+                self.assertEqual(cs._firebase_condition(cond), "open")
+
+    def test_an_unclosed_quote_in_a_firebase_condition_is_not_open(self):
+        self.assertNotEqual(cs._firebase_condition('resource.data.x == "y || true'), "open")
+
+    def test_or_true_inside_a_sql_string_is_not_open(self):
+        for using in ("(((((true)) and false)) or name = 'x or true or y')", "((((((true)))) and name = 'a or true or b'))"):
+            with self.subTest(using=using):
+                q3 = self.q_of({"db/1.sql": self.RLS + "create policy p on public.t for update using %s;\n" % using})
+                self.assertNotEqual(q3["answer"], "no")
+
+    def test_deep_sql_policy_open_outside_strings_is_still_no(self):
+        q3 = self.q_of({"db/1.sql": self.RLS + "create policy p on public.t for update using ((((((true)))) or name = 'x'));\n"})
+        assert_unconfirmed(self, q3)
+
+    def test_enables_inside_strings_still_count_toward_the_table_cap(self):
+        pairs = "".join("create table public.t%d (id int);\nalter table public.t%d enable row level security;\n" % (i, i) for i in range(150))
+        strings = "insert into notes(body) values ('alter table public.x enable row level security');\n" * 60
+        q3 = self.q_of({"db/1.sql": pairs + strings})
+        self.assertNotEqual(q3["answer"], "nothing-found", "0.3.2 read 210 enables, past its cap of 200, and withheld Q3")
+
+    def test_a_sql_file_is_lexed_once(self):
+        real, calls = cs._lex_sql, []
+
+        def spy(text, depth=0):
+            if depth == 0:
+                calls.append(1)
+            return real(text, depth)
+        self.write("supabase/migrations/1.sql", self.RLS + "create table public.u (email text);\n")
+        with mock.patch.object(cs, "_lex_sql", spy):
+            self.scan()
+        self.assertEqual(len(calls), 1, "each SQL file is lexed once and shared by every reader")
+
+    def test_string_dense_sql_stays_near_release_speed(self):
+        if os.environ.get("CUSTODY_SLOW") != "1":
+            self.skipTest("CUSTODY_SLOW=1 not set")
+        body = ("'a' " * 131072)[:524000]
+        for i in range(5):
+            self.write("supabase/migrations/%d.sql" % i, body)
+        t0 = time.perf_counter()
+        self.scan()
+        # measured 2026-10-02: 0.3.2 about 1.1 s, 4b7d615 about 6.7 s for these five files
+        self.assertLess(time.perf_counter() - t0, bound(3.0), "string-dense SQL must not be lexed char by char three times")
+
+    def test_a_sql_policy_too_nested_to_evaluate_says_so(self):
+        unit = "create policy p on t using ((((((true)) and x) or " + "(() or " * 64 + "x" + ")" * 64 + ")));\n"
+        q3 = self.q_of({"db/1.sql": self.RLS + unit})
+        rows = [e for e in q3["evidence"] if e["check"] == "policy-true-unevaluated"]
+        self.assertTrue(rows)
+        self.assertIn("nested too deeply to evaluate", rows[0]["snippet"])
+
+    def test_an_expired_deadline_truncates_the_mcp_walk(self):
+        path = os.path.join(self.tmp, "agent", ".claude")
+        for i in range(cs.DEADLINE_TICK + 10):
+            os.makedirs(os.path.join(path, "d%d" % i))
+        os.makedirs(os.path.join(path, "zz"))
+        with open(os.path.join(path, "zz", "mcp.json"), "w") as fh:
+            fh.write("{}")
+        res = cs._mcp_configs_inside(path, ".claude", time.monotonic() - 1)
+        self.assertTrue(res.truncated)
+
+
+class FreshReviewPassTwoTests(ScanCase):
+    """Pass 2 of the fresh review of 4b7d615. RED on the pass-1 tree: new false Nos where the branch's lexer and
+    0.3.2's disagree about where a comment or string ends, SQL `||` read as OR, a Firebase condition cut by `/*`
+    inside strings, and two new alarms 0.3.2 never raised. The rest pin guards the testing review found unpinned."""
+
+    RLS = "create table public.t (id int, name text);\nalter table public.t enable row level security;\n"
+
+    def q_of(self, files, q="q3"):
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.write("src/components/A.tsx", "export const A = () => null;\n")
+        for rel, body in files.items():
+            self.write(rel, body)
+        return self.scan()["questions"][q]
+
+    # ----------------------------------------------------------------- RED: lexer disagreement (the two-view rule)
+    def test_text_0_3_2_read_as_a_comment_is_never_a_new_no(self):
+        copy = ("create table public.authors (id int, name text);\nalter table public.authors enable row level security;\n"
+                "copy public.authors (id, name) from stdin;\n1\tO'Brien\n\\.\n")
+        for name, body in (
+                ("dollar in a name", self.RLS + "create table public.a$x$ (id int);\n-- old: $x$ alter table public.t disable row level security;\n"),
+                ("nested block comment", self.RLS + "/* old /* tmp */ '--' alter table public.t disable row level security; */\n"),
+                ("nested comment, apostrophes", self.RLS + "/* outer /* inner */ it's fine */\n-- don't: alter table public.t disable row level security\n"),
+                ("copy data, disable", copy + "-- Don't disable row level security on authors\n"),
+                ("copy data, using true", copy + "-- Don't add a policy with using (true) here\n")):
+            with self.subTest(name=name):
+                self.assertNotEqual(self.q_of({"supabase/migrations/1.sql": body})["answer"], "no")
+
+    def test_open_rules_beyond_0_3_2s_patterns_are_named_evidence(self):
+        for name, body in (
+                ("wide whitespace", self.RLS + "alter table public.t disable" + " " * 30 + "row level security;\n"),
+                ("six parens", self.RLS + "create policy p on public.t for all using ((((((true))))));\n")):
+            with self.subTest(name=name):
+                assert_unconfirmed(self, self.q_of({"db/1.sql": body}))
+
+    def test_sql_concatenation_is_not_or(self):
+        for using in ("(\n" + " " * 24 + "(true) || name = 'x')", "(((((true)))) || 'a' = 'b')"):
+            with self.subTest(using=using):
+                q3 = self.q_of({"db/1.sql": self.RLS + "create policy p on public.t for update using %s;\n" % using})
+                self.assertNotEqual(q3["answer"], "no")
+
+    def test_a_comment_marker_inside_firebase_strings_never_opens_a_rule(self):
+        rules = ("service firebase.storage {\n match /b/{bucket}/o {\n  match /{f} {\n   allow write: if (request.resource.contentType.matches('image/*'))"
+                 " && (request.resource.size < 100 || request.resource.name.matches('.*/a') || true);\n  }\n }\n}\n")
+        self.assertNotEqual(self.q_of({"storage.rules": rules})["answer"], "no")
+
+    # ----------------------------------------------------------------- RED: new alarms 0.3.2 never raised
+    def test_mcp_named_skills_and_instructions_are_not_configs(self):
+        q1 = self.q_of({".claude/skills/mcp-builder/SKILL.md": "# skill\n", ".cursor/rules/mcp.mdc": "rules\n",
+                        ".claude/skills/mcp-builder/reference/mcp_best_practices.md": "notes\n"}, "q1")
+        self.assertEqual([e["path"] for e in q1["evidence"] if e["check"] == "mcp-config-not-opened"], [])
+        self.assertEqual(q1["answer"], "nothing-found")
+
+    def test_mcp_configs_are_still_reported(self):
+        q1 = self.q_of({".claude/mcp.json": "{}", ".roo/mcp-servers/s.json": "{}", ".continue/mcpServers/s.yaml": "x: 1\n"}, "q1")
+        paths = sorted(e["path"] for e in q1["evidence"] if e["check"] == "mcp-config-not-opened")
+        self.assertEqual(paths, [".claude/mcp.json", ".continue/mcpServers", ".roo/mcp-servers"])
+
+    def test_true_only_inside_a_firebase_string_is_not_evidence(self):
+        self.assertIsNone(cs._firebase_condition('request.auth != null && resource.data.visibility == "true"'))
+        rules = "service cloud.firestore {\n  match /p/{id} {\n    allow write: if request.auth != null && resource.data.v == \"true\";\n  }\n}\n"
+        self.assertEqual(self.q_of({"firestore.rules": rules})["answer"], "nothing-found")
+
+    # ----------------------------------------------------------------- guards the testing review found unpinned
+    def test_an_escaped_quote_does_not_end_a_firebase_string(self):
+        self.assertNotEqual(cs._firebase_condition(r'request.auth != null && resource.data.x == "a\" || true || \"b"'), "open")
+        self.assertEqual(cs._firebase_condition(r"resource.data.x == 'it\'s' || true"), "open")
+
+    def test_a_list_before_a_top_level_or_true_is_open(self):
+        self.assertEqual(cs._firebase_condition('resource.data.x in ["a", "b"] || true'), "open")
+
+    def test_a_paren_inside_a_sql_string_does_not_hide_an_open_policy(self):
+        q3 = self.q_of({"db/1.sql": self.RLS + "create policy p on public.t for update using ((((((true)))) and name = ')') or true);\n"})
+        assert_unconfirmed(self, q3)
+
+    def test_the_release_enable_cap_boundary(self):
+        pairs = "".join("create table public.t%d (id int);\nalter table public.t%d enable row level security;\n" % (i, i) for i in range(150))
+        line = "insert into notes(body) values ('alter table public.x enable row level security');\n"
+        self.assertEqual(self.q_of({"db/1.sql": pairs + line * 50})["answer"], "nothing-found")
+        self.assertNotEqual(self.q_of({"db/1.sql": pairs + line * 51})["answer"], "nothing-found")
+
+    def test_a_rule_without_a_semicolon_ends_at_an_indented_allow(self):
+        rules = ("service cloud.firestore {\n  match /p/{id} {\n    allow read: if request.auth != null\n"
+                 "                    allow write: if request.auth != null || true;\n  }\n}\n")
+        for indent in (20, 24, 60):
+            with self.subTest(indent=indent):
+                q3 = self.q_of({"firestore.rules": rules.replace(" " * 20 + "allow", " " * indent + "allow")})
+                assert_unconfirmed(self, q3)  # the write rule is read on its own, so the open write is named
+
+    def test_whitespace_after_allow_heads_stays_fast(self):
+        if os.environ.get("CUSTODY_SLOW") != "1":
+            self.skipTest("CUSTODY_SLOW=1 not set")
+        body = "allow a:if x " * 36 + "\n" + "\t" * 500000 + "x"
+        self.write("firestore.rules", body)
+        t0 = time.perf_counter()
+        self.scan()
+        # measured 2026-10-02: 0.3.2 0.13 s, the pass-1 tree 1.13 s
+        self.assertLess(time.perf_counter() - t0, bound(0.5), "the lookahead after a newline must not rescan a long run")
+
+
+class FreshReviewPassThreeTests(ScanCase):
+    """Pass 3 of the fresh review of 4b7d615: every Q3 No now comes from 0.3.2's own patterns, a long scan reads
+    its last SQL and rules files with 0.3.2's readers, trimming the rows 0.3.3 added never makes a scan partial,
+    and MCP configs inside instruction folders are still named."""
+
+    RLS = "create table public.t (id int, name text);\nalter table public.t enable row level security;\n"
+
+    def q_of(self, files, q="q3", **kw):
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.write("src/components/A.tsx", "export const A = () => null;\n")
+        for rel, body in files.items():
+            self.write(rel, body)
+        r = self.scan(**kw)
+        return r if q is None else r["questions"][q]
+
+    def test_shapes_pass_three_found_are_never_a_new_no(self):
+        fb = "service cloud.firestore {\n  match /x/{id} {\n    allow write: if %s;\n  }\n}\n"
+        for name, files in (
+                ("firebase map literal", {"firestore.rules": fb % "request.resource.data == {'public': a || true}"}),
+                ("rule runs into a function", {"firestore.rules": "service cloud.firestore {\n  match /x/{id} {\n    allow write: if isOwner()\n      function helper() { return a || true; }\n  }\n}\n"}),
+                ("nested comment in a using group", {"db/1.sql": self.RLS + "create policy p on public.t for all using ((((((true)))) /* a /* b */ or true */ and auth.uid() = id));\n"}),
+                ("dollar names across a group", {"db/1.sql": "create table public.t (id int, owner$q$ uuid, x$q$ int);\nalter table public.t enable row level security;\ncreate policy p on public.t for all using (((((true)))) and owner$q$ = auth.uid());\ncreate policy p2 on public.t for select using (x$q$ is null or true);\n"}),
+                ("copy data then a quoted comment", {"db/1.sql": self.RLS + "copy t (name) from stdin;\nit's\n\\.\ncomment on table public.t is 'create policy p on public.t for all using ((((((true))))))';\n"})):
+            with self.subTest(name=name):
+                self.assertNotEqual(self.q_of(files)["answer"], "no")
+
+    def test_the_late_reading_is_0_3_2s_reading(self):
+        files = {"db/1.sql": self.RLS + "create policy p on public.t for all using ((((((true))))));\n",
+                 "db/2.sql": self.RLS + "create policy q on public.t for all using (true);\n"}
+        with mock.patch.object(cs, "RELEASE_READING_AT", 0.0):
+            r = self.q_of(files, None)
+        q3 = r["questions"]["q3"]
+        self.assertEqual(q3["answer"], "no")  # 0.3.2's own using (true) No is kept
+        self.assertNotIn("open-rule-unconfirmed", evidence_checks(q3))  # the six-paren shape is 0.3.2's blind spot again
+        self.assertEqual(r["stats"]["files_read_with_0_3_2_rules"], 2)
+        r = self.q_of(files, None)
+        self.assertEqual(r["stats"]["files_read_with_0_3_2_rules"], 0)
+
+    def test_trimming_rows_0_3_3_added_does_not_make_a_scan_partial(self):
+        files = {".claude/mcp-%d.json" % i: "{}" for i in range(5)}
+        files.update({"svc%d/Pipfile" % i: "x\n" for i in range(5)})
+        files["db/1.sql"] = "".join("create view public.v%d as select 1;\n" % i for i in range(5))
+        full = self.q_of(files, None)
+        size = len(json.dumps(full, ensure_ascii=True, separators=(",", ":")).encode("utf-8"))
+        with mock.patch.object(cs, "MAX_OUTPUT_BYTES", size - 200):
+            r = self.q_of(files, None)
+        self.assertGreater(r["stats"]["output_trimmed"], 0)
+        self.assertFalse(r["partial"], "only rows 0.3.3 added were trimmed; 0.3.2's output would have fit")
+        for before, after in zip(cs.iter_questions(full), cs.iter_questions(r)):
+            if before["evidence"]:
+                self.assertTrue(after["evidence"], "a question never loses its last row")
+            self.assertEqual(before["answer"], after["answer"])
+
+    def test_manifest_rows_are_capped_and_the_gap_still_counts(self):
+        files = {"svc%d/Pipfile" % i: "x\n" for i in range(9)}
+        files["package.json"] = '{"dependencies": {"@sentry/node": "1"}}'
+        q9 = self.q_of(files, "q9")
+        self.assertEqual(evidence_checks(q9).count("manifest-not-parsed"), cs.MAX_HITS_PER_FILE_PER_CHECK)
+        self.assertNotEqual(q9["answer"], "nothing-found")
+
+    def test_mcp_configs_inside_instruction_folders_are_named(self):
+        q1 = self.q_of({".claude/skills/mcp-github/config.json": "{}", ".claude/commands/mcpServers/config.json": "{}",
+                        ".claude/agents/mcp/servers.json": "{}", ".claude/notes/mcp.txt": "x",
+                        ".claude/skills/mcp-builder/SKILL.md": "# skill\n", ".claude/skills/mcp-builder/ref/mcp-notes.markdown": "x"}, "q1")
+        paths = sorted(e["path"] for e in q1["evidence"] if e["check"] == "mcp-config-not-opened")
+        self.assertEqual(paths, [".claude/agents/mcp/servers.json", ".claude/commands/mcpServers/config.json",
+                                 ".claude/notes/mcp.txt", ".claude/skills/mcp-github/config.json"])
+
+    def test_blanked_comments_and_strings_keep_line_numbers(self):
+        body = self.RLS + "/* one\ntwo\nthree */\nselect 'a\nb\nc';\nalter table public.t disable row level security;\n"
+        rows = [e for e in self.q_of({"db/1.sql": body})["evidence"] if e["check"] == "rls-disabled"]
+        self.assertEqual([e["line"] for e in rows], [9])
+        split = self.RLS + "create policy p on public.t /* x\n*/ for select to anon using (auth.uid() = id);\n"
+        self.assertNotIn("policy-to-anon", evidence_checks(self.q_of({"db/1.sql": split})))
+
+    def test_commented_enables_do_not_count_toward_the_table_cap(self):
+        pairs = "".join("create table public.t%d (id int);\nalter table public.t%d enable row level security;\n" % (i, i) for i in range(150))
+        self.assertEqual(self.q_of({"db/1.sql": pairs + "-- alter table public.x enable row level security;\n" * 60})["answer"], "nothing-found")
+
+
 class NeverWorseThanMainTests(unittest.TestCase):
     """The scanner on this branch against the answers the released baseline gave on the same files
     (fixtures/differential/cases.json: realistic shapes plus every repro from review). Two rules:
@@ -5296,9 +5592,6 @@ class NeverWorseThanMainTests(unittest.TestCase):
         ("mts client key", "q1"): ".mts is read as code now; a key in a browser folder is a No, as in a .ts file",
         ("mts server only", "q1"): ".mts is read as code now and follows the release's rule for a .ts file in the same folder",
         ("cts client key", "q1"): ".cts is read as code now; a key in a browser folder is a No, as in a .ts file",
-        ("disable with long whitespace", "q3"): "the release capped the spaces inside `disable row level security` at 20; the statement still turns RLS off",
-        ("using true six parens", "q3"): "the release read `true` only up to three parens deep; `using ((((((true))))))` is the same open policy",
-        ("rtdb true as string", "q3"): "`\".read\": \"true\"` is the same open rule as `true`; the release only read the bare boolean",
     }
 
     def _scan(self, files):
@@ -5334,6 +5627,20 @@ class NeverWorseThanMainTests(unittest.TestCase):
                         used.add(key)
         stale = (set(self.ALLOW_SOFTER) | set(self.ALLOW_NEW_NO)) - used
         self.assertEqual(stale, set(), "an allowed exception that no longer happens should be removed")
+
+    def test_the_late_reading_is_never_worse_than_the_baseline(self):
+        """The time guard's fallback (0.3.2's readers for SQL and rules files) under the same two rules."""
+        with open(os.path.join(SCRIPT_DIR, "fixtures", "differential", "cases.json"), encoding="utf-8") as fh:
+            data = json.load(fh)
+        with mock.patch.object(cs, "RELEASE_READING_AT", 0.0):
+            for c in data["cases"]:
+                new = self._scan(c["files"])
+                for q, base in sorted(c["main"].items()):
+                    with self.subTest(case=c["name"], question=q):
+                        if self.RANK[new[q]] < self.RANK[base]:
+                            self.assertIn((c["name"], q), self.ALLOW_SOFTER, "%s %s: %s -> %s" % (c["name"], q, base, new[q]))
+                        if new[q] == "no" and base != "no":
+                            self.assertIn((c["name"], q), self.ALLOW_NEW_NO, "%s %s: a new No" % (c["name"], q))
 
 
 if __name__ == "__main__":

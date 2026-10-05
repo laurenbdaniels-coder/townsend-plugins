@@ -1121,6 +1121,379 @@
     "q9": "nothing-found"
    },
    "name": "pipfile"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.t (id int, name text);\nalter table public.t enable row level security;\ncreate index \"disable                         row level security\" on public.t (id);\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "quoted name, wide disable"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.t (id int, name text);\nalter table public.t enable row level security;\ncreate index \"using (((((true)))))\" on public.t (id);\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "quoted name, deep using true"
+  },
+  {
+   "files": {
+    "firestore.rules": "service cloud.firestore {\n  match /p/{id} {\n    allow write: if request.auth != null && request.resource.data.tag in [\"a||true||b\"];\n  }\n}\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "firebase or true in a list string"
+  },
+  {
+   "files": {
+    "firestore.rules": "service cloud.firestore {\n  match /p/{id} {\n    allow write: if request.auth != null && request.resource.data.sep == \"||true||\";\n  }\n}\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "firebase or true in a string"
+  },
+  {
+   "files": {
+    "firestore.rules": "service cloud.firestore {\n  match /p/{id} {\n    allow write: if request.auth != null && resource.data.x == 'y||true';\n  }\n}\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "firebase or true in a single-quoted string"
+  },
+  {
+   "files": {
+    "firestore.rules": "service cloud.firestore {\n  match /p/{id} {\n    allow write: if request.auth.token.email == \"a@b.co\" || true;\n  }\n}\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "firebase open with a string"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.t (id int, name text);\nalter table public.t enable row level security;\ncreate policy p on public.t for update using (((((true)) and false)) or name = 'x or true or y');\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "sql or true in a string"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.t (id int, name text);\nalter table public.t enable row level security;\ncreate policy p on public.t for update using ((((((true)))) and name = 'a or true or b'));\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "sql deep and with or true in a string"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.t (id int, name text);\nalter table public.t enable row level security;\ncreate policy p on public.t for update using ((((((true)))) or name = 'x'));\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "sql deep open outside strings"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.t0 (id int);\nalter table public.t0 enable row level security;\ncreate table public.t1 (id int);\nalter table public.t1 enable row level security;\ncreate table public.t2 (id int);\nalter table public.t2 enable row level security;\ncreate table public.t3 (id int);\nalter table public.t3 enable row level security;\ncreate table public.t4 (id int);\nalter table public.t4 enable row level security;\ncreate table public.t5 (id int);\nalter table public.t5 enable row level security;\ncreate table public.t6 (id int);\nalter table public.t6 enable row level security;\ncreate table public.t7 (id int);\nalter table public.t7 enable row level security;\ncreate table public.t8 (id int);\nalter table public.t8 enable row level security;\ncreate table public.t9 (id int);\nalter table public.t9 enable row level security;\ncreate table public.t10 (id int);\nalter table public.t10 enable row level security;\ncreate table public.t11 (id int);\nalter table public.t11 enable row level security;\ncreate table public.t12 (id int);\nalter table public.t12 enable row level security;\ncreate table public.t13 (id int);\nalter table public.t13 enable row level security;\ncreate table public.t14 (id int);\nalter table public.t14 enable row level security;\ncreate table public.t15 (id int);\nalter table public.t15 enable row level security;\ncreate table public.t16 (id int);\nalter table public.t16 enable row level security;\ncreate table public.t17 (id int);\nalter table public.t17 enable row level security;\ncreate table public.t18 (id int);\nalter table public.t18 enable row level security;\ncreate table public.t19 (id int);\nalter table public.t19 enable row level security;\ncreate table public.t20 (id int);\nalter table public.t20 enable row level security;\ncreate table public.t21 (id int);\nalter table public.t21 enable row level security;\ncreate table public.t22 (id int);\nalter table public.t22 enable row level security;\ncreate table public.t23 (id int);\nalter table public.t23 enable row level security;\ncreate table public.t24 (id int);\nalter table public.t24 enable row level security;\ncreate table public.t25 (id int);\nalter table public.t25 enable row level security;\ncreate table public.t26 (id int);\nalter table public.t26 enable row level security;\ncreate table public.t27 (id int);\nalter table public.t27 enable row level security;\ncreate table public.t28 (id int);\nalter table public.t28 enable row level security;\ncreate table public.t29 (id int);\nalter table public.t29 enable row level security;\ncreate table public.t30 (id int);\nalter table public.t30 enable row level security;\ncreate table public.t31 (id int);\nalter table public.t31 enable row level security;\ncreate table public.t32 (id int);\nalter table public.t32 enable row level security;\ncreate table public.t33 (id int);\nalter table public.t33 enable row level security;\ncreate table public.t34 (id int);\nalter table public.t34 enable row level security;\ncreate table public.t35 (id int);\nalter table public.t35 enable row level security;\ncreate table public.t36 (id int);\nalter table public.t36 enable row level security;\ncreate table public.t37 (id int);\nalter table public.t37 enable row level security;\ncreate table public.t38 (id int);\nalter table public.t38 enable row level security;\ncreate table public.t39 (id int);\nalter table public.t39 enable row level security;\ncreate table public.t40 (id int);\nalter table public.t40 enable row level security;\ncreate table public.t41 (id int);\nalter table public.t41 enable row level security;\ncreate table public.t42 (id int);\nalter table public.t42 enable row level security;\ncreate table public.t43 (id int);\nalter table public.t43 enable row level security;\ncreate table public.t44 (id int);\nalter table public.t44 enable row level security;\ncreate table public.t45 (id int);\nalter table public.t45 enable row level security;\ncreate table public.t46 (id int);\nalter table public.t46 enable row level security;\ncreate table public.t47 (id int);\nalter table public.t47 enable row level security;\ncreate table public.t48 (id int);\nalter table public.t48 enable row level security;\ncreate table public.t49 (id int);\nalter table public.t49 enable row level security;\ncreate table public.t50 (id int);\nalter table public.t50 enable row level security;\ncreate table public.t51 (id int);\nalter table public.t51 enable row level security;\ncreate table public.t52 (id int);\nalter table public.t52 enable row level security;\ncreate table public.t53 (id int);\nalter table public.t53 enable row level security;\ncreate table public.t54 (id int);\nalter table public.t54 enable row level security;\ncreate table public.t55 (id int);\nalter table public.t55 enable row level security;\ncreate table public.t56 (id int);\nalter table public.t56 enable row level security;\ncreate table public.t57 (id int);\nalter table public.t57 enable row level security;\ncreate table public.t58 (id int);\nalter table public.t58 enable row level security;\ncreate table public.t59 (id int);\nalter table public.t59 enable row level security;\ncreate table public.t60 (id int);\nalter table public.t60 enable row level security;\ncreate table public.t61 (id int);\nalter table public.t61 enable row level security;\ncreate table public.t62 (id int);\nalter table public.t62 enable row level security;\ncreate table public.t63 (id int);\nalter table public.t63 enable row level security;\ncreate table public.t64 (id int);\nalter table public.t64 enable row level security;\ncreate table public.t65 (id int);\nalter table public.t65 enable row level security;\ncreate table public.t66 (id int);\nalter table public.t66 enable row level security;\ncreate table public.t67 (id int);\nalter table public.t67 enable row level security;\ncreate table public.t68 (id int);\nalter table public.t68 enable row level security;\ncreate table public.t69 (id int);\nalter table public.t69 enable row level security;\ncreate table public.t70 (id int);\nalter table public.t70 enable row level security;\ncreate table public.t71 (id int);\nalter table public.t71 enable row level security;\ncreate table public.t72 (id int);\nalter table public.t72 enable row level security;\ncreate table public.t73 (id int);\nalter table public.t73 enable row level security;\ncreate table public.t74 (id int);\nalter table public.t74 enable row level security;\ncreate table public.t75 (id int);\nalter table public.t75 enable row level security;\ncreate table public.t76 (id int);\nalter table public.t76 enable row level security;\ncreate table public.t77 (id int);\nalter table public.t77 enable row level security;\ncreate table public.t78 (id int);\nalter table public.t78 enable row level security;\ncreate table public.t79 (id int);\nalter table public.t79 enable row level security;\ncreate table public.t80 (id int);\nalter table public.t80 enable row level security;\ncreate table public.t81 (id int);\nalter table public.t81 enable row level security;\ncreate table public.t82 (id int);\nalter table public.t82 enable row level security;\ncreate table public.t83 (id int);\nalter table public.t83 enable row level security;\ncreate table public.t84 (id int);\nalter table public.t84 enable row level security;\ncreate table public.t85 (id int);\nalter table public.t85 enable row level security;\ncreate table public.t86 (id int);\nalter table public.t86 enable row level security;\ncreate table public.t87 (id int);\nalter table public.t87 enable row level security;\ncreate table public.t88 (id int);\nalter table public.t88 enable row level security;\ncreate table public.t89 (id int);\nalter table public.t89 enable row level security;\ncreate table public.t90 (id int);\nalter table public.t90 enable row level security;\ncreate table public.t91 (id int);\nalter table public.t91 enable row level security;\ncreate table public.t92 (id int);\nalter table public.t92 enable row level security;\ncreate table public.t93 (id int);\nalter table public.t93 enable row level security;\ncreate table public.t94 (id int);\nalter table public.t94 enable row level security;\ncreate table public.t95 (id int);\nalter table public.t95 enable row level security;\ncreate table public.t96 (id int);\nalter table public.t96 enable row level security;\ncreate table public.t97 (id int);\nalter table public.t97 enable row level security;\ncreate table public.t98 (id int);\nalter table public.t98 enable row level security;\ncreate table public.t99 (id int);\nalter table public.t99 enable row level security;\ncreate table public.t100 (id int);\nalter table public.t100 enable row level security;\ncreate table public.t101 (id int);\nalter table public.t101 enable row level security;\ncreate table public.t102 (id int);\nalter table public.t102 enable row level security;\ncreate table public.t103 (id int);\nalter table public.t103 enable row level security;\ncreate table public.t104 (id int);\nalter table public.t104 enable row level security;\ncreate table public.t105 (id int);\nalter table public.t105 enable row level security;\ncreate table public.t106 (id int);\nalter table public.t106 enable row level security;\ncreate table public.t107 (id int);\nalter table public.t107 enable row level security;\ncreate table public.t108 (id int);\nalter table public.t108 enable row level security;\ncreate table public.t109 (id int);\nalter table public.t109 enable row level security;\ncreate table public.t110 (id int);\nalter table public.t110 enable row level security;\ncreate table public.t111 (id int);\nalter table public.t111 enable row level security;\ncreate table public.t112 (id int);\nalter table public.t112 enable row level security;\ncreate table public.t113 (id int);\nalter table public.t113 enable row level security;\ncreate table public.t114 (id int);\nalter table public.t114 enable row level security;\ncreate table public.t115 (id int);\nalter table public.t115 enable row level security;\ncreate table public.t116 (id int);\nalter table public.t116 enable row level security;\ncreate table public.t117 (id int);\nalter table public.t117 enable row level security;\ncreate table public.t118 (id int);\nalter table public.t118 enable row level security;\ncreate table public.t119 (id int);\nalter table public.t119 enable row level security;\ncreate table public.t120 (id int);\nalter table public.t120 enable row level security;\ncreate table public.t121 (id int);\nalter table public.t121 enable row level security;\ncreate table public.t122 (id int);\nalter table public.t122 enable row level security;\ncreate table public.t123 (id int);\nalter table public.t123 enable row level security;\ncreate table public.t124 (id int);\nalter table public.t124 enable row level security;\ncreate table public.t125 (id int);\nalter table public.t125 enable row level security;\ncreate table public.t126 (id int);\nalter table public.t126 enable row level security;\ncreate table public.t127 (id int);\nalter table public.t127 enable row level security;\ncreate table public.t128 (id int);\nalter table public.t128 enable row level security;\ncreate table public.t129 (id int);\nalter table public.t129 enable row level security;\ncreate table public.t130 (id int);\nalter table public.t130 enable row level security;\ncreate table public.t131 (id int);\nalter table public.t131 enable row level security;\ncreate table public.t132 (id int);\nalter table public.t132 enable row level security;\ncreate table public.t133 (id int);\nalter table public.t133 enable row level security;\ncreate table public.t134 (id int);\nalter table public.t134 enable row level security;\ncreate table public.t135 (id int);\nalter table public.t135 enable row level security;\ncreate table public.t136 (id int);\nalter table public.t136 enable row level security;\ncreate table public.t137 (id int);\nalter table public.t137 enable row level security;\ncreate table public.t138 (id int);\nalter table public.t138 enable row level security;\ncreate table public.t139 (id int);\nalter table public.t139 enable row level security;\ncreate table public.t140 (id int);\nalter table public.t140 enable row level security;\ncreate table public.t141 (id int);\nalter table public.t141 enable row level security;\ncreate table public.t142 (id int);\nalter table public.t142 enable row level security;\ncreate table public.t143 (id int);\nalter table public.t143 enable row level security;\ncreate table public.t144 (id int);\nalter table public.t144 enable row level security;\ncreate table public.t145 (id int);\nalter table public.t145 enable row level security;\ncreate table public.t146 (id int);\nalter table public.t146 enable row level security;\ncreate table public.t147 (id int);\nalter table public.t147 enable row level security;\ncreate table public.t148 (id int);\nalter table public.t148 enable row level security;\ncreate table public.t149 (id int);\nalter table public.t149 enable row level security;\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "name": "enables in strings past the table cap"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/migrations/1.sql": "create table public.t (id int, name text);\nalter table public.t enable row level security;\ncreate table public.a$x$ (id int);\n-- old: $x$ alter table public.t disable row level security;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "name": "dollar inside a table name"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.t (id int, name text);\nalter table public.t enable row level security;\n/* old /* tmp */ '--' alter table public.t disable row level security; */\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "nested block comment"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.t (id int, name text);\nalter table public.t enable row level security;\n/* outer /* inner */ it's fine */\n-- don't: alter table public.t disable row level security\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "nested comment then apostrophes"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/seed.sql": "create table public.authors (id int, name text);\nalter table public.authors enable row level security;\ncopy public.authors (id, name) from stdin;\n1\tO'Brien\n\\.\n-- Don't disable row level security on authors\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "copy data then a comment, disable"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/seed.sql": "create table public.authors (id int, name text);\nalter table public.authors enable row level security;\ncopy public.authors (id, name) from stdin;\n1\tO'Brien\n\\.\n-- Don't add a policy with using (true) here\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "copy data then a comment, using true"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.t (id int, name text);\nalter table public.t enable row level security;\ncreate policy p on public.t for update using (\n                        (true) || name = 'x');\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "sql concatenation, indented"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.t (id int, name text);\nalter table public.t enable row level security;\ncreate policy p on public.t for update using (((((true)))) || 'a' = 'b');\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "sql concatenation, deep"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "storage.rules": "service firebase.storage {\n match /b/{bucket}/o {\n  match /{f} {\n   allow write: if (request.resource.contentType.matches('image/*')) && (request.resource.size < 100 || request.resource.name.matches('.*/a') || true);\n  }\n }\n}\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "storage comment markers in strings"
+  },
+  {
+   "files": {
+    "firestore.rules": "service cloud.firestore {\n  match /p/{id} {\n    allow write: if request.auth != null && resource.data.visibility == \"true\";\n  }\n}\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "firebase true only in a string"
+  },
+  {
+   "files": {
+    ".claude/skills/mcp-builder/SKILL.md": "# skill\n",
+    ".cursor/rules/mcp.mdc": "rules\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "name": "mcp-named skill folder"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.t (id int, name text);\nalter table public.t enable row level security;\ncreate policy p on public.t for update using ((((((true)))) and name = ')') or true);\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "paren inside a sql string, open"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.t0 (id int);\nalter table public.t0 enable row level security;\ncreate table public.t1 (id int);\nalter table public.t1 enable row level security;\ncreate table public.t2 (id int);\nalter table public.t2 enable row level security;\ncreate table public.t3 (id int);\nalter table public.t3 enable row level security;\ncreate table public.t4 (id int);\nalter table public.t4 enable row level security;\ncreate table public.t5 (id int);\nalter table public.t5 enable row level security;\ncreate table public.t6 (id int);\nalter table public.t6 enable row level security;\ncreate table public.t7 (id int);\nalter table public.t7 enable row level security;\ncreate table public.t8 (id int);\nalter table public.t8 enable row level security;\ncreate table public.t9 (id int);\nalter table public.t9 enable row level security;\ncreate table public.t10 (id int);\nalter table public.t10 enable row level security;\ncreate table public.t11 (id int);\nalter table public.t11 enable row level security;\ncreate table public.t12 (id int);\nalter table public.t12 enable row level security;\ncreate table public.t13 (id int);\nalter table public.t13 enable row level security;\ncreate table public.t14 (id int);\nalter table public.t14 enable row level security;\ncreate table public.t15 (id int);\nalter table public.t15 enable row level security;\ncreate table public.t16 (id int);\nalter table public.t16 enable row level security;\ncreate table public.t17 (id int);\nalter table public.t17 enable row level security;\ncreate table public.t18 (id int);\nalter table public.t18 enable row level security;\ncreate table public.t19 (id int);\nalter table public.t19 enable row level security;\ncreate table public.t20 (id int);\nalter table public.t20 enable row level security;\ncreate table public.t21 (id int);\nalter table public.t21 enable row level security;\ncreate table public.t22 (id int);\nalter table public.t22 enable row level security;\ncreate table public.t23 (id int);\nalter table public.t23 enable row level security;\ncreate table public.t24 (id int);\nalter table public.t24 enable row level security;\ncreate table public.t25 (id int);\nalter table public.t25 enable row level security;\ncreate table public.t26 (id int);\nalter table public.t26 enable row level security;\ncreate table public.t27 (id int);\nalter table public.t27 enable row level security;\ncreate table public.t28 (id int);\nalter table public.t28 enable row level security;\ncreate table public.t29 (id int);\nalter table public.t29 enable row level security;\ncreate table public.t30 (id int);\nalter table public.t30 enable row level security;\ncreate table public.t31 (id int);\nalter table public.t31 enable row level security;\ncreate table public.t32 (id int);\nalter table public.t32 enable row level security;\ncreate table public.t33 (id int);\nalter table public.t33 enable row level security;\ncreate table public.t34 (id int);\nalter table public.t34 enable row level security;\ncreate table public.t35 (id int);\nalter table public.t35 enable row level security;\ncreate table public.t36 (id int);\nalter table public.t36 enable row level security;\ncreate table public.t37 (id int);\nalter table public.t37 enable row level security;\ncreate table public.t38 (id int);\nalter table public.t38 enable row level security;\ncreate table public.t39 (id int);\nalter table public.t39 enable row level security;\ncreate table public.t40 (id int);\nalter table public.t40 enable row level security;\ncreate table public.t41 (id int);\nalter table public.t41 enable row level security;\ncreate table public.t42 (id int);\nalter table public.t42 enable row level security;\ncreate table public.t43 (id int);\nalter table public.t43 enable row level security;\ncreate table public.t44 (id int);\nalter table public.t44 enable row level security;\ncreate table public.t45 (id int);\nalter table public.t45 enable row level security;\ncreate table public.t46 (id int);\nalter table public.t46 enable row level security;\ncreate table public.t47 (id int);\nalter table public.t47 enable row level security;\ncreate table public.t48 (id int);\nalter table public.t48 enable row level security;\ncreate table public.t49 (id int);\nalter table public.t49 enable row level security;\ncreate table public.t50 (id int);\nalter table public.t50 enable row level security;\ncreate table public.t51 (id int);\nalter table public.t51 enable row level security;\ncreate table public.t52 (id int);\nalter table public.t52 enable row level security;\ncreate table public.t53 (id int);\nalter table public.t53 enable row level security;\ncreate table public.t54 (id int);\nalter table public.t54 enable row level security;\ncreate table public.t55 (id int);\nalter table public.t55 enable row level security;\ncreate table public.t56 (id int);\nalter table public.t56 enable row level security;\ncreate table public.t57 (id int);\nalter table public.t57 enable row level security;\ncreate table public.t58 (id int);\nalter table public.t58 enable row level security;\ncreate table public.t59 (id int);\nalter table public.t59 enable row level security;\ncreate table public.t60 (id int);\nalter table public.t60 enable row level security;\ncreate table public.t61 (id int);\nalter table public.t61 enable row level security;\ncreate table public.t62 (id int);\nalter table public.t62 enable row level security;\ncreate table public.t63 (id int);\nalter table public.t63 enable row level security;\ncreate table public.t64 (id int);\nalter table public.t64 enable row level security;\ncreate table public.t65 (id int);\nalter table public.t65 enable row level security;\ncreate table public.t66 (id int);\nalter table public.t66 enable row level security;\ncreate table public.t67 (id int);\nalter table public.t67 enable row level security;\ncreate table public.t68 (id int);\nalter table public.t68 enable row level security;\ncreate table public.t69 (id int);\nalter table public.t69 enable row level security;\ncreate table public.t70 (id int);\nalter table public.t70 enable row level security;\ncreate table public.t71 (id int);\nalter table public.t71 enable row level security;\ncreate table public.t72 (id int);\nalter table public.t72 enable row level security;\ncreate table public.t73 (id int);\nalter table public.t73 enable row level security;\ncreate table public.t74 (id int);\nalter table public.t74 enable row level security;\ncreate table public.t75 (id int);\nalter table public.t75 enable row level security;\ncreate table public.t76 (id int);\nalter table public.t76 enable row level security;\ncreate table public.t77 (id int);\nalter table public.t77 enable row level security;\ncreate table public.t78 (id int);\nalter table public.t78 enable row level security;\ncreate table public.t79 (id int);\nalter table public.t79 enable row level security;\ncreate table public.t80 (id int);\nalter table public.t80 enable row level security;\ncreate table public.t81 (id int);\nalter table public.t81 enable row level security;\ncreate table public.t82 (id int);\nalter table public.t82 enable row level security;\ncreate table public.t83 (id int);\nalter table public.t83 enable row level security;\ncreate table public.t84 (id int);\nalter table public.t84 enable row level security;\ncreate table public.t85 (id int);\nalter table public.t85 enable row level security;\ncreate table public.t86 (id int);\nalter table public.t86 enable row level security;\ncreate table public.t87 (id int);\nalter table public.t87 enable row level security;\ncreate table public.t88 (id int);\nalter table public.t88 enable row level security;\ncreate table public.t89 (id int);\nalter table public.t89 enable row level security;\ncreate table public.t90 (id int);\nalter table public.t90 enable row level security;\ncreate table public.t91 (id int);\nalter table public.t91 enable row level security;\ncreate table public.t92 (id int);\nalter table public.t92 enable row level security;\ncreate table public.t93 (id int);\nalter table public.t93 enable row level security;\ncreate table public.t94 (id int);\nalter table public.t94 enable row level security;\ncreate table public.t95 (id int);\nalter table public.t95 enable row level security;\ncreate table public.t96 (id int);\nalter table public.t96 enable row level security;\ncreate table public.t97 (id int);\nalter table public.t97 enable row level security;\ncreate table public.t98 (id int);\nalter table public.t98 enable row level security;\ncreate table public.t99 (id int);\nalter table public.t99 enable row level security;\ncreate table public.t100 (id int);\nalter table public.t100 enable row level security;\ncreate table public.t101 (id int);\nalter table public.t101 enable row level security;\ncreate table public.t102 (id int);\nalter table public.t102 enable row level security;\ncreate table public.t103 (id int);\nalter table public.t103 enable row level security;\ncreate table public.t104 (id int);\nalter table public.t104 enable row level security;\ncreate table public.t105 (id int);\nalter table public.t105 enable row level security;\ncreate table public.t106 (id int);\nalter table public.t106 enable row level security;\ncreate table public.t107 (id int);\nalter table public.t107 enable row level security;\ncreate table public.t108 (id int);\nalter table public.t108 enable row level security;\ncreate table public.t109 (id int);\nalter table public.t109 enable row level security;\ncreate table public.t110 (id int);\nalter table public.t110 enable row level security;\ncreate table public.t111 (id int);\nalter table public.t111 enable row level security;\ncreate table public.t112 (id int);\nalter table public.t112 enable row level security;\ncreate table public.t113 (id int);\nalter table public.t113 enable row level security;\ncreate table public.t114 (id int);\nalter table public.t114 enable row level security;\ncreate table public.t115 (id int);\nalter table public.t115 enable row level security;\ncreate table public.t116 (id int);\nalter table public.t116 enable row level security;\ncreate table public.t117 (id int);\nalter table public.t117 enable row level security;\ncreate table public.t118 (id int);\nalter table public.t118 enable row level security;\ncreate table public.t119 (id int);\nalter table public.t119 enable row level security;\ncreate table public.t120 (id int);\nalter table public.t120 enable row level security;\ncreate table public.t121 (id int);\nalter table public.t121 enable row level security;\ncreate table public.t122 (id int);\nalter table public.t122 enable row level security;\ncreate table public.t123 (id int);\nalter table public.t123 enable row level security;\ncreate table public.t124 (id int);\nalter table public.t124 enable row level security;\ncreate table public.t125 (id int);\nalter table public.t125 enable row level security;\ncreate table public.t126 (id int);\nalter table public.t126 enable row level security;\ncreate table public.t127 (id int);\nalter table public.t127 enable row level security;\ncreate table public.t128 (id int);\nalter table public.t128 enable row level security;\ncreate table public.t129 (id int);\nalter table public.t129 enable row level security;\ncreate table public.t130 (id int);\nalter table public.t130 enable row level security;\ncreate table public.t131 (id int);\nalter table public.t131 enable row level security;\ncreate table public.t132 (id int);\nalter table public.t132 enable row level security;\ncreate table public.t133 (id int);\nalter table public.t133 enable row level security;\ncreate table public.t134 (id int);\nalter table public.t134 enable row level security;\ncreate table public.t135 (id int);\nalter table public.t135 enable row level security;\ncreate table public.t136 (id int);\nalter table public.t136 enable row level security;\ncreate table public.t137 (id int);\nalter table public.t137 enable row level security;\ncreate table public.t138 (id int);\nalter table public.t138 enable row level security;\ncreate table public.t139 (id int);\nalter table public.t139 enable row level security;\ncreate table public.t140 (id int);\nalter table public.t140 enable row level security;\ncreate table public.t141 (id int);\nalter table public.t141 enable row level security;\ncreate table public.t142 (id int);\nalter table public.t142 enable row level security;\ncreate table public.t143 (id int);\nalter table public.t143 enable row level security;\ncreate table public.t144 (id int);\nalter table public.t144 enable row level security;\ncreate table public.t145 (id int);\nalter table public.t145 enable row level security;\ncreate table public.t146 (id int);\nalter table public.t146 enable row level security;\ncreate table public.t147 (id int);\nalter table public.t147 enable row level security;\ncreate table public.t148 (id int);\nalter table public.t148 enable row level security;\ncreate table public.t149 (id int);\nalter table public.t149 enable row level security;\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\ninsert into notes(body) values ('alter table public.x enable row level security');\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "table cap boundary, 200 enables"
+  },
+  {
+   "files": {
+    "firestore.rules": "service cloud.firestore {\n  match /x/{id} {\n    allow write: if request.resource.data == {'public': a || true};\n  }\n}\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "firebase map literal with or true"
+  },
+  {
+   "files": {
+    "firestore.rules": "service cloud.firestore {\n  match /x/{id} {\n    allow write: if isOwner()\n      function helper() { return a || true; }\n  }\n}\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "firebase rule runs into a function"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.t (id int, name text);\nalter table public.t enable row level security;\ncreate policy p on public.t for all using ((((((true)))) /* a /* b */ or true */ and auth.uid() = id));\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "nested comment inside a using group"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.t (id int, owner$q$ uuid, x$q$ int);\nalter table public.t enable row level security;\ncreate policy p on public.t for all using (((((true)))) and owner$q$ = auth.uid());\ncreate policy p2 on public.t for select using (x$q$ is null or true);\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "dollar names across a using group"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.t (id int, name text);\nalter table public.t enable row level security;\ncopy t (name) from stdin;\nit's\n\\.\ncomment on table public.t is 'create policy p on public.t for all using ((((((true))))))';\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "copy apostrophe then a quoted policy"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.t (id int, name text);\nalter table public.t enable row level security;\ncreate policy p on public.t for select to \"create policy q\" using (true);\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "name": "quoted role name hides for select"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.t0 (id int);\nalter table public.t0 enable row level security;\ncreate table public.t1 (id int);\nalter table public.t1 enable row level security;\ncreate table public.t2 (id int);\nalter table public.t2 enable row level security;\ncreate table public.t3 (id int);\nalter table public.t3 enable row level security;\ncreate table public.t4 (id int);\nalter table public.t4 enable row level security;\ncreate table public.t5 (id int);\nalter table public.t5 enable row level security;\ncreate table public.t6 (id int);\nalter table public.t6 enable row level security;\ncreate table public.t7 (id int);\nalter table public.t7 enable row level security;\ncreate table public.t8 (id int);\nalter table public.t8 enable row level security;\ncreate table public.t9 (id int);\nalter table public.t9 enable row level security;\ncreate table public.t10 (id int);\nalter table public.t10 enable row level security;\ncreate table public.t11 (id int);\nalter table public.t11 enable row level security;\ncreate table public.t12 (id int);\nalter table public.t12 enable row level security;\ncreate table public.t13 (id int);\nalter table public.t13 enable row level security;\ncreate table public.t14 (id int);\nalter table public.t14 enable row level security;\ncreate table public.t15 (id int);\nalter table public.t15 enable row level security;\ncreate table public.t16 (id int);\nalter table public.t16 enable row level security;\ncreate table public.t17 (id int);\nalter table public.t17 enable row level security;\ncreate table public.t18 (id int);\nalter table public.t18 enable row level security;\ncreate table public.t19 (id int);\nalter table public.t19 enable row level security;\ncreate table public.t20 (id int);\nalter table public.t20 enable row level security;\ncreate table public.t21 (id int);\nalter table public.t21 enable row level security;\ncreate table public.t22 (id int);\nalter table public.t22 enable row level security;\ncreate table public.t23 (id int);\nalter table public.t23 enable row level security;\ncreate table public.t24 (id int);\nalter table public.t24 enable row level security;\ncreate table public.t25 (id int);\nalter table public.t25 enable row level security;\ncreate table public.t26 (id int);\nalter table public.t26 enable row level security;\ncreate table public.t27 (id int);\nalter table public.t27 enable row level security;\ncreate table public.t28 (id int);\nalter table public.t28 enable row level security;\ncreate table public.t29 (id int);\nalter table public.t29 enable row level security;\ncreate table public.t30 (id int);\nalter table public.t30 enable row level security;\ncreate table public.t31 (id int);\nalter table public.t31 enable row level security;\ncreate table public.t32 (id int);\nalter table public.t32 enable row level security;\ncreate table public.t33 (id int);\nalter table public.t33 enable row level security;\ncreate table public.t34 (id int);\nalter table public.t34 enable row level security;\ncreate table public.t35 (id int);\nalter table public.t35 enable row level security;\ncreate table public.t36 (id int);\nalter table public.t36 enable row level security;\ncreate table public.t37 (id int);\nalter table public.t37 enable row level security;\ncreate table public.t38 (id int);\nalter table public.t38 enable row level security;\ncreate table public.t39 (id int);\nalter table public.t39 enable row level security;\ncreate table public.t40 (id int);\nalter table public.t40 enable row level security;\ncreate table public.t41 (id int);\nalter table public.t41 enable row level security;\ncreate table public.t42 (id int);\nalter table public.t42 enable row level security;\ncreate table public.t43 (id int);\nalter table public.t43 enable row level security;\ncreate table public.t44 (id int);\nalter table public.t44 enable row level security;\ncreate table public.t45 (id int);\nalter table public.t45 enable row level security;\ncreate table public.t46 (id int);\nalter table public.t46 enable row level security;\ncreate table public.t47 (id int);\nalter table public.t47 enable row level security;\ncreate table public.t48 (id int);\nalter table public.t48 enable row level security;\ncreate table public.t49 (id int);\nalter table public.t49 enable row level security;\ncreate table public.t50 (id int);\nalter table public.t50 enable row level security;\ncreate table public.t51 (id int);\nalter table public.t51 enable row level security;\ncreate table public.t52 (id int);\nalter table public.t52 enable row level security;\ncreate table public.t53 (id int);\nalter table public.t53 enable row level security;\ncreate table public.t54 (id int);\nalter table public.t54 enable row level security;\ncreate table public.t55 (id int);\nalter table public.t55 enable row level security;\ncreate table public.t56 (id int);\nalter table public.t56 enable row level security;\ncreate table public.t57 (id int);\nalter table public.t57 enable row level security;\ncreate table public.t58 (id int);\nalter table public.t58 enable row level security;\ncreate table public.t59 (id int);\nalter table public.t59 enable row level security;\ncreate table public.t60 (id int);\nalter table public.t60 enable row level security;\ncreate table public.t61 (id int);\nalter table public.t61 enable row level security;\ncreate table public.t62 (id int);\nalter table public.t62 enable row level security;\ncreate table public.t63 (id int);\nalter table public.t63 enable row level security;\ncreate table public.t64 (id int);\nalter table public.t64 enable row level security;\ncreate table public.t65 (id int);\nalter table public.t65 enable row level security;\ncreate table public.t66 (id int);\nalter table public.t66 enable row level security;\ncreate table public.t67 (id int);\nalter table public.t67 enable row level security;\ncreate table public.t68 (id int);\nalter table public.t68 enable row level security;\ncreate table public.t69 (id int);\nalter table public.t69 enable row level security;\ncreate table public.t70 (id int);\nalter table public.t70 enable row level security;\ncreate table public.t71 (id int);\nalter table public.t71 enable row level security;\ncreate table public.t72 (id int);\nalter table public.t72 enable row level security;\ncreate table public.t73 (id int);\nalter table public.t73 enable row level security;\ncreate table public.t74 (id int);\nalter table public.t74 enable row level security;\ncreate table public.t75 (id int);\nalter table public.t75 enable row level security;\ncreate table public.t76 (id int);\nalter table public.t76 enable row level security;\ncreate table public.t77 (id int);\nalter table public.t77 enable row level security;\ncreate table public.t78 (id int);\nalter table public.t78 enable row level security;\ncreate table public.t79 (id int);\nalter table public.t79 enable row level security;\ncreate table public.t80 (id int);\nalter table public.t80 enable row level security;\ncreate table public.t81 (id int);\nalter table public.t81 enable row level security;\ncreate table public.t82 (id int);\nalter table public.t82 enable row level security;\ncreate table public.t83 (id int);\nalter table public.t83 enable row level security;\ncreate table public.t84 (id int);\nalter table public.t84 enable row level security;\ncreate table public.t85 (id int);\nalter table public.t85 enable row level security;\ncreate table public.t86 (id int);\nalter table public.t86 enable row level security;\ncreate table public.t87 (id int);\nalter table public.t87 enable row level security;\ncreate table public.t88 (id int);\nalter table public.t88 enable row level security;\ncreate table public.t89 (id int);\nalter table public.t89 enable row level security;\ncreate table public.t90 (id int);\nalter table public.t90 enable row level security;\ncreate table public.t91 (id int);\nalter table public.t91 enable row level security;\ncreate table public.t92 (id int);\nalter table public.t92 enable row level security;\ncreate table public.t93 (id int);\nalter table public.t93 enable row level security;\ncreate table public.t94 (id int);\nalter table public.t94 enable row level security;\ncreate table public.t95 (id int);\nalter table public.t95 enable row level security;\ncreate table public.t96 (id int);\nalter table public.t96 enable row level security;\ncreate table public.t97 (id int);\nalter table public.t97 enable row level security;\ncreate table public.t98 (id int);\nalter table public.t98 enable row level security;\ncreate table public.t99 (id int);\nalter table public.t99 enable row level security;\ncreate table public.t100 (id int);\nalter table public.t100 enable row level security;\ncreate table public.t101 (id int);\nalter table public.t101 enable row level security;\ncreate table public.t102 (id int);\nalter table public.t102 enable row level security;\ncreate table public.t103 (id int);\nalter table public.t103 enable row level security;\ncreate table public.t104 (id int);\nalter table public.t104 enable row level security;\ncreate table public.t105 (id int);\nalter table public.t105 enable row level security;\ncreate table public.t106 (id int);\nalter table public.t106 enable row level security;\ncreate table public.t107 (id int);\nalter table public.t107 enable row level security;\ncreate table public.t108 (id int);\nalter table public.t108 enable row level security;\ncreate table public.t109 (id int);\nalter table public.t109 enable row level security;\ncreate table public.t110 (id int);\nalter table public.t110 enable row level security;\ncreate table public.t111 (id int);\nalter table public.t111 enable row level security;\ncreate table public.t112 (id int);\nalter table public.t112 enable row level security;\ncreate table public.t113 (id int);\nalter table public.t113 enable row level security;\ncreate table public.t114 (id int);\nalter table public.t114 enable row level security;\ncreate table public.t115 (id int);\nalter table public.t115 enable row level security;\ncreate table public.t116 (id int);\nalter table public.t116 enable row level security;\ncreate table public.t117 (id int);\nalter table public.t117 enable row level security;\ncreate table public.t118 (id int);\nalter table public.t118 enable row level security;\ncreate table public.t119 (id int);\nalter table public.t119 enable row level security;\ncreate table public.t120 (id int);\nalter table public.t120 enable row level security;\ncreate table public.t121 (id int);\nalter table public.t121 enable row level security;\ncreate table public.t122 (id int);\nalter table public.t122 enable row level security;\ncreate table public.t123 (id int);\nalter table public.t123 enable row level security;\ncreate table public.t124 (id int);\nalter table public.t124 enable row level security;\ncreate table public.t125 (id int);\nalter table public.t125 enable row level security;\ncreate table public.t126 (id int);\nalter table public.t126 enable row level security;\ncreate table public.t127 (id int);\nalter table public.t127 enable row level security;\ncreate table public.t128 (id int);\nalter table public.t128 enable row level security;\ncreate table public.t129 (id int);\nalter table public.t129 enable row level security;\ncreate table public.t130 (id int);\nalter table public.t130 enable row level security;\ncreate table public.t131 (id int);\nalter table public.t131 enable row level security;\ncreate table public.t132 (id int);\nalter table public.t132 enable row level security;\ncreate table public.t133 (id int);\nalter table public.t133 enable row level security;\ncreate table public.t134 (id int);\nalter table public.t134 enable row level security;\ncreate table public.t135 (id int);\nalter table public.t135 enable row level security;\ncreate table public.t136 (id int);\nalter table public.t136 enable row level security;\ncreate table public.t137 (id int);\nalter table public.t137 enable row level security;\ncreate table public.t138 (id int);\nalter table public.t138 enable row level security;\ncreate table public.t139 (id int);\nalter table public.t139 enable row level security;\ncreate table public.t140 (id int);\nalter table public.t140 enable row level security;\ncreate table public.t141 (id int);\nalter table public.t141 enable row level security;\ncreate table public.t142 (id int);\nalter table public.t142 enable row level security;\ncreate table public.t143 (id int);\nalter table public.t143 enable row level security;\ncreate table public.t144 (id int);\nalter table public.t144 enable row level security;\ncreate table public.t145 (id int);\nalter table public.t145 enable row level security;\ncreate table public.t146 (id int);\nalter table public.t146 enable row level security;\ncreate table public.t147 (id int);\nalter table public.t147 enable row level security;\ncreate table public.t148 (id int);\nalter table public.t148 enable row level security;\ncreate table public.t149 (id int);\nalter table public.t149 enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n-- alter table public.x enable row level security;\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "commented enables past the table cap"
+  },
+  {
+   "files": {
+    "firestore.rules": "service cloud.firestore {\n  match /p/{id} {\n    allow read: if request.auth != null\n                        allow write: if request.auth != null || true;\n  }\n}\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "name": "open write indented 24 spaces after a rule without a semicolon"
+  },
+  {
+   "files": {
+    ".claude/skills/mcp-github/config.json": "{}",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "name": "mcp config inside an instruction folder"
   }
  ]
 }
