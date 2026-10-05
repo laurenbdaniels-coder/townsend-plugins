@@ -184,11 +184,11 @@
 
 ### Leftovers from the pre-merge review of PR #24 (2026-10-01)
 
-**What:** (1) Text that names a view inside a SQL string (`comment on table … is 'create view public.v as …'`) is a `public-view` row, so Q3 says Don't know where no view is created. (2) Some answers 0.3.3 holds back to match 0.3.2 are wrong in 0.3.2's direction: an `enable row level security` after a `'--'` or `'/*'` string, or with a comment longer than 20 spaces inside it, really runs, but RLS credit is capped at what 0.3.2 read, so Q3 stays at Don't know. (3) Each SQL file is lexed up to three times (`detect_sql`, `detect_pii_schema`, the rule-file count), and `_mcp_configs_inside` walks a never-open folder a second time after `count_files`. (4) Two prefilter timing tests (`test_prefilter_repeated_keyword_is_linear`, `test_prefilter_accepts_keyish_identifiers_and_stays_linear`) miss their 1.0 s bound under load; they time a regex main also has.
+**What:** (1) Text that names a view inside a SQL string (`comment on table … is 'create view public.v as …'`) is a `public-view` row, so Q3 says Don't know where no view is created. (2) Some answers 0.3.3 holds back to match 0.3.2 are wrong in 0.3.2's direction: an `enable row level security` after a `'--'` or `'/*'` string, or with a comment longer than 20 spaces inside it, really runs, but RLS credit is capped at what 0.3.2 read, so Q3 stays at Don't know. (3) `_mcp_configs_inside` walks a never-open folder a second time after `count_files` (see "One walk per never-open folder"). (4) Two prefilter timing tests (`test_prefilter_repeated_keyword_is_linear`, `test_prefilter_accepts_keyish_identifiers_and_stays_linear`) miss their 1.0 s bound under load; they time a regex main also has.
 
 **Why:** (1) and (2) are cautious answers that are not needed: (1) reads strings for bad signals on purpose, since `EXECUTE '…'` runs them; (2) follows the never-worse rule. (3) is cost, measured as linear (a 560 KB migration takes 1.06 s against 0.3.2's 0.76 s). (4) is flake.
 
-**Context:** (1) tell `EXECUTE` strings from other strings in `_lex_sql`. (2) list each shape in `ALLOW_SOFTER` with the reason, with corpus cases. (3) cache the lex tuple on the scanned file. (4) widen the bound, or measure a ratio as the other linearity tests do.
+**Context:** (1) tell `EXECUTE` strings from other strings in `_lex_sql`. (2) list each shape in `ALLOW_SOFTER` with the reason, with corpus cases. (3) see that entry. (4) widen the bound, or measure a ratio as the other linearity tests do.
 
 **Effort:** S
 **Priority:** P3
@@ -212,7 +212,7 @@
 
 **Why:** After the PR #24 fix, conditions are linear but about 20x slower than 0.3.2 on adversarial input (0.57 s against 0.03 s on a 512 KB file of 64-deep groups; 38.7 s against 2.0 s for 70 such files, still under the 120 s deadline). Around 200 such files in one repo would reach the deadline. Agreed stop rule: if another review finds a superlinear path in code this branch added, do (1) rather than another per-function budget.
 
-**Context:** `_firebase_open`, `_strip_outer_parens`, `_sql_predicate_open` in `custody_scan.py`. The work-count tests in `WorseThanMainPerformanceTests` patch `_strip_outer_parens`; replace them with a budget-level oracle when the parser changes.
+**Context:** the SQL lexer has the same kind of residual: `_lex_sql` is a per-token Python loop, so after the PR #24 review fixes (lex once per file, C-speed blanking) a string-dense 512 KB migration still takes about 2.6x 0.3.2's time (realistic seed files 1.4x; 420 of them finish in 77 s against 0.3.2's 50 s). A single master regex per token kind would cut it. `_firebase_open`, `_strip_outer_parens`, `_sql_predicate_open` in `custody_scan.py`. The work-count tests in `WorseThanMainPerformanceTests` patch `_strip_outer_parens`; replace them with a budget-level oracle when the parser changes.
 
 **Effort:** M
 **Priority:** P2
@@ -224,10 +224,22 @@
 
 **Why:** Each folder now counts toward the 10,000-entry cap twice in the MCP walk (as an entry and as a step), so a `.claude/worktrees/<name>/node_modules` checkout of about 5,000 folders stops the walk and withholds Q1, and mcp-named packages inside it become `mcp-config-not-opened` rows. Measured on 2026-10-02: zero Q1 drift on the owner's nine repos, but a synthetic `.claude/worktrees/x/node_modules` of 6,000 packages moves Q1 from Nothing found (0.3.2) to Don't know. Cautious, not wrong, but noisy.
 
-**Context:** `walk()` in `custody_scan.py`, where `is_never_open_dir` calls both functions. Keep `followlinks=False` and `_lexists_inside`.
+**Context:** `walk()` in `custody_scan.py`, where `is_never_open_dir` calls both functions. Keep `followlinks=False` and `_lexists_inside`. Also: the MCP walk passes `onerror=lambda e: None`, so an unreadable folder inside a never-open agent folder (`chmod 000 .claude/locked`) is skipped without a Q1 gap; set `truncated` from `onerror` (0.3.2 never walked these folders, so this is not worse than main).
 
 **Effort:** S
 **Priority:** P3
+**Depends on:** None
+
+### Leftovers from the fresh review of 4b7d615 (2026-10-02)
+
+**What:** Not worse than 0.3.2 in the unsafe direction, deferred under the fix-PR rule. (1) New Don't-knows 0.3.2 never raised: `do /* note */ $$ … $$` and `do '…'` bodies are not read as running SQL; `public-view` rows (5 per file, not capped across files) can push the `table-without-rls` row off the 12-row Q3 list; several gaps (a dropped table, an unclosed quote, a Firebase condition over 400 chars, a drop list too long, a cut-off MCP walk) say Don't know with only the scan-summary row, whose tail "no SQL or security-rules file among them" is wrong for a seed-only app; Supabase's own fix `alter view … set (security_invoker = on)` is not credited, and a permanent `drop table` with no re-create blocks Q3 for good. (2) Every Q3 No now comes from 0.3.2's own patterns, so every open rule the new readers find beyond them is `open-rule-unconfirmed` evidence (Don't know), not a No: `using ((((((true))))))`, a top-level `|| true` in Firebase, `if (true)`, `".write": "true"`, `disable` with long whitespace or an inline comment, a real `disable` on a line where 0.3.2 cut a `--` inside a string. (3) Same as 0.3.2: a Firebase condition is cut at `//` (`== "https://…" || true`), `;` or a map's `}` inside a string; a SQL file whose only rule-like text is a quoted name (`create index "row level security"`) counts as a rule file read. (4) Speed residuals, linear, measured on python 3.9.6: pg_dump-shaped SQL 1.39x 0.3.2 (512 files at the 256 MB cap: 73 s against 53 s), `using ((((((true))))))` repeated 5.9x, `"` + newline repeated 2.8x; the Firebase `\n` lookahead was bounded to 80 spaces (it was 6-9x). Past 60% of the time limit a scan reads SQL and rules files with 0.3.2's readers; that bounds the late work, but a repo where 0.3.2 itself needs nearly the full 120 s can still go partial on this branch first.
+
+**Why:** Each changes an answer or a row in the cautious direction, or matches 0.3.2; a fix PR fixes only what it made worse. (1) is the tester's main complaint (false alarms), so it comes first.
+
+**Context:** (1) `_lex_sql` (`DO_BEFORE_RE`), `resolve()` row order and a named row per gap, `CREATE_VIEW_RE` plus an `ALTER VIEW` reader. (2) Promote one shape at a time from `open-rule-unconfirmed` to a No (`_unconfirmed` in `custody_scan.py`), each in its own PR with corpus cases, an `ALLOW_NEW_NO` reason, and an adversarial pass aimed at that shape alone: three review passes on PR #24 each found new false Nos in these readers (strings, comments, `$` names, COPY data, nested comments, map literals, SQL `||`). (3) `FIREBASE_IF_RE` should end at `;`/`}` only outside strings. (4) `_lex_sql`'s per-token loop, `_sql_predicate_open` caching by group text.
+
+**Effort:** M
+**Priority:** P2
 **Depends on:** None
 
 ### False Nos kept from 0.3.2
