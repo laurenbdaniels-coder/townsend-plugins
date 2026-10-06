@@ -20,8 +20,8 @@ REAL = {"{KEY}": "sk-" + "proj-" + "a1b2c3d4e5f6g7h8i9j0" * 2,
         "{PEM}": "-----BEGIN " + "PRIVATE KEY-----\\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\\n-----END " + "PRIVATE KEY-----\\n"}
 
 cases = []
-def case(name, files):
-    cases.append({"name": name, "files": dict(BASE, **files)})
+def case(name, files, base=True):
+    cases.append({"name": name, "files": dict(BASE, **files) if base else dict(files)})
 
 # ---- realistic, ordinary shapes (must stay exactly as main, or better)
 case("supabase init migration", {"supabase/migrations/20240101000000_init.sql": RLS + "create policy \"own rows\" on public.notes for select using (auth.uid() = owner);\n"})
@@ -163,6 +163,31 @@ case("commented enables past the table cap", {"db/1.sql": "".join("create table 
 case("open write indented 24 spaces after a rule without a semicolon", {"firestore.rules": "service cloud.firestore {\n  match /p/{id} {\n    allow read: if request.auth != null\n" + " " * 24 + "allow write: if request.auth != null || true;\n  }\n}\n"})
 case("mcp config inside an instruction folder", {".claude/skills/mcp-github/config.json": "{}"})
 
+# ---- fresh review of 8a6c32b (2026-10-05): 0.3.2's evidence rows, table names, PII rows and partial flag
+GLOB = "select '/*'; -- */ "  # 0.3.2 blanked from the `/*` in the string to the `*/` in the comment and read on
+case("to anon after a string glob and a comment close", {"db/1.sql": RLS + GLOB + "create policy p on public.notes for select to anon using (auth.uid() = id);\n"})
+case("bucket after a string glob and a comment close", {"db/1.sql": RLS + GLOB + "insert into storage.buckets (id, public) values ('a', true);\n"})
+case("with check after a string glob and a comment close", {"db/1.sql": RLS + GLOB + "create policy p on public.notes for insert with check (true);\n"})
+case("table after a string glob and a comment close", {"db/1.sql": RLS + GLOB + "create table public.u (id int);\n"})
+case("legacy table after a commented block", {"supabase/migrations/1.sql": RLS + "create policy r on storage.objects for select using (name like 'avatars/*');\n-- old: /* removed */ create table public.legacy (id int);\n"})
+case("table name split by spaces before the dot", {"db/1.sql": "create table public      .notes (id int);\nalter table public.notes enable row level security;\n"})
+case("create table if with long whitespace", {"db/1.sql": "create table if" + " " * 25 + "not exists public.notes (id int);\nalter table public.notes enable row level security;\n"})
+case("table name on the next line", {"db/1.sql": "create table public.\n        profiles (id uuid primary key);\nalter table public.profiles enable row level security;\n"})
+case("pii after a string glob and a comment close", {"supabase/migrations/1.sql": "create table patients (id int, note text default '/*' -- legacy */, ssn text, diagnosis text);\n"})
+case("pii after a dash dash string", {"supabase/migrations/1.sql": "create table public.notes (id int, note text default '--', diagnosis text);\nalter table public.notes enable row level security;\n"})
+case("mts only", {"src/index.mts": "export const a = 1\n"}, base=False)
+case("cts server with a manifest", {"server/index.cts": "module.exports = 1\n", "package.json": '{"name": "x"}\n'}, base=False)
+case("env file compressed with zstd", {".env.zst": "NEXT_PUBLIC_OPENAI_SECRET_KEY=" + KEY + "\n", "src/a.ts": "export const x = 1\n"})
+case("env local file compressed with zstd", {".env.local.zst": "NEXT_PUBLIC_OPENAI_SECRET_KEY=" + KEY + "\n", "src/a.ts": "export const x = 1\n"})
+case("firebase allow without a condition", {"firestore.rules": "service cloud.firestore {\n  match /x/{id} {\n    allow read, write;\n  }\n}\n"})
+case("firebase allow read without a condition", {"firestore.rules": "service cloud.firestore {\n  match /x/{id} {\n    allow read;\n  }\n}\n"})
+SEG, FSEG = "é" * 90, "é" * 62
+TRIM = {"supabase/migrations/1.sql": RLS}  # 0.3.2's output goes over the cap and is trimmed: partial
+TRIM.update({"a%d/%s/%s/Pipfile" % (i, SEG, SEG): "x\n" for i in range(5)})
+TRIM.update({"z%d/%s/%s/health.ts" % (i, SEG, SEG): "export const x = 1;\n" for i in range(12)})
+TRIM.update({"m%d/%s/%s/%s/schema.prisma" % (i, FSEG, FSEG, FSEG): "model U {\n email String\n phone String\n}\n" for i in range(12)})
+case("output over the cap with manifests the release did not read", TRIM)
+
 def answers(scanner, files):
     tmp = tempfile.mkdtemp()
     try:
@@ -172,14 +197,16 @@ def answers(scanner, files):
             os.makedirs(os.path.dirname(p), exist_ok=True)
             for k, v in REAL.items():
                 body = body.replace(k, v)
-            open(p, "w").write(body)
+            open(p, "w", encoding="utf-8").write(body)
         out = subprocess.run([sys.executable, "-I", scanner, "--repo", "app"], cwd=tmp, capture_output=True, text=True).stdout
-        q = json.loads(out)["questions"]
-        return {k: q[k]["answer"] for k in ("q1", "q3", "q9")}
+        r = json.loads(out)
+        q = r["questions"]
+        pii = sorted(set(e["snippet"] for e in q["q10"]["evidence"] if e["check"] == "pii-field"))
+        return {k: q[k]["answer"] for k in ("q1", "q3", "q9")}, r["partial"], pii
     finally:
         shutil.rmtree(tmp)
 
 for c in cases:
-    c["main"] = answers(MAIN, c["files"])
+    c["main"], c["main_partial"], c["main_pii"] = answers(MAIN, c["files"])
 json.dump({"baseline": sys.argv[3] if len(sys.argv) > 3 else "unrecorded", "cases": cases}, open(OUT, "w"), indent=1, sort_keys=True)
 print(len(cases), "cases written")

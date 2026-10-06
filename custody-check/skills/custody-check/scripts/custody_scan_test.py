@@ -2037,9 +2037,20 @@ class RepoFilesTests(unittest.TestCase):
         path = os.path.join(SKILL_DIR, "references", "questions.md")
         with open(path, encoding="utf-8") as fh:
             text = fh.read()
-        listed = set(re.findall(r"`([a-z0-9-]+)`", text))
+        # only the appendix counts: SKILL.md accepts a check only if it is listed there, and a name mentioned in
+        # the prose above it does not make the skill accept it
+        appendix = text[text.index("## All check names"):]
+        listed = set(re.findall(r"`([a-z0-9-]+)` \(", appendix))
         missing = sorted(name for name in cs.CHECKS if name not in listed)
         self.assertEqual(missing, [], "check names the skill would reject as unknown")
+        for line in appendix.splitlines():
+            label = re.match(r"- \*\*Q(\d+)", line)
+            if not label:
+                continue
+            for name, effect in re.findall(r"`([a-z0-9-]+)` \(([a-z-]+)\)", line):
+                with self.subTest(check=name):
+                    question, real = cs.CHECKS[name]
+                    self.assertEqual((question.split(".")[0], effect), ("q" + label.group(1), real), "listed under the wrong question or effect")
 
     def test_version_four_way(self):
         with open(os.path.join(PLUGIN_DIR, ".claude-plugin", "plugin.json"), encoding="utf-8") as fh:
@@ -5572,6 +5583,178 @@ class FreshReviewPassThreeTests(ScanCase):
         self.assertEqual(self.q_of({"db/1.sql": pairs + "-- alter table public.x enable row level security;\n" * 60})["answer"], "nothing-found")
 
 
+class FreshReviewOf8a6c32bTests(ScanCase):
+    """Fresh review of 8a6c32b (2026-10-05): 0.3.2's whole SQL reader is the floor, trimming is partial exactly when
+    0.3.2's output would not have fit, and one row per line for a No 0.3.2 already gives."""
+
+    RLS = "create table public.t (id int, name text);\nalter table public.t enable row level security;\n"
+
+    def q_of(self, files, q="q3", **kw):
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.write("src/components/A.tsx", "export const A = () => null;\n")
+        for rel, body in files.items():
+            self.write(rel, body)
+        r = self.scan(**kw)
+        return r if q is None else r["questions"][q]
+
+    def test_a_plain_0_3_2_no_is_one_row(self):
+        q3 = self.q_of({"db/1.sql": self.RLS + "alter table public.t disable row level security;\ncreate policy p on public.t using (true);\n"})
+        self.assertEqual(q3["answer"], "no")
+        self.assertEqual(sorted(evidence_checks(q3)), ["policy-using-true", "rls-disabled"])
+
+    def test_a_table_name_0_3_2_read_across_spaces_is_kept(self):
+        q3 = self.q_of({"db/1.sql": ("create table x" + " " * 2000 + ".") * 240})
+        self.assertNotEqual(q3["answer"], "nothing-found")
+
+    def test_bytes_only_0_3_3_adds_never_make_a_scan_partial(self):
+        files = {"db/%d.sql" % i: self.RLS.replace("public.t", "public.t%d" % i) + "create policy p on public.t%d for select to anon using (auth.uid() = id);\n" % i for i in range(4)}
+        full = self.q_of(files, None)
+        size = len(json.dumps(full, ensure_ascii=True, separators=(",", ":")).encode("utf-8"))
+        release = len(json.dumps(cs._release_projection(full), ensure_ascii=True, separators=(",", ":")).encode("utf-8"))
+        self.assertLess(release, size)
+        with mock.patch.object(cs, "MAX_OUTPUT_BYTES", release):
+            r = self.q_of(files, None)
+        self.assertFalse(r["partial"], "0.3.2's output would have fit")
+        self.assertGreater(r["stats"]["output_trimmed"], 0)
+        for before, after in zip(cs.iter_questions(full), cs.iter_questions(r)):
+            self.assertEqual(before["answer"], after["answer"])
+            if before["evidence"]:
+                self.assertTrue(after["evidence"], "a question never loses its last row")
+
+    def test_trimming_keeps_a_question_s_only_row(self):
+        files = {".claude/mcp-%d.json" % i: "{}" for i in range(5)}
+        files["db/1.sql"] = self.RLS + "create view public.v as select 1;\n"
+        full = self.q_of(files, None)
+        size = len(json.dumps(full, ensure_ascii=True, separators=(",", ":")).encode("utf-8"))
+        with mock.patch.object(cs, "MAX_OUTPUT_BYTES", size - 150):
+            r = self.q_of(files, None)
+        self.assertIn("public-view", evidence_checks(r["questions"]["q3"]))
+        self.assertFalse(r["partial"])
+
+    def test_an_oversize_env_file_named_zst_is_still_a_gap(self):
+        q1 = self.q_of({".env.zst": "API_TOKEN=" + "x" * 4000 + "\n"}, "q1", max_file_bytes=1024)
+        self.assertNotEqual(q1["answer"], "nothing-found")
+
+    def test_the_firebase_pass_equals_the_patterns(self):
+        toks = ["allow ", "ALLOW ", "read", ",", " write", ": ", "if ", "if(", "true", " ", "\n", "\n  allow ", "\n match ",
+                ";", "}", "||", "(", ")", "'x;'", "request.auth != null", "\t", "x" * 130]
+        rnd = random.Random(5)
+        for _ in range(3000):
+            t = "".join(rnd.choice(toks) for _ in range(rnd.randint(1, 30))) * rnd.choice((1, 1, 1, 7))
+            want = [(m.start(), m.group(0), m.group(1), m.group(2), m.start(2), m.end(2)) for m in cs.FIREBASE_IF_RE.finditer(t)]
+            got, long_n = cs._firebase_ifs(t)
+            self.assertEqual([(m.start(), m.group(0), m.group(1), m.group(2), m.start(2), m.end(2)) for m in got], want, repr(t))
+            self.assertEqual(long_n, len(cs.FIREBASE_IF_LONG_RE.findall(t)), repr(t))
+
+    def test_an_unreadable_env_file_named_zst_marks_the_scan_partial(self):
+        if getattr(os, "geteuid", lambda: 1)() == 0:
+            self.skipTest("root can read anything")
+        self.q_of({})
+        path = self.write(".env.zst", "API_TOKEN=x\n")
+        os.chmod(path, 0)
+        try:
+            r = self.scan()
+        finally:
+            os.chmod(path, 0o644)
+        self.assertTrue(r["partial"], "0.3.2 counted an unreadable .env.zst as a file that could hold a key")
+
+    def test_the_firebase_pass_skips_heads_inside_a_condition_it_took(self):
+        for t in ("allow read: if a allow write: if true;", "allow read: if " + "x" * 401 + " allow write: if " + "y" * 450 + ";",
+                  "allow read: if b\n  allow write: if a allow read: if true }", "allow read: if " + "z" * 395 + " allow write: if t;",
+                  "allow read: if " + "x" * 10 + " allow write: if " + "y" * 450 + ";"):
+            with self.subTest(t=t[:40]):
+                want = [(m.start(), m.group(0)) for m in cs.FIREBASE_IF_RE.finditer(t)]
+                got, long_n = cs._firebase_ifs(t)
+                self.assertEqual([(m.start(), m.group(0)) for m in got], want)
+                self.assertEqual(long_n, len(cs.FIREBASE_IF_LONG_RE.findall(t)))
+
+    def test_rows_0_3_3_added_never_push_out_a_row_0_3_2_gave(self):
+        files = {"db/a%d.sql" % i: "".join("create view public.v%d_%d as select 1;\n" % (i, j) for j in range(5)) for i in range(3)}
+        files["db/z.sql"] = self.RLS + "create policy p on public.t for select using (true);\n"
+        self.assertIn("policy-select-true", evidence_checks(self.q_of(files)))
+
+    def test_a_trim_that_is_not_partial_never_empties_a_question(self):
+        r = self.q_of({}, None)
+        r["questions"]["q1"]["evidence"] = [{"path": "a/mcp-%d.json" % i, "line": 0, "snippet": "", "check": "mcp-config-not-opened"} for i in range(4)]
+        r["questions"]["q3"]["evidence"] = [{"path": "db/1.sql", "line": 1, "snippet": "v", "check": "public-view"}]
+        r["questions"]["q9"]["evidence"] = [{"path": "api/health%d.ts" % i, "line": 0, "snippet": "", "check": "health-route"} for i in range(6)]
+        size = cs._json_size(r)
+        with mock.patch.object(cs, "MAX_OUTPUT_BYTES", size - 300):
+            out = cs._fit_output(json.loads(json.dumps(r)))
+        self.assertFalse(out["partial"])
+        self.assertEqual(evidence_checks(out["questions"]["q3"]), ["public-view"])
+        self.assertTrue(out["questions"]["q1"]["evidence"])
+
+    def test_the_release_projection_is_sized_as_0_3_2_wrote_it(self):
+        r = self.q_of({"db/1.sql": self.RLS}, None)
+        self.assertEqual(r["questions"]["q3"]["answer"], "nothing-found")
+        p = cs._release_projection(r)
+        self.assertNotIn("files_read_with_0_3_2_rules", p["stats"])
+        self.assertIn("no RLS disabled, no using (true) policy, no if-true Firebase rule", p["questions"]["q3"]["evidence"][0]["snippet"])
+        self.assertIn("no key in client code", p["questions"]["q1"]["evidence"][0]["snippet"])
+
+    def test_a_late_rules_file_is_read_with_0_3_2_s_reader(self):
+        files = {"firestore.rules": "service cloud.firestore {\n  match /x/{id} {\n    allow write: if request.auth != null || true;\n    allow read: if request.time < timestamp.date(2030, 1, 1);\n  }\n}\n"}
+        with mock.patch.object(cs, "RELEASE_READING_AT", 0.0):
+            q3 = self.q_of(files)
+        self.assertEqual([c for c in evidence_checks(q3) if c in cs.NEW_EVIDENCE_0_3_3], [])
+
+    def test_mcp_instruction_folder_rules_hold_below_the_first_level(self):
+        q1 = self.q_of({".claude/skills/mcp-github/scripts/servers.json": "{}", ".claude/skills/mcp-x/mcp-notes.txt": "x"}, "q1")
+        paths = sorted(e["path"] for e in q1["evidence"] if e["check"] == "mcp-config-not-opened")
+        self.assertEqual(paths, [".claude/skills/mcp-github/scripts/servers.json"])
+
+
+class ReadingCostRatchetTests(unittest.TestCase):
+    """The cost of this version's SQL and rules readers against 0.3.2's (kept in the scanner as the late-scan
+    fallback), on each adversarial file shape a review has measured, may not grow past today's ratio + 30%.
+    Both are timed in the same run, so a loaded runner slows both; CUSTODY_TIME_SLACK adds only a little.
+    Add a shape here whenever a review finds one. The 60% time guard bounds the rest (see TODOS)."""
+
+    SHAPES = (  # name, repeated text, file, ratio measured 2026-10-05 (python 3.9.6) x 1.3
+        ("firebase allow-if", "allow read: if ", "firestore.rules", 2.5),
+        ("firebase parens", "allow read: if ((((((( ", "firestore.rules", 2.8),
+        ("sql dash string then using true", "'--' using(true)\n", "db/1.sql", 3.5),
+        ("sql using true then dash string", "using(true) '--'\n", "db/1.sql", 1.6),
+        ("sql deep using", "using ((((((true))))))\n", "db/1.sql", 5.1),
+        ("sql line comments", "--\n", "db/1.sql", 2.7),
+        ("sql quote then newline", '"\n', "db/1.sql", 3.6),
+        ("sql create table", "create table public.t (id int);\n", "db/1.sql", 2.2),
+        ("sql short strings", "'a' ", "db/1.sql", 3.1),
+    )
+
+    def test_reading_cost_never_grows_past_the_ratchet(self):
+        if os.environ.get("CUSTODY_SLOW") != "1":
+            self.skipTest("CUSTODY_SLOW=1 not set")
+        allowance = 1 + (TIME_SLACK - 1) * 0.1
+        tmp = tempfile.mkdtemp(prefix="custody ratchet ")
+        try:
+            for name, unit, rel, ceiling in self.SHAPES:
+                with self.subTest(shape=name):
+                    shutil.rmtree(tmp)
+                    path = os.path.join(tmp, rel)
+                    os.makedirs(os.path.dirname(path))
+                    with open(path, "w", encoding="utf-8") as fh:
+                        fh.write(unit * (500 * 1024 // len(unit)))
+                    new = self._best(tmp)
+                    with mock.patch.object(cs, "RELEASE_READING_AT", 0.0):
+                        release = self._best(tmp)
+                    self.assertLessEqual(new / release, ceiling * allowance, "%s: %.2fs vs 0.3.2's readers %.2fs" % (name, new, release))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    @staticmethod
+    def _best(repo, runs=3):
+        best = None
+        for _ in range(runs):
+            t = time.perf_counter()
+            cs.scan(repo)
+            t = time.perf_counter() - t
+            best = t if best is None else min(best, t)
+        return best
+
+
 class NeverWorseThanMainTests(unittest.TestCase):
     """The scanner on this branch against the answers the released baseline gave on the same files
     (fixtures/differential/cases.json: realistic shapes plus every repro from review). Two rules:
@@ -5586,7 +5769,10 @@ class NeverWorseThanMainTests(unittest.TestCase):
     KEYS = {"{KEY}": "sk-" + "proj-" + "a1b2c3d4e5f6g7h8i9j0" * 2,
             "{PEM}": "-----BEGIN " + "PRIVATE KEY-----\\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\\n-----END " + "PRIVATE KEY-----\\n"}
     # (case, question) -> why the baseline's more cautious answer was wrong
-    ALLOW_SOFTER = {}  # none: the branch is never less cautious than the release
+    ALLOW_SOFTER = {
+        ("mts only", "q1"): ".mts is code the release never opened; once read, an app with no key in it is Nothing found, as with a .ts file",
+        ("cts server with a manifest", "q1"): ".cts is code the release never opened; once read, an app with no key in it is Nothing found, as with a .ts file",
+    }
     # (case, question) -> why a No the baseline did not give is right
     ALLOW_NEW_NO = {
         ("mts client key", "q1"): ".mts is read as code now; a key in a browser folder is a No, as in a .ts file",
@@ -5604,10 +5790,19 @@ class NeverWorseThanMainTests(unittest.TestCase):
                 os.makedirs(os.path.dirname(path), exist_ok=True)
                 with open(path, "w", encoding="utf-8") as fh:
                     fh.write(body)
-            q = cs.scan(tmp)["questions"]
-            return {k: q[k]["answer"] for k in ("q1", "q3", "q9")}
+            r = cs.scan(tmp)
+            q = r["questions"]
+            pii = sorted(set(e["snippet"] for e in q["q10"]["evidence"] if e["check"] == "pii-field"))
+            return {k: q[k]["answer"] for k in ("q1", "q3", "q9")}, r["partial"], pii, r["stats"]
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+    def _same_partial_and_pii(self, c, partial, pii):
+        """A scan the baseline finished is never partial here, and Q10 names exactly the baseline's PII fields:
+        none lost (a stop-line field decides the tier) and none added (a new stop-line is a new alarm)."""
+        if partial:
+            self.assertTrue(c["main_partial"], "%s: partial where the baseline finished" % c["name"])
+        self.assertEqual(pii, c["main_pii"], "%s: Q10 PII fields differ from the baseline" % c["name"])
 
     def test_never_worse_than_the_baseline(self):
         with open(os.path.join(SCRIPT_DIR, "fixtures", "differential", "cases.json"), encoding="utf-8") as fh:
@@ -5615,7 +5810,9 @@ class NeverWorseThanMainTests(unittest.TestCase):
         self.assertGreater(len(data["cases"]), 40, "the corpus must stay broad")
         used = set()
         for c in data["cases"]:
-            new = self._scan(c["files"])
+            new, partial, pii, _ = self._scan(c["files"])
+            with self.subTest(case=c["name"], question="partial and q10"):
+                self._same_partial_and_pii(c, partial, pii)
             for q, base in sorted(c["main"].items()):
                 with self.subTest(case=c["name"], question=q):
                     key = (c["name"], q)
@@ -5634,7 +5831,11 @@ class NeverWorseThanMainTests(unittest.TestCase):
             data = json.load(fh)
         with mock.patch.object(cs, "RELEASE_READING_AT", 0.0):
             for c in data["cases"]:
-                new = self._scan(c["files"])
+                new, partial, pii, stats = self._scan(c["files"])
+                with self.subTest(case=c["name"], question="partial and q10"):
+                    self._same_partial_and_pii(c, partial, pii)
+                    if any(rel.lower().endswith((".sql", ".rules")) for rel in c["files"]):
+                        self.assertGreater(stats["files_read_with_0_3_2_rules"], 0, "%s: the late reading never took effect" % c["name"])
                 for q, base in sorted(c["main"].items()):
                     with self.subTest(case=c["name"], question=q):
                         if self.RANK[new[q]] < self.RANK[base]:
