@@ -17,11 +17,36 @@ FB = "service cloud.firestore {\n  match /databases/{db}/documents {\n    match 
 KEY = "{KEY}"  # filled in at run time: no key-shaped literal is stored in the repo
 PEM = "{PEM}"
 REAL = {"{KEY}": "sk-" + "proj-" + "a1b2c3d4e5f6g7h8i9j0" * 2,
-        "{PEM}": "-----BEGIN " + "PRIVATE KEY-----\\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\\n-----END " + "PRIVATE KEY-----\\n"}
+        "{PEM}": "-----BEGIN " + "PRIVATE KEY-----\\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\\n-----END " + "PRIVATE KEY-----\\n",
+        "{PEM_BODY}": "-----BEGIN " + "PRIVATE KEY-----\n" + "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7" * 3 + "\n-----END " + "PRIVATE KEY-----\n"}  # a body 0.3.2 does not read as filler
 
 cases = []
-def case(name, files, base=True):
-    cases.append({"name": name, "files": dict(BASE, **files) if base else dict(files)})
+def case(name, files, base=True, args=None, links=None):
+    """files: {rel: text} or {rel: {"repeat": text, "times": n}} (generated at run time, so cases.json stays small);
+    args: scan() keyword arguments, also passed to the baseline as CLI flags; links: {new rel: existing rel} hard links."""
+    c = {"name": name, "files": dict(BASE, **files) if base else dict(files)}
+    if args:
+        c["args"] = dict(args)
+    if links:
+        c["links"] = dict(links)
+    cases.append(c)
+
+
+def materialize(root, c):
+    """Write a case's files under root, the same way NeverWorseThanMainTests._scan does."""
+    for rel, body in c["files"].items():
+        if isinstance(body, dict):
+            body = body["repeat"] * body["times"]
+        for k, v in REAL.items():
+            body = body.replace(k, v)
+        p = os.path.join(root, rel)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(body)
+    for new, old in c.get("links", {}).items():
+        p = os.path.join(root, new)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        os.link(os.path.join(root, old), p)
 
 # ---- realistic, ordinary shapes (must stay exactly as main, or better)
 case("supabase init migration", {"supabase/migrations/20240101000000_init.sql": RLS + "create policy \"own rows\" on public.notes for select using (auth.uid() = owner);\n"})
@@ -188,17 +213,46 @@ TRIM.update({"z%d/%s/%s/health.ts" % (i, SEG, SEG): "export const x = 1;\n" for 
 TRIM.update({"m%d/%s/%s/%s/schema.prisma" % (i, FSEG, FSEG, FSEG): "model U {\n email String\n phone String\n}\n" for i in range(12)})
 case("output over the cap with manifests the release did not read", TRIM)
 
-def answers(scanner, files):
+# ---- fresh review of b1188dc, cycle 2 (2026-10-06): seven ways 0.3.3's own fixes were worse than 0.3.2
+FIELDS = ["email", "phone", "ssn", "dob", "address", "street", "postal_code", "passport", "iban", "medical", "diagnosis", "salary"]
+
+
+def near_cap(e, extra, health=11, auth=2, tail=None):
+    """0.3.2's output a few bytes either side of its 30,000-byte cap: long folder names (each "é" is six bytes of JSON)
+    in health routes (Q9), one-field schemas (Q10) and auth folders (Q4); `tail` ASCII characters fine-tune it."""
+    f = {}
+    for i in range(health):
+        f["h%02d/%s/a/health.ts" % (i, "é" * e)] = "export const x = 1;\n"
+    for i, field in enumerate(FIELDS):
+        f["m%02d/%s/schema.prisma" % (i, "é" * e)] = "model U%d {\n %s String\n}\n" % (i, field)
+    for i in range(auth):
+        f["auth/%d%s/x.ts" % (i, "é" * e)] = "export const x = 1;\n"
+    if tail:
+        f["hz/%s/health.ts" % ("a" * tail)] = "export const x = 1;\n"
+    f.update(extra)
+    return f
+
+
+case("compressed env template with a browser secret", {".env.example.zst": "NEXT_PUBLIC_OPENAI_SECRET_KEY=" + KEY + "\n"})
+case("private key in a zst file", {"x.zst": PEM})
+case("private key in a pem.zst file", {"key.pem.zst": PEM})
+case("firestore test mode just over the cap", near_cap(176, {"firestore.rules": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /{document=**} {\n      allow read, write: if request.time < timestamp.date(2026, 12, 1);\n    }\n  }\n}\n"}))
+case("open read rows the release never gave, just under the cap", near_cap(174, {"database.rules.json": '{"rules": {".read": "true", ".write": "true"}}\n', "db/1.sql": "create table public.t (id int);\n"}, tail=93))
+case("pii field just under the cap", near_cap(190, {"supabase/migrations/1.sql": RLS + "create table public.people (id int, ssn text);\nalter table public.people enable row level security;\n"}, health=9, auth=3, tail=72))
+case("opencode.jsonc counts toward max files", {"src/app.ts": "export const x = 1\n", "package.json": '{"dependencies": {"react": "18"}}\n', "opencode.jsonc": "{}\n"}, base=False, args={"max_files": 2})
+case("private key in a public opencode.jsonc", {"public/opencode.jsonc": "{PEM_BODY}"})
+case("oversize mts", {"src/big.mts": {"repeat": "export const a = 1;\n", "times": 30000}})
+case("hard-linked mts", {"src/a.mts": "export const x = 1\n"}, links={"src/b.mts": "src/a.mts"})
+
+
+def answers(scanner, c):
     tmp = tempfile.mkdtemp()
     try:
-        app = os.path.join(tmp, "app")
-        for rel, body in files.items():
-            p = os.path.join(app, rel)
-            os.makedirs(os.path.dirname(p), exist_ok=True)
-            for k, v in REAL.items():
-                body = body.replace(k, v)
-            open(p, "w", encoding="utf-8").write(body)
-        out = subprocess.run([sys.executable, "-I", scanner, "--repo", "app"], cwd=tmp, capture_output=True, text=True).stdout
+        materialize(os.path.join(tmp, "app"), c)
+        flags = []
+        for k, v in sorted(c.get("args", {}).items()):
+            flags += ["--" + k.replace("_", "-"), str(v)]
+        out = subprocess.run([sys.executable, "-I", scanner, "--repo", "app"] + flags, cwd=tmp, capture_output=True, text=True).stdout
         r = json.loads(out)
         q = r["questions"]
         pii = sorted(set(e["snippet"] for e in q["q10"]["evidence"] if e["check"] == "pii-field"))
@@ -207,6 +261,6 @@ def answers(scanner, files):
         shutil.rmtree(tmp)
 
 for c in cases:
-    c["main"], c["main_partial"], c["main_pii"] = answers(MAIN, c["files"])
+    c["main"], c["main_partial"], c["main_pii"] = answers(MAIN, c)
 json.dump({"baseline": sys.argv[3] if len(sys.argv) > 3 else "unrecorded", "cases": cases}, open(OUT, "w"), indent=1, sort_keys=True)
 print(len(cases), "cases written")

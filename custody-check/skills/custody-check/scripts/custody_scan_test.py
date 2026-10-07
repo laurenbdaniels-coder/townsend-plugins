@@ -5767,7 +5767,8 @@ class NeverWorseThanMainTests(unittest.TestCase):
 
     RANK = {"no": 2, "dont-know": 1, "nothing-found": 0, "yes": 0}
     KEYS = {"{KEY}": "sk-" + "proj-" + "a1b2c3d4e5f6g7h8i9j0" * 2,
-            "{PEM}": "-----BEGIN " + "PRIVATE KEY-----\\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\\n-----END " + "PRIVATE KEY-----\\n"}
+            "{PEM}": "-----BEGIN " + "PRIVATE KEY-----\\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\\n-----END " + "PRIVATE KEY-----\\n",
+            "{PEM_BODY}": "-----BEGIN " + "PRIVATE KEY-----\n" + "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7" * 3 + "\n-----END " + "PRIVATE KEY-----\n"}
     # (case, question) -> why the baseline's more cautious answer was wrong
     ALLOW_SOFTER = {
         ("mts only", "q1"): ".mts is code the release never opened; once read, an app with no key in it is Nothing found, as with a .ts file",
@@ -5780,17 +5781,23 @@ class NeverWorseThanMainTests(unittest.TestCase):
         ("cts client key", "q1"): ".cts is read as code now; a key in a browser folder is a No, as in a .ts file",
     }
 
-    def _scan(self, files):
+    def _scan(self, c):
+        """Write a case as build_cases.materialize does (generated bodies, hard links) and scan it with its args."""
         tmp = tempfile.mkdtemp(prefix="custody differential ")
         try:
-            for rel, body in files.items():
+            for rel, body in c["files"].items():
+                if isinstance(body, dict):
+                    body = body["repeat"] * body["times"]
                 for k, v in self.KEYS.items():
                     body = body.replace(k, v)
                 path = os.path.join(tmp, rel)
                 os.makedirs(os.path.dirname(path), exist_ok=True)
-                with open(path, "w", encoding="utf-8") as fh:
+                with open(path, "w", encoding="utf-8", newline="\n") as fh:
                     fh.write(body)
-            r = cs.scan(tmp)
+            for new, old in c.get("links", {}).items():
+                os.makedirs(os.path.dirname(os.path.join(tmp, new)), exist_ok=True)
+                os.link(os.path.join(tmp, old), os.path.join(tmp, new))
+            r = cs.scan(tmp, **c.get("args", {}))
             q = r["questions"]
             pii = sorted(set(e["snippet"] for e in q["q10"]["evidence"] if e["check"] == "pii-field"))
             return {k: q[k]["answer"] for k in ("q1", "q3", "q9")}, r["partial"], pii, r["stats"]
@@ -5810,7 +5817,7 @@ class NeverWorseThanMainTests(unittest.TestCase):
         self.assertGreater(len(data["cases"]), 40, "the corpus must stay broad")
         used = set()
         for c in data["cases"]:
-            new, partial, pii, _ = self._scan(c["files"])
+            new, partial, pii, _ = self._scan(c)
             with self.subTest(case=c["name"], question="partial and q10"):
                 self._same_partial_and_pii(c, partial, pii)
             for q, base in sorted(c["main"].items()):
@@ -5831,7 +5838,7 @@ class NeverWorseThanMainTests(unittest.TestCase):
             data = json.load(fh)
         with mock.patch.object(cs, "RELEASE_READING_AT", 0.0):
             for c in data["cases"]:
-                new, partial, pii, stats = self._scan(c["files"])
+                new, partial, pii, stats = self._scan(c)
                 with self.subTest(case=c["name"], question="partial and q10"):
                     self._same_partial_and_pii(c, partial, pii)
                     if any(rel.lower().endswith((".sql", ".rules")) for rel in c["files"]):
