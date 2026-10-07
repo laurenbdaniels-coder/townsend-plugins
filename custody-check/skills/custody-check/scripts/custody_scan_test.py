@@ -6171,6 +6171,49 @@ class OverlayContractTests(ScanCase):
         self.assertIn("client-key-literal", [e["check"] for e in q1["evidence"]])
         self.assertEqual(q1["evidence"][:-1], r["questions"]["q1"]["evidence"][:-1])
 
+    def test_an_mts_no_near_the_cap_never_takes_rows_from_another_question(self):
+        for c in "abcdefghijklm":
+            self.write(".env.%s" % c, "A=1\n")
+        self.write("src/components/A.tsx", "export const A = () => null;\n")
+        self.write("db/1.sql", "create table public.t1 (id int);\ncreate table public.t2 (id int);\n")  # Q3 rows 0.3.2 gave
+        r = self.release_result()
+        self.assertTrue(r["questions"]["q3"]["evidence"], "control: Q3 has 0.3.2 rows")
+        for slack in (0, 20):
+            ov = self.overlay()
+            ov.add("client-key-literal", "src/components/k" + "x" * 80 + ".mts", 7, "x", effect="no", source="mts-key", questions=("q1",))
+            with self.near_cap(r, slack):
+                out = cs.merge(r, ov)
+            self.assertLessEqual(_json_bytes(out), _json_bytes(r) + slack)
+            self.assertLess(len(out["questions"]["q1"]["evidence"]), cs.release.MAX_EVIDENCE, "control: the No needed room past one displacement")
+            for q in ("q3", "q9"):
+                self.assertEqual(out["questions"][q]["evidence"], r["questions"][q]["evidence"], q)
+
+    def test_an_mts_too_large_to_read_keeps_q1_off_nothing_found(self):
+        self.write("src/components/A.tsx", "export const A = () => null;\n")
+        self.write("src/big.mts", "export const a = 1;\n" * 30000)
+        q1 = self.scan()["questions"]["q1"]
+        self.assertEqual(q1["answer"], "dont-know")
+        self.assertIn("code-file-not-read", [e["check"] for e in q1["evidence"]])
+
+    def test_the_overlay_leaves_0_3_2s_state_as_0_3_2_left_it(self):
+        self.app()
+        self.write("requirements.txt", "-r other.txt\nflask\n")  # 0.3.2's dependency reader counts a gap for the include
+        self.write("db/2.sql", "create view public.v as select 1;\n")
+        alone = cs.release.ScanState()
+        cs.release.run_scan(self.repo, alone, cs.release.Options())
+        _, state, status, _ = cs.scan_with_overlay(self.repo, cs.release.Options())
+        self.assertEqual(status, "finished")
+        for attr in ("gaps", "dependencies", "q1_files", "rule_files", "tables", "rls_enabled", "partial", "env_names"):
+            self.assertEqual(getattr(state, attr), getattr(alone, attr), attr)
+
+    def test_a_linked_agent_folder_is_never_walked(self):
+        self.app()
+        outside = os.path.join(self.tmp, "elsewhere")
+        os.makedirs(os.path.join(outside, "mcp-servers"))
+        os.symlink(outside, os.path.join(self.repo, ".claude"))
+        q1 = self.scan()["questions"]["q1"]
+        self.assertNotIn("mcp-config-not-opened", [e["check"] for e in q1["evidence"]], "names outside the app were listed")
+
     # ---------------------------------------------------------------- the budget
 
     def test_the_budget(self):
