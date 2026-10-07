@@ -200,17 +200,17 @@
 
 **Why:** Both PR #24 performance P1s (unbudgeted condition recursion; an O(depth²) never-open MCP walk) passed the answer-only differential test, and a reviewer had to find them. For PR #24, "not worse on time" meant no `partial: true` that 0.3.2 does not also give.
 
-**Context:** needs 0.3.2 runnable in CI (check out `12621fd`'s `custody_scan.py` beside the branch's), and a compact encoding for generated cases, since the repros are too big for `cases.json`'s `{rel: body}` format. The bench script in `HANDOFF-2026-10-01-pr24-false-nothing-found.md` builds every shape. First item of the next custody-check PR.
+**Context:** the blocker is gone: 0.3.3 runs 0.3.2 as `cs.release` (`custody_scan_0_3_2.py`), and `cases.json` now takes generated bodies (`{"repeat", "times"}`), scan args and hard links. Done in PR #24: `WallTimeBoundTests` pins the overlay's budget (total <= 0.3.2's time + max(5 s, 2 x 0.3.2's time), never past 80% of the deadline) on both performance shapes, and `ReadingCostRatchetTests` ratchets the whole-scan ratio per adversarial shape. Still open: the per-case time check across the whole corpus.
 
-**Effort:** M
-**Priority:** P1
+**Effort:** S
+**Priority:** P2
 **Depends on:** None
 
 ### One work budget per file, and a linear condition parser
 
 **What:** (1) Replace the per-condition recursion budgets (`_rec_budget`, `_charge`) with one work budget per scanned file, owned by the scan loop and passed to every evaluator added since 0.3.2, where running out leads to each check's unevaluated or gap path. (2) Parse a Firebase or SQL condition once into a tree instead of stripping and re-splitting at every level; build the paren levels at C speed (`itertools.accumulate` over a translated string) meanwhile.
 
-**Why:** After the PR #24 fix, conditions are linear but about 20x slower than 0.3.2 on adversarial input (0.57 s against 0.03 s on a 512 KB file of 64-deep groups; 38.7 s against 2.0 s for 70 such files, still under the 120 s deadline). Around 200 such files in one repo would reach the deadline. Agreed stop rule: if another review finds a superlinear path in code this branch added, do (1) rather than another per-function budget.
+**Why:** Conditions are linear but about 20x slower than 0.3.2 on adversarial input (2026-10-06, whole scan: 0.43 s against 0.02 s on a 512 KB file of 64-deep groups). Since the overlay redesign this cannot make a scan partial or slow it past the overlay budget (2 x 0.3.2's time, at least 5 s, at most 80% of the deadline); past the budget, Nothing found on Q1/Q3/Q9 is withheld with a `checks-not-finished` row. So the cost is a lost Nothing found on hostile repos, not a worse answer. Agreed stop rule: if another review finds a superlinear path in code this branch added, do (1) rather than another per-function budget.
 
 **Context:** the SQL lexer has the same kind of residual: `_lex_sql` is a per-token Python loop, so after the PR #24 review fixes (lex once per file, C-speed blanking) a string-dense 512 KB migration still takes about 2.6x 0.3.2's time (realistic seed files 1.4x; 420 of them finish in 77 s against 0.3.2's 50 s). A single master regex per token kind would cut it. `_firebase_open`, `_strip_outer_parens`, `_sql_predicate_open` in `custody_scan.py`. The work-count tests in `WorseThanMainPerformanceTests` patch `_strip_outer_parens`; replace them with a budget-level oracle when the parser changes.
 
@@ -224,7 +224,7 @@
 
 **Why:** Each folder now counts toward the 10,000-entry cap twice in the MCP walk (as an entry and as a step), so a `.claude/worktrees/<name>/node_modules` checkout of about 5,000 folders stops the walk and withholds Q1, and mcp-named packages inside it become `mcp-config-not-opened` rows. Measured on 2026-10-02: zero Q1 drift on the owner's nine repos, but a synthetic `.claude/worktrees/x/node_modules` of 6,000 packages moves Q1 from Nothing found (0.3.2) to Don't know. Cautious, not wrong, but noisy.
 
-**Context:** `walk()` in `custody_scan.py`, where `is_never_open_dir` calls both functions. Keep `followlinks=False` and `_lexists_inside`. Also: the MCP walk passes `onerror=lambda e: None`, so an unreadable folder inside a never-open agent folder (`chmod 000 .claude/locked`) is skipped without a Q1 gap; set `truncated` from `onerror` (0.3.2 never walked these folders, so this is not worse than main).
+**Context:** 0.3.2's `count_files` (frozen in `custody_scan_0_3_2.py`) and the overlay's `_mcp_configs_inside` (`overlay_walk` in `custody_scan.py`); merging them waits for the 0.3.4 path below. Keep `followlinks=False` and `_lexists_inside`. Also: the MCP walk passes `onerror=lambda e: None`, so an unreadable folder inside a never-open agent folder (`chmod 000 .claude/locked`) is skipped without a Q1 gap; set `truncated` from `onerror` (0.3.2 never walked these folders, so this is not worse than main).
 
 **Effort:** S
 **Priority:** P3
@@ -232,14 +232,38 @@
 
 ### Leftovers from the fresh review of 4b7d615 (2026-10-02)
 
-**What:** Not worse than 0.3.2 in the unsafe direction, deferred under the fix-PR rule. (1) New Don't-knows 0.3.2 never raised: `do /* note */ $$ … $$` and `do '…'` bodies are not read as running SQL; several gaps (a dropped table, an unclosed quote, a Firebase condition over 400 chars, a drop list too long, a cut-off MCP walk) say Don't know with only the scan-summary row, whose tail "no SQL or security-rules file among them" is wrong for a seed-only app; Supabase's own fix `alter view … set (security_invoker = on)` is not credited, and a permanent `drop table` with no re-create blocks Q3 for good. (2) Every Q3 No now comes from 0.3.2's own patterns, so every open rule the new readers find beyond them is `open-rule-unconfirmed` evidence (Don't know), not a No: `using ((((((true))))))`, a top-level `|| true` in Firebase, `if (true)`, `".write": "true"`, `disable` with long whitespace or an inline comment, a real `disable` on a line where 0.3.2 cut a `--` inside a string. (3) Same as 0.3.2: a Firebase condition is cut at `//` (`== "https://…" || true`), `;` or a map's `}` inside a string; a SQL file whose only rule-like text is a quoted name (`create index "row level security"`) counts as a rule file read. (4) Speed residuals, linear, measured on python 3.9.6 per 512 KB file against 0.3.2's readers (2026-10-05, after the fresh review of 8a6c32b): Firebase 1.9-2.1x (it was 9-18x before the one-pass condition reader), SQL 1.2-3.9x (`using ((((((true))))))` 3.9x, `'--' using(true)` 2.7x, `"` + newline 2.7x, plain `create table` 1.7x). SQL costs at least about 2x by design: every SQL file is also read with 0.3.2's whole reader as the floor. `ReadingCostRatchetTests` fails CI if any measured shape grows past its ratio + 30%; add each new shape a review finds. Past 60% of the time limit a scan reads SQL and rules files with 0.3.2's readers; that bounds the late work, but a repo where 0.3.2 itself needs nearly the full 120 s can still go partial on this branch first. The structural fix is a two-phase scan (0.3.2's full pass first, this version's checks only in the time left), declined for PR #24 on 2026-10-05 as L-sized.
+**What:** Not worse than 0.3.2 in the unsafe direction, deferred under the fix-PR rule. (1) New Don't-knows 0.3.2 never raised: `do /* note */ $$ … $$` and `do '…'` bodies are not read as running SQL; the gaps each now carry a named row (`table-dropped`, `rules-not-read-whole`, `no-rule-statements`, `mcp-config-not-opened`), but each is still a Don't know 0.3.2 never raised; Supabase's own fix `alter view … set (security_invoker = on)` is not credited, and a permanent `drop table` with no re-create blocks Q3 for good. (2) Every Q3 No now comes from 0.3.2's own patterns, so every open rule the new readers find beyond them is `open-rule-unconfirmed` evidence (Don't know), not a No: `using ((((((true))))))`, a top-level `|| true` in Firebase, `if (true)`, `".write": "true"`, `disable` with long whitespace or an inline comment, a real `disable` on a line where 0.3.2 cut a `--` inside a string. (3) Same as 0.3.2: a Firebase condition is cut at `//` (`== "https://…" || true`), `;` or a map's `}` inside a string; a SQL file whose only rule-like text is a quoted name (`create index "row level security"`) counts as a rule file read. (4) Speed residuals, linear, whole scan against 0.3.2 alone per 512 KB file (2026-10-06, python 3.9.6, after the overlay redesign): Firebase 2.4-2.6x, nested-or Firebase 22x, SQL 1.4-3.9x (`using ((((((true))))))` 3.9x, `"` + newline 3.2x). `ReadingCostRatchetTests` (CUSTODY_SLOW) fails if any shape grows past its ratio + 30%; add each new shape a review finds. The two-phase scan declined on 2026-10-05 is what PR #24 became (D6, 2026-10-06): 0.3.2 runs first and alone, so these costs can delay a scan by at most the overlay budget and never make it partial.
 
 **Why:** Each changes an answer or a row in the cautious direction, or matches 0.3.2; a fix PR fixes only what it made worse. (1) is the tester's main complaint (false alarms), so it comes first.
 
-**Context:** (1) `_lex_sql` (`DO_BEFORE_RE`), `resolve()` row order and a named row per gap, `CREATE_VIEW_RE` plus an `ALTER VIEW` reader. (2) Promote one shape at a time from `open-rule-unconfirmed` to a No (`_unconfirmed` in `custody_scan.py`), each in its own PR with corpus cases, an `ALLOW_NEW_NO` reason, and an adversarial pass aimed at that shape alone: three review passes on PR #24 each found new false Nos in these readers (strings, comments, `$` names, COPY data, nested comments, map literals, SQL `||`). (3) `FIREBASE_IF_RE` should end at `;`/`}` only outside strings. (4) `_lex_sql`'s per-token loop, `_sql_predicate_open` caching by group text.
+**Context:** (1) `_lex_sql` (`DO_BEFORE_RE`), `resolve()` row order and a named row per gap, `CREATE_VIEW_RE` plus an `ALTER VIEW` reader. (2) Promote one shape at a time from `open-rule-unconfirmed` to a No (`_caution` in `custody_scan.py`; the merge clamp in `_plans` must then allow that source), each in its own PR with corpus cases, an `ALLOW_NEW_NO` reason, and an adversarial pass aimed at that shape alone: three review passes on PR #24 each found new false Nos in these readers (strings, comments, `$` names, COPY data, nested comments, map literals, SQL `||`). (3) `FIREBASE_IF_RE` should end at `;`/`}` only outside strings. (4) `_lex_sql`'s per-token loop, `_sql_predicate_open` caching by group text.
 
 **Effort:** M
 **Priority:** P2
+**Depends on:** None
+
+### The 0.3.4 path for the overlay
+
+**What:** Decide, before the next scanner change, how 0.3.4 builds on 0.3.3: either (a) the baseline becomes 0.3.3's full output, the overlay folds into one module, and a fresh frozen copy of 0.3.3 becomes the floor, or (b) overlays stack (0.3.2 frozen, 0.3.3's overlay, then 0.3.4's).
+
+**Why:** PR #24 ships two files on purpose (0.3.2 verbatim plus the overlay) after five review rounds showed that weaving new checks into 0.3.2's state leaks into its answers. Folding without a plan reopens that.
+
+**Context:** maintainer checklist for either option: (1) regenerate the frozen file from the new release tag (`git show <tag>:…/custody_scan.py > custody_scan_<ver>.py`); (2) update `RELEASE_FILE` and `RELEASE_SHA256` (sha256 of the text with CRLF read as LF); (3) regenerate `cases.json` with `build_cases.py` against that release; (4) move `ALLOW_NEW_NO` entries the release now gives out of the list; (5) decide fold vs stack and record it here.
+
+**Effort:** S (decision), M (fold)
+**Priority:** P2
+**Depends on:** PR #24
+
+### Regenerate the differential corpus in CI from the pinned release
+
+**What:** CI computes each case's 0.3.2 answers by running `cs.release` instead of reading the answers checked into `cases.json`.
+
+**Why:** the checked-in answers can drift from the release they claim to be; `cs.release` makes the release importable in CI, so the stored answers become an audit artifact rather than the source of truth.
+
+**Context:** `build_cases.py` already runs any scanner by path; `NeverWorseThanMainTests` would call it in-process. Keep the stored answers as a second check until the CI path has run green for a release.
+
+**Effort:** M
+**Priority:** P3
 **Depends on:** None
 
 ### False Nos kept from 0.3.2

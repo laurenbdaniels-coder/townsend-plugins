@@ -5854,6 +5854,16 @@ class OverlayContractTests(ScanCase):
             ov.status = "unfinished"
         return ov
 
+    def test_skill_md_renders_every_path_less_overlay_row_without_a_line(self):
+        with open(os.path.join(SKILL_DIR, "SKILL.md"), encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertIn("Any row whose `path` is empty renders the same way", text)
+        for check in ("checks-not-finished", "no-rule-statements"):
+            self.assertIn("`%s`" % check, text, "%s rows have no path" % check)
+        # every overlay row the size loop can compact loses its path: the general rule above covers it
+        row = cs._compact({"path": "a/b.sql", "line": 3, "snippet": "x", "check": "public-view", "_no": False, "_effect": "caution", "_source": "sql"})
+        self.assertEqual((row["path"], row["line"]), ("", 0))
+
     # ---------------------------------------------------------------- the frozen release and its loader
 
     def test_the_release_file_is_0_3_2_byte_for_byte(self):
