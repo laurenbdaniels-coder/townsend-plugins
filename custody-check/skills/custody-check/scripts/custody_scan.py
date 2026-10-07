@@ -7,28 +7,40 @@ JSON line whose strings have all been through a redaction sweep. Exit code 0
 always, unless --exit-code is given.
 
 Run it from the folder that CONTAINS the app:  python3 -I custody_scan.py --repo ./my-app
+
+0.3.3 is 0.3.2 plus an overlay. 0.3.2's scanner (custody_scan_0_3_2.py, a byte-for-byte copy of the release,
+checked against RELEASE_SHA256) runs first and alone; the overlay's checks run after it and can only make an
+answer more cautious:
+
+    --repo ──► load_release (sha-pinned, never via sys.path, no .pyc)
+                 │
+                 ▼
+    release.run_scan + build_result ──► R  (0.3.2's answers, rows, partial flag, stats, output size)
+                 │ deep copy R'
+                 ▼
+    overlay_pass (own walk, own reads, scratch states; time ≤ 2 × 0.3.2's, ≥ OVERLAY_MIN_S, ≤ 80% of the deadline)
+                 │ Findings: rows per question (effect no | caution), gaps, finished / unfinished / error
+                 ▼
+    merge(R', Findings): answer = most cautious of 0.3.2's and the overlay's (No > Don't know > Nothing found);
+                 0.3.2's rows first, overlay rows after them and trimmed first; never partial; never over the cap
+                 │ (any error here: R' with Nothing found withheld, see fallback)
+                 ▼
+    stdout JSON, stderr summary "…; checks 0.3.3: finished|unfinished|error|skipped, N ms"
+
+CUSTODY_CHECK_OVERLAY=0 skips the overlay: the output is 0.3.2's with only `version` changed.
 """
 import sys
 
 __version__ = "0.3.3"
 
 _DOCS = "README.md#when-it-goes-wrong"
-HINTS = {
-    "usage": ("Pass the app folder with --repo. Run from the folder that contains your app: python3 custody_scan.py --repo my-app", _DOCS),
-    "repo-not-found": ("The --repo folder was not found. Run from the folder that contains your app and pass its name.", _DOCS),
-    "repo-not-a-directory": ("The --repo path is a file, not a folder. Pass the app folder itself.", _DOCS),
-    "repo-is-symlink": ("The --repo path is a symbolic link. Pass the real folder (the link's target) instead.", _DOCS),
-    "repo-unreadable": ("The --repo folder cannot be read. Check its permissions or copy the app somewhere you own.", _DOCS),
-    "python-too-old": ("This scanner needs python 3.9 or newer. Run python3 --version; on macOS install the Command Line Tools, on Windows use py -3.", _DOCS),
-    "repo-contains-cwd": ("The folder you named contains the folder you launched from. Run from the folder that contains your app and pass its name, never .. or a parent.", _DOCS),
-    "internal": ("The scanner hit an unexpected error. Answer the eleven questions by hand and file an issue with the error code.", _DOCS),
-}
+_PY_TOO_OLD = ("This scanner needs python 3.9 or newer. Run python3 --version; on macOS install the Command Line Tools, on Windows use py -3.", _DOCS)
 
 
 def version_guard(version_info):
-    """Return a failure envelope when the interpreter is too old, else None."""
+    """Return a failure envelope when the interpreter is too old, else None (0.3.2's guard and wording)."""
     if tuple(version_info[:2]) < (3, 9):
-        hint, docs = HINTS["python-too-old"]
+        hint, docs = _PY_TOO_OLD
         return {"ok": False, "error": "python-too-old", "hint": hint, "docs": docs, "partial": True}
     return None
 
@@ -39,227 +51,116 @@ if _guard is not None and __name__ == "__main__":
     sys.stdout.write(_json.dumps(_guard, separators=(",", ":")) + "\n")
     sys.exit(0)
 
-import argparse
-import base64
 import bisect
 import collections
-import itertools
+import copy
+import hashlib
 import json
 import os
 import re
-import select
-import signal
-import threading
 import stat
-import subprocess
+import string
 import time
-import unicodedata
+import types
 import warnings
 
+# ------------------------------------------------------------------ the release, loaded by hash
 
-# ----------------------------------------------------------------- constants
+RELEASE_FILE = "custody_scan_0_3_2.py"
+RELEASE_SHA256 = "0ff12f55bd723fc70981741bc400b606ea315750796d7009d0e0d3365ab9c8d6"  # of the text with \r\n read as \n
+_RELEASE_HINT = "A custody-check file is missing or changed; reinstall the plugin, or re-run the cp -R command in README step 1."
 
-BUILD_OUTPUT_DIRS = {"dist", "build", "out", ".next", ".nuxt"}  # skipped like the rest, but they hold browser bundles, and people keep source under the first three
-NEVER_READ_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".heic", ".ico", ".bmp", ".tif", ".tiff", ".psd", ".mp4", ".mov", ".webm", ".mkv", ".avi", ".mp3", ".wav", ".ogg", ".flac",
-              ".woff", ".woff2", ".ttf", ".otf", ".eot", ".pdf", ".zip", ".tar", ".tgz", ".7z", ".rar", ".dmg", ".exe", ".dll", ".so", ".dylib", ".wasm", ".pyc", ".class", ".jar"}  # media, fonts, archives, binaries: never opened, no detector wants them
-PRECOMPRESSED_EXTS = (".gz", ".br", ".zst", ".zstd")  # app.js.gz is browser code no detector can read; data.json.gz is just data
-RELEASE_READ_EXTS = (".zst", ".zstd")  # 0.3.2 opened these: an env file named so (`.env.zst`) is still read as one
-EXCLUDED_DIRS = {".git", "node_modules", "dist", "build", ".next", ".nuxt", "out", "vendor", "venv", ".venv", "__pycache__", "coverage"}
-NEVER_OPEN_DIRS = {".claude", ".codex", ".agents", ".windsurf", ".clinerules", ".gemini", ".kiro", ".roo", ".trae", ".augment", ".amazonq", ".junie", ".continue", ".aider", ".opencode"}
-NEVER_OPEN_DIR_PAIRS = {(".cursor", "rules"), (".github", "instructions"), (".github", "prompts"), (".github", "agents")}
-NEVER_OPEN_FILE_RE = re.compile(r"^(?:claude|agents?|gemini|conventions|copilot-instructions)(?:[.-][^/]*)?\.md$|^\.aider.*$|.*\.prompt\.md$|.*\.agent\.md$|.*\.instructions\.md$|.*\.mdc$", re.I)
-NEVER_OPEN_FILES = {".cursorrules", ".windsurfrules", ".clinerules", ".rules", "opencode.json", "opencode.jsonc", ".roomodes"}
-# MCP server configs that live inside never-open agent folders: never opened, but each one could hold a token, so it is a Q1 gap
+
+class ReleaseUnavailable(Exception):
+    def __init__(self, code):
+        Exception.__init__(self, code)
+        self.code = code
+
+
+def load_release(path=None):
+    """Load 0.3.2 from its file next to this one, without the import system: the bytes are checked against
+    RELEASE_SHA256 (line endings normalised, so a Windows checkout loads), compiled and executed into a fresh
+    module. Nothing is written (no .pyc) and nothing on sys.path can stand in for it."""
+    path = path or os.path.join(os.path.dirname(os.path.abspath(__file__)), RELEASE_FILE)
+    try:
+        with open(path, "rb") as fh:
+            data = fh.read()
+    except OSError:
+        raise ReleaseUnavailable("internal:release-missing")
+    data = data.replace(b"\r\n", b"\n")
+    if hashlib.sha256(data).hexdigest() != RELEASE_SHA256:
+        raise ReleaseUnavailable("internal:release-modified")
+    module = types.ModuleType("custody_scan_0_3_2")
+    module.__file__ = path
+    try:
+        exec(compile(data.decode("utf-8"), path, "exec"), module.__dict__)
+    except SystemExit:
+        raise
+    except Exception:
+        raise ReleaseUnavailable("internal:release-modified")
+    return module
+
+
+def release_envelope(code):
+    return {"ok": False, "error": code, "hint": _RELEASE_HINT, "docs": _DOCS, "partial": True}
+
+
+try:
+    release = load_release()
+    RELEASE_ERROR = None
+except ReleaseUnavailable as _exc:
+    release = None
+    RELEASE_ERROR = _exc.code
+
+# ------------------------------------------------------------------ overlay constants
+
+OVERLAY_MIN_S = 5.0  # the overlay's least time; a longer --deadline-s raises it (deadline / 24)
+OVERLAY_SHARE_OF_DEADLINE = 0.8  # the whole scan ends by this share of --deadline-s, so a host's own timeout never kills it
+QS = ("q1", "q3", "q9")
+RANK = {"nothing-found": 0, "dont-know": 1, "no": 2}
+UNFINISHED_SNIPPETS = {"unfinished": "time ran out; rerun with --deadline-s 600",
+                       "error": "an error; please report it"}  # each row shorter than any nothing-found row it replaces
+
+# check id -> the questions its rows go to. Every overlay row is evidence; the one No is a key in browser-side
+# .mts/.cts code (source "mts-key"), read with 0.3.2's own key detectors.
+OVERLAY_CHECKS = {
+    "mcp-config-not-opened": ("q1",), "code-file-not-read": ("q1",),
+    "open-rule-unconfirmed": ("q3",), "open-rule-in-string": ("q3",), "policy-true-unevaluated": ("q3",),
+    "firebase-rules-test-mode": ("q3",), "firebase-rules-true-unevaluated": ("q3",), "public-view": ("q3",),
+    "rules-not-read-whole": ("q3",), "table-dropped": ("q3",), "no-rule-statements": ("q3",),
+    "manifest-not-parsed": ("q9",),
+    "compressed-file-not-read": ("q1", "q3", "q9"), "checks-not-finished": ("q1", "q3", "q9"),
+}
+CAPPED_PER_SCAN = {"mcp-config-not-opened", "manifest-not-parsed", "compressed-file-not-read", "code-file-not-read"}
+REUSED_CHECKS = ("policy-with-check-true", "policy-to-anon", "storage-bucket-public-sql", "firebase-rules-public-read",
+                 "table-without-rls", "policy-select-true", "policy-altered-true", "cron-schedule", "monitoring-dependency",
+                 "health-route")  # plus every 0.3.2 Q1 id, from the .mts key read
+
+
+
+def all_checks():
+    """Every check id the output can hold: 0.3.2's (question, effect) and the overlay's, as {id: (questions, effect)}."""
+    out = dict((k, ((q,), e)) for k, (q, e) in release.CHECKS.items())
+    out.update((k, (qs, "evidence")) for k, qs in OVERLAY_CHECKS.items())
+    return out
+
+
+MCP_CHECK = "mcp-config-not-opened"
 NEVER_OPEN_MCP_PATHS = {".kiro": ("settings/mcp.json",), ".amazonq": ("cli-agents",), ".gemini": ("settings.json",),
                         ".continue": ("config.json", "config.yaml"), ".codex": ("config.toml",)}  # configs whose names do not say mcp
 NEVER_OPEN_MCP_NAME_RE = re.compile(r"mcp", re.I)  # any file or folder with mcp in its name inside a never-open agent folder
 MCP_DOC_FILE_RE = re.compile(r"\.(?:md|mdc|markdown)$", re.I)  # instructions or notes about MCP, not a config
 MCP_CONFIG_FILE_RE = re.compile(r"\.(?:jsonc?|ya?ml|toml|env)$", re.I)  # config-shaped, whatever its name
 MCP_DOC_PARENTS = {"skills", "rules", "instructions", "prompts", "agents", "commands"}  # folders of instructions, never reported by name
-NEVER_OPEN_SECRET_FILE_RE = re.compile(r"^(?:opencode\.jsonc?|\.aider[^/]*\.ya?ml)$", re.I)  # never-open files that carry MCP servers or API keys
-SKIP_BASENAMES = {"package-lock.json", "yarn.lock", "pnpm-lock.yaml", "bun.lockb", "poetry.lock", "cargo.lock", "composer.lock", "gemfile.lock"}
-SKIP_EXT_SUFFIXES = (".map", ".min.js", ".min.css", ".bundle.js")
-BROWSER_PREFIXES = ("NEXT_PUBLIC_", "VITE_", "REACT_APP_", "EXPO_PUBLIC_", "PUBLIC_", "NUXT_PUBLIC_", "GATSBY_")
-ENV_TEMPLATE_NAMES = {".env.example", ".env.sample", ".env.template"}
-ENV_TEMPLATE_RE = re.compile(r"(?:^|[._-])(?:example|sample|template|dist|defaults)(?:$|[._-])", re.I)
-CLIENT_TOP_DIRS = {"src", "app", "pages", "components", "public", "static"}
-NEUTRAL_SEGMENTS = {"lib", "utils", "services", "db", "scripts", "workers", "jobs", "cron"}
-SERVER_FILE_RE = re.compile(r"^middleware\.[^/]+$|\.server\.[^./]+$|^route\.[jt]s$|^\+server\.[jt]s$")
-DEPLOY_CONFIG_BASENAMES = {"vercel.json", "netlify.toml", "fly.toml", "render.yaml", "render.yml", "railway.json", "dockerfile", "procfile"}
-IGNORED_ENV_NAMES = {"development", "dev", "local", "test", "testing", "default", "example", "sample", "template", "cmdrc"}  # .env-cmdrc is env-cmd's rc file, not an environment
-NONPROD_ENV_STEMS = (IGNORED_ENV_NAMES - {"local"}) | {"ci", "vault", "enc", "sops", "age"}  # .env.local holds the real secrets  # tracked on purpose in most scaffolds
-SOURCE_ROOTS = {"src", "app", "pages", "api", "server", "supabase", "prisma", "functions", "lib", "components", "netlify", "workers"}
-_HAS_NONBLOCK = hasattr(os, "set_blocking") and sys.platform != "win32"
-CONFIG_VALUE_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
-SQL_LIKE_EXTS = {".sql", ".psql", ".pgsql", ".ddl"}
-CODE_EXTS = {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".mts", ".cts", ".vue", ".svelte", ".astro", ".py", ".rb", ".go", ".java", ".kt", ".php", ".cs", ".swift", ".dart"}
-SCHEMA_EXTS = {".prisma", ".graphql", ".gql"}
-HTML_EXTS = {".html", ".htm", ".jsx", ".tsx", ".vue", ".svelte", ".astro"}
-MAX_EVIDENCE = 12
-MAX_SNIPPET = 120
+NEVER_OPEN_SECRET_FILE_RE = re.compile(r"^(?:opencode\.jsonc?|\.aider[^/]*\.ya?ml)$", re.I)  # agent configs that carry MCP servers or API keys
+COMPRESSED_EXTS = (".zst", ".zstd")  # 0.3.2 read these as text; the overlay names what they could hide
+MODULE_EXTS = (".mts", ".cts")  # TypeScript modules 0.3.2 did not read as code
 NESTED_DETAIL = "condition nested too deeply to evaluate (%d chars); review it by hand"
-MAX_HITS_PER_FILE_PER_CHECK = 5
-MAX_PATH_CHARS = 200
-BINARY_SNIFF_BYTES = 8192
-MCP_MAX_CHARS = 65536
-MCP_MAX_DEPTH = 64
-MCP_MAX_NODES = 10000
-LINE_CLIP_CHARS = 2048
-MAX_SEEN = 20000
-GIT_BUDGET_S = 15.0
-MAX_NEVER_OPEN_COUNT = 10000
-MAX_TRACKED_ENV_FILES = MAX_EVIDENCE
-DEFAULT_MAX_FILES = 20000
-DEFAULT_MAX_FILE_BYTES = 524288
-DEFAULT_MAX_TOTAL_BYTES = 268435456
-DEFAULT_DEADLINE_S = 120.0
-ENV_FILE_RE = re.compile(r"^\.env(?:[._-](?!.{0,200}\.(?:js|cjs|mjs|ts|json|ya?ml|toml|md)$).+)?$")  # .env-schema.ts and .env-cmdrc.json are code, not env files
-FLY_ENV_TOML_RE = re.compile(r"^fly\.([a-z0-9_-]+)\.toml$")
-DEADLINE_TICK = 256
-MAX_JWT_HITS_PER_FILE = 200
-MAX_ENV_NAME_MATCHES = 200
-MAX_TABLE_MATCHES_PER_FILE = 200  # create table / enable row level security statements read per SQL file
-MAX_TABLE_WITHOUT_RLS_ROWS = 5  # tables named in the verdict when a migration never turns RLS on
-MAX_DIR_ENTRIES = 50000
-GIT_OUTPUT_LIMIT = 1 << 20
-MAX_CONFIG_ENTRIES = 20
-MAX_CONFIG_CHARS = 64
-MAX_OUTPUT_BYTES = 30000  # under the host's tool-output window, so the line is never truncated on the way to the agent
-STOPLINE_FIELDS = {"ssn", "social_security", "dob", "date_of_birth", "birthdate", "medical", "diagnosis", "credit_card", "card_number", "cc_number", "iban", "passport"}
-RUN_CHARS = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-+/=.")
-ENV_NAME_RE = re.compile(r"^[a-z0-9_-]{1,32}$")
-CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
 
-# effects: evidence < hint < yes-part < no
-CHECKS = {
-    "tracked-env-file": ("q1", "no"), "tracked-env-file-nonprod": ("q1", "evidence"), "env-file-on-disk": ("q1", "evidence"),
-    "mcp-token": ("q1", "no"), "mcp-token-shaped": ("q1", "evidence"),
-    "browser-prefix-service-or-secret-name": ("q1", "no"), "browser-prefix-named-key": ("q1", "no"),
-    "browser-prefix-privileged-jwt": ("q1", "no"), "browser-prefix-anon-jwt": ("q1", "evidence"),
-    "browser-prefix-authenticated-jwt": ("q1", "evidence"), "browser-prefix-unknown-role-jwt": ("q1", "evidence"),
-    "browser-prefix-public-key": ("q1", "evidence"), "browser-prefix-token-shaped": ("q1", "evidence"),
-    "client-key-literal": ("q1", "no"), "client-privileged-jwt": ("q1", "no"), "client-secret-name-token": ("q1", "no"),
-    "client-anon-jwt": ("q1", "evidence"), "client-authenticated-jwt": ("q1", "evidence"), "client-unknown-role-jwt": ("q1", "evidence"),
-    "client-private-key": ("q1", "no"), "browser-prefix-private-key": ("q1", "no"), "private-key-block": ("q1", "evidence"),
-    "client-test-mode-key": ("q1", "evidence"),
-    "client-secret-ident-token": ("q1", "no"), "client-keyish-ident-token": ("q1", "evidence"),
-    "server-path-key-literal": ("q1", "evidence"), "non-client-key-literal": ("q1", "evidence"),
-    "placeholder-key-literal": ("q1", "evidence"), "test-path-key-literal": ("q1", "evidence"),
-    "scan-summary": ("q1", "evidence"),
-    "nothing-found-keys": ("q1", "evidence"), "mcp-config-not-opened": ("q1", "evidence"), "build-output-unread": ("q1", "evidence"),
-    "api-route-dir": ("q2", "hint"), "framework-config": ("q2", "hint"), "client-server-split": ("q2", "hint"),
-    "rls-disabled": ("q3", "no"), "policy-true-unevaluated": ("q3", "evidence"), "open-rule-unconfirmed": ("q3", "evidence"), "open-rule-in-string": ("q3", "evidence"), "policy-using-true": ("q3", "no"), "policy-select-true": ("q3", "evidence"), "policy-altered-true": ("q3", "evidence"), "policy-with-check-true": ("q3", "evidence"),
-    "policy-to-anon": ("q3", "evidence"), "table-without-rls": ("q3", "evidence"), "storage-bucket-public-sql": ("q3", "evidence"), "nothing-found-rules": ("q3", "evidence"),
-    "firebase-rules-open": ("q3", "no"), "firebase-rules-public-read": ("q3", "evidence"), "firebase-rules-test-mode": ("q3", "evidence"), "firebase-rules-true-unevaluated": ("q3", "evidence"), "public-view": ("q3", "evidence"), "storage-bucket-public": ("q3", "evidence"),
-    "auth-path": ("q4", "evidence"), "auth-dependency": ("q4", "evidence"),
-    "deploy-config": ("q5.code", "yes-part"), "migration-path": ("q5.code", "evidence"), "backup-script": ("q5.code", "evidence"),
-    "git-history": ("q5.code", "evidence"), "git-not-a-repo": ("q5.code", "evidence"), "git-config-not-vouched": ("q5.code", "evidence"), "git-index-unread": ("q1", "evidence"), "git-unavailable": ("q5.code", "evidence"),
-    "git-timeout": ("q5.code", "evidence"), "git-subdir": ("q5.code", "evidence"), "git-shallow": ("q5.code", "evidence"),
-    "env-name": ("q6", "yes-part"), "preview-deploys-default": ("q6", "evidence"),
-    "review-workflow": ("q7", "evidence"),
-    "model-env-var": ("q8", "hint"), "model-literal": ("q8", "hint"), "spend-cap-word": ("q8", "hint"), "ai-sdk-dependency": ("q8", "hint"),
-    "monitoring-dependency": ("q9", "hint"), "sentry-config": ("q9", "hint"), "health-route": ("q9", "hint"), "cron-schedule": ("q9", "hint"), "nothing-found-monitoring": ("q9", "evidence"), "manifest-not-parsed": ("q9", "evidence"),
-    "pii-field": ("q10", "evidence"), "pii-form-input": ("q10", "evidence"),
-    "builder-file": ("q11", "evidence"), "builder-dependency": ("q11", "evidence"), "builder-readme": ("q11", "evidence"), "container-config": ("q11", "evidence"), "code-history-local": ("q11", "evidence"),
-}
-QUESTION_KEYS = ["q1", "q2", "q3", "q4", "q5.code", "q5.data", "q6", "q7", "q8", "q9", "q10", "q11"]
-for _name, (_q, _e) in CHECKS.items():
-    assert _q in QUESTION_KEYS and _e in ("evidence", "hint", "yes-part", "no"), _name
-
-# ------------------------------------------------------------------ regexes
-
-NAMED_KEY_ALT = (r"sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|sb_secret_[A-Za-z0-9_-]{10,}"
-                 r"|(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{22,}|gh[ousr]_[A-Za-z0-9]{36}|xox[baprs]-(?:[0-9]{10,13}-){1,3}[A-Za-z0-9]{24,34}|xapp-[0-9]-[A-Za-z0-9]{8,}-[0-9]{10,13}-[A-Za-z0-9]{32,}")  # Slack tokens carry 10-13 digit ids, CSS names do not
-NAMED_KEY_RE = re.compile(r"(?<![A-Za-z0-9_-])(?:" + NAMED_KEY_ALT + r")(?![A-Za-z0-9_-])")
-NAMED_KEY_FULL_RE = re.compile(r"(?:" + NAMED_KEY_ALT + r")")
-# a PEM or OpenSSH private key header; public keys and certificates say PUBLIC KEY / CERTIFICATE and never match
-PRIVATE_KEY_RE = re.compile(r"-----BEGIN (?:[A-Z0-9]+ ){0,3}PRIVATE KEY(?: BLOCK)?-----")
-PRIVATE_KEY_END_RE = re.compile(r"-----END (?:[A-Z0-9]+ ){0,3}PRIVATE KEY(?: BLOCK)?-----")  # survives a header split by "+"
-MIN_PEM_BODY_DISTINCT = 10  # a real base64 body uses dozens of characters; filler such as XXXX uses a handful
-PEM_ESCAPE_RE = re.compile(r"\\+[nr]")  # \n, \\n, \r\n inside a string literal
-PEM_HEADER_LINE_RE = re.compile(r"^[A-Za-z][A-Za-z-]{1,30}:")  # Proc-Type:, DEK-Info:, Version:, Comment:
-PEM_B64_LINE_RE = re.compile(r"^[A-Za-z0-9+/=]+$")
-PEM_NOISE = " \t\"'`,+;()[]"
-PEM_WINDOW = 4096
-
-
-PEM_TOKEN_SPLIT_RE = re.compile(r"[\s\"'`,;()\[\]]+")  # never "+": it is a base64 character
-
-
-def pem_body(text, pos):
-    """The base64 body after a private key header, or None: (body, trailed_off). Linear, no backtracking.
-    Escapes become line breaks, each line is cut at the next "-----" (the footer), up to four header lines
-    (Proc-Type:, Version:) are skipped, and the rest is split into tokens on quotes, commas and spaces (a bare "+" between string pieces is skipped).
-    A real body wraps at one width with only the last piece shorter, so the first piece sets the width W,
-    a longer piece or anything after a shorter one ends the body, and a narrow W (< 40) needs a second
-    piece of the same width. That keeps one-line, space-joined and JSON-array keys, and rejects a header
-    followed by ordinary words."""
-    window = PEM_ESCAPE_RE.sub("\n", text[pos:pos + PEM_WINDOW])
-    pieces, width, headers, trailed, done = [], 0, 0, False, False
-    for raw in window.splitlines():
-        cut = raw.find("-----")
-        line = raw if cut < 0 else raw[:cut]
-        if not pieces and headers < 4 and PEM_HEADER_LINE_RE.match(line.strip(PEM_NOISE)):
-            headers += 1
-            continue
-        for tok in PEM_TOKEN_SPLIT_RE.split(line):
-            if not tok or tok.strip("+") == "":
-                continue  # an empty token or a bare "+" between string pieces
-            if tok.endswith("...") or tok.endswith("\u2026"):
-                trailed, tok = True, tok.rstrip(".\u2026")
-            if not tok or not PEM_B64_LINE_RE.match(tok):
-                done = True
-                break
-            if not pieces:
-                width = len(tok)
-            elif len(tok) > width or len(pieces[-1]) < width:
-                done = True
-                break
-            pieces.append(tok)
-            if trailed:
-                done = True
-                break
-        if done or cut >= 0:
-            break
-    if not pieces or (width < 40 and sum(1 for x in pieces if len(x) == width) < 2):
-        return None
-    joined = "".join(pieces)
-    return (joined, trailed) if len(joined) >= 40 else None
-
-
-JWT_RE = re.compile(r"(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}(?![A-Za-z0-9_-])")
-JWT_RUN_RE = re.compile(r"[A-Za-z0-9_.-]{27,}")
-JWT_SEG_RE = re.compile(r"[A-Za-z0-9_-]{8,}")
-RUN_RE = re.compile(r"[A-Za-z0-9_\-+/=.]{20,}")
-PUBLIC_KEY_RE = re.compile(r"sb_publishable_[A-Za-z0-9_-]+|pk_(?:live|test)_[A-Za-z0-9]+|AIza[0-9A-Za-z_-]{35}")
-MAX_VALUE_CHARS = 8192
-PUBLIC_PREFIX_RE = re.compile(r"^(?:sb_publishable_|pk_live_|pk_test_|AIza[0-9A-Za-z_-]{35})")
-WORDY_NAME_RE = re.compile(r"^(?:[A-Z][A-Z0-9]*|[a-z][a-z0-9]*)(?:_(?:[A-Z][A-Z0-9]*|[a-z][a-z0-9]*)){1,15}$")
-GENERIC_TOKEN_RE = re.compile(r"[A-Za-z0-9_\-+/=]{32,}")
-PLACEHOLDER_RE = re.compile(r"your|xxx+|placeholder|example|replace|changeme|dummy", re.I)
-IDENT_SENSITIVE_RE = re.compile(r"secret|service[_-]?(?:role|key|token)", re.I)
-IDENT_BEFORE_RE = re.compile(r"(?<![A-Za-z0-9_])([A-Za-z_][A-Za-z0-9_]*)[ \t]*[:=][ \t]*[\"'`]?[ \t]*$")
-IDENT_KEYISH_RE = re.compile(r"key|token", re.I)
-IDENT_ASSIGN_TOKEN_RE = re.compile(r"\b(?P<ident>[A-Za-z_][A-Za-z0-9_]*)[\"']?[ \t]*[:=][ \t]*[\"'`]?(?P<value>[A-Za-z0-9_\-+/=.]{32,})")
-USE_CLIENT_RE = re.compile(r"^[ \t]*[\"']use client[\"']", re.M)
-CLIENT_IMPORT_RE = re.compile(r"(?m)^[ \t]*import\b[^\n]{0,200}\bfrom[ \t]+[\"'](?:react|react-dom|vue|svelte|next|@sveltejs/kit|@angular/[a-z-]{1,40})(?:/[^\"'\n]{0,80})?[\"']|require\([\"'](?:react|vue|svelte|next)[\"']\)")
-SERVER_ONLY_IMPORT_RE = re.compile(r"(?m)^[ \t]*import\b[^\n]{0,200}[\"'](?:next/(?:headers|server|cache)|server-only)[\"']")
-ANGULAR_IMPORT_RE = re.compile(r"(?m)^[ \t]*import\b[^\n]{0,200}\bfrom[ \t]+[\"']@angular/")
-PAGES_DATA_FN_RE = re.compile(r"\b(?:getServerSideProps|getStaticProps|getStaticPaths)\b")
-TEST_MODE_KEY_RE = re.compile(r"^(?:sk|rk)_test_")  # Stripe test mode cannot move real money
-TEST_PATH_RE = re.compile(r"(?:^|/)(?:__tests__|tests?|fixtures?)/|\.(?:test|spec|stories)\.[^/]+$")
 RLS_DISABLED_RE = re.compile(r"disable\s+row\s+level\s+security", re.I)
 USING_TRUE_RE = re.compile(r"\busing\s*\((?:\s*\()*\s*true(?:\s*::\s*bool(?:ean)?)?(?:\s*\))+", re.I)  # any depth: using (((true)))
-# 0.3.2's decisive patterns, verbatim: wherever they fire the answer stays No (never worse than the release)
-RELEASE_USING_TRUE_RE = re.compile(r"\busing\s{0,20}\((?:\s{0,20}\(){0,3}\s{0,20}true(?:\s{0,5}::\s{0,5}bool(?:ean)?)?(?:\s{0,20}\)){1,4}", re.I)
-RELEASE_FIREBASE_ALLOW_TRUE_RE = re.compile(r"\ballow[ \t]{1,20}([a-z]+(?:[ \t]*,[ \t]*[a-z]+){0,10})[ \t]*:[ \t]*if[ \t]{1,20}true\b", re.I)
-RELEASE_RLS_DISABLED_RE = re.compile(r"disable\s{1,20}row\s{1,20}level\s{1,20}security", re.I)  # 0.3.2, verbatim
-RELEASE_POLICY_SELECT_RE = re.compile(r"\bfor\s{1,20}select\b", re.I)  # 0.3.2, verbatim
-RELEASE_LINE_COMMENT_RE = re.compile(r"--[^\n]*")  # 0.3.2's line-comment rule, which also cut through strings
-RELEASE_WITH_CHECK_TRUE_RE = re.compile(r"\bwith\s{1,20}check\s{0,20}\(\s{0,20}true\s{0,20}\)", re.I)  # 0.3.2, verbatim
-RELEASE_RTDB_WRITE_OPEN_RE = re.compile(r"\"\.write\"\s{0,20}:\s{0,20}true", re.I)  # 0.3.2, verbatim
-RELEASE_RTDB_READ_OPEN_RE = re.compile(r"\"\.read\"\s{0,20}:\s{0,20}true", re.I)  # 0.3.2, verbatim
-RELEASE_READING_AT = 0.6  # past this share of the deadline, SQL and rules files are read with 0.3.2's readers only
+WITH_CHECK_TRUE_RE = re.compile(r"\bwith\s+check\s*\(\s*true\s*\)", re.I)
+POLICY_SELECT_RE = re.compile(r"\bfor\s+select\b", re.I)
 MAX_PREDICATE_CHARS = 4000
 PAREN_RE = re.compile(r"[()]")
 OR_SPLIT_RE = re.compile(r"[()\[\]]|\|\||\?")  # `?` for the ternary, which binds looser than ||; [ ] nest like ( )
@@ -267,79 +168,33 @@ FIREBASE_STRING_RE = re.compile(r'"(?:[^"\\\n]|\\.)*"|\'(?:[^\'\\\n]|\\.)*\'')  
 SQL_BOOL_CAST_RE = re.compile(r"\s*::\s*bool(?:ean)?\b")
 SQL_OR_RE = re.compile(r"\bor\b")
 SQL_AND_RE = re.compile(r"\band\b")
-WITH_CHECK_TRUE_RE = re.compile(r"\bwith\s+check\s*\(\s*true\s*\)", re.I)
-POLICY_TO_ANON_RE = re.compile(r"\bcreate\s+policy\b[^\n]{0,300}?\bto\s+anon\b", re.I)
-STORAGE_BUCKET_TRUE_RE = re.compile(r"storage\.buckets\b[^\n]{0,300}?\btrue\b", re.I)
-FIREBASE_ALLOW_ALL_RE = re.compile(r"\ballow[ \t]{1,20}([a-z]+(?:[ \t]*,[ \t]*[a-z]+){0,10})[ \t]*;", re.I)
-# a rule may leave off its ;. The body is read atomically, `(?=(…))\2`: a body never holds a terminator, so a
-# shorter body can never end at one, and giving characters back (400 per `allow`) could only fail
+WHITESPACE_RE = re.compile(r"\s+")
+# The specification _firebase_ifs implements without reading up to 400 characters per `allow` (the tests compare them):
 FIREBASE_IF_RE = re.compile(r"\ballow\s{1,20}([a-z]+(?:\s{0,20},\s{0,20}[a-z]+){0,10})\s{0,20}:\s{0,20}if(?=[\s(])(?=((?:[^;}\n]|\n(?![ \t]{0,80}(?:allow|match)\b)){0,400}))\2(?=[;}]|\n[ \t]{0,80}(?:allow|match)\b)", re.I)
-# FIREBASE_IF_RE and FIREBASE_IF_LONG_RE read in one linear pass (`_firebase_ifs`): the rule head, then the first
-# terminator after it, found once per file. Both patterns stay as the specification the pass is tested against
+FIREBASE_IF_LONG_RE = re.compile(r"\ballow\s{1,20}[a-z]+(?:\s{0,20},\s{0,20}[a-z]+){0,10}\s{0,20}:\s{0,20}if(?=[\s(])(?:[^;}\n]|\n(?![ \t]{0,80}(?:allow|match)\b)){401}", re.I)  # past what FIREBASE_IF_RE reads
 FIREBASE_IF_HEAD_RE = re.compile(r"\ballow\s{1,20}([a-z]+(?:\s{0,20},\s{0,20}[a-z]+){0,10})\s{0,20}:\s{0,20}if(?=[\s(])", re.I)
 FIREBASE_IF_END_RE = re.compile(r"[;}]|\n(?=[ \t]{0,80}(?:allow|match)\b)", re.I)
 MAX_FIREBASE_CONDITION = 400
-FIREBASE_IF_LONG_RE = re.compile(r"\ballow\s{1,20}[a-z]+(?:\s{0,20},\s{0,20}[a-z]+){0,10}\s{0,20}:\s{0,20}if(?=[\s(])(?:[^;}\n]|\n(?![ \t]{0,80}(?:allow|match)\b)){401}", re.I)  # past what FIREBASE_IF_RE reads
 TRUE_TOKEN_RE = re.compile(r"(?<![\w.])true(?![\w.])")
-# the console's generated "test mode": open to everyone until a date, then closed
 FIREBASE_TEST_MODE_RE = re.compile(r"\ballow\s{1,20}[a-z]+(?:\s{0,20},\s{0,20}[a-z]+){0,10}\s{0,20}:\s{0,20}if(?=[\s(])\s{0,20}(?:\(\s{0,20})*(?:request\.time\s{0,20}<|timestamp\.date\([^)\n]{0,40}\)\s{0,20}>\s{0,20}request\.time)", re.I)
 RTDB_TEST_MODE_RE = re.compile(r"\"\.(?:read|write)\"\s{0,20}:\s{0,20}\"\s{0,5}now\s{0,5}<", re.I)
-FIREBASE_WRITE_RE = re.compile(r"\b(?:write|create|update|delete)\b", re.I)
 RTDB_WRITE_OPEN_RE = re.compile(r"\"\.write\"\s{0,20}:\s{0,20}(?:true|\"\s{0,5}true\s{0,5}\")", re.I)  # "true" as a string rule is the same rule
 RTDB_READ_OPEN_RE = re.compile(r"\"\.read\"\s{0,20}:\s{0,20}(?:true|\"\s{0,5}true\s{0,5}\")", re.I)
-SLASH_COMMENT_RE = re.compile(r"//[^\n]*")
-RN_IMPORT_RE = re.compile(r"(?m)^[ \t]*import\b[^\n]{0,200}\bfrom[ \t]+[\"'](?:react-native|expo|expo-router|@expo/[^\"'\n]{0,60})[\"']")
-TOML_PUBLIC_TRUE_RE = re.compile(r"^[ \t]*public[ \t]*=[ \t]*true\b", re.I | re.M)
-NETLIFY_CONTEXT_RE = re.compile(r"^[ \t]*\[context\.([A-Za-z0-9_-]{1,32})(?:\.[^\]\n]{0,80})?\]", re.M)
-WRANGLER_ENV_RE = re.compile(r"^[ \t]*\[env\.([A-Za-z0-9_-]{1,32})(?:\.[^\]\n]{0,80})?\]", re.M)
-VERCEL_ENV_RE = re.compile(r"\"(production|preview|staging)\"\s*:")
-MODEL_PROVIDER_ALT = "OPENAI|ANTHROPIC|CLAUDE|GEMINI|GOOGLE_AI|GOOGLE_GENERATIVE_AI|MISTRAL|COHERE|GROQ|TOGETHER|REPLICATE|HUGGINGFACE|AZURE_OPENAI|OPENROUTER|XAI|DEEPSEEK|PERPLEXITY|FIREWORKS"
-MODEL_PROVIDER_RE = re.compile(r"(?:" + MODEL_PROVIDER_ALT + r")_", re.I)
-MODEL_ENV_RE = re.compile(r"\b((?:" + MODEL_PROVIDER_ALT + r"|HF)_[A-Z0-9_]*(?:KEY|TOKEN|SECRET))\b")  # HF_ is too short to trust as a provider prefix on a Google key
-MODEL_LITERAL_RE = re.compile(r"(?<![A-Za-z0-9])(?:gpt-[0-9][A-Za-z0-9.-]*|claude-[a-z0-9.-]+|gemini-[a-z0-9.-]+|llama[-_]?[0-9][A-Za-z0-9.-]*|mistral-[a-z0-9.-]+|o[134]-mini|o3)(?![A-Za-z0-9])")
-SPEND_CAP_RE = re.compile(r"\b(?:max_tokens|maxTokens|rate_limit|rateLimit|spend_cap|budget_limit|maxDuration)\b")
-HEALTH_ROUTE_RE = re.compile(r"[\"'`]/(?:api/)?health(?:z|check|-check)?[\"'`]")
-CRON_VERCEL_RE = re.compile(r"\"crons\"\s*:")
-CRON_WORKFLOW_RE = re.compile(r"^[ \t]*(?:-[ \t]*)?cron[ \t]*:", re.M)
-CRON_WRANGLER_RE = re.compile(r"^[ \t]*crons[ \t]*=", re.M)
-CRON_SQL_RE = re.compile(r"cron\.schedule\(", re.I)
-PII_FIELD_RE = re.compile(r"(?<![a-z0-9])(email|phone|tel|ssn|social_security|dob|date_of_birth|birthdate|address|street|postal_code|zip_code|passport|credit_card|card_number|cc_number|iban|medical|diagnosis|salary)(?![a-z0-9])", re.I)
-CAMEL_SPLIT_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
-POLICY_SELECT_RE = re.compile(r"\bfor\s+select\b", re.I)
-PII_INPUT_RE = re.compile(r"name=[\"'](email|tel|phone|address|street|cc-[a-z-]+|bday|ssn|dob)[\"']", re.I)
-BUILDER_URL_RE = re.compile(r"lovable\.(?:dev|app)|replit\.com|bolt\.new|base44\.com|v0\.(?:dev|app)", re.I)
-DEP_NAME_RE = re.compile(r"\"(@?[A-Za-z0-9_./-]+)\"\s*:")
-_prefix_alt = "|".join(re.escape(p) for p in BROWSER_PREFIXES)
-PREFILTER_RE = re.compile(NAMED_KEY_ALT + r"|eyJ[A-Za-z0-9_-]{8,}|(?:[Ss]ecret|SECRET|[Ss]ervice|SERVICE|[Kk]ey|KEY|[Tt]oken|TOKEN)[A-Za-z0-9_]{0,64}[\"']?[ \t]*[:=]|" + _prefix_alt)
-
-AUTH_DEPS = {"next-auth", "@auth/core", "@auth/nextjs", "@clerk/nextjs", "@clerk/clerk-react", "@clerk/clerk-sdk-node", "@supabase/auth-helpers-nextjs", "@supabase/auth-helpers-react", "@supabase/ssr", "@supabase/auth-ui-react", "passport", "lucia", "better-auth", "jsonwebtoken", "jose", "firebase-admin", "@kinde-oss/kinde-auth-nextjs", "@auth0/nextjs-auth0", "auth0", "django-allauth", "devise", "flask-login", "authlib", "pyjwt", "python-jose"}
-AI_DEPS = {"openai", "@anthropic-ai/sdk", "anthropic", "ai", "@ai-sdk/openai", "@ai-sdk/anthropic", "@ai-sdk/google", "langchain", "@langchain/core", "@langchain/openai", "@langchain/anthropic", "@google/generative-ai", "google-generativeai", "@google/genai", "cohere-ai", "cohere", "replicate", "@mistralai/mistralai", "mistralai", "groq-sdk", "groq", "together-ai", "litellm", "ollama", "openrouter", "@huggingface/inference", "transformers"}
-MONITORING_DEPS = {"sentry-sdk", "dd-trace", "datadog", "newrelic", "@axiomhq/js", "next-axiom", "node-cron", "cron", "bull", "bullmq", "agenda", "@vercel/cron", "pino", "winston", "better-stack",
-                   "elastic-apm-node", "logrocket", "logfire",  # JavaScript
-                   "sentry-ruby", "sentry-rails", "honeybadger", "rollbar", "bugsnag", "airbrake", "scout_apm", "newrelic_rpm", "appsignal", "skylight",  # Ruby
-                   "github.com/getsentry/sentry-go", "github.com/rollbar/rollbar-go", "github.com/bugsnag/bugsnag-go", "github.com/newrelic/go-agent",
-                   "github.com/datadog/dd-trace-go", "gopkg.in/datadog/dd-trace-go",  # Go, major-version suffix stripped
-                   "sentry_sdk", "ddtrace", "elastic-apm", "structlog", "loguru"}  # Python; logging libraries count like pino and winston
+MONITORING_DEPS = {"elastic-apm-node", "logrocket", "logfire", "appsignal", "skylight", "ddtrace", "elastic-apm",
+                   "github.com/datadog/dd-trace-go", "gopkg.in/datadog/dd-trace-go"}  # names 0.3.2's list did not hold
 # whole vendor scopes and families: @sentry/vue, @opentelemetry/api, opentelemetry-sdk are error tracking or tracing whatever the suffix
 MONITORING_PREFIXES = ("@sentry/", "@bugsnag/", "@opentelemetry/", "@datadog/", "@honeybadger-io/", "@rollbar/", "@logtail/", "@highlight-run/", "@appsignal/", "opentelemetry-")
-BUILDER_DEPS_RE = re.compile(r"^(?:lovable-tagger|@base44/sdk|@replit/.+)$")
-BUILDER_BASENAMES = {".replit", "replit.nix", ".bolt", ".lovable", "base44.config.json", ".v0"}
-FRAMEWORK_CONFIG_RE = re.compile(r"^(?:next|vite|nuxt|svelte|astro|remix|gatsby|angular|vue)\.config\.[a-z]+$", re.I)
-API_ROUTE_PREFIXES = ("pages/api/", "app/api/", "api/", "server/", "netlify/functions/", "supabase/functions/", "functions/", "workers/")
-AUTH_SEGMENTS = {"auth", "authorize", "permissions", "rbac", "guards", "policy", "policies", "middleware", "proxy"}
-MONITOR_CONFIG_RE = re.compile(r"^(?:sentry\.[a-z.]*config\.[a-z]+|sentry\.properties|checkly\.config\.[a-z]+|uptimerobot[^/]*)$", re.I)
-HEALTH_PATH_RE = re.compile(r"(?:^|/)health(?:z|check|-check)?(?:\.[a-z]+|/(?:route|index|\+server)\.[a-z]+|\.(?:get|post)\.[a-z]+)?$", re.I)  # api/health.ts, app/api/health/route.ts, routes/health/+server.ts, server/api/health.get.ts
-REVIEW_ACTION_RE = re.compile(r"^[ \t]*(?:-[ \t]*)?uses:[ \t]*[\"']?(anthropics/claude-code-action|coderabbitai/[A-Za-z0-9_.-]{1,60}|reviewdog/[A-Za-z0-9_.-]{1,60})", re.M)
-REVIEW_NAME_RE = re.compile(r"(?:^|[-_.])review")  # pr-review.yml, claude-code-review.yml; never preview.yml
-_SQL_IDENT = r"(?:\"[^\"\n]{1,63}\"|[A-Za-z_][A-Za-z0-9_$]{0,62})"  # a Postgres identifier: quoted as written, or bare
+GO_DOT_MAJOR_RE = re.compile(r"\.v[0-9]+$")  # gopkg.in/DataDog/dd-trace-go.v1 is dd-trace-go (0.3.2 strips /vN only)
+_SQL_IDENT = r"(?:\"[^\"\n]{1,63}\"|[A-Za-z_][A-Za-z0-9_$]{0,62})"
 _SQL_TABLE = "(" + _SQL_IDENT + r"(?:\s*\.\s*" + _SQL_IDENT + ")?)"  # optionally schema-qualified
-_CREATE_TABLE_HEAD = r"\bcreate\s+(?:(?:unlogged|foreign)\s+)?table"  # shared, so a table the scanner tracks always makes its file a rule file
+_CREATE_TABLE_HEAD = r"\bcreate\s+(?:(?:unlogged|foreign)\s+)?table"
 CREATE_TABLE_RE = re.compile(_CREATE_TABLE_HEAD + r"\s+(?:if\s+not\s+exists\s+)?" + _SQL_TABLE, re.I)
+ENABLE_RLS_RE = re.compile(r"\balter\s+table\s+(?:if\s+exists\s+)?(?:only\s+)?" + _SQL_TABLE + r"\s+enable\s+row\s+level\s+security", re.I)
 MAX_DROP_LIST_CHARS = 20000
 DROP_TABLE_RE = re.compile(r"\bdrop\s+table\s+(?:if\s+exists\s+)?([^;]{1,%d})" % MAX_DROP_LIST_CHARS, re.I)
 DROP_ITEM_RE = re.compile(r"\s{0,20}" + _SQL_TABLE)
 CREATE_VIEW_RE = re.compile(r"\bcreate\s+(?:or\s+replace\s+)?(?:recursive\s+)?(materialized\s+)?view\s+(?:if\s+not\s+exists\s+)?" + _SQL_TABLE + r"([^;]{0,400})", re.I)
-SQL_LEX_OPENER_RE = re.compile(r"--|/\*|\"|(?<![A-Za-z0-9_])[Ee]'|'|\$(?:[^\W\d]\w{0,30})?\$")  # whichever comes first; a dollar tag may use any letter, $é$ as well as $x$
+SQL_LEX_OPENER_RE = re.compile(r"--|/\*|\"|(?<![A-Za-z0-9_])[Ee]'|'|\$(?:[^\W\d]\w{0,30})?\$")  # whichever comes first; a dollar tag may use any letter
 SQL_PLAIN_BODY_RE = re.compile(r"(?:[^']|'')*'")  # a SQL string may span lines
 SQL_ESCAPE_BODY_RE = re.compile(r"(?:[^'\\]|\\[\s\S]|'')*'")
 SQL_IDENT_BODY_RE = re.compile(r'(?:[^"]|"")*"')  # a quoted identifier: "o'brien_idx" holds no string
@@ -348,1167 +203,115 @@ DO_BEFORE_RE = re.compile(r"\bdo(?:\s{1,20}language\s{1,20}[A-Za-z_][A-Za-z0-9_]
 SAFE_INVOKER_RE = re.compile(r"\bsecurity_invoker\s{0,20}(?:=\s{0,20}'?(?:on|true|1|yes)\b|(?=\s{0,20}[,)]))", re.I)
 VIEW_AS_RE = re.compile(r"\bas\b", re.I)
 VIEW_WITH_RE = re.compile(r"\bwith\s*\(([^)]{0,400})\)", re.I)
-# a SQL file that defines access, as opposed to a seed file of inserts; only these count as "rule files read"
 RULE_SQL_RE = re.compile(_CREATE_TABLE_HEAD + r"\b|\bcreate\s+policy\b|\brow\s+level\s+security\b|\bstorage\.buckets\b", re.I)
-ENABLE_RLS_RE = re.compile(r"\balter\s+table\s+(?:if\s+exists\s+)?(?:only\s+)?" + _SQL_TABLE + r"\s+enable\s+row\s+level\s+security", re.I)
-_RELEASE_SQL_TABLE = "(" + _SQL_IDENT + r"(?:\s{0,5}\.\s{0,5}" + _SQL_IDENT + ")?)"  # 0.3.2, verbatim
-RELEASE_CREATE_TABLE_RE = re.compile(r"\bcreate\s{1,20}(?:(?:unlogged|foreign)\s{1,20})?table\s{1,20}(?:if\s{1,20}not\s{1,20}exists\s{1,20})?" + _RELEASE_SQL_TABLE, re.I)  # 0.3.2, verbatim
-RELEASE_ENABLE_RLS_RE = re.compile(r"\balter\s{1,20}table\s{1,20}(?:if\s{1,20}exists\s{1,20})?(?:only\s{1,20})?" + _RELEASE_SQL_TABLE + r"\s{1,20}enable\s{1,20}row\s{1,20}level\s{1,20}security", re.I)  # 0.3.2, verbatim: the ceiling on RLS credit
-TABLE_PART_RE = re.compile(r'"[^"]*"|[^.\s]+')  # a dot inside quotes is part of the name, not a schema separator
-MANIFEST_BASENAMES = {"package.json", "requirements.txt", "pyproject.toml", "gemfile", "go.mod"}
-# dependency manifests no parser here reads; one of these can name the error tracker, so Q9 cannot claim "nothing found"
 UNPARSED_MANIFEST_RE = re.compile(r"^(?:pipfile|setup\.py|setup\.cfg|composer\.json|cargo\.toml|pom\.xml|build\.gradle(?:\.kts)?|pubspec\.yaml|deno\.jsonc?|import_map\.json|environment\.ya?ml|mix\.exs|[^/]+\.csproj|[^/]+\.gemspec"
                                   r"|requirements(?:[-_.][^/]+)?\.in|requirements[-_.][^/]+\.txt|[^/]+[-_]requirements\.(?:txt|in))$")
-# manifest entry shapes; anchored whitespace never crosses a newline, so a file of blank lines stays linear
-PY_DEP_ENTRY_RE = re.compile(r'"((?:\\.|[^"\\\n]){1,300})"|\x27([^\x27\n]{1,300})\x27')  # one quoted list entry, escapes and markers included
-PY_DEP_NAME_RE = re.compile(r"^[ \t]*([A-Za-z0-9][A-Za-z0-9_.-]{0,99})")  # the name at the front of an entry, before extras, version or marker
-QUOTED_RE = re.compile(r'"(?:\\.|[^"\\\n])*"|\x27[^\x27\n]*\x27')  # blanked before looking for the `]` that ends a list
-GO_MAJOR_SUFFIX_RE = re.compile(r"(?:/v[0-9]+|\.v[0-9]+)$")  # go-agent/v3 is go-agent; gopkg.in/DataDog/dd-trace-go.v1 is dd-trace-go
-TOML_KEY_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9_.-]{0,99})[ \t]*=[ \t]*(\[)?")
-GEM_RE = re.compile(r'^[ \t]*gem[ \t]+["\x27]([A-Za-z0-9][A-Za-z0-9_.-]{0,99})["\x27]', re.M)
-GO_REQUIRE_RE = re.compile(r'^[ \t]*(?:require[ \t]+)?([a-z0-9][a-z0-9.-]{0,99}/[^\s]{1,200})[ \t]+v[0-9]', re.M)
-REQ_INCLUDE_PREFIXES = ("-r", "-c", "--requirement", "--constraint", "-e", "--editable")  # lines that name dependencies the walk does not read
-REQ_URL_OR_PATH_RE = re.compile(r"^(?:[a-z][a-z0-9+.-]{0,20}://|\.{0,2}/|[A-Za-z]:\\|[^=<>;\[ @]{0,200}/)", re.I)  # git+https://…, ./vendor/pkg, vendor/pkg
-GENERATED_CODE_SUFFIXES = (".min.js", ".bundle.js", ".map")  # browser code, or source maps that embed it
-PREVIEW_DEFAULTS = {"vercel.json": "Vercel previews every branch by default", "netlify.toml": "Netlify deploy previews on by default"}
-# every extension a Q1 or Q3 detector reads; an oversize file of any other kind (a photo, a font, a video)
-# cannot hide a key or an open rule, so skipping it leaves the scan complete
-Q1_Q3_EXTS = CODE_EXTS | HTML_EXTS | SQL_LIKE_EXTS | {".json", ".toml", ".yml", ".yaml"}
-
-
-class UsageError(Exception):
-    pass
-
-
-# ---------------------------------------------------------------- redaction
-
-def redact_value(value):
-    """Named patterns keep a 4-char prefix and the length; anything else keeps only the length."""
-    if NAMED_KEY_FULL_RE.match(value) or value.startswith("eyJ") or PUBLIC_PREFIX_RE.match(value):
-        return value[:4] + "…" + str(len(value))
-    return "[token-shaped, %d chars]" % len(value)
-
-
-def _classes(value):
-    classes = sum(1 for test in (str.islower, str.isupper, str.isdigit) if any(test(c) for c in value))
-    if any(c in "_-+/=" for c in value):
-        classes += 1
-    return classes
-
-
-def _redact_piece(piece):
-    piece = NAMED_KEY_RE.sub(lambda m: redact_value(m.group(0)), piece)
-    piece = PUBLIC_KEY_RE.sub(lambda m: redact_value(m.group(0)), piece)
-    if len(piece) < 32 or not GENERIC_TOKEN_RE.fullmatch(piece):
-        return piece
-    if "/" in piece and "+" not in piece and "=" not in piece:
-        # an ordinary slash-separated path is not a token; base64 with "/" also carries "+" or "="
-        # and mixes lower, upper and digits, which a path rarely does
-        alpha_classes = sum(1 for test in (str.islower, str.isupper, str.isdigit) if any(test(c) for c in piece))
-        return redact_value(piece) if alpha_classes >= 3 else piece
-    if WORDY_NAME_RE.match(piece):
-        return piece  # an ordinary variable or path name (NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY), not a value
-    if _classes(piece) >= 2:
-        return redact_value(piece)
-    return piece
-
-
-def _redact_run(match):
-    pieces = match.group(0).split(".")
-    out = []
-    i = 0
-    while i < len(pieces):
-        p = pieces[i]
-        if p.startswith("eyJ") and len(p) >= 11 and i + 2 < len(pieces) and all(JWT_SEG_RE.fullmatch(x) for x in pieces[i:i + 3]):
-            out.append(redact_value(".".join(pieces[i:i + 3])))
-            i += 3
-            continue
-        out.append(_redact_piece(p))
-        i += 1
-    if any(o != p for o, p in zip(out, pieces)) or len(out) != len(pieces):
-        # a dotted token (SendGrid, JWT-like): once any piece is a secret, its siblings are too
-        out = [redact_value(o) if (o == p and len(o) >= 16 and re.fullmatch(r"[A-Za-z0-9_\-+/=]+", o)) else o for o, p in zip(out, pieces)]
-    return ".".join(out)
-
-
-def _mask_quoted(text):
-    """Hide every quoted string (other than the matched value) on a hit line: passwords are rarely token-shaped.
-
-    A linear scan, so a quoted string of any length is masked up to its closing quote or the end of the text.
-    """
-    out = []
-    i = 0
-    n = len(text)
-    while i < n:
-        c = text[i]
-        if c in "\"'`":
-            j = text.find(c, i + 1)
-            if j < 0:
-                # an unmatched quote: the matched value's own opener when it is the last character, otherwise
-                # an unterminated string whose remainder is masked to the end (it may hold a password)
-                out.append(c if i == n - 1 else c + "\u2026")
-                break
-            out.append(c + "\u2026" + c)
-            i = j + 1
-            continue
-        out.append(c)
-        i += 1
-    return "".join(out)
-
-
-def sweep(text):
-    """Linear-time redaction: JWT triples first (narrow charset, so glued query strings still split), then every token run piece by piece."""
-    spans = list(find_jwts(text))
-    if spans:
-        out = []
-        pos = 0
-        for start, end in spans:
-            out.append(text[pos:start])
-            out.append(redact_value(text[start:end]))
-            pos = end
-        out.append(text[pos:])
-        text = "".join(out)
-    return RUN_RE.sub(_redact_run, text)
-
-
-def find_jwts(text):
-    """Yield (start, end) of every JWT-shaped triple, linear in the text length."""
-    for m in JWT_RUN_RE.finditer(text):
-        run = m.group(0)
-        base = m.start()
-        pieces = run.split(".")
-        offsets = []
-        pos = 0
-        for p in pieces:
-            offsets.append(pos)
-            pos += len(p) + 1
-        i = 0
-        while i + 2 < len(pieces):
-            p = pieces[i]
-            if p.startswith("eyJ") and len(p) >= 11 and len(pieces[i + 1]) >= 8 and len(pieces[i + 2]) >= 8:
-                yield base + offsets[i], base + offsets[i + 2] + len(pieces[i + 2])
-                i += 3
-            else:
-                i += 1
-
-
-def is_jwt(value):
-    return len(value) <= MAX_VALUE_CHARS and bool(JWT_RE.fullmatch(value))
-
-
-def _drop_format_chars(text):
-    """Bidi overrides, zero-width and other format characters can reorder rendered text; drop them."""
-    return "".join(c for c in text if not (unicodedata.category(c) in ("Cf", "Cc") or c in "\u2028\u2029"))
-
-
-def sanitize(text, limit=MAX_SNIPPET):
-    text = str(text).replace("\r", " ").replace("\n", " ").replace("\t", " ")
-    text = _drop_format_chars(CONTROL_RE.sub("", text))
-    text = sweep(text)
-    if len(text) > limit:
-        text = text[:limit]
-    return text
-
-
-def sanitize_path(rel):
-    """Redact segment by segment so a nested path stays readable while a secret-shaped name is still hidden."""
-    rel = rel.replace(os.sep, "/")
-    cleaned = "/".join(sanitize(seg, MAX_PATH_CHARS) for seg in rel.split("/"))
-    return cleaned[:MAX_PATH_CHARS]
-
-
-def make_snippet(text, start, end):
-    """Clip to the matched line, redact the WHOLE line first, then window around the match.
-
-    Sweeping before windowing matters: a window cut through a neighbouring secret would
-    leave a fragment too short for any pattern to catch.
-    """
-    line_start = _line_start(text, start)
-    hi = min(len(text), end + 2048)
-    le = text.find("\n", end, hi)
-    line_end = le if le >= 0 else hi
-    steps = 0
-    while line_start > 0 and text[line_start - 1] in RUN_CHARS and steps < 8192:
-        line_start -= 1
-        steps += 1
-    steps = 0
-    while line_end < len(text) and text[line_end] in RUN_CHARS and steps < 8192:
-        line_end += 1
-        steps += 1
-    before = _mask_quoted(sweep(text[line_start:start]))
-    value = sweep(text[start:end])
-    tail = sweep(text[end:line_end])
-    quote = before[-1] if before and before[-1] in "\"'`" else None
-    if quote and tail.startswith(quote):
-        tail = quote + _mask_quoted(tail[1:])
-    else:
-        tail = _mask_quoted(tail)
-    after = value + tail
-    line = before + after
-    s = len(before)
-    if len(line) > MAX_SNIPPET:
-        left = max(0, s - 40)
-        line = line[left:left + MAX_SNIPPET]
-    return sanitize(line)
-
-
-def line_of(text, pos):
-    return text.count("\n", 0, pos) + 1
-
-
-def _line_start(text, pos):
-    """Start of the line holding pos, never more than LINE_CLIP_CHARS back (a huge single line stays bounded)."""
-    lo = max(0, pos - LINE_CLIP_CHARS)
-    ls = text.rfind("\n", lo, pos)
-    return ls + 1 if ls >= 0 else lo
-
-
-def is_generic_token(value, min_classes=3):
-    if len(value) < 32 or len(value) > MAX_VALUE_CHARS or not GENERIC_TOKEN_RE.fullmatch(value.rstrip(".")):
-        return False
-    classes = _classes(value)
-    if classes >= 3:
-        return True
-    return min_classes <= 2 and classes >= 2 and any(c.isdigit() for c in value)  # hex secrets under a sensitive name
-
-
-def is_placeholder(value, is_jwt):
-    if PLACEHOLDER_RE.search(value):
-        return True
-    if value.startswith("sk-") and value.count("-") > 5:
-        return True  # a hyphenated slug (a CSS class such as sk-fading-circle-container), not a key
-    if NAMED_KEY_FULL_RE.match(value) and not value.startswith("sk-"):
-        return False  # a real key shape wins over the digit heuristic (AWS ids are base32 and can lack digits)
-    if not is_jwt and not any(c.isdigit() for c in value):
-        return True
-    return False
-
-
-def decode_jwt_role(token):
-    try:
-        parts = token.split(".")
-        if len(parts) != 3 or len(parts[1]) > 4096:
-            return None
-        payload = base64.urlsafe_b64decode(parts[1] + "=" * (-len(parts[1]) % 4))
-        data = json.loads(payload.decode("utf-8"))
-        role = data.get("role") if isinstance(data, dict) else None
-        return role if isinstance(role, str) else None
-    except Exception:
-        return None
-
-
-# ------------------------------------------------------------------ objects
-
-class Options(object):
-    def __init__(self, max_files=DEFAULT_MAX_FILES, max_file_bytes=DEFAULT_MAX_FILE_BYTES, max_total_bytes=DEFAULT_MAX_TOTAL_BYTES, deadline_s=DEFAULT_DEADLINE_S, exclude_dirs=(), browser_prefixes=()):
-        self.max_files = int(max_files)
-        self.max_file_bytes = int(max_file_bytes)
-        self.max_total_bytes = int(max_total_bytes)
-        self.deadline_s = float(deadline_s)
-        self.exclude_dirs_added = []
-        for d in exclude_dirs:
-            d = str(d).strip().strip("/").lower()
-            # over-length or path-like values are dropped, never shortened into a different name
-            if not d or len(d) > MAX_CONFIG_CHARS or d == "." or "/" in d or d in NEVER_OPEN_DIRS or d in EXCLUDED_DIRS or not CONFIG_VALUE_RE.match(d):
-                continue
-            if d not in self.exclude_dirs_added and len(self.exclude_dirs_added) < MAX_CONFIG_ENTRIES:
-                self.exclude_dirs_added.append(d)
-        self.browser_prefixes_added = []
-        for p in browser_prefixes:
-            p = str(p).strip()
-            if not re.fullmatch(r"[A-Za-z0-9_]{1,%d}" % MAX_CONFIG_CHARS, p):
-                continue
-            if p not in BROWSER_PREFIXES and p not in self.browser_prefixes_added and len(self.browser_prefixes_added) < MAX_CONFIG_ENTRIES:
-                self.browser_prefixes_added.append(p)
-        self.excluded = EXCLUDED_DIRS | set(self.exclude_dirs_added)
-        self.prefixes = tuple(BROWSER_PREFIXES) + tuple(self.browser_prefixes_added)
-        alt = "|".join(re.escape(p) for p in self.prefixes)
-        self.browser_assign_re = re.compile(r"[\"']?\b(?P<name>(?:" + alt + r")[A-Za-z0-9_]+)[\"']?\s*[=:]\s*[\"'`]?(?:[A-Za-z][A-Za-z-]{1,20}[ \t]+)?(?P<value>[A-Za-z0-9_\-+/=.]{16,})")
-        self.prefilter_re = re.compile(PREFILTER_RE.pattern + ("|" + alt if self.browser_prefixes_added else ""))
-
-
-class ScanFile(object):
-    __slots__ = ("rel", "base", "ext", "cls", "kinds", "text", "_sql_lex", "_release_view")
-
-    def __init__(self, rel, base, ext, cls, kinds, text):
-        self.rel = rel
-        self.base = base
-        self.ext = ext
-        self.cls = cls
-        self.kinds = kinds
-        self.text = text
-        self._sql_lex = None
-        self._release_view = None
-
-    def sql_lex(self):
-        """`_lex_sql(text)`, computed once and shared by every SQL reader of this file."""
-        if self._sql_lex is None:
-            self._sql_lex = _lex_sql(self.text)
-        return self._sql_lex
-
-    def release_view(self):
-        """`_release_sql_view(text)`: the SQL as 0.3.2 read it, computed once per file."""
-        if self._release_view is None:
-            self._release_view = _release_sql_view(self.text)
-        return self._release_view
-
-
-class Deadline(Exception):
-    """Raised inside a file's detectors when the global deadline passes."""
-
-
-def _empty_git():
-    return {"commits": None, "tags": None, "shallow": None, "tracked_env_files": None}
-
-
-class ScanState(object):
-    def __init__(self):
-        self.files_scanned = 0
-        self.partial = False
-        self.git = _empty_git()
-        self.deadline = None
-        self.ticks = 0
-        self.evidence = dict((k, []) for k in QUESTION_KEYS)
-        self.effects = dict((k, set()) for k in QUESTION_KEYS)
-        self.env_names = set()
-        self.deploy_configs = []
-        self.cls_counts = {"client": 0, "server": 0, "other": 0}
-        self.q1_files = 0
-        self.rule_files = 0
-        self.dependencies = 0
-        self.gaps = {"q1": 0, "q3": 0, "q9": 0}  # things that could answer the question and were not looked at: files, folders, values too long to judge, tables past a cap
-        self.build_dirs = []  # skipped build folders, summarized in one Q1 row by resolve
-        self.release_reading = False  # set late in a long scan: SQL and rules files are then read with 0.3.2's readers
-        self.manifest_rows = 0  # manifest-not-parsed rows seen: five are named, every one is a gap
-        self.tables = {}  # public table name -> (path, line) of its create table
-        self.rls_enabled = set()
-        self.seen = set()
-        self.warnings = []
-        self.stats = {"files_skipped_oversize": 0, "files_skipped_oversize_relevant": 0, "files_skipped_binary": 0, "files_skipped_generated": 0, "files_never_open": 0, "files_read_with_0_3_2_rules": 0,
-                      "files_skipped_special": 0, "files_skipped_hardlink": 0, "files_errored": 0, "dirs_unreadable": 0, "dirs_truncated": 0, "mcp_capped": 0, "git_index_partial": 0, "output_trimmed": 0, "max_files_hit": False,
-                      "max_total_bytes_hit": False, "deadline_hit": False, "config": {"exclude_dirs_added": [], "browser_prefixes_added": []}}
-
-    def tick(self):
-        """Cheap mid-file deadline check; called from hit loops."""
-        self.ticks += 1
-        if self.deadline is not None and self.ticks % DEADLINE_TICK == 0 and time.monotonic() > self.deadline:
-            raise Deadline()
-
-    def add(self, check, path, line, snippet):
-        question, effect = CHECKS[check]
-        self.effects[question].add(effect)
-        key = (check, path, line, snippet)
-        if key in self.seen:
-            return
-        if len(self.seen) < MAX_SEEN:
-            self.seen.add(key)
-        row = {"path": sanitize_path(path), "line": int(line), "snippet": sanitize(snippet), "check": check}
-        rows = self.evidence[question]
-        # rows of the kinds 0.3.3 added have a budget of their own, so they never take a slot from a row 0.3.2 gave
-        new = check in NEW_EVIDENCE_0_3_3
-        if sum((r["check"] in NEW_EVIDENCE_0_3_3) == new for r in rows) < MAX_EVIDENCE:
-            rows.append(row)
-        elif effect == "no":
-            # a row that decides the answer must never be crowded out by evidence-only rows
-            for i in range(len(rows) - 1, -1, -1):
-                if CHECKS[rows[i]["check"]][1] != "no" and rows[i]["check"] not in NEW_EVIDENCE_0_3_3:
-                    del rows[i]
-                    rows.append(row)
-                    break
-
-
-def iter_questions(result):
-    for key, value in result["questions"].items():
-        if key == "q5":
-            yield value["code"]
-            yield value["data"]
-        else:
-            yield value
-
-
-# ---------------------------------------------------------------- filesystem
-
-def is_env_file(base):
-    """One definition of an env file: `.env`, `.env.<name>`, `<name>.env`, `.envrc`; templates are not env files."""
-    b = base.lower()
-    return (bool(ENV_FILE_RE.match(b)) or b.endswith(".env") or b == ".envrc") and not is_env_template(b)
-
-
-def is_env_template(base):
-    b = base.lower()
-    return b in ENV_TEMPLATE_NAMES or bool(ENV_TEMPLATE_RE.search(b))
-
-
-def is_never_open_dir(name, parent):
-    n = name.lower()
-    return n in NEVER_OPEN_DIRS or (parent.lower(), n) in NEVER_OPEN_DIR_PAIRS
-
-
-def is_never_open_file(base):
-    b = base.lower()
-    return b in NEVER_OPEN_FILES or bool(NEVER_OPEN_FILE_RE.match(b))
-
-
-def could_hold_q1_q3(base, ext):
-    """A file whose contents could hold a Q1 or Q3 answer, including a precompressed one no detector can read.
-
-    Skipping one withholds "nothing found"; skipping one the scanner meant to read also makes the scan partial."""
-    b = base.lower()
-    if ext in PRECOMPRESSED_EXTS and not (ext in RELEASE_READ_EXTS and is_env_file(b)):
-        inner = os.path.splitext(b[:-len(ext)])[1]
-        return inner in CODE_EXTS | HTML_EXTS | SQL_LIKE_EXTS or inner == ".rules"  # app.js.gz, dump.sql.gz; data.json.gz is just data
-    env_shaped = b.startswith(".env") or b.endswith(".env")  # the template word list alone matches `hero-sample.png`
-    return ext in Q1_Q3_EXTS or is_env_file(b) or (env_shaped and is_env_template(b)) or b.endswith(".rules")
-
-
-def note_unread(state, base, ext):
-    """A file the walk could not stat, open, read or decode: charge the gaps it could have answered.
-
-    Generated, precompressed and never-read files charge their gaps inline in the walk. Returns whether the
-    file could hold a Q1 or Q3 answer, which is also whether skipping it makes the scan partial."""
-    relevant = could_hold_q1_q3(base, ext)
-    if relevant:
-        state.gaps["q1"] += 1
-        state.gaps["q3"] += 1
-        state.gaps["q9"] += 1  # the Q9 content readers (deploy config, workflow, code with a health route) all live in that set
-    if base.lower() in MANIFEST_BASENAMES or MONITOR_CONFIG_RE.match(base):  # the two Q9 signals matched by name alone
-        state.gaps["q9"] += 1
-    return relevant
-
-
-def note_unread_dir(state):
-    for key in state.gaps:
-        state.gaps[key] += 1
-
-
-def skip_oversize(state, base, ext):
-    state.stats["files_skipped_oversize"] += 1
-    if note_unread(state, base, ext):
-        state.stats["files_skipped_oversize_relevant"] += 1
-        state.partial = True
-
-
-def is_generated(base):
-    b = base.lower()
-    return b in SKIP_BASENAMES or b.endswith(SKIP_EXT_SUFFIXES)
-
-
-def count_files(path, deadline=None):
-    n = 0
-    entries = 0
-    for _, dirs, files in os.walk(path, followlinks=False, onerror=lambda e: None):
-        n += len(files)
-        entries += len(files) + len(dirs) + 1
-        if n >= MAX_NEVER_OPEN_COUNT or entries >= MAX_NEVER_OPEN_COUNT or (deadline is not None and time.monotonic() > deadline):
-            return min(n, MAX_NEVER_OPEN_COUNT)
-    return n
-
+NOT_NEWLINE_RE = re.compile(r"[^\n]")
+ASCII_LOWER = str.maketrans(string.ascii_uppercase, string.ascii_lowercase)  # keeps every offset, unlike str.lower ("İ")
 
 McpScan = collections.namedtuple("McpScan", "found truncated")
 
 
-def _mcp_configs_inside(path, name, deadline=None, tally=None):
-    """Paths, relative to a never-open agent folder, of anything that looks like an MCP server config. Only names are
-    read, never contents, and the walk is bounded like count_files: each entry counts once, and each folder counts
-    again as a step, so a folder costs two of the MAX_NEVER_OPEN_COUNT. Returns
-    McpScan(found, truncated); truncated means the walk stopped at the cap or the deadline, so a config past that
-    point was not looked at. Nothing below a reported folder is named or counted as a step. An mcp-named folder of
-    instructions (under skills/, rules/, agents/ …) is not reported by name, but a config-shaped file anywhere
-    inside it is. tally: a dict that receives count_files(path, deadline) as tally["files"], counted in this same
-    walk, so each never-open folder is walked once."""
-    path = path.rstrip(os.sep + (os.altsep or "")) or path
-    found = [inner for inner in NEVER_OPEN_MCP_PATHS.get(name, ()) if _lexists_inside(path, inner)]
-    seen = set(found)
-    in_docs = set()  # mcp-named instruction folders, and every folder below them
-    below_seen = set()  # folders under a reported or pre-seeded one: walked only while files are still being counted
-    entries = 0
-    truncated = False
-    counting = tally is not None
-    files_n = count_entries = 0
-
-    def stop():
-        return entries >= MAX_NEVER_OPEN_COUNT or (deadline is not None and entries % DEADLINE_TICK == 0 and time.monotonic() > deadline)
-    for dirpath, dirs, files in os.walk(path, followlinks=False, onerror=lambda e: None):
-        rel = "." if dirpath == path else dirpath[len(path) + 1:].replace(os.sep, "/")
-        if counting:  # count_files, step for step
-            files_n += len(files)
-            count_entries += len(files) + len(dirs) + 1
-            if files_n >= MAX_NEVER_OPEN_COUNT or count_entries >= MAX_NEVER_OPEN_COUNT or (deadline is not None and time.monotonic() > deadline):
-                tally["files"] = min(files_n, MAX_NEVER_OPEN_COUNT)
-                counting = False
-        if rel in below_seen:
-            below_seen.update(d if rel == "." else rel + "/" + d for d in dirs)
-        elif not truncated:
-            entries += 1
-            truncated = stop()
-            folders = set(dirs)
-            under_doc = rel in in_docs
-            for f in (dirs + files) if not truncated else ():
-                entries += 1
-                if stop():
-                    truncated = True
-                    break
-                inner = f if rel == "." else rel + "/" + f
-                parent = name if rel == "." else rel.rsplit("/", 1)[-1]
-                folder = f in folders
-                if inner in seen:
-                    continue
-                if folder and (under_doc or (NEVER_OPEN_MCP_NAME_RE.search(f) and parent.lower() in MCP_DOC_PARENTS)):
-                    in_docs.add(inner)  # walked, not named: what decides is a config-shaped file inside
-                elif NEVER_OPEN_MCP_NAME_RE.search(f) and not (not folder and MCP_DOC_FILE_RE.search(f)) and not under_doc:
-                    found.append(inner)
-                    seen.add(inner)
-                elif under_doc and not folder and MCP_CONFIG_FILE_RE.search(f):
-                    found.append(inner)  # a config inside an mcp-named instructions folder
-                    seen.add(inner)
-            below_seen.update(inner for inner in (d if rel == "." else rel + "/" + d for d in dirs) if inner in seen)
-        if truncated and not counting:
-            break
-        if not counting:
-            dirs[:] = [d for d in dirs if (d if rel == "." else rel + "/" + d) not in below_seen]  # pre-seeded or reported
-    if counting:
-        tally["files"] = files_n
-    return McpScan(found, truncated)
+class OverlayTimeout(Exception):
+    """The overlay's time ran out between files."""
 
 
-def _lexists_inside(path, inner):
-    """Whether path/inner exists without following a symlink at any step, so a linked folder cannot make the
-    scanner look outside the app."""
-    for part in inner.split("/")[:-1]:
-        path = os.path.join(path, part)
-        if os.path.islink(path) or not os.path.isdir(path):
-            return False
-    return os.path.lexists(os.path.join(path, inner.split("/")[-1]))
+# ------------------------------------------------------------------ findings
 
+class Overlay(object):
+    """What the overlay found: rows per question (each with its effect and source), gaps, and how the pass ended.
+    tick() is the in-file deadline check, on the real monotonic clock like 0.3.2's ScanState.tick."""
 
-def open_regular(path):
-    """Open without following symlinks; reject anything that is not a plain single-link file."""
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NONBLOCK", 0)
-    try:
-        fd = os.open(path, flags)
-    except OSError:
-        return None
-    try:
-        st = os.fstat(fd)
-    except OSError:
-        os.close(fd)
-        return None
-    if not stat.S_ISREG(st.st_mode) or st.st_nlink > 1:
-        os.close(fd)
-        return None
-    return fd, st.st_size
+    def __init__(self, deadline):
+        self.deadline = deadline
+        self.ticks = 0
+        self.rows = dict((q, []) for q in QS)
+        self.more = dict((q, 0) for q in QS)  # rows past the per-question cap: counted, not kept
+        self.gaps = dict((q, 0) for q in QS)
+        self.keys = set()
+        self.tables = {}  # public table -> (path, line), only tables 0.3.2 did not register
+        self.rls_enabled = set()
+        self.rule_files = 0
+        self.status = "finished"
+        self.stopped_by = None  # "clock" (between files) or "tick" (inside a file), for the tests
+        self.named = {}  # rows per name-only check: five name the files, the gap counts every one
 
+    @property
+    def finished(self):
+        return self.status == "finished"
 
-def read_bytes(fd, size):
-    chunks = []
-    remaining = size
-    while remaining > 0:
-        chunk = os.read(fd, min(remaining, 1 << 20))
-        if not chunk:
-            break
-        chunks.append(chunk)
-        remaining -= len(chunk)
-    return b"".join(chunks)
+    def tick(self):
+        self.ticks += 1
+        if self.ticks % release.DEADLINE_TICK == 0 and time.monotonic() > self.deadline:
+            self.stopped_by = "tick"
+            raise release.Deadline()
 
-
-def decode_text(data):
-    """Return decoded text, or None when the file looks binary."""
-    if data.startswith(b"\xff\xfe\x00\x00") or data.startswith(b"\x00\x00\xfe\xff"):
-        return data.decode("utf-32", errors="replace")
-    if data.startswith(b"\xff\xfe") or data.startswith(b"\xfe\xff"):
-        return data.decode("utf-16", errors="replace")
-    head = data[:BINARY_SNIFF_BYTES]
-    if b"\x00" in head:
-        half = len(head) // 2
-        if half >= 8:
-            odd = head[1::2].count(0)
-            even = head[0::2].count(0)
-            if odd >= half * 0.6 and even <= half * 0.05:
-                return data.decode("utf-16-le", errors="replace")  # UTF-16 without a BOM (Windows editors)
-            if even >= half * 0.6 and odd <= half * 0.05:
-                return data.decode("utf-16-be", errors="replace")
-        return None
-    return data.decode("utf-8-sig", errors="replace")
-
-
-def classify(rel, base, ext, text):
-    segments = rel.split("/")
-    dirs = segments[:-1]
-    lower_dirs = [d.lower() for d in dirs]
-    app_dirs = lower_dirs[1:] if lower_dirs and lower_dirs[0] == "src" else lower_dirs
-    top = app_dirs[0] if app_dirs else ""
-    kinds = set()
-    b = base.lower()
-    if is_env_file(b) or ((b.startswith(".env") or b.endswith(".env")) and is_env_template(b)):  # defaults_store.tsx is source, not a template
-        kinds.add("env-template" if is_env_template(b) else "env")
-    if b in (".mcp.json", "mcp.json", "mcp_config.json"):
-        kinds.add("mcp")
-    if ext in SQL_LIKE_EXTS:
-        kinds.add("sql")
-    if b.endswith(".rules") or b == "database.rules.json":
-        kinds.add("rules")
-    if b == "config.toml" and lower_dirs and lower_dirs[-1] == "supabase":
-        kinds.add("supabase-config")
-    if b in MANIFEST_BASENAMES:
-        kinds.add("manifest")
-    if ext in CODE_EXTS:
-        kinds.add("code")
-    if ext in SCHEMA_EXTS or b in ("models.py", "schema.rb", "schema.ts", "schema.py", "schema.sql"):
-        kinds.add("schema")
-    if ext == ".toml":
-        kinds.add("toml")
-    if ext == ".json":
-        kinds.add("json")
-    if ext in (".yml", ".yaml"):
-        kinds.add("yaml")
-        if len(lower_dirs) >= 2 and lower_dirs[0] == ".github" and lower_dirs[1] == "workflows":
-            kinds.add("workflow")
-    if not dirs and b.startswith("readme"):
-        kinds.add("readme")
-    if ext in HTML_EXTS:
-        kinds.add("html")
-    cls = "other"
-    # "api" is server code at the repository root (serverless functions) or under pages/app (Next);
-    # src/api/ in a Vite or CRA app is usually the browser's fetch wrapper, so it stays client
-    api_server = bool(lower_dirs) and (lower_dirs[0] in ("api", "server", "functions", "workers") or
-                                       (bool(app_dirs) and app_dirs[0] in ("server", "functions", "workers")) or
-                                       (len(app_dirs) >= 2 and app_dirs[0] in ("pages", "app", "netlify", "supabase") and app_dirs[1] in ("api", "functions")))
-    if api_server or "server" in lower_dirs or SERVER_FILE_RE.search(base):
-        cls = "server"
-    elif ("env" in kinds or "env-template" in kinds) and top not in ("public", "static"):
-        cls = "other"
-    else:
-        use_client = bool(USE_CLIENT_RE.search(text[:500]))
-        client_import = bool(CLIENT_IMPORT_RE.search(text)) and not SERVER_ONLY_IMPORT_RE.search(text)
-        native_import = bool(RN_IMPORT_RE.search(text))
-        angular_import = bool(ANGULAR_IMPORT_RE.search(text))
-        if any(d in NEUTRAL_SEGMENTS for d in lower_dirs):
-            cls = "client" if (use_client or client_import or native_import) else "other"
-        elif top == "app":
-            cls = "client" if (use_client or native_import or angular_import) else "other"
-        elif top == "pages":
-            cls = "other" if PAGES_DATA_FN_RE.search(text) else "client"
-        elif top in CLIENT_TOP_DIRS or (lower_dirs and lower_dirs[0] == "src") or ext in (".vue", ".svelte", ".html", ".htm") or use_client or client_import or native_import:
-            cls = "client"
-    return cls, kinds
-
-
-# ---------------------------------------------------------------- detectors
-
-def _cap(counter, check):
-    counter[check] = counter.get(check, 0) + 1
-    return counter[check] <= MAX_HITS_PER_FILE_PER_CHECK
-
-
-def detect_browser_prefix(sf, state, opts, claimed):
-    text = sf.text
-    counter = {}
-    is_env = "env" in sf.kinds or "env-template" in sf.kinds
-    name_only = is_env or "yaml" in sf.kinds or "toml" in sf.kinds  # unquoted neighbours (passphrases) cannot be masked
-    is_test = bool(TEST_PATH_RE.search(sf.rel))
-    for m in opts.browser_assign_re.finditer(text):
-        name, value = m.group("name"), _strip_scheme(m.group("value").rstrip("."))
-        value_start = m.end("value") - len(value)
-        if len(value) > MAX_VALUE_CHARS:
-            state.gaps["q1"] += 1  # too long to judge: a browser-prefixed value the scanner did not look at
-            continue  # not judged here, so its span stays open for the key-literal pass
-        claimed.append((value_start, value_start + len(value)))
-        named = bool(NAMED_KEY_FULL_RE.match(value))
-        jwt = is_jwt(value)
-        generic = is_generic_token(value)
-        public = bool(PUBLIC_PREFIX_RE.match(value))
-        if not (named or jwt or generic or public):
-            continue
-        state.tick()
-        if is_placeholder(value, jwt):
-            check = "placeholder-key-literal"
-        elif is_test and (named or jwt or generic):
-            check = "test-path-key-literal"
-        elif IDENT_SENSITIVE_RE.search(name) and (named or jwt or generic):
-            check = "browser-prefix-service-or-secret-name"
-        elif named:
-            check = "client-test-mode-key" if TEST_MODE_KEY_RE.match(value) else "browser-prefix-named-key"
-        elif jwt:
-            role = decode_jwt_role(value)
-            if role == "service_role":
-                check = "browser-prefix-privileged-jwt"
-            elif role == "anon":
-                check = "browser-prefix-anon-jwt"
-            elif role == "authenticated":
-                check = "browser-prefix-authenticated-jwt"
-            else:
-                check = "browser-prefix-unknown-role-jwt"
-        elif public:
-            check = "browser-prefix-service-or-secret-name" if MODEL_PROVIDER_RE.search(name) else "browser-prefix-public-key"  # a Google key named for an AI provider is billable, not a web config
-        else:
-            check = "browser-prefix-token-shaped"
-        if not _cap(counter, check):
-            continue
-        line = line_of(text, m.start())
-        snippet = name if name_only else make_snippet(text, m.start(), m.end())
-        state.add(check, sf.rel, line, snippet)
-
-
-def detect_key_literals(sf, state, opts, claimed):
-    text = sf.text
-    counter = {}
-    is_env = "env" in sf.kinds or "env-template" in sf.kinds
-    name_only = is_env or "yaml" in sf.kinds or "toml" in sf.kinds  # unquoted neighbours (passphrases) cannot be masked
-    is_test = bool(TEST_PATH_RE.search(sf.rel))
-
-    starts = [c[0] for c in claimed]
-
-    def overlaps(a, b):
-        i = bisect.bisect_right(starts, a) - 1
-        if i >= 0 and claimed[i][1] > a:
-            return True
-        if i + 1 < len(claimed) and claimed[i + 1][0] < b:
-            return True
-        return False
-
-    hits = []
-    for m in NAMED_KEY_RE.finditer(text):
-        hits.append((m.start(), m.end(), "named", None))
-    for start, end in find_jwts(text):
-        hits.append((start, end, "jwt", None))
-    for m in IDENT_ASSIGN_TOKEN_RE.finditer(text):
-        value = m.group("value")
-        if len(value) > MAX_VALUE_CHARS:
-            if IDENT_SENSITIVE_RE.search(m.group("ident")) or IDENT_KEYISH_RE.search(m.group("ident")):
-                state.gaps["q1"] += 1  # a key-shaped name over a value too long to judge; an image's base64 is not
-            continue
-        if NAMED_KEY_FULL_RE.match(value) or is_jwt(value):
-            continue
-        classes_needed = 2 if IDENT_SENSITIVE_RE.search(m.group("ident")) else 3  # a hex secret under apiSecret still counts
-        if not is_generic_token(value.rstrip("."), classes_needed):
-            continue
-        hits.append((m.start("value"), m.end("value"), "generic", m.group("ident")))
-    hits.sort(key=lambda h: (h[0], h[1]))
-    jwt_seen = 0
-    for start, end, kind, ident in hits:
-        if overlaps(start, end):
-            continue
-        if kind == "jwt":
-            jwt_seen += 1
-            if jwt_seen > MAX_JWT_HITS_PER_FILE and counter.get("client-privileged-jwt", 0) >= MAX_HITS_PER_FILE_PER_CHECK \
-                    and counter.get("client-secret-name-token", 0) >= MAX_HITS_PER_FILE_PER_CHECK:
-                continue  # only once the decisive JWT checks are themselves capped is more decoding pointless
-        state.tick()
-        value = text[start:end]
-        check = None
-        if kind == "generic":
-            if not (IDENT_SENSITIVE_RE.search(ident) or IDENT_KEYISH_RE.search(ident)):
+    def add(self, check, path, line, snippet, effect="caution", source="names", gap=False, questions=None):
+        if questions is None:
+            questions = OVERLAY_CHECKS[check] if check in OVERLAY_CHECKS else (release.CHECKS[check][0],)
+        row = {"path": release.sanitize_path(path), "line": int(line), "snippet": release.sanitize(snippet), "check": check}
+        for q in questions:
+            if q not in self.rows:
                 continue
-        if is_placeholder(value, kind == "jwt"):
-            check = "placeholder-key-literal"
-        elif is_test:
-            check = "test-path-key-literal"
-        elif sf.cls == "server":
-            check = "server-path-key-literal"
-        elif sf.cls == "other":
-            check = "non-client-key-literal"
-        elif kind == "named":
-            check = "client-test-mode-key" if TEST_MODE_KEY_RE.match(value) else "client-key-literal"
-        elif kind == "jwt":
-            role = decode_jwt_role(value)
-            im = IDENT_BEFORE_RE.search(text[_line_start(text, start):start])
-            if role == "service_role":
-                check = "client-privileged-jwt"
-            elif im and IDENT_SENSITIVE_RE.search(im.group(1)):
-                check = "client-secret-name-token"
-            elif role == "anon":
-                check = "client-anon-jwt"
-            elif role == "authenticated":
-                check = "client-authenticated-jwt"
-            else:
-                check = "client-unknown-role-jwt"
-        else:
-            if IDENT_SENSITIVE_RE.search(ident):
-                check = "client-secret-ident-token"
-            else:
-                check = "client-keyish-ident-token"
-        if not check or not _cap(counter, check):
-            continue
-        line = line_of(text, start)
-        if name_only:
-            lstart = _line_start(text, start)
-            snippet = re.split(r"[=:\s]", text[lstart:start].strip(), 1)[0][:60]
-        else:
-            snippet = make_snippet(text, start, end)
-        state.add(check, sf.rel, line, snippet)
-
-
-KEY_FILE_EXTS = {".key", ".p8", ".p12", ".pfx", ".ppk", ".jks", ".keystore"}
-KEY_FILE_NAMES = {"id_rsa", "id_dsa", "id_ecdsa", "id_ed25519"}
-
-
-RAILS_MASTER_KEY_RE = re.compile(r"^[0-9a-f]{32}\s*$")
-
-
-def is_key_file(base, ext, data):
-    if base.lower() == "debug.keystore":
-        return False  # the React Native / Android template's debug key, password "android": public on purpose
-    if base.lower() in KEY_FILE_NAMES:
-        return True
-    if ext.lower() not in KEY_FILE_EXTS:
-        return False
-    return not data.startswith(b"PK\x03\x04")  # a Keynote deck is also .key, and it is a zip
-
-
-def detect_key_file(rel, base, state, confirmed=True):
-    """A committed key file whose text never says PRIVATE KEY: a PKCS#12 / JKS / DER key, a PuTTY .ppk,
-    or a Rails master.key. Only a confirmed key under public/ or static/ is a No; the rest is evidence."""
-    top = rel.split("/", 1)[0].lower()
-    check = "client-private-key" if confirmed and top in ("public", "static") else "private-key-block"
-    state.add(check, rel, 0, base)
-
-
-def detect_private_keys(sf, state, opts):
-    """A private key block anywhere Q1 reads. The snippet is the header only: the body is the secret."""
-    text = sf.text
-    counter = {}
-    is_test = bool(TEST_PATH_RE.search(sf.rel))
-    served = (sf.cls == "client" and _pred_code_or_env(sf)) or sf.rel.split("/", 1)[0].lower() in ("public", "static")
-    found = False
-    for m in PRIVATE_KEY_RE.finditer(text):
-        found = True
-        state.tick()
-        body = pem_body(text, m.end())
-        im = IDENT_BEFORE_RE.search(text[_line_start(text, m.start()):m.start()])
-        name = im.group(1) if im else ""
-        if not body or body[1] or len(set(body[0])) < MIN_PEM_BODY_DISTINCT:
-            # no key after the header ("your key here"), or filler such as XXXX: judge the body's shape, never
-            # its words, since a real random body can contain "xxx" or "your" by chance
-            check = "placeholder-key-literal"
-        elif is_test:
-            check = "test-path-key-literal"
-        elif name and name.startswith(opts.prefixes):
-            check = "browser-prefix-private-key"
-        elif served and PRIVATE_KEY_END_RE.search(text, m.end(), m.end() + PEM_WINDOW):
-            check = "client-private-key"  # a whole block: header, body and footer, where the browser can read it
-        else:
-            check = "private-key-block"
-        if _cap(counter, check):
-            state.add(check, sf.rel, line_of(text, m.start()), (name + " = " if name else "") + m.group(0))
-    if not found:
-        for m in PRIVATE_KEY_END_RE.finditer(text):  # "-----BEGIN PRIVATE" + " KEY-----": the footer still names it
-            check = "test-path-key-literal" if is_test else "client-private-key" if served else "private-key-block"
-            if _cap(counter, check):
-                state.add(check, sf.rel, line_of(text, m.start()), m.group(0))
-            break
-
-
-def _mcp_check_for(key):
-    """A generic token under an auth-shaped key is decisive; under any other key it is evidence."""
-    lk = key.lower()
-    if IDENT_SENSITIVE_RE.search(key) or IDENT_KEYISH_RE.search(key) or lk in ("authorization", "password", "auth"):
-        return "mcp-token"
-    return "mcp-token-shaped"
-
-
-def _strip_scheme(value):
-    """`Bearer <token>` / `Basic <token>` / `token <token>`: judge the credential, not the header."""
-    parts = value.split()
-    if len(parts) == 2 and re.match(r"^[A-Za-z][A-Za-z-]{1,20}$", parts[0]):
-        return parts[1]  # `Bearer <token>`, `ApiKey <token>`, `token <token>`: judge the credential
-    return value
-
-
-def detect_mcp(sf, state, opts):
-    text = sf.text
-    if len(text) > MCP_MAX_CHARS:
-        state.stats["mcp_capped"] += 1
-        state.gaps["q1"] += 1
-        state.partial = True
-        return
-    counter = {}
-    try:
-        data = json.loads(text)
-    except (ValueError, RecursionError):
-        data = None
-    if data is None:
-        for m in NAMED_KEY_RE.finditer(text):
-            if _cap(counter, "mcp-token"):
-                state.add("mcp-token", sf.rel, line_of(text, m.start()), make_snippet(text, m.start(), m.end()))
-        for start, end in find_jwts(text):
-            if _cap(counter, "mcp-token"):
-                state.add("mcp-token", sf.rel, line_of(text, start), make_snippet(text, start, end))
-        for m in MCP_PAIR_RE.finditer(text):  # JSONC / trailing commas: still read "key": "value" pairs
-            state.tick()
-            key, value = m.group(1), _strip_scheme(m.group(2))
-            if NAMED_KEY_RE.search(value) or any(True for _ in find_jwts(value)) or not is_generic_token(value):
+            if gap:
+                self.gaps[q] += 1
+            key = (q, check, row["path"], row["line"], row["snippet"])
+            if key in self.keys:
                 continue
-            check = _mcp_check_for(key)
-            if _cap(counter, check):
-                state.add(check, sf.rel, line_of(text, m.start()), key)
-        return
-    stack = [("", data, 0)]
-    nodes = 0
-    while stack:
-        key, node, depth = stack.pop()
-        nodes += 1
-        if nodes > MCP_MAX_NODES or depth > MCP_MAX_DEPTH:
-            state.gaps["q1"] += 1
-            state.partial = True
-            state.stats["mcp_capped"] += 1
-            break
-        if isinstance(node, dict):
-            for k, v in node.items():
-                stack.append((str(k), v, depth + 1))
-        elif isinstance(node, list):
-            for v in node:
-                stack.append((key, v, depth + 1))
-        elif isinstance(node, str):
-            value = node
-            if len(value) > MAX_VALUE_CHARS:
-                state.gaps["q1"] += 1
-                continue
-            if NAMED_KEY_RE.search(value) or any(True for _ in find_jwts(value)):
-                check = "mcp-token"
-            elif is_generic_token(_strip_scheme(value)):
-                check = _mcp_check_for(key)
+            self.keys.add(key)
+            if len(self.rows[q]) < 2 * release.MAX_EVIDENCE:
+                self.rows[q].append(dict(row, _effect=effect, _source=source))
             else:
-                continue
-            if _cap(counter, check):
-                state.add(check, sf.rel, 0, key)
+                self.more[q] += 1
+
+    def gap(self, check, path, line=0, snippet="", questions=None):
+        """A thing the overlay could not look at: a named row, so no gap shows as a bare summary row. Name-only
+        checks (an agent folder's configs, unparsed manifests) name five files per scan; the gap counts all."""
+        if check in CAPPED_PER_SCAN:
+            self.named[check] = self.named.get(check, 0) + 1
+            if self.named[check] > release.MAX_HITS_PER_FILE_PER_CHECK:
+                for q in (questions or OVERLAY_CHECKS[check]):
+                    self.gaps[q] += 1
+                return
+        self.add(check, path, line, snippet, gap=True, questions=questions)
 
 
-def _finditer_lines(regex, text, sf, state, check, counter, snippet_fn=None):
-    for m in regex.finditer(text):
-        state.tick()
-        if not _cap(counter, check):
-            break
-        snippet = snippet_fn(m) if snippet_fn else make_snippet(text, m.start(), m.end())
-        state.add(check, sf.rel, line_of(text, m.start()), snippet)
+class OverlayFile(object):
+    __slots__ = ("rel", "base", "ext", "text", "_lex")
+
+    def __init__(self, rel, base, ext, text):
+        self.rel, self.base, self.ext, self.text = rel, base, ext, text
+        self._lex = None
+
+    def sql_lex(self):
+        if self._lex is None:
+            self._lex = _lex_sql(self.text)
+        return self._lex
 
 
 def _clause(m):
-    return m.group(0)[:MAX_SNIPPET]
+    return m.group(0)[:release.MAX_SNIPPET]
 
 
-def detect_sql(sf, state, opts):
-    counter = {}
-    text, code, bare, unclosed = sf.sql_lex()  # same offsets: text keeps strings, code has none, bare no names either
-    release = sf.release_view()  # what 0.3.2 read, at the same offsets
-    # the floor: 0.3.2's whole SQL reader over 0.3.2's view, so every row and every table 0.3.2 gave is given
-    # again exactly as it was (its caps included). Only its RLS credit is left out: that is a good signal, so it
-    # is capped below at what both readings agree on, never widened
-    release_no = _detect_sql_release(sf, state, opts, release, credit=False)
-    if unclosed:
-        state.gaps["q3"] += 1  # a quote that never closes: what follows it could not be read as code
-    closes, budget = None, {"left": len(text) + MAX_PREDICATE_CHARS}
-    for m in RLS_DISABLED_RE.finditer(text):
-        state.tick()
-        if m.start() in release_no:
-            continue  # 0.3.2's own No is already there; a second row on the same line would only repeat it
-        check = _unconfirmed(_decisive_or_string(m, bare, release, "rls-disabled"))
-        if _cap(counter, check):
-            state.add(check, sf.rel, line_of(text, m.start()), _clause(m))
-    for m in USING_TRUE_RE.finditer(text):
-        state.tick()
-        if m.start() in release_no:
-            continue
-        # a public-read policy (`for select using (true)`) is a design choice the by-hand test decides; anything
-        # else this reading finds is evidence, never a new No (`_unconfirmed`). `bare` already has strings,
-        # comments and quoted names blanked, so the FOR clause is read without a rewrite per match
-        window = bare[max(0, m.start() - 2000):m.start()].lower()
-        check = _policy_kind(window, POLICY_SELECT_RE)  # an altered policy may well be read-only: the by-hand test decides
-        rec = {}
-        if not RELEASE_USING_TRUE_RE.match(text, m.start()):
-            if closes is None:
-                closes = _paren_closes(bare)  # only when a group needs reading; parens in strings do not count
-            if not _sql_predicate_open(bare, m.start(), closes, budget, rec):
-                check = "policy-true-unevaluated"  # beyond 0.3.2's pattern and not provably open: evidence only
-        check = _unconfirmed(_decisive_or_string(m, bare, release, check))
-        if _cap(counter, check):
-            nested = check == "policy-true-unevaluated" and rec.get("exhausted")
-            state.add(check, sf.rel, line_of(text, m.start()), NESTED_DETAIL % rec["chars"] if nested else _clause(m))
-    _finditer_lines(WITH_CHECK_TRUE_RE, text, sf, state, "policy-with-check-true", counter, _clause)
-    _finditer_lines(POLICY_TO_ANON_RE, text, sf, state, "policy-to-anon", counter, _clause)
-    _finditer_lines(STORAGE_BUCKET_TRUE_RE, text, sf, state, "storage-bucket-public-sql", counter, _clause)
-    _finditer_lines(CRON_SQL_RE, text, sf, state, "cron-schedule", counter, _clause)
-    pos = 0
-    line = 1
-    for n, m in enumerate(CREATE_TABLE_RE.finditer(text)):
-        if n >= MAX_TABLE_MATCHES_PER_FILE:
-            state.gaps["q3"] += 1  # a table past the cap was not looked at, so Q3 cannot claim "nothing found"
+def _finditer_rows(regex, text, sf, ov, check, counter):
+    for m in regex.finditer(text):
+        ov.tick()
+        if not release._cap(counter, check):
             break
-        state.tick()
-        line += text.count("\n", pos, m.start())
-        pos = m.start()
-        name = _public_table(m.group(1))
-        if name and name not in state.tables:
-            if len(state.tables) < MAX_SEEN:
-                state.tables[name] = (sf.rel, line)
-            else:
-                state.gaps["q3"] += 1
-    enabled_at = {}  # public table -> offset of its last `enable row level security` in this file
-    if next(itertools.islice(RELEASE_ENABLE_RLS_RE.finditer(release), MAX_TABLE_MATCHES_PER_FILE, None), None):
-        state.gaps["q3"] += 1  # 0.3.2 read more enables than its cap here (strings included) and withheld Q3; so do we
-    for n, m in enumerate(ENABLE_RLS_RE.finditer(code)):
-        if n >= MAX_TABLE_MATCHES_PER_FILE:
-            state.gaps["q3"] += 1
-            break
-        state.tick()
-        if bare[m.start():m.start(1)] != code[m.start():m.start(1)] or bare[m.end(1):m.end()] != code[m.end(1):m.end()]:
-            continue  # `create index "alter table t enable row level security"` names an index; it enables nothing
-        name = _public_table(m.group(1))
-        # the ceiling: credit an enable only where 0.3.2 read the same one, so no answer is softer than the release's
-        # (0.3.2 cut lines at a `--` inside a string and capped whitespace; a looser read here would clear its gaps)
-        rm = RELEASE_ENABLE_RLS_RE.match(release, m.start())
-        if name and rm and _public_table(rm.group(1)) == name:
-            enabled_at[name] = m.start()
-            if len(state.rls_enabled) < MAX_SEEN:
-                state.rls_enabled.add(name)
-            else:
-                state.gaps["q3"] += 1
-    for n, m in enumerate(DROP_TABLE_RE.finditer(text)):
-        if n >= MAX_TABLE_MATCHES_PER_FILE:
-            state.gaps["q3"] += 1
-            break
-        state.tick()
-        parts = m.group(1).split(",")
-        if len(m.group(1)) >= MAX_DROP_LIST_CHARS or len(parts) > MAX_TABLE_MATCHES_PER_FILE:
-            state.gaps["q3"] += 1  # a drop list too long to read whole: a table past the cut was not looked at
-        for part in parts[:MAX_TABLE_MATCHES_PER_FILE]:
-            t = DROP_ITEM_RE.match(part)
-            name = _public_table(t.group(1)) if t else None
-            # a table dropped and made again loses its RLS; unless this file turns it back on afterwards, migration
-            # order across files decides, and the scanner does not replay migrations
-            if name and enabled_at.get(name, -1) < m.start():
-                state.gaps["q3"] += 1
-    counter_views = {}
-    for m in CREATE_VIEW_RE.finditer(text):
-        state.tick()
-        name = _public_table(m.group(2))
-        # a view runs as its owner and skips the table's RLS unless security_invoker is set; a materialized view has no RLS at all
-        head = VIEW_AS_RE.split(m.group(3), 1)[0]
-        options = " ".join(w.group(1) + ")" for w in VIEW_WITH_RE.finditer(head))  # only `with (…)`: a column list or alias named security_invoker is not an option
-        if name and (m.group(1) or not SAFE_INVOKER_RE.search(options)) and _cap(counter_views, "public-view"):
-            state.add("public-view", sf.rel, line_of(text, m.start()), name)
+        ov.add(check, sf.rel, release.line_of(text, m.start()), _clause(m), source="sql")
 
-
-def _public_table(raw):
-    """`public.profiles`, `"Notes"`, `profiles` -> the name Postgres stores; tables in other schemas -> None.
-
-    Each part folds on its own: unquoted to lower case, quoted kept exactly (`"public".Profiles` is `profiles`)."""
-    parts = []
-    for p in TABLE_PART_RE.findall(raw):
-        parts.append(p[1:-1] if len(p) >= 2 and p[0] == p[-1] == '"' else p.lower())
-    if len(parts) == 2:
-        if parts[0] != "public":
-            return None
-        parts = parts[1:]
-    return parts[0] or None
-
-
-QUOTED_SQL_RE = re.compile(r"\"[^\"\n]*\"|'[^'\n]*'")  # identifiers and strings never name a FOR clause
-MCP_PAIR_RE = re.compile(r'"([^"\n]{1,80})"[ \t]*:[ \t]*"([^"\n]{32,8192})"')
-
-
-def _blank_block_comments(text):
-    """Blank /* ... */ comments with a linear find loop (a lazy regex is quadratic on unclosed openers).
-
-    Newlines are kept so line numbers hold; an unclosed opener leaves the rest visible, so a decisive
-    line can never be hidden behind a comment that never ends.
-    """
-    out = []
-    i = 0
-    while True:
-        j = text.find("/*", i)
-        if j < 0:
-            out.append(text[i:])
-            break
-        k = text.find("*/", j + 2)
-        if k < 0:
-            out.append(text[i:])
-            break
-        out.append(text[i:j])
-        out.append(re.sub(r"[^\n]", " ", text[j:k + 2]))
-        i = k + 2
-    return "".join(out)
-
-
-def _sql_predicate_open(text, start, closes, budget, rec_budget=None):
-    """Whether the `using (…)` group that starts at `start` is open: `true`, `true or …`, `(true)::bool`, read
-    with the same top-level ||/&& rule as a Firebase condition. A group that does not close within
-    MAX_PREDICATE_CHARS is not open. `closes` maps each '(' in the file to its ')' (one pass per file), and
-    `budget` caps the characters read across the file, so overlapping groups cannot multiply the work; rec_budget
-    caps the recursion inside this one group (see `_rec_budget`). `text` is the file with strings, comments and quoted
-    names blanked at the same offsets, so `or true` inside a string is never an operand."""
-    open_at = text.find("(", start)
-    close = closes.get(open_at)
-    if close is None or close - open_at >= MAX_PREDICATE_CHARS or budget["left"] < close - open_at:
-        return False
-    budget["left"] -= close - open_at
-    expr = SQL_BOOL_CAST_RE.sub("", text[open_at:close + 1].lower()).replace("||", "+")  # SQL || joins strings, it is not OR
-    expr = SQL_OR_RE.sub("||", SQL_AND_RE.sub("&&", expr))
-    return _firebase_open(re.sub(r"\s+", "", expr), 0, rec_budget)
-
-
-def _paren_closes(text):
-    """Each '(' offset mapped to the offset of the ')' that brings the level back down: one pass, linear."""
-    closes, stack = {}, []
-    for m in PAREN_RE.finditer(text):
-        if m.group(0) == "(":
-            stack.append(m.start())
-        elif stack:
-            closes[stack.pop()] = m.start()
-    return closes
-
-
-def _release_sql_view(text):
-    """The text 0.3.2's decisive checks read: block comments blanked, then `--` to the end of the line, strings ignored."""
-    return RELEASE_LINE_COMMENT_RE.sub(lambda m: " " * len(m.group(0)), _blank_block_comments(text))
-
-
-def _policy_kind(window, select_re):
-    """The FOR clause of the policy a `using (true)` belongs to, read from the quote-blanked text before it."""
-    cp = window.rfind("create policy")
-    ap = window.rfind("alter policy")
-    if ap > cp:
-        return "policy-altered-true"
-    if cp >= 0 and select_re.search(window[cp:]):
-        return "policy-select-true"
-    return "policy-using-true"
-
-
-def _unconfirmed(check):
-    """Every Q3 No comes from 0.3.2's own patterns (the floor). A rule this reading calls open beyond them is
-    evidence: it keeps Q3 off Nothing found and names the rule, but it is never a new No."""
-    return "open-rule-unconfirmed" if CHECKS[check][1] == "no" else check
-
-
-def _decisive_or_string(m, bare, release, check):
-    """Keep a decisive check only where the whole match is code in BOTH readings: this lexer's (`bare`: no string,
-    comment or quoted name) and 0.3.2's (`release`: no comment as 0.3.2 cut them). Where the two disagree about
-    where a comment or string ends (a `$` inside a name, nested `/* */`, COPY data with an apostrophe), the match is
-    evidence, never a new No. Every No 0.3.2 gave comes back through the floor (`_detect_sql_release`)."""
-    g = m.group(0)
-    s, e = m.start(), m.end()
-    return check if bare[s:e] == g and release[s:e] == g else "open-rule-in-string"
-
-
-NOT_NEWLINE_RE = re.compile(r"[^\n]")
-
+# ------------------------------------------------------------------ SQL
 
 def _blank(chunk):
     return NOT_NEWLINE_RE.sub(" ", chunk) if "\n" in chunk else " " * len(chunk)
 
 
-def _lex_sql(text, depth=0):
+def _lex_sql(text, depth=0, tick=None):
     """Read SQL once, left to right, taking whichever of `--`, `/* */`, a quoted identifier, '…', E'…' or
     $tag$…$tag$ comes first. Returns (no_comments, code, bare, unclosed), every copy at the same offsets as
-    `text`: `no_comments` keeps strings, `code` blanks them, `bare` also blanks quoted identifiers, so this
-    reading never adds a No inside a name (0.3.2's own No there is kept by the floor). A DO block's body runs, so
-    it is lexed in place and the scan resumes after its closing tag; a function body only runs when called, so it
-    is a string.
-
-    Good signals (RLS turned on, a rule file read) are read from `code`. Bad ones are found in `no_comments` and
-    are decisive only where `_decisive_or_string` finds them in `bare` and in 0.3.2's view. An
-    unclosed quote or dollar tag blanks the rest of `code` (so nothing after it earns credit) and sets
-    `unclosed`, which the caller counts as a gap. An unclosed /* stays visible, so no decisive line can hide
-    behind a comment that never ends."""
+    `text`: `no_comments` keeps strings, `code` blanks them, `bare` also blanks quoted identifiers. A DO block's
+    body runs, so it is lexed in place; a function body only runs when called, so it is a string. An unclosed
+    quote or dollar tag blanks the rest of `code` and sets `unclosed`; an unclosed /* stays visible."""
     nc, code, bare = [], [], []
     pos = 0
     n = len(text)
@@ -1521,6 +324,8 @@ def _lex_sql(text, depth=0):
         bare.append(in_bare)
 
     while pos < n:
+        if tick is not None:
+            tick()
         m = SQL_LEX_OPENER_RE.search(text, pos)
         if not m:
             break
@@ -1552,13 +357,13 @@ def _lex_sql(text, depth=0):
                     pos = m.end()
                     continue
                 name = text[m.start():stop]
-                emit(name, name, _blank(name))  # names stay in code: pg_dump quotes every table it enables RLS on
+                emit(name, name, _blank(name))
         elif tok.startswith("$"):
             close = text.find(tok, m.end())
             if close >= 0:
                 stop = close + len(tok)
                 if depth < MAX_DO_NESTING and DO_BEFORE_RE.search(text, max(0, m.start() - 40), m.start()):
-                    inner_nc, inner_code, inner_bare, inner_unclosed = _lex_sql(text[m.end():close], depth + 1)
+                    inner_nc, inner_code, inner_bare, inner_unclosed = _lex_sql(text[m.end():close], depth + 1, tick)
                     unclosed = unclosed or inner_unclosed
                     emit(tok + inner_nc + tok, tok + inner_code + tok, tok + inner_bare + tok)
                 else:
@@ -1585,30 +390,138 @@ def _lex_sql(text, depth=0):
     return "".join(nc), "".join(code), "".join(bare), unclosed
 
 
-def _strip_slash_comments(text):
-    text = _blank_block_comments(text)
-    return SLASH_COMMENT_RE.sub(lambda m: " " * len(m.group(0)), text)
+def _paren_closes(text):
+    """Each '(' offset mapped to the offset of the ')' that brings the level back down: one pass, linear."""
+    closes, stack = {}, []
+    for m in PAREN_RE.finditer(text):
+        if m.group(0) == "(":
+            stack.append(m.start())
+        elif stack:
+            closes[stack.pop()] = m.start()
+    return closes
 
 
-def _firebase_condition(cond, rec_budget=None):
-    """"open" when the condition is `true`, or has a top-level `||` operand that is `true` (`&&` binds tighter, so
-    `true || false && x` is open), with fully parenthesised groups read the same way (`(a || true)`); "unevaluated"
-    when `true` appears in anything else (`true && …`, `!(… || true)`, `x == (… || true)`, `f(… || true)`), which
-    is evidence and keeps Q3 off Nothing found; None when `true` is not there at all."""
-    if not TRUE_TOKEN_RE.search(cond):
-        return None
-    code = FIREBASE_STRING_RE.sub(lambda m: "_" * len(m.group(0)), cond)  # `||` or `true` inside a string is text
-    if '"' in code or "'" in code:
-        return "unevaluated"  # a quote that never closes: what follows it could not be read as code
-    if not TRUE_TOKEN_RE.search(code):
-        return None  # `true` only inside a string (`visibility == "true"`), as 0.3.2 read it
-    return "open" if _firebase_open(re.sub(r"\s+", "", code), 0, rec_budget) else "unevaluated"
+def _sql_predicate_open(text, start, closes, budget, rec_budget=None):
+    """Whether the `using (…)` group that starts at `start` is open: `true`, `true or …`, `(true)::bool`, read
+    with the same top-level ||/&& rule as a Firebase condition. A group that does not close within
+    MAX_PREDICATE_CHARS is not open; `budget` caps the characters read across the file. `text` is the file with
+    strings, comments and quoted names blanked, so `or true` inside a string is never an operand."""
+    open_at = text.find("(", start)
+    close = closes.get(open_at)
+    if close is None or close - open_at >= MAX_PREDICATE_CHARS or budget["left"] < close - open_at:
+        return False
+    budget["left"] -= close - open_at
+    expr = SQL_BOOL_CAST_RE.sub("", text[open_at:close + 1].lower()).replace("||", "+")  # SQL || joins strings, it is not OR
+    expr = SQL_OR_RE.sub("||", SQL_AND_RE.sub("&&", expr))
+    return _firebase_open(WHITESPACE_RE.sub("", expr), 0, rec_budget)
 
+
+def _policy_kind(low, lo, s):
+    """The FOR clause of the policy a `using (true)` at s belongs to, read from `low` (the ASCII-lowered,
+    quote-blanked file) between lo and s, by position: nothing is copied per match."""
+    cp = low.rfind("create policy", lo, s)
+    ap = low.rfind("alter policy", lo, s)
+    if ap > cp:
+        return "policy-altered-true"
+    if cp >= 0 and POLICY_SELECT_RE.search(low, cp, s):
+        return "policy-select-true"
+    return "policy-using-true"
+
+
+def _in_code(m, bare):
+    """The whole match is code: not inside a string, a comment or a quoted name."""
+    return bare[m.start():m.end()] == m.group(0)
+
+
+def _caution(check):
+    """Every Q3 No comes from 0.3.2. A rule the overlay calls open is evidence, never a new No."""
+    return "open-rule-unconfirmed" if release.CHECKS.get(check, ("", ""))[1] == "no" else check
+
+
+def detect_sql(sf, ov, rel_state):
+    counter = {}
+    text, code, bare, unclosed = _lex_sql(sf.text, tick=ov.tick)
+    if RULE_SQL_RE.search(code):
+        ov.rule_files += 1
+    if unclosed:
+        ov.gap("rules-not-read-whole", sf.rel, 0, "a quote or $tag$ that never closes")
+    low = bare.translate(ASCII_LOWER)
+    closes, budget = None, {"left": len(text) + MAX_PREDICATE_CHARS}
+    for m in RLS_DISABLED_RE.finditer(text):
+        ov.tick()
+        check = "open-rule-unconfirmed" if _in_code(m, bare) else "open-rule-in-string"
+        if release._cap(counter, check):
+            ov.add(check, sf.rel, release.line_of(text, m.start()), _clause(m), source="sql")
+    for m in USING_TRUE_RE.finditer(text):
+        ov.tick()
+        check = _policy_kind(low, max(0, m.start() - 2000), m.start())
+        rec = {}
+        if not release.USING_TRUE_RE.match(text, m.start()):
+            if closes is None:
+                closes = _paren_closes(bare)  # only when a group needs reading; parens in strings do not count
+            if not _sql_predicate_open(bare, m.start(), closes, budget, rec):
+                check = "policy-true-unevaluated"
+        check = _caution(check) if _in_code(m, bare) else "open-rule-in-string"
+        if release._cap(counter, check):
+            nested = check == "policy-true-unevaluated" and rec.get("exhausted")
+            ov.add(check, sf.rel, release.line_of(text, m.start()), NESTED_DETAIL % rec["chars"] if nested else _clause(m), source="sql")
+    _finditer_rows(WITH_CHECK_TRUE_RE, text, sf, ov, "policy-with-check-true", counter)
+    _finditer_rows(release.POLICY_TO_ANON_RE, text, sf, ov, "policy-to-anon", counter)
+    _finditer_rows(release.STORAGE_BUCKET_TRUE_RE, text, sf, ov, "storage-bucket-public-sql", counter)
+    _finditer_rows(release.CRON_SQL_RE, text, sf, ov, "cron-schedule", counter)
+    pos, line = 0, 1
+    for n, m in enumerate(CREATE_TABLE_RE.finditer(text)):
+        if n >= release.MAX_TABLE_MATCHES_PER_FILE:
+            ov.gap("rules-not-read-whole", sf.rel, 0, "more create table statements than the scanner reads")
+            break
+        ov.tick()
+        line += text.count("\n", pos, m.start())
+        pos = m.start()
+        name = release._public_table(m.group(1))
+        if name and name not in rel_state.tables and name not in ov.tables and len(ov.tables) < release.MAX_SEEN:
+            ov.tables[name] = (sf.rel, line)
+    enabled_at = {}  # public table -> offset of its last `enable row level security` in this file
+    for n, m in enumerate(ENABLE_RLS_RE.finditer(code)):
+        if n >= release.MAX_TABLE_MATCHES_PER_FILE:
+            ov.gap("rules-not-read-whole", sf.rel, 0, "more enable row level security statements than the scanner reads")
+            break
+        ov.tick()
+        if bare[m.start():m.start(1)] != code[m.start():m.start(1)] or bare[m.end(1):m.end()] != code[m.end(1):m.end()]:
+            continue  # `create index "alter table t enable row level security"` names an index; it enables nothing
+        name = release._public_table(m.group(1))
+        if name:
+            enabled_at[name] = m.start()
+            if len(ov.rls_enabled) < release.MAX_SEEN:
+                ov.rls_enabled.add(name)  # credit for the overlay's own tables only; 0.3.2's credit is its own
+    for n, m in enumerate(DROP_TABLE_RE.finditer(text)):
+        if n >= release.MAX_TABLE_MATCHES_PER_FILE:
+            ov.gap("rules-not-read-whole", sf.rel, 0, "more drop table statements than the scanner reads")
+            break
+        ov.tick()
+        parts = m.group(1).split(",")
+        if len(m.group(1)) >= MAX_DROP_LIST_CHARS or len(parts) > release.MAX_TABLE_MATCHES_PER_FILE:
+            ov.gap("rules-not-read-whole", sf.rel, release.line_of(text, m.start()), "a drop list too long to read whole")
+        for part in parts[:release.MAX_TABLE_MATCHES_PER_FILE]:
+            t = DROP_ITEM_RE.match(part)
+            name = release._public_table(t.group(1)) if t else None
+            # a table dropped and made again loses its RLS; unless this file turns it back on afterwards, migration
+            # order across files decides, and the scanner does not replay migrations
+            if name and enabled_at.get(name, -1) < m.start():
+                ov.gap("table-dropped", sf.rel, release.line_of(text, m.start()), name)
+    counter_views = {}
+    for m in CREATE_VIEW_RE.finditer(text):
+        ov.tick()
+        name = release._public_table(m.group(2))
+        # a view runs as its owner and skips the table's RLS unless security_invoker is set; a materialized view has no RLS at all
+        head = VIEW_AS_RE.split(m.group(3), 1)[0]
+        options = " ".join(w.group(1) + ")" for w in VIEW_WITH_RE.finditer(head))
+        if name and (m.group(1) or not SAFE_INVOKER_RE.search(options)) and release._cap(counter_views, "public-view"):
+            ov.add("public-view", sf.rel, release.line_of(text, m.start()), name, source="sql")
+
+# ------------------------------------------------------------------ Firebase rules
 
 def _rec_budget(rec_budget, expr):
-    """The recursion budget for one condition, in characters handed to `_firebase_open`: 4 x the condition + 200,
-    so ordinary nesting is read in full and deep nesting stays linear. Filled in here when the caller passes None
-    or {}; `chars` keeps the condition's length for the "nested too deeply" detail."""
+    """The recursion budget for one condition, in characters handed to `_firebase_open`: 4 x the condition + 200."""
     if rec_budget is None:
         rec_budget = {}
     if "left" not in rec_budget:
@@ -1618,7 +531,6 @@ def _rec_budget(rec_budget, expr):
 
 
 def _charge(rec_budget, n):
-    """Spend n characters of a recursion budget, checking first: False, with `exhausted` set, when fewer are left."""
     if rec_budget["left"] < n:
         rec_budget["exhausted"] = True
         return False
@@ -1626,9 +538,23 @@ def _charge(rec_budget, n):
     return True
 
 
+def _firebase_condition(cond, rec_budget=None):
+    """"open" when the condition is `true`, or has a top-level `||` operand that is `true`, with fully
+    parenthesised groups read the same way; "unevaluated" when `true` appears in anything else; None when
+    `true` is not there at all. Text inside a rules string is never an operand."""
+    if not TRUE_TOKEN_RE.search(cond):
+        return None
+    code = FIREBASE_STRING_RE.sub(lambda m: "_" * len(m.group(0)), cond)
+    if '"' in code or "'" in code:
+        return "unevaluated"  # a quote that never closes: what follows it could not be read as code
+    if not TRUE_TOKEN_RE.search(code):
+        return None  # `true` only inside a string (`visibility == "true"`)
+    return "open" if _firebase_open(WHITESPACE_RE.sub("", code), 0, rec_budget) else "unevaluated"
+
+
 def _firebase_open(expr, depth, rec_budget=None):
-    """Whether expr is open (see `_firebase_condition`). rec_budget: the condition's recursion budget, shared by
-    every call below this one; when it runs out the answer is "not open", never "open"."""
+    """Whether expr is open (see `_firebase_condition`). rec_budget is shared by every call below this one; when it
+    runs out the answer is "not open", never "open"."""
     rec_budget = _rec_budget(rec_budget, expr)
     if not _charge(rec_budget, len(expr)):
         return False
@@ -1652,13 +578,16 @@ def _firebase_open(expr, depth, rec_budget=None):
     parts.append(expr[last:])
     if len(parts) == 1:
         return False  # one operand that is not `true` itself: `true && x`, `!(…)`, `x == (…)`, `f(…)`
-    # cheapest operand first, so a short `|| true` is reached before a deep operand spends the budget
-    return any(_firebase_open(part, depth + 1, rec_budget) for part in sorted(parts, key=len))
+    # cheapest operand first, so a short `|| true` is reached before a deep operand spends the budget; ordered by
+    # length buckets, not a sort, so the work stays linear in the characters this call was charged for
+    buckets = {}
+    for part in parts:
+        buckets.setdefault(len(part), []).append(part)
+    return any(_firebase_open(part, depth + 1, rec_budget) for n in range(min(buckets), max(buckets) + 1) for part in buckets.get(n, ()))
 
 
 def _strip_outer_parens(expr):
-    """Drop the outer pairs that wrap the whole expression: `((a || b))` -> `a || b`, never `(a) || (b)`. A pair
-    is outer when the level stays above zero until the last character. Linear: the levels are counted once."""
+    """Drop the outer pairs that wrap the whole expression: `((a || b))` -> `a || b`, never `(a) || (b)`. Linear."""
     n = len(expr)
     k = 0
     while k < n - 1 - k and expr[k] == "(" and expr[n - 1 - k] == ")":
@@ -1670,8 +599,6 @@ def _strip_outer_parens(expr):
         level += c == "("
         level -= c == ")"
         levels.append(level)
-    # strip pair j (0-based) only if every inner level, once j pairs are gone, stays above zero before the end:
-    # min(levels[j .. n-2-j]) > j. The windows shrink as j grows, so their minimums are built from the inside out.
     lo, hi = k - 1, n - 1 - k
     window_min = min(levels[lo:hi]) if hi > lo else levels[lo]
     mins = [0] * k
@@ -1685,7 +612,7 @@ def _strip_outer_parens(expr):
 
 
 class _FirebaseIf(object):
-    """The parts of a FIREBASE_IF_RE match detect_rules reads: the rule head (group 1) and its condition (group 2)."""
+    """A rule head (group 1) and its condition (group 2), as detect_rules reads them."""
     __slots__ = ("text", "head", "end2")
 
     def __init__(self, text, head, end2):
@@ -1703,16 +630,16 @@ class _FirebaseIf(object):
         return self.text[self.start(g):self.end2]
 
 
-def _firebase_ifs(text):
-    """(FIREBASE_IF_RE matches, FIREBASE_IF_LONG_RE match count) for text, without reading up to 400 characters per
-    `allow`: a condition runs from the rule head to the first terminator after it (`;`, `}`, or a new line that
-    starts another allow or match), and FIREBASE_IF_RE takes it when that is at most 400 characters away, while
-    FIREBASE_IF_LONG_RE counts it when more than 400 condition characters follow. Each regex resumes after its own
-    last match, as finditer does, so a head inside a condition already taken is skipped by that regex alone."""
+def _firebase_ifs(text, tick=None):
+    """(conditions of at most MAX_FIREBASE_CONDITION characters, count of longer ones): a condition runs from the
+    rule head to the first terminator after it (`;`, `}`, or a new line that starts another allow or match).
+    Terminators are found once; each head finds its own with a bisect."""
     ends = [m.start() for m in FIREBASE_IF_END_RE.finditer(text)]
     found, long_n = [], 0
     next_if = next_long = 0
     for head in FIREBASE_IF_HEAD_RE.finditer(text):
+        if tick is not None:
+            tick()
         b = head.end()
         k = bisect.bisect_left(ends, b)
         e = ends[k] if k < len(ends) else None
@@ -1725,1284 +652,550 @@ def _firebase_ifs(text):
     return found, long_n
 
 
-def detect_rules(sf, state, opts):
+def detect_rules(sf, ov):
     counter = {}
+    ov.rule_files += 1
     # JSON rules files have no // comments, and a URL inside a string would eat the rest of the line
-    text = _blank_block_comments(sf.text) if sf.base.lower().endswith(".json") else _strip_slash_comments(sf.text)
-    released = set()
-    for m in RELEASE_FIREBASE_ALLOW_TRUE_RE.finditer(text):  # 0.3.2's rule, unchanged: a No it gave stays a No
-        state.tick()
-        released.add(m.start())
-        check = "firebase-rules-open" if FIREBASE_WRITE_RE.search(m.group(1)) else "firebase-rules-public-read"
-        if _cap(counter, check):
-            state.add(check, sf.rel, line_of(text, m.start()), _clause(m))
-    ifs, long_n = _firebase_ifs(text)
+    text = release._blank_block_comments(sf.text) if sf.base.lower().endswith(".json") else release._strip_slash_comments(sf.text)
+    ifs, long_n = _firebase_ifs(text, ov.tick)
     for m in ifs:
-        state.tick()
-        if m.start() in released:
-            continue
+        ov.tick()
         rec = {}
         verdict = _firebase_condition(m.group(2), rec)
         if verdict == "open" and sf.text[m.start(2):m.end(2)] != m.group(2):
             verdict = "unevaluated"  # a `/*` or `//` inside the condition (often inside a string) was cut as a comment
         if verdict == "open":
-            check = "open-rule-unconfirmed" if FIREBASE_WRITE_RE.search(m.group(1)) else "firebase-rules-public-read"
+            check = "open-rule-unconfirmed" if release.FIREBASE_WRITE_RE.search(m.group(1)) else "firebase-rules-public-read"
         elif verdict == "unevaluated":
-            check = "firebase-rules-true-unevaluated"  # `true` in a condition the scanner did not work out
+            check = "firebase-rules-true-unevaluated"
         else:
             continue
-        if _cap(counter, check):
-            state.add(check, sf.rel, line_of(text, m.start()), NESTED_DETAIL % rec["chars"] if verdict == "unevaluated" and rec.get("exhausted") else _clause(m))
+        if release._cap(counter, check):
+            nested = verdict == "unevaluated" and rec.get("exhausted")
+            ov.add(check, sf.rel, release.line_of(text, m.start()), NESTED_DETAIL % rec["chars"] if nested else _clause(m), source="rules")
     for _ in range(long_n):
-        state.tick()
-        state.gaps["q3"] += 1  # a condition longer than the scanner reads: it was not worked out
-    for m in FIREBASE_ALLOW_ALL_RE.finditer(text):
-        state.tick()
-        check = "firebase-rules-open" if FIREBASE_WRITE_RE.search(m.group(1)) else "firebase-rules-public-read"
-        if _cap(counter, check):
-            state.add(check, sf.rel, line_of(text, m.start()), _clause(m))
-    _finditer_lines(FIREBASE_TEST_MODE_RE, text, sf, state, "firebase-rules-test-mode", counter, _clause)
-    _finditer_lines(RTDB_TEST_MODE_RE, text, sf, state, "firebase-rules-test-mode", counter, _clause)
-    released = {m.start() for m in RELEASE_RTDB_WRITE_OPEN_RE.finditer(text)}  # 0.3.2's `".write": true` is a No
-    _finditer_lines(RELEASE_RTDB_WRITE_OPEN_RE, text, sf, state, "firebase-rules-open", counter, _clause)
-    for m in RTDB_WRITE_OPEN_RE.finditer(text):  # `".write": "true"` too, which 0.3.2 did not read: evidence
-        state.tick()
-        if m.start() not in released and _cap(counter, "open-rule-unconfirmed"):
-            state.add("open-rule-unconfirmed", sf.rel, line_of(text, m.start()), _clause(m))
-    _finditer_lines(RTDB_READ_OPEN_RE, text, sf, state, "firebase-rules-public-read", counter, _clause)
-
-
-def _detect_sql_release(sf, state, opts, text=None, credit=True):
-    """0.3.2's SQL reader, verbatim but for names: alone for files read after RELEASE_READING_AT of the deadline,
-    and as detect_sql's floor (credit=False: its RLS-enabled credit is left to detect_sql's ceiling). `text` is
-    `_release_sql_view(sf.text)` when the caller has it. Returns the offsets where 0.3.2's patterns gave a No."""
-    counter = {}
-    text = sf.release_view() if text is None else text
-    no_at = set()
-    for m in RELEASE_RLS_DISABLED_RE.finditer(text):
-        state.tick()
-        no_at.add(m.start())
-        if _cap(counter, "rls-disabled"):
-            state.add("rls-disabled", sf.rel, line_of(text, m.start()), _clause(m))
-    for m in RELEASE_USING_TRUE_RE.finditer(text):
-        state.tick()
-        window = QUOTED_SQL_RE.sub(lambda q: " " * len(q.group(0)), text[max(0, m.start() - 2000):m.start()]).lower()
-        check = _policy_kind(window, RELEASE_POLICY_SELECT_RE)
-        if CHECKS[check][1] == "no":
-            no_at.add(m.start())
-        if _cap(counter, check):
-            state.add(check, sf.rel, line_of(text, m.start()), _clause(m))
-    _finditer_lines(RELEASE_WITH_CHECK_TRUE_RE, text, sf, state, "policy-with-check-true", counter, _clause)
-    _finditer_lines(POLICY_TO_ANON_RE, text, sf, state, "policy-to-anon", counter, _clause)
-    _finditer_lines(STORAGE_BUCKET_TRUE_RE, text, sf, state, "storage-bucket-public-sql", counter, _clause)
-    _finditer_lines(CRON_SQL_RE, text, sf, state, "cron-schedule", counter, _clause)
-    pos = 0
-    line = 1
-    for n, m in enumerate(RELEASE_CREATE_TABLE_RE.finditer(text)):
-        if n >= MAX_TABLE_MATCHES_PER_FILE:
-            state.gaps["q3"] += 1
-            break
-        state.tick()
-        line += text.count("\n", pos, m.start())
-        pos = m.start()
-        name = _public_table(m.group(1))
-        if name and name not in state.tables:
-            if len(state.tables) < MAX_SEEN:
-                state.tables[name] = (sf.rel, line)
-            else:
-                state.gaps["q3"] += 1
-    for n, m in enumerate(RELEASE_ENABLE_RLS_RE.finditer(text) if credit else ()):
-        if n >= MAX_TABLE_MATCHES_PER_FILE:
-            state.gaps["q3"] += 1
-            break
-        state.tick()
-        name = _public_table(m.group(1))
-        if name:
-            if len(state.rls_enabled) < MAX_SEEN:
-                state.rls_enabled.add(name)
-            else:
-                state.gaps["q3"] += 1
-    return no_at
-
-
-def _detect_rules_release(sf, state, opts):
-    """0.3.2's rules reader, verbatim but for names, for files read after RELEASE_READING_AT of the deadline."""
-    counter = {}
-    text = _blank_block_comments(sf.text) if sf.base.lower().endswith(".json") else _strip_slash_comments(sf.text)
-    for regex in (RELEASE_FIREBASE_ALLOW_TRUE_RE, FIREBASE_ALLOW_ALL_RE):
+        ov.tick()
+        ov.gap("rules-not-read-whole", sf.rel, 0, "a condition longer than the scanner reads")
+    for regex in (FIREBASE_TEST_MODE_RE, RTDB_TEST_MODE_RE):
         for m in regex.finditer(text):
-            state.tick()
-            check = "firebase-rules-open" if FIREBASE_WRITE_RE.search(m.group(1)) else "firebase-rules-public-read"
-            if _cap(counter, check):
-                state.add(check, sf.rel, line_of(text, m.start()), _clause(m))
-    _finditer_lines(RELEASE_RTDB_WRITE_OPEN_RE, text, sf, state, "firebase-rules-open", counter, _clause)
-    _finditer_lines(RELEASE_RTDB_READ_OPEN_RE, text, sf, state, "firebase-rules-public-read", counter, _clause)
+            ov.tick()
+            if release._cap(counter, "firebase-rules-test-mode"):
+                ov.add("firebase-rules-test-mode", sf.rel, release.line_of(text, m.start()), _clause(m), source="rules")
+    for m in RTDB_WRITE_OPEN_RE.finditer(text):
+        ov.tick()
+        if release._cap(counter, "open-rule-unconfirmed"):
+            ov.add("open-rule-unconfirmed", sf.rel, release.line_of(text, m.start()), _clause(m), source="rules")
+    for m in RTDB_READ_OPEN_RE.finditer(text):
+        ov.tick()
+        if release._cap(counter, "firebase-rules-public-read"):
+            ov.add("firebase-rules-public-read", sf.rel, release.line_of(text, m.start()), _clause(m), source="rules")
+
+# ------------------------------------------------------------------ .mts / .cts, manifests
+
+def _ts_name(name):
+    return name[:-4] + ".ts"
 
 
-def detect_supabase_config(sf, state, opts):
-    _finditer_lines(TOML_PUBLIC_TRUE_RE, sf.text, sf, state, "storage-bucket-public", {})
-
-
-def _env_name(state, rel, name, line):
-    name = name.strip().lower()
-    if not ENV_NAME_RE.match(name) or name in IGNORED_ENV_NAMES:
-        return
-    state.env_names.add(name)
-    state.add("env-name", rel, line, name)
-
-
-def _env_matches(state, sf, regex, text):
-    """Bounded pass over environment-name matches: capped, deadline-ticked, line numbers counted incrementally."""
-    pos = 0
-    line = 1
-    for n, m in enumerate(regex.finditer(text)):
-        if n >= MAX_ENV_NAME_MATCHES:
-            break
-        state.tick()
-        line += text.count("\n", pos, m.start())
-        pos = m.start()
-        _env_name(state, sf.rel, m.group(1), line)
-
-
-def detect_env_names(sf, state, opts):
-    text = sf.text
-    b = sf.base.lower()
-    if b == "netlify.toml":
-        _env_matches(state, sf, NETLIFY_CONTEXT_RE, text)
-    elif b == "wrangler.toml":
-        _env_matches(state, sf, WRANGLER_ENV_RE, text)
-        m = CRON_WRANGLER_RE.search(text)
-        if m:
-            state.add("cron-schedule", sf.rel, line_of(text, m.start()), _clause(m))
-    elif b == "vercel.json":
-        _env_matches(state, sf, VERCEL_ENV_RE, text)
-        m = CRON_VERCEL_RE.search(text)
-        if m:
-            state.add("cron-schedule", sf.rel, line_of(text, m.start()), _clause(m))
-
-
-def _pyproject_dependencies(text, state):
-    """Names in `[project] dependencies`, `[project.optional-dependencies]`, `[dependency-groups]` lists and
-    `[tool.poetry.*dependencies]` tables. Classifiers, keywords and tool settings are lists too; they do not count.
-    An entry that points somewhere else (`pkg @ git+https://…`, `{include-group = …}`) is a Q9 gap, not a name."""
-    found = set()
-    table = ""
-    in_list = False
-
-    def entries(chunk):
-        for em in PY_DEP_ENTRY_RE.finditer(chunk):
-            entry = em.group(1) or em.group(2) or ""
-            if "@" in entry:
-                state.gaps["q9"] += 1  # a direct reference: the dependency lives at a URL or path this parser does not read
+def detect_module(sf, ov, opts):
+    """A .mts/.cts file read as its .ts sibling would be (C52b): the same classification, so route.mts is server
+    code like route.ts, and 0.3.2's own key detectors on a scratch state. Its Q1 rows, and a health route (Q9),
+    are the overlay's; a key 0.3.2's rules call a No in browser code is the overlay's one No."""
+    rel_ts, base_ts = _ts_name(sf.rel), _ts_name(sf.base)
+    cls, kinds = release.classify(rel_ts, base_ts, ".ts", sf.text)
+    rsf = release.ScanFile(rel_ts, base_ts, ".ts", cls, kinds, sf.text)
+    scratch = release.ScanState()
+    scratch.deadline = ov.deadline
+    if release._q1_gate(rsf, opts):
+        claimed = []
+        release.detect_browser_prefix(rsf, scratch, opts, claimed)
+        release.detect_key_literals(rsf, scratch, opts, claimed)
+    if "PRIVATE KEY" in sf.text:
+        release.detect_private_keys(rsf, scratch, opts)
+    release.detect_model_hints(rsf, scratch, opts)
+    ts_path = release.sanitize_path(rel_ts)
+    for q, checks in (("q1", None), ("q9", ("health-route",))):
+        for row in scratch.evidence[q]:
+            if checks is not None and row["check"] not in checks:
                 continue
-            m = PY_DEP_NAME_RE.match(entry)
-            if m:
-                found.add(m.group(1).lower())
-        if "include-group" in chunk:
-            state.gaps["q9"] += 1
-
-    def closes(chunk):
-        return "]" in QUOTED_RE.sub("", chunk)  # the `]` of `uvicorn[standard]` sits inside quotes and ends nothing
-
-    for raw in text.splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("["):
-            table = line[1:line.find("]")].strip().strip('"').lower() if "]" in line else ""  # `[project]  # main` is still `project`
-            in_list = False
-            continue
-        if in_list:
-            entries(line)
-            if closes(line):
-                in_list = False
-            continue
-        poetry = table in ("tool.poetry.dependencies", "tool.poetry.dev-dependencies") or (table.startswith("tool.poetry.group.") and table.endswith(".dependencies"))
-        m = TOML_KEY_RE.match(line)
-        if not m:
-            continue
-        key = m.group(1).lower()
-        if poetry:
-            if key != "python":
-                found.add(key)
-            continue
-        list_key = (table == "project" and key == "dependencies") or table in ("project.optional-dependencies", "dependency-groups")
-        if list_key and m.group(2):
-            rest = line[m.end():]
-            entries(rest)
-            in_list = not closes(rest)
-    return found
+            effect = "no" if release.CHECKS[row["check"]][1] == "no" else "caution"
+            path = sf.rel if row["path"] == ts_path else row["path"]
+            ov.add(row["check"], path, row["line"], row["snippet"], effect=effect, source="mts-key" if q == "q1" else "names", questions=(q,))
+            # snippets were made by 0.3.2's make_snippet (redacted); add() sanitizes them again, which is idempotent
 
 
-def _read_dependencies(base, text, state):
-    """Names a parser read from a manifest, for the hint matchers, and how many count as "looked".
-
-    package.json and requirements.txt yield only real entries. pyproject.toml, Gemfile and go.mod also pass every
-    leading line token to the hint matchers (harmless: a TOML key or the word `gem` never names a dependency) while
-    only parsed entries are counted toward Q9's "N dependencies read". A line that names a dependency somewhere
-    this parser cannot see (an include, an editable or direct reference, a path) is a Q9 gap instead."""
-    names = set()
-    counted = set()
-    if base == "package.json":
-        try:
-            data = json.loads(text)
-            for section in ("dependencies", "devDependencies", "peerDependencies", "optionalDependencies"):
-                sec = data.get(section) if isinstance(data, dict) else None
-                if isinstance(sec, dict):
-                    counted.update(str(k) for k in sec.keys())
-        except (ValueError, RecursionError):
-            names.update(DEP_NAME_RE.findall(text))
-            state.gaps["q9"] += 1  # a manifest that would not parse was not read properly
-    elif base == "requirements.txt":
-        for line in text.splitlines():
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            if line.startswith(REQ_INCLUDE_PREFIXES):
-                state.gaps["q9"] += 1  # an included file or an editable checkout holds dependencies this walk does not read
-                continue
-            if line.startswith("-"):
-                continue
-            if REQ_URL_OR_PATH_RE.match(line) or " @ " in line:
-                state.gaps["q9"] += 1  # a VCS, URL, path or direct-reference requirement names a package this parser cannot see
-                continue
-            m = re.match(r"^([A-Za-z0-9][A-Za-z0-9_.-]*)", line)
-            if m:
-                counted.add(m.group(1).lower())
-    else:
-        for line in text.splitlines():
-            m = re.match(r"^([A-Za-z0-9_.@/-]+)", line.strip())
-            if m:
-                names.add(m.group(1).lower())
-        if base == "pyproject.toml":
-            counted.update(_pyproject_dependencies(text, state))
-        elif base == "gemfile":
-            counted.update(n.lower() for n in GEM_RE.findall(text))
-        elif base == "go.mod":
-            counted.update(GO_MAJOR_SUFFIX_RE.sub("", n.lower()) for n in GO_REQUIRE_RE.findall(text))  # go-agent/v3 is go-agent
-    names.update(counted)
-    return names, len(counted)
-
-
-def detect_manifest(sf, state, opts):
-    text = sf.text
-    names, counted = _read_dependencies(sf.base.lower(), text, state)
-    state.dependencies += counted
+def detect_monitoring(sf, ov):
+    """Error tracking 0.3.2's list did not name: vendor families (@sentry/vue, @opentelemetry/api) and a few
+    more names. Dependencies are read with 0.3.2's own parser, on a scratch state."""
+    scratch = release.ScanState()
+    names, _ = release._read_dependencies(sf.base.lower(), sf.text, scratch)
     counter = {}
     for name in sorted(names):
+        ov.tick()
         lname = name.lower()
-        if lname in AUTH_DEPS and _cap(counter, "auth-dependency"):
-            state.add("auth-dependency", sf.rel, 0, name)
-        if lname in AI_DEPS and _cap(counter, "ai-sdk-dependency"):
-            state.add("ai-sdk-dependency", sf.rel, 0, name)
-        if (lname in MONITORING_DEPS or lname.startswith(MONITORING_PREFIXES)) and _cap(counter, "monitoring-dependency"):
-            state.add("monitoring-dependency", sf.rel, 0, name)
-        if BUILDER_DEPS_RE.match(lname) and _cap(counter, "builder-dependency"):
-            state.add("builder-dependency", sf.rel, 0, name)
+        if lname in release.MONITORING_DEPS:
+            continue  # 0.3.2 already named it
+        stripped = GO_DOT_MAJOR_RE.sub("", lname)
+        if (lname in MONITORING_DEPS or stripped in MONITORING_DEPS or lname.startswith(MONITORING_PREFIXES)) and release._cap(counter, "monitoring-dependency"):
+            ov.add("monitoring-dependency", sf.rel, 0, name, source="manifest")
+
+# ------------------------------------------------------------------ never-open agent folders (names only)
+
+def _lexists_inside(path, inner):
+    """Whether path/inner exists without following a symlink at any step."""
+    for part in inner.split("/")[:-1]:
+        path = os.path.join(path, part)
+        if os.path.islink(path) or not os.path.isdir(path):
+            return False
+    return os.path.lexists(os.path.join(path, inner.split("/")[-1]))
 
 
-def detect_model_hints(sf, state, opts):
-    counter = {}
-    text = sf.text
-    _finditer_lines(MODEL_ENV_RE, text, sf, state, "model-env-var", counter, lambda m: m.group(1))
-    if "env" in sf.kinds or "env-template" in sf.kinds:
-        return  # env lines are never echoed; the variable name above is all the hint needed
-    _finditer_lines(MODEL_LITERAL_RE, text, sf, state, "model-literal", counter, _clause)
-    _finditer_lines(SPEND_CAP_RE, text, sf, state, "spend-cap-word", counter, lambda m: m.group(0))
-    _finditer_lines(HEALTH_ROUTE_RE, text, sf, state, "health-route", counter, _clause)
+def _mcp_configs_inside(path, name, deadline=None):
+    """Paths, relative to a never-open agent folder, of anything that looks like an MCP server config. Only names
+    are read, never contents. Each entry counts once and each folder counts again as a step, against
+    0.3.2's MAX_NEVER_OPEN_COUNT; truncated means the walk stopped at that cap or the deadline. Nothing below a
+    reported folder is walked. An mcp-named folder of instructions (under skills/, rules/, agents/ …) is not
+    reported by name, but a config-shaped file inside it is."""
+    path = path.rstrip(os.sep + (os.altsep or "")) or path
+    found = [inner for inner in NEVER_OPEN_MCP_PATHS.get(name, ()) if _lexists_inside(path, inner)]
+    seen = set(found)
+    in_docs = set()
+    entries = 0
+    truncated = False
+    cap = release.MAX_NEVER_OPEN_COUNT
 
-
-def detect_workflow(sf, state, opts):
-    _finditer_lines(CRON_WORKFLOW_RE, sf.text, sf, state, "cron-schedule", {}, lambda m: "cron")
-    if not REVIEW_NAME_RE.search(sf.base.lower()):  # a file already named for review has its row from the layout pass
-        _finditer_lines(REVIEW_ACTION_RE, sf.text, sf, state, "review-workflow", {}, lambda m: m.group(1))
-
-
-def detect_pii_schema(sf, state, opts):
-    seen = set()
-    ordinary = 0
-    stopline = 0
-    # SQL is read as 0.3.2 read it: the lexer's comments differ from 0.3.2's in both directions, and a stop-line
-    # field lost is a softer tier while one gained is a new alarm
-    text = sf.release_view() if "sql" in sf.kinds else _strip_slash_comments(sf.text)
-    text = CAMEL_SPLIT_RE.sub("_", text)  # dateOfBirth -> date_Of_Birth so the stop-line vocabulary matches camelCase too
-    for m in PII_FIELD_RE.finditer(text):
-        state.tick()
-        field = m.group(1).lower()
-        if field in seen:
-            continue
-        seen.add(field)
-        if field in STOPLINE_FIELDS:
-            # stop-line vocabulary is never crowded out by ordinary fields
-            stopline += 1
-            if stopline > MAX_HITS_PER_FILE_PER_CHECK:
+    def stop():
+        return entries >= cap or (deadline is not None and entries % release.DEADLINE_TICK == 0 and time.monotonic() > deadline)
+    for dirpath, dirs, files in os.walk(path, followlinks=False, onerror=lambda e: None):
+        rel = "." if dirpath == path else dirpath[len(path) + 1:].replace(os.sep, "/")
+        entries += 1
+        if stop():
+            truncated = True
+            break
+        folders = set(dirs)
+        under_doc = rel in in_docs
+        for f in dirs + files:
+            entries += 1
+            if stop():
+                truncated = True
+                break
+            inner = f if rel == "." else rel + "/" + f
+            parent = name if rel == "." else rel.rsplit("/", 1)[-1]
+            folder = f in folders
+            if inner in seen:
                 continue
-        else:
-            ordinary += 1
-            if ordinary > 3:
-                continue
-        state.add("pii-field", sf.rel, line_of(text, m.start()), field)
+            if folder and (under_doc or (NEVER_OPEN_MCP_NAME_RE.search(f) and parent.lower() in MCP_DOC_PARENTS)):
+                in_docs.add(inner)  # walked, not named: what decides is a config-shaped file inside
+            elif NEVER_OPEN_MCP_NAME_RE.search(f) and not (not folder and MCP_DOC_FILE_RE.search(f)) and not under_doc:
+                found.append(inner)
+                seen.add(inner)
+            elif under_doc and not folder and MCP_CONFIG_FILE_RE.search(f):
+                found.append(inner)
+                seen.add(inner)
+        if truncated:
+            break
+        dirs[:] = [d for d in dirs if (d if rel == "." else rel + "/" + d) not in seen]  # a reported folder is not walked
+    return McpScan(found, truncated)
 
+# ------------------------------------------------------------------ the overlay's walk
 
-def _pii_input_token(m):
-    """Map HTML autocomplete-style names onto the stop-line vocabulary the skill knows."""
-    name = m.group(1).lower()
-    if name.startswith("cc-"):
-        return "card_number" if "number" in name else "credit_card"
-    return {"bday": "dob", "tel": "phone"}.get(name, name)
-
-
-def detect_pii_inputs(sf, state, opts):
-    _finditer_lines(PII_INPUT_RE, sf.text, sf, state, "pii-form-input", {}, _pii_input_token)
-
-
-def detect_readme(sf, state, opts):
-    _finditer_lines(BUILDER_URL_RE, sf.text, sf, state, "builder-readme", {}, lambda m: m.group(0).lower())
-
-
-def _pred_code_or_env(sf):
-    return "code" in sf.kinds or "env" in sf.kinds or "env-template" in sf.kinds or "html" in sf.kinds or "toml" in sf.kinds or "yaml" in sf.kinds or ("json" in sf.kinds and "mcp" not in sf.kinds and sf.base.lower() != "package.json")
-
-
-def _q1_gate(sf, opts):
-    return _pred_code_or_env(sf) and bool(opts.prefilter_re.search(sf.text))
-
-
-DETECTORS = [
-    (lambda sf: "mcp" in sf.kinds, detect_mcp),
-    (lambda sf: "sql" in sf.kinds, detect_sql),
-    (lambda sf: "rules" in sf.kinds, detect_rules),
-    (lambda sf: "supabase-config" in sf.kinds, detect_supabase_config),
-    (lambda sf: sf.base.lower() in ("netlify.toml", "wrangler.toml", "vercel.json"), detect_env_names),
-    (lambda sf: "manifest" in sf.kinds, detect_manifest),
-    (lambda sf: "code" in sf.kinds or "env" in sf.kinds, detect_model_hints),
-    (lambda sf: "workflow" in sf.kinds, detect_workflow),
-    (lambda sf: "schema" in sf.kinds or "sql" in sf.kinds, detect_pii_schema),
-    (lambda sf: "html" in sf.kinds and sf.cls == "client", detect_pii_inputs),
-    (lambda sf: "readme" in sf.kinds, detect_readme),
-]
-RELEASE_READERS = {detect_sql: _detect_sql_release, detect_rules: _detect_rules_release}  # the late-scan fallback
-
-
-def layout_checks(rel, base, state):
-    lower = rel.lower()
-    segments = lower.split("/")
-    dirs = segments[:-1]
+def _needs_read(base, ext):
     b = base.lower()
-    stem = b.rsplit(".", 1)[0] if "." in b else b
-    app_rel = lower[4:] if lower.startswith("src/") else lower
-    if any(app_rel.startswith(p) for p in API_ROUTE_PREFIXES):
-        state.add("api-route-dir", rel, 0, "")
-    if FRAMEWORK_CONFIG_RE.match(b):
-        state.add("framework-config", rel, 0, "")
-    in_code = "src" in dirs or TEST_PATH_RE.search(lower)  # tests/setup.py and src/setup.py are code, not a package's manifest
-    if not in_code and (UNPARSED_MANIFEST_RE.match(b) or (dirs and dirs[-1] == "requirements" and b.endswith((".txt", ".in")))):
-        state.gaps["q9"] += 1
-        state.manifest_rows += 1
-        if state.manifest_rows <= MAX_HITS_PER_FILE_PER_CHECK:  # the gap is counted for every one; five rows name them
-            state.add("manifest-not-parsed", rel, 0, "")
-    if any(d in AUTH_SEGMENTS for d in dirs) or stem in AUTH_SEGMENTS or "[...nextauth]" in lower:
-        state.add("auth-path", rel, 0, "")
-    fly = FLY_ENV_TOML_RE.match(b)
-    is_workflow = len(dirs) >= 2 and dirs[0] == ".github" and dirs[1] == "workflows" and (b.endswith(".yml") or b.endswith(".yaml"))
-    is_deploy = b in DEPLOY_CONFIG_BASENAMES or is_workflow or bool(fly)
-    if is_deploy:
-        state.deploy_configs.append(rel)
-        state.add("deploy-config", rel, 0, "")
-    if b in PREVIEW_DEFAULTS and not dirs:
-        state.add("preview-deploys-default", rel, 0, PREVIEW_DEFAULTS[b])
-    if (is_workflow and REVIEW_NAME_RE.search(b)) or b in (".coderabbit.yaml", ".coderabbit.yml"):
-        state.add("review-workflow", rel, 0, "")
-    if fly:
-        _env_name(state, rel, fly.group(1), 0)
-    m = re.match(r"^\.env[._-]([a-z0-9_-]+)$", b)
-    in_examples = bool(TEST_PATH_RE.search(rel)) or any(d.lower() in ("docs", "doc", "examples", "example", "samples", "sample") for d in dirs)
-    if m and not is_env_template(b) and not in_examples:
-        _env_name(state, rel, m.group(1), 0)
-    if any(d in ("migrations", "migration") for d in dirs) or "migrat" in b:
-        state.add("migration-path", rel, 0, "")
-    if "backup" in b:
-        state.add("backup-script", rel, 0, "")
-    if MONITOR_CONFIG_RE.match(b):
-        state.add("sentry-config", rel, 0, "")
-    if HEALTH_PATH_RE.search(lower):
-        state.add("health-route", rel, 0, "")
-    if b in BUILDER_BASENAMES or any(d in (".bolt", ".lovable", ".v0") for d in dirs):
-        state.add("builder-file", rel, 0, "")
-    if b == "dockerfile" or b.startswith("docker-compose") or b == "compose.yaml" or b == "compose.yml":
-        state.add("container-config", rel, 0, "")
+    return ext in release.SQL_LIKE_EXTS or b.endswith(".rules") or b == "database.rules.json" or ext in MODULE_EXTS or b in release.MANIFEST_BASENAMES
 
 
-# ---------------------------------------------------------------------- git
-
-def _darwin_git_ready():
-    try:
-        r = subprocess.run(["/usr/bin/xcode-select", "-p"], capture_output=True, timeout=5)
-        return r.returncode == 0
-    except Exception:
-        return True
+def _compressed_could_hold(base, ext):
+    """`app.js.zst`, `dump.sql.zst`, `.env.zst`, `key.pem.zst`: a compressed file whose inner name could answer Q1/Q3."""
+    inner = base[:-len(ext)]
+    inner_ext = os.path.splitext(inner)[1].lower()
+    return (release.could_hold_q1_q3(inner, inner_ext) or inner_ext in MODULE_EXTS or release.is_key_file(inner, inner_ext, b"")
+            or inner.lower() in release.MANIFEST_BASENAMES)
 
 
-def _git_dir(toplevel):
-    dot = os.path.join(toplevel, ".git")
-    if os.path.islink(dot):
-        return dot
-    if os.path.isdir(dot):
-        return dot
-    try:
-        if os.path.getsize(dot) > 4096:
-            return dot  # git itself rejects gitfiles this large; never read one into memory
-        with open(dot, "r", encoding="utf-8", errors="replace") as fh:
-            first = fh.readline(4096).strip()
-        if first.startswith("gitdir:"):
-            target = first[len("gitdir:"):].strip()
-            return target if os.path.isabs(target) else os.path.join(toplevel, target)
-    except OSError:
-        pass
-    return dot
-
-
-# A repository's own config is attacker-controlled, so it is parsed strictly (a stray carriage return,
-# a continuation line, or a key sharing its section header's line means "cannot be read safely") and then
-# judged against the directives that let git read, write or run something outside the scanned tree.
-# Everything else is ordinary repository furniture: submodules, LFS, GUI settings and the like all pass.
-GIT_DENY_SECTIONS = {"include", "includeif", "alias", "uploadpack", "receive", "protocol", "url", "safe", "advice"}
-GIT_DENY_KEYS = {
-    # Only what a `-c` override on the command line cannot already neutralise, and only what could make
-    # one of our four read-only commands touch something outside the folder. core.hooksPath, fsmonitor,
-    # pager, sshCommand and credential.helper are blanked on every call, so a repo setting them (husky
-    # does) is ordinary furniture and must not cost the founder their git facts.
-    "core": {"worktree", "alternaterefscommand", "gitproxy", "askpass"},
-    "extensions": {"worktreeconfig", "partialclone", "objectformat", "refstorage", "compatobjectformat"},
-    "remote": {"promisor", "partialclonefilter", "uploadpack", "receivepack", "proxy", "vcs", "gitproxy"},
-}
-GIT_TREE_MAX_ENTRIES = 100000
-
-
-def _git_config_safe(text):
-    """True when the config parses cleanly and names no directive that could send git outside the tree."""
-    text = text.replace("\r\n", "\n")
-    if "\r" in text:
-        return False  # git treats a lone CR as whitespace; a line-based check cannot
-    section = None
-    for raw in text.split("\n"):
-        line = raw.strip(" \t")
-        if not line or line[0] in "#;":
-            continue
-        if line.endswith("\\"):
-            return False  # a continuation hides the next physical line from this parser
-        if line.startswith("["):
-            close = line.find("]")
-            if close < 0:
-                return False
-            rest = line[close + 1:].strip(" \t")
-            if rest and rest[0] not in "#;":
-                return False  # `[core]worktree=/x` on one line
-            header = line[1:close].strip()
-            name = header.split(None, 1)[0].split(".", 1)[0].lower() if header else ""
-            if not name or name in GIT_DENY_SECTIONS:
-                return False
-            section = name
-            continue
-        if section is None:
-            return False
-        key = re.split(r"[ \t=]", line, 1)[0].lower()
-        if key in GIT_DENY_KEYS.get(section, ()):
-            return False
-    return True
-
-
-def _git_tree_plain(gitdir, state=None):
-    """Everything git will open under refs/, logs/ and objects/ is a plain file or directory (no fifo, no link)."""
-    seen = 0
-    for sub in ("refs", "logs", "objects"):
-        top = os.path.join(gitdir, sub)
-        if not os.path.isdir(top):
-            continue
-        for root, dirs, files in os.walk(top, followlinks=False, onerror=lambda e: None):
-            if state is not None and state.deadline is not None and time.monotonic() > state.deadline:
-                return False
-            for name in dirs + files:
-                seen += 1
-                if seen > GIT_TREE_MAX_ENTRIES:
-                    return False
-                try:
-                    st = os.lstat(os.path.join(root, name))
-                except OSError:
-                    return False
-                if not (stat.S_ISREG(st.st_mode) or stat.S_ISDIR(st.st_mode)):
-                    return False
-    return True
-
-
-def _enclosing_git_root(real_repo):
-    """The nearest folder at or above the app that holds a .git entry, found without running git."""
-    home = os.path.realpath(os.path.expanduser("~"))
-    d = real_repo
-    while True:
-        if os.path.lexists(os.path.join(d, ".git")):
-            return d
-        parent = os.path.dirname(d)
-        # never climb past the home directory: a dotfiles repo at ~ is not this app's history
-        if parent == d or d == home or parent == home:
-            return None
-        d = parent
-
-
-GIT_DIR_ENTRIES = ("HEAD", "config", "shallow", "packed-refs", "index", "objects", "refs", "hooks", "info", "logs")
-GIT_CONFIG_MAX_BYTES = 65536
-
-
-def _read_small_regular(path, limit):
-    """Read a plain regular file of at most `limit` bytes without following symlinks or blocking on a fifo; None otherwise."""
-    try:
-        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0))
-    except OSError:
-        return None
-    try:
-        st = os.fstat(fd)
-        if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_size > limit:
-            return None
-        return read_bytes(fd, st.st_size)
-    except OSError:
-        return None
-    finally:
-        os.close(fd)
-
-
-def _git_pointer_ok(real_repo, state=None):
-    """Refuse any .git that could make git read, write, or run something outside the scanned tree.
-
-    A symlinked .git, a gitfile pointing outside the tree (worktrees included) or larger than git itself
-    accepts, a git directory carrying commondir / gitdir / alternates pointers, any symlink or special file
-    among the entries git touches, and a config that is unreadable, oversized, or carries worktree /
-    include / promisor / hook / helper directives all mean "not a repository we will ask git about".
-    The gitfile's target is checked the same way, so one level of indirection buys nothing.
-    """
-    dot = os.path.join(real_repo, ".git")
-    try:
-        st = os.lstat(dot)
-    except OSError:
-        return True  # no .git here at all; git may still find an enclosing repository (subdir mode)
-    if stat.S_ISLNK(st.st_mode):
-        return False
-    if stat.S_ISREG(st.st_mode):
-        if st.st_size > 4096:
-            return False
-        target = os.path.realpath(_git_dir(real_repo))
-        if not (target == real_repo or target.startswith(real_repo + os.sep)):
-            return False
-        gitdir = target
-    elif stat.S_ISDIR(st.st_mode):
-        gitdir = dot
-    else:
-        return False
-    if os.path.islink(gitdir) or not os.path.isdir(gitdir):
-        return False
-    for pointer in ("commondir", "gitdir", "config.worktree", os.path.join("objects", "info", "alternates")):
-        if os.path.lexists(os.path.join(gitdir, pointer)):
-            return False
-    for entry in GIT_DIR_ENTRIES:
-        try:
-            est = os.lstat(os.path.join(gitdir, entry))
-        except OSError:
-            continue
-        if not (stat.S_ISREG(est.st_mode) or stat.S_ISDIR(est.st_mode)):
-            return False
-    cfg = os.path.join(gitdir, "config")
-    if os.path.lexists(cfg):
-        data = _read_small_regular(cfg, GIT_CONFIG_MAX_BYTES)
-        if data is None:
-            return False  # unreadable, symlinked, special, or oversized: never fail open
-        if not _git_config_safe(data.decode("utf-8", errors="replace")):
-            return False
-    return _git_tree_plain(gitdir, state)
-
-
-def _trusted_git(real_repo):
-    """The first git on PATH that does not live inside the scanned tree or the current directory."""
-    try:
-        cwd = os.path.realpath(os.getcwd())
-    except OSError:
-        cwd = ""
-    for entry in os.environ.get("PATH", "").split(os.pathsep):
-        # relative PATH entries ("." included) resolve against the launch folder, which sits next to the untrusted app
-        if not entry or not os.path.isabs(entry):
-            continue
-        for name in ("git", "git.exe"):
-            candidate = os.path.join(entry, name)
-            if not (os.path.isfile(candidate) and os.access(candidate, os.X_OK)):
-                continue
-            real = os.path.realpath(candidate)
-            if real.startswith(real_repo + os.sep):
-                continue
-            if cwd and os.path.dirname(real) == cwd:
-                continue  # a git sitting in the launch folder itself is not a system git
-            return real
-    return None
-
-
-def _git_unread(state, check, text):
-    """Git was not consulted: say why, mark the scan partial, and make sure Q1 cannot look clean."""
-    state.add(check, "", 0, text)
-    state.add("git-index-unread", "", 0, "git's file index was not read, so committed secrets could not be checked")
-    state.partial = True
-    state.stats["git_index_partial"] += 1
-
-
-def git_facts(repo, state):
+def overlay_walk(repo, opts, ov, rel_state, caps, clock, end):
+    """The overlay's own walk, with 0.3.2's walk rules re-implemented (each from 0.3.2's run_scan): realpath
+    containment, linked folders skipped, never-open folders and files walked for names only, EXCLUDED_DIRS plus
+    --exclude-dir, hard links and non-regular files skipped, the MAX_DIR_ENTRIES cut, followlinks=False. It
+    opens only files it reads (SQL, rules, .mts/.cts, manifests), one at a time. When `caps` is set (0.3.2 hit a
+    file or byte cap), files are counted exactly as 0.3.2 counts them and the pass stops where 0.3.2 stopped."""
     real_repo = os.path.realpath(repo)
-    root = _enclosing_git_root(real_repo)
-    if root is None:
-        state.add("git-not-a-repo", "", 0, "not a git repository")
-        return
-    if not _git_pointer_ok(root, state):
-        _git_unread(state, "git-config-not-vouched", "this repository's git settings could not be vouched for, so git was not run")
-        return
-    git_bin = _trusted_git(real_repo)
-    if git_bin is None:
-        _git_unread(state, "git-unavailable", "git is not installed")
-        return
-    if sys.platform == "darwin" and git_bin == "/usr/bin/git" and not _darwin_git_ready():
-        _git_unread(state, "git-unavailable", "git needs the Xcode Command Line Tools")
-        return
-    base = [git_bin, "-c", "core.fsmonitor=", "-c", "core.hooksPath=/dev/null", "-c", "core.pager=cat", "-c", "core.sshCommand=", "-c", "credential.helper=", "-C", real_repo]
-    env = dict((k, v) for k, v in os.environ.items() if not k.startswith("GIT_"))
-    env.update(GIT_TERMINAL_PROMPT="0", GIT_OPTIONAL_LOCKS="0", GIT_NO_LAZY_FETCH="1", GIT_CONFIG_NOSYSTEM="1",
-               GIT_CEILING_DIRECTORIES=os.path.dirname(root))  # discovery can never pass the folder guarded above
-    started = time.monotonic()
-
-    class _Result(object):
-        def __init__(self, returncode, stdout, truncated):
-            self.returncode = returncode
-            self.stdout = stdout
-            self.truncated = truncated
-
-    def run(args):
-        """Run git with a shared time budget and a hard cap on captured output."""
-        remaining = GIT_BUDGET_S - (time.monotonic() - started)
-        if remaining <= 0:
-            raise subprocess.TimeoutExpired(args, GIT_BUDGET_S)
-        proc = subprocess.Popen(base + args, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, env=env,
-                                start_new_session=_HAS_NONBLOCK)
-
-        def kill_tree():
-            if _HAS_NONBLOCK:
-                try:
-                    os.killpg(proc.pid, signal.SIGKILL)  # grandchildren (a fetch git spawned) die with it
-                except Exception:
-                    pass
-            try:
-                proc.kill()
-            except Exception:
-                pass
-
-        try:
-            chunks = []
-            got = 0
-            truncated = False
-            end_at = time.monotonic() + max(1.0, remaining)
-            if not _HAS_NONBLOCK:  # Windows before 3.12: no non-blocking pipes, so read on a thread under the same caps
-                box = {"got": 0, "truncated": False}
-
-                def reader():
-                    try:
-                        while True:
-                            chunk = proc.stdout.read1(65536)
-                            if not chunk:
-                                return
-                            chunks.append(chunk)
-                            box["got"] += len(chunk)
-                            if box["got"] >= GIT_OUTPUT_LIMIT:
-                                box["truncated"] = True
-                                kill_tree()
-                                return
-                    except Exception:
-                        return  # a closed pipe is the caller giving up, never a traceback on stderr
-
-                worker = threading.Thread(target=reader, daemon=True)
-                worker.start()
-                worker.join(max(1.0, remaining))
-                if worker.is_alive():
-                    kill_tree()
-                    worker.join(2)  # let the reader leave the pipe before the caller closes it
-                    raise subprocess.TimeoutExpired(args, GIT_BUDGET_S)
-                proc.wait(timeout=2)
-                return _Result(proc.returncode, b"".join(chunks)[:GIT_OUTPUT_LIMIT].decode("utf-8", errors="replace"), box["truncated"])
-            fd = proc.stdout.fileno()
-            os.set_blocking(fd, False)
-            while True:
-                wait = end_at - time.monotonic()
-                if wait <= 0:
-                    kill_tree()
-                    raise subprocess.TimeoutExpired(args, GIT_BUDGET_S)
-                ready, _, _ = select.select([fd], [], [], min(wait, 0.5))
-                if not ready:
-                    continue
-                try:
-                    chunk = os.read(fd, min(65536, GIT_OUTPUT_LIMIT))
-                except BlockingIOError:
-                    continue
-                if not chunk:
-                    break
-                chunks.append(chunk)
-                got += len(chunk)
-                if got >= GIT_OUTPUT_LIMIT:
-                    truncated = True
-                    kill_tree()
-                    break
-            proc.wait(timeout=max(1.0, end_at - time.monotonic()))
-        finally:
-            try:
-                proc.stdout.close()
-            except Exception:
-                pass
-            if proc.poll() is None:
-                kill_tree()
-                try:
-                    proc.wait(timeout=2)
-                except Exception:
-                    pass
-        return _Result(proc.returncode, b"".join(chunks)[:GIT_OUTPUT_LIMIT].decode("utf-8", errors="replace"), truncated)
-
-    try:
-        top = run(["rev-parse", "--show-toplevel"])
-        if top.returncode != 0:
-            state.add("git-not-a-repo", "", 0, "not a git repository")
-            return
-        toplevel = os.path.realpath(top.stdout.strip())
-        if not _git_pointer_ok(toplevel, state):
-            _git_unread(state, "git-config-not-vouched", "this repository's git settings could not be vouched for, so git was not run")
-            return
-        subdir = False
-        if toplevel != real_repo:
-            if real_repo.startswith(toplevel + os.sep):
-                subdir = True
-                tracked_here = run(["ls-files", "-z", "--", "."])
-                if tracked_here.returncode != 0 or not tracked_here.stdout.strip("\0"):
-                    state.add("git-not-a-repo", "", 0, "this folder is not tracked by git (an export inside another repository)")
-                    return
-            else:
-                state.add("git-not-a-repo", "", 0, "not a git repository")
-                return
-        tracked = run(["ls-files", "-z", "--", ":(icase).env*", ":(icase)*/.env*", ":(icase)*.env", ":(icase)*/*.env"])  # index-only and decisive: first inside the budget
-        names = []
-        if tracked.truncated:
-            state.partial = True
-            state.stats["git_index_partial"] += 1
-        if tracked.returncode == 0 or tracked.truncated:
-            for p in tracked.stdout.split("\0"):
-                if not p:
-                    continue
-                b = p.rsplit("/", 1)[-1]
-                if is_env_file(b) and b.lower() != ".envrc":  # .envrc (direnv) is committed on purpose
-                    names.append(p)
-        names = sorted(names)
-        if tracked.returncode != 0 and not tracked.truncated:
-            state.git["tracked_env_files"] = None  # the index could not be read: fall back to the on-disk check
-            state.partial = True
-            state.stats["git_index_partial"] += 1
-        else:
-            state.git["tracked_env_files"] = [sanitize_path(p) for p in names[:MAX_TRACKED_ENV_FILES]]
-        for p in names:
-            b = p.rsplit("/", 1)[-1].lower()
-            stem = (b[:-len(".env")] if b.endswith(".env") and not b.startswith(".env") else b[len(".env"):]).strip("._-")
-            check = "tracked-env-file-nonprod" if stem in NONPROD_ENV_STEMS else "tracked-env-file"
-            state.add(check, p, 0, "")
-        tags = run(["for-each-ref", "--count=1000", "--format=%(refname)", "refs/tags"])
-        state.git["tags"] = len([t for t in tags.stdout.splitlines() if t.strip()]) if tags.returncode == 0 else 0
-        shallow = run(["rev-parse", "--is-shallow-repository"])
-        state.git["shallow"] = shallow.stdout.strip() == "true" or _read_small_regular(os.path.join(_git_dir(toplevel), "shallow"), 4096) is not None
-        commits = run(["rev-list", "--count", "--exclude-promisor-objects", "HEAD"])  # the only object walk: last, never lazy-fetching
-        state.git["commits"] = int(commits.stdout.strip()) if commits.returncode == 0 and commits.stdout.strip().isdigit() else 0
-        if subdir:
-            state.add("git-subdir", "", 0, "the app folder is inside a larger repository")
-        if state.git["shallow"]:
-            state.add("git-shallow", "", 0, "shallow clone")
-        state.add("git-history", "", 0, "%d commits, %d tags" % (state.git["commits"], state.git["tags"]))
-    except subprocess.TimeoutExpired:
-        state.git["commits"] = None  # keep the index facts already gathered; history stays unknown
-        state.git["tags"] = None
-        state.git["shallow"] = None
-        if state.git["tracked_env_files"] is None:
-            _git_unread(state, "git-timeout", "git did not answer in time")
-        else:
-            state.add("git-timeout", "", 0, "git did not answer in time")
-    except Exception:
-        state.git = _empty_git()
-        _git_unread(state, "git-unavailable", "git could not be run")
-
-
-# --------------------------------------------------------------------- walk
-
-def _walk_key(name):
-    """Known source roots are walked first so a file cap never runs out on assets before src/ is read."""
-    return (0 if name.lower() in SOURCE_ROOTS else 1, name)
-
-
-def run_scan(repo, state, opts):
-    state.stats["config"] = {"exclude_dirs_added": list(opts.exclude_dirs_added), "browser_prefixes_added": list(opts.browser_prefixes_added)}
-    real_repo = os.path.realpath(repo)
-    deadline = time.monotonic() + opts.deadline_s
-    state.deadline = deadline
-    release_at = time.monotonic() + RELEASE_READING_AT * opts.deadline_s
-    total_bytes = 0
     candidates = 0
-    stop = False
-    git_facts(repo, state)
-    git_present = state.git["tracked_env_files"] is not None
-    nested_repos = set()
-    mcp_rows = {}
-
-    def unreadable(err):
-        state.stats["dirs_unreadable"] += 1
-        state.partial = True
-
-    for dirpath, dirnames, filenames in os.walk(real_repo, topdown=True, followlinks=False, onerror=unreadable):
-        if stop:
-            break
-        if time.monotonic() > deadline:
-            state.stats["deadline_hit"] = True
-            state.partial = True
-            break
+    total_bytes = 0
+    for dirpath, dirnames, filenames in os.walk(real_repo, topdown=True, followlinks=False, onerror=lambda e: None):
+        if clock() > end:
+            ov.stopped_by = "clock"
+            raise OverlayTimeout()
         rel_dir = os.path.relpath(dirpath, real_repo).replace(os.sep, "/")
         if rel_dir == ".":
             rel_dir = ""
-        if rel_dir and os.path.lexists(os.path.join(dirpath, ".git")):  # a vendored clone or submodule: the parent index does not vouch for what is tracked here
-            if len(nested_repos) < MAX_SEEN:
-                nested_repos.add(rel_dir)
-            else:
-                state.gaps["q1"] += 1  # a nested repo the registry could not hold: its env files go unreported
-        in_nested = False
-        ancestor = rel_dir
-        while ancestor:  # walk is top-down, so a nested repo is registered before any directory below it is visited
-            if ancestor in nested_repos:
-                in_nested = True
-                break
-            ancestor = ancestor.rpartition("/")[0]
         parent_name = os.path.basename(dirpath)
         real_dir = os.path.realpath(dirpath)
         if real_dir != real_repo and not real_dir.startswith(real_repo + os.sep):
             dirnames[:] = []
-            note_unread_dir(state)
-            state.partial = True
             continue
-        if len(dirnames) + len(filenames) > MAX_DIR_ENTRIES:
-            # subdirectories keep priority (an api/ folder matters more than the 50,001st file)
-            state.partial = True
-            state.stats["dirs_truncated"] += 1
-            dirnames[:] = sorted(dirnames, key=_walk_key)[:MAX_DIR_ENTRIES]
-            filenames = sorted(filenames)[:max(0, MAX_DIR_ENTRIES - len(dirnames))]
+        if len(dirnames) + len(filenames) > release.MAX_DIR_ENTRIES:
+            dirnames[:] = sorted(dirnames, key=release._walk_key)[:release.MAX_DIR_ENTRIES]
+            filenames = sorted(filenames)[:max(0, release.MAX_DIR_ENTRIES - len(dirnames))]
         keep = []
-        for d in sorted(dirnames, key=_walk_key):
+        for d in sorted(dirnames, key=release._walk_key):
             full = os.path.join(dirpath, d)
-            if d.lower() in EXCLUDED_DIRS:
-                if d.lower() in BUILD_OUTPUT_DIRS or (d.lower() == "vendor" and rel_dir):  # src/vendor/ is app code; a root vendor/ is dependencies
-                    if len(state.build_dirs) < MAX_SEEN:
-                        state.build_dirs.append((rel_dir + "/" + d) if rel_dir else d)  # summarized in one Q1 row by resolve
-                    note_unread_dir(state)  # it could hold browser code, a rules file or a manifest
+            if d.lower() in release.EXCLUDED_DIRS:
                 continue
             try:
                 if os.path.islink(full):
-                    state.stats["files_skipped_special"] += 1
-                    note_unread_dir(state)  # a linked folder is not read, so nothing in it was looked at
                     continue
             except OSError:
-                note_unread_dir(state)
                 continue
-            if is_never_open_dir(d, parent_name):
-                tally = {}
-                found, truncated = _mcp_configs_inside(full, d.lower(), deadline, tally)  # names only; nothing inside is opened
-                state.stats["files_never_open"] += tally["files"]
-                if truncated:
-                    state.gaps["q1"] += 1  # the walk stopped at the cap or the deadline: a config past it was not looked at
-                for inner in found:
-                    state.gaps["q1"] += 1
-                    if _cap(mcp_rows, "mcp-config-not-opened"):
-                        state.add("mcp-config-not-opened", (rel_dir + "/" if rel_dir else "") + d + "/" + inner, 0, "")
+            if release.is_never_open_dir(d, parent_name):
+                rel_d = (rel_dir + "/" + d) if rel_dir else d
+                scan = _mcp_configs_inside(full, d, end)
+                for inner in scan.found:
+                    ov.gap(MCP_CHECK, rel_d + "/" + inner)
+                if scan.truncated:
+                    ov.gap(MCP_CHECK, rel_d, 0, "folder too large to list in full")
                 continue
             if d.lower() in opts.excluded:
-                note_unread_dir(state)  # the founder asked for this folder to be skipped
                 continue
             keep.append(d)
         dirnames[:] = keep
         for name in sorted(filenames):
-            if time.monotonic() > deadline:
-                state.stats["deadline_hit"] = True
-                state.partial = True
-                stop = True
-                break
+            if clock() > end:
+                ov.stopped_by = "clock"
+                raise OverlayTimeout()
             rel = (rel_dir + "/" + name) if rel_dir else name
             full = os.path.join(dirpath, name)
-            base = name
             ext = os.path.splitext(name)[1].lower()
-            if is_never_open_file(name):
-                state.stats["files_never_open"] += 1
-                if NEVER_OPEN_SECRET_FILE_RE.match(name):
-                    state.gaps["q1"] += 1
-                    if _cap(mcp_rows, "mcp-config-not-opened"):
-                        state.add("mcp-config-not-opened", rel, 0, "")
-                continue
-            if name == ".git":
+            module = ext in MODULE_EXTS
+            if NEVER_OPEN_SECRET_FILE_RE.match(name):
+                ov.gap(MCP_CHECK, rel, 0, "agent config, not opened")
+            if release.is_never_open_file(name) or name == ".git":
                 continue
             try:
                 st = os.lstat(full)
             except OSError:
-                state.stats["files_errored"] += 1
-                if note_unread(state, base, ext):
-                    state.partial = True
+                if module:
+                    ov.gap("code-file-not-read", rel, 0, "could not be read")
                 continue
-            if stat.S_ISREG(st.st_mode) and st.st_nlink > 1:
-                state.stats["files_skipped_hardlink"] += 1
-                if note_unread(state, base, ext):  # a hard-linked logo is not missing coverage; a hard-linked source file is
-                    state.partial = True
+            if not stat.S_ISREG(st.st_mode) or st.st_nlink > 1:
+                if module:
+                    ov.gap("code-file-not-read", rel, 0, "a link or special file, not read")
                 continue
-            if not stat.S_ISREG(st.st_mode):
-                state.stats["files_skipped_special"] += 1
-                note_unread(state, base, ext)
+            lower_rel = rel.lower()
+            dirs = lower_rel.split("/")[:-1]
+            in_code = "src" in dirs or release.TEST_PATH_RE.search(lower_rel)  # tests/setup.py and src/setup.py are code
+            if not in_code and (UNPARSED_MANIFEST_RE.match(name.lower()) or (dirs and dirs[-1] == "requirements" and name.lower().endswith((".txt", ".in")))):
+                ov.gap("manifest-not-parsed", rel)
+            if ext in COMPRESSED_EXTS and _compressed_could_hold(name, ext):
+                ov.gap("compressed-file-not-read", rel, 0, "compressed, not read")
+            if release.is_generated(name) or ext in release.PRECOMPRESSED_EXTS:
                 continue
-            if candidates >= opts.max_files:
-                state.stats["max_files_hit"] = True
-                state.partial = True
-                stop = True
-                break
-            layout_checks(rel, base, state)
-            if (not git_present or in_nested) and is_env_file(name) and name.lower() != ".envrc":
-                state.add("env-file-on-disk", rel, 0, "")
-            if is_generated(name):
-                state.stats["files_skipped_generated"] += 1
-                if name.lower().endswith(GENERATED_CODE_SUFFIXES):
-                    state.gaps["q1"] += 1  # a public bundle is exactly what the browser downloads
-                    state.gaps["q9"] += 1
-                continue
-            # 0.3.2 read `.env.zst` as an env file and found the keys in it; so does this scan
-            compressed = ext in PRECOMPRESSED_EXTS and not (ext in RELEASE_READ_EXTS and is_env_file(name))
-            if compressed:
-                if note_unread(state, base, ext):  # app.js.gz or dump.sql.gz: code or rules the scanner cannot read, whatever its size
-                    state.stats["files_skipped_generated"] += 1
-                    continue
             if st.st_size > opts.max_file_bytes:
-                skip_oversize(state, base, ext)
+                if module:
+                    ov.gap("code-file-not-read", rel, 0, "larger than the read limit")
                 continue
-            if ext in NEVER_READ_EXTS or compressed:
-                state.stats["files_skipped_binary"] += 1  # a photo, a font or an archive: not opened, not charged to the byte or file budgets
+            if ext in release.NEVER_READ_EXTS:
                 continue
-            opened = open_regular(full)
+            if caps:
+                if candidates >= opts.max_files or total_bytes + st.st_size > opts.max_total_bytes:
+                    ov.stopped_by = "caps"
+                    raise OverlayTimeout()  # 0.3.2 stopped here too (its result says so): nothing after this was read
+                candidates += 1
+                total_bytes += st.st_size
+            if not _needs_read(name, ext):
+                continue
+            opened = release.open_regular(full)
             if opened is None:
-                # lstat vouched for a plain single-link file; if it still cannot be opened (permission denied, or
-                # swapped underneath us) it is a file the scan could not read, not a link or a pipe
-                state.stats["files_errored"] += 1
-                if note_unread(state, base, ext):  # a README or a CSV we could not open is not missing coverage; a source file is
-                    state.partial = True
+                if module:
+                    ov.gap("code-file-not-read", rel, 0, "could not be read")
                 continue
             fd, size = opened
             try:
                 if size > opts.max_file_bytes:
-                    skip_oversize(state, base, ext)
                     continue
-                if total_bytes + size > opts.max_total_bytes:
-                    state.stats["max_total_bytes_hit"] = True
-                    state.partial = True
-                    stop = True
-                    break
-                data = read_bytes(fd, size)
+                data = release.read_bytes(fd, size)
             finally:
                 os.close(fd)
-            if len(data) < size:  # the file shrank or was swapped after fstat: never treat a short read as the whole file
-                state.stats["files_errored"] += 1
-                state.partial = True
-                continue
-            total_bytes += len(data)
-            candidates += 1
-            text = decode_text(data)
+            text = release.decode_text(data) if len(data) == size else None
             if text is None:
-                if is_key_file(base, ext, data):
-                    detect_key_file(rel, base, state)
-                state.stats["files_skipped_binary"] += 1
-                if note_unread(state, base, ext):
-                    state.partial = True  # a source, config, rules or env file that looks binary is itself worth a look
+                if module:
+                    ov.gap("code-file-not-read", rel, 0, "binary or changed while read")
                 continue
-            try:
-                cls, kinds = classify(rel, base, ext, text)
-                sf = ScanFile(rel, base, ext, cls, kinds, text)
-                if "code" in kinds or "html" in kinds:
-                    state.cls_counts[cls] += 1
-                if _pred_code_or_env(sf) or "mcp" in kinds:
-                    state.q1_files += 1
-                if not state.release_reading and time.monotonic() > release_at:
-                    state.release_reading = True  # late in the scan: SQL and rules files cost what they cost 0.3.2 from here on
-                if state.release_reading and kinds & {"sql", "rules"}:
-                    state.stats["files_read_with_0_3_2_rules"] += 1
-                sql_view = "" if "sql" not in kinds else sf.release_view() if state.release_reading else sf.sql_lex()[1]
-                if "rules" in kinds or ("sql" in kinds and RULE_SQL_RE.search(sql_view)):
-                    state.rule_files += 1  # a seed file of inserts defines no access, so it is not a rule file read
-                if _q1_gate(sf, opts):
-                    claimed = []
-                    detect_browser_prefix(sf, state, opts, claimed)
-                    detect_key_literals(sf, state, opts, claimed)
-                if "PRIVATE KEY" in text:
-                    detect_private_keys(sf, state, opts)  # code, config, env, and key files alike: id_rsa is not code, but it is the classic leak
-                elif is_key_file(base, ext, data) and (text.startswith("PuTTY-User-Key-File") or RAILS_MASTER_KEY_RE.match(text)):
-                    detect_key_file(rel, base, state, confirmed=text.startswith("PuTTY-User-Key-File"))
-                for predicate, detector in DETECTORS:
-                    if predicate(sf):
-                        (RELEASE_READERS.get(detector, detector) if state.release_reading else detector)(sf, state, opts)
-                state.files_scanned += 1
-            except Deadline:
-                state.stats["deadline_hit"] = True
-                state.partial = True
-                stop = True
-                break
-            except Exception:
-                state.stats["files_errored"] += 1
-                state.partial = True
-    return state
+            sf = OverlayFile(rel, name, ext, text)
+            b = name.lower()
+            if ext in release.SQL_LIKE_EXTS:
+                detect_sql(sf, ov, rel_state)
+            if b.endswith(".rules") or b == "database.rules.json":
+                detect_rules(sf, ov)
+            if module:
+                detect_module(sf, ov, opts)
+            if b in release.MANIFEST_BASENAMES:
+                detect_monitoring(sf, ov)
 
 
-# ----------------------------------------------------------------- resolver
+def overlay_pass(repo, opts, ov, rel_state, result, clock, end):
+    caps = bool(result.get("partial")) or result["stats"].get("max_files_hit") or result["stats"].get("max_total_bytes_hit")
+    overlay_walk(repo, opts, ov, rel_state, caps, clock, end)
+    counter = {}
+    for name in sorted(set(ov.tables) - set(rel_state.tables) - rel_state.rls_enabled - ov.rls_enabled):
+        if release._cap(counter, "table-without-rls"):
+            path, line = ov.tables[name]
+            ov.add("table-without-rls", path, line, name, source="sql")
+    # text inside a string or comment never turns RLS on: a table 0.3.2 credited from such an enable alone
+    for name in sorted(set(rel_state.tables) & rel_state.rls_enabled - ov.rls_enabled):
+        if release._cap(counter, "table-without-rls"):
+            path, line = rel_state.tables[name]
+            ov.add("table-without-rls", path, line, name, source="sql")
+    if ov.rule_files == 0 and result["questions"]["q3"]["answer"] == "nothing-found":
+        ov.add("no-rule-statements", "", 0, "no SQL file creates a table or policy; no rules file")
 
-def _q(answer, confidence, evidence):
-    return {"answer": answer, "confidence": confidence, "evidence": list(evidence)}
+# ------------------------------------------------------------------ merge
 
-
-def _n(count, noun, plural=None):
-    return "%d %s" % (count, noun if count == 1 else (plural or noun + "s"))
-
-
-def _summary_row(files_scanned, tail=""):
-    return _row("scan-summary", "%d files scanned, 0 hits%s" % (files_scanned, tail))  # SKILL.md quotes this text
-
-
-def _row(check, snippet):
-    """A row the resolver writes about the scan itself: no path, no line, never app text."""
-    return {"path": "", "line": 0, "snippet": sanitize(snippet), "check": check}
-
-
-def resolve(state):
-    """`nothing-found` means the scanner read the files that could answer and every check came back empty.
-    It is only ever claimed on a complete scan, never on a question the walk had nothing to read for, and
-    it is never a `no`: a founder told "nothing found" still has the by-hand test to run."""
-    ev = state.evidence
-    ef = state.effects
-    out = {}
-    complete = not state.partial  # a folder the founder excluded is a gap on every question (note_unread_dir)
-    if state.build_dirs:
-        head = "%s not read: " % _n(len(state.build_dirs), "build folder")
-        shown = []
-        for d in sorted(state.build_dirs)[:5]:
-            tail = " and %d more" % (len(state.build_dirs) - len(shown) - 1)
-            if shown and len(head + ", ".join(shown + [d]) + tail) > MAX_SNIPPET:
-                break  # the count of what is hidden must survive the snippet cap
-            shown.append(d)
-        more = len(state.build_dirs) - len(shown)
-        state.add("build-output-unread", "", 0, head + ", ".join(shown) + (" and %d more" % more if more else ""))
-    for name in sorted(set(state.tables) - state.rls_enabled)[:MAX_TABLE_WITHOUT_RLS_ROWS]:
-        path, line = state.tables[name]
-        state.add("table-without-rls", path, line, name)  # a table no migration turns row level security on for
-
-    def summary(key, tail=""):
-        if not ev[key]:
-            return [_summary_row(state.files_scanned, tail)]
-        return ev[key]
-
-    if "no" in ef["q1"]:
-        out["q1"] = _q("no", "high", ev["q1"])
-    elif complete and not ev["q1"] and state.q1_files and not state.gaps["q1"]:
-        env = "no tracked env file" if state.git["tracked_env_files"] is not None else "no env file"
-        agents = "; %s not opened" % _n(state.stats["files_never_open"], "agent file") if state.stats["files_never_open"] else ""
-        out["q1"] = _q("nothing-found", "med", [_row("nothing-found-keys", "%s read: no named key format in client code, no MCP token, %s%s" % (_n(state.q1_files, "file"), env, agents))])
-    else:
-        out["q1"] = _q("dont-know", "med", summary("q1"))
-    if "no" in ef["q3"]:
-        out["q3"] = _q("no", "high", ev["q3"])
-    elif complete and not ev["q3"] and state.rule_files and not state.gaps["q3"]:
-        out["q3"] = _q("nothing-found", "med", [_row("nothing-found-rules", "%s read: no RLS off, no using (true), no table without RLS, no if-true or test-mode Firebase rule" % _n(state.rule_files, "rule file"))])
-    else:
-        out["q3"] = _q("dont-know", "med", summary("q3", "" if state.rule_files else "; no SQL or security-rules file among them"))
-    q2 = list(ev["q2"])
-    code_files = sum(state.cls_counts.values())
-    if code_files:
-        c = state.cls_counts
-        q2.insert(0, _row("client-server-split", "%d code files: %d as browser code, %d as server code, %d unclear" % (code_files, c["client"], c["server"], c["other"])))
-    out["q2"] = _q("dont-know", "med" if ev["q2"] else "low", q2[:MAX_EVIDENCE])  # the split alone is not a hint
-    out["q8"] = _q("dont-know", "med" if ev["q8"] else "low", ev["q8"])
-    if complete and not ev["q9"] and state.dependencies and not state.gaps["q9"]:
-        out["q9"] = _q("nothing-found", "med", [_row("nothing-found-monitoring", "%s read: no error tracking, no Sentry config, no health route, no cron" % _n(state.dependencies, "dependency", "dependencies"))])
-    else:
-        out["q9"] = _q("dont-know", "med" if ev["q9"] else "low", ev["q9"])
-    for key in ("q4", "q7", "q10"):
-        out[key] = _q("dont-know", "low", ev[key])
-    q11 = list(ev["q11"])
-    if state.git["commits"]:
-        q11.insert(0, _row("code-history-local", "the code is on this machine with %d commits; the data export is yours to check" % state.git["commits"]))
-    out["q11"] = _q("dont-know", "low", q11[:MAX_EVIDENCE])
-    code_ev = ev["q5.code"]
-    if state.git["commits"] is None:
-        code = _q("dont-know", "low", code_ev)
-    elif state.git["shallow"]:
-        code = _q("dont-know", "med", code_ev)
-    elif "git-subdir" in [e["check"] for e in code_ev]:
-        code = _q("dont-know", "med", code_ev)
-    elif (state.git["tags"] >= 1 or state.git["commits"] >= 10) and state.deploy_configs:
-        code = _q("yes", "med", code_ev)
-    else:
-        code = _q("dont-know", "med", code_ev)
-    out["q5"] = {"code": code, "data": _q("dont-know", "low", ev["q5.data"])}
-    if len(state.env_names) >= 2:
-        out["q6"] = _q("yes", "med", ev["q6"])
-    else:
-        hinted = [e for e in ev["q6"] if e["check"] != "preview-deploys-default"]
-        out["q6"] = _q("dont-know", "med" if hinted else "low", ev["q6"])
-    ordered = {}
-    for i in range(1, 12):
-        ordered["q%d" % i] = out["q%d" % i]
-    return ordered
-
-
-def scan(repo, **kwargs):
-    opts = Options(**kwargs)
-    state = ScanState()
-    run_scan(repo, state, opts)
-    return build_result(state, repo)
-
-
-NEW_EVIDENCE_0_3_3 = {"firebase-rules-test-mode", "firebase-rules-true-unevaluated", "manifest-not-parsed", "mcp-config-not-opened",
-                      "open-rule-in-string", "open-rule-unconfirmed", "policy-true-unevaluated", "public-view"}
-
-
-RELEASE_ONLY_STATS = ("files_read_with_0_3_2_rules",)  # stats keys 0.3.2's output did not have
-RELEASE_NOTHING_FOUND = {"nothing-found-keys": ("no named key format in client code", "no key in client code"),
-                         "nothing-found-rules": ("no RLS off, no using (true), no table without RLS, no if-true or test-mode Firebase rule",
-                                                 "no RLS disabled, no using (true) policy, no if-true Firebase rule")}  # 0.3.3 wording -> 0.3.2's
-
-
-def _json_size(result):
+def _size(result):
     return len(json.dumps(result, ensure_ascii=True, separators=(",", ":")).encode("utf-8"))
 
 
-def _release_projection(result):
-    """The output as 0.3.2 would have sized it: without the rows of kinds 0.3.3 added, the stats keys it added, and
-    with 0.3.2's nothing-found wording. Rows of the other kinds keep their own budget in ScanState.add."""
-    out = json.loads(json.dumps(result))
-    for q in iter_questions(out):
-        q["evidence"] = [r for r in q["evidence"] if r["check"] not in NEW_EVIDENCE_0_3_3]
-        for r in q["evidence"]:
-            if r["check"] in RELEASE_NOTHING_FOUND:
-                r["snippet"] = r["snippet"].replace(*RELEASE_NOTHING_FOUND[r["check"]])
-    for key in RELEASE_ONLY_STATS:
-        out["stats"].pop(key, None)
+def _public(row):
+    return {"path": row["path"], "line": row["line"], "snippet": row["snippet"], "check": row["check"]}
+
+
+def _unfinished_row(status):
+    return {"path": "", "line": 0, "snippet": UNFINISHED_SNIPPETS.get(status, UNFINISHED_SNIPPETS["error"]), "check": "checks-not-finished"}
+
+
+def _confidence(q, answer, evidence):
+    if answer == "no":
+        return "high"
+    if q == "q9":
+        return "med" if evidence else "low"
+    return "med"
+
+
+def _evidence_only(row):
+    return release.CHECKS.get(row["check"], ("", "evidence"))[1] != "no"
+
+
+class _Plan(object):
+    """One question's merged state: 0.3.2's rows (after the nothing-found row is gone and any displacement), the
+    overlay's rows after them, the answer, and whether the overlay changed anything."""
+    __slots__ = ("q", "base_answer", "answer", "base_rows", "ov_rows", "unfinished_row", "changed")
+
+
+def _plans(result, ov):
+    plans = {}
+    cap = release.MAX_EVIDENCE
+    for q in QS:
+        qd = result["questions"][q]
+        base_rows = list(qd["evidence"])
+        taken = set((r["check"], r["path"], r["line"]) for r in base_rows)
+        lines = set((r["path"], r["line"]) for r in base_rows if r["line"] > 0)
+        rows = []
+        for r in ov.rows[q]:
+            no = r["_effect"] == "no" and r["_source"] == "mts-key" and q == "q1"  # the clamp: no other overlay row is a No
+            if (r["check"], r["path"], r["line"]) in taken or (not no and (r["path"], r["line"]) in lines):
+                continue  # 0.3.2 already shows this line on this question
+            rows.append(dict(r, _no=no))
+        rows.sort(key=lambda r: 0 if r["_no"] else 1)
+        want = "no" if any(r["_no"] for r in rows) else ("dont-know" if rows or ov.gaps[q] or not ov.finished else "nothing-found")
+        p = _Plan()
+        p.q, p.base_answer = q, qd["answer"]
+        p.answer = want if RANK[want] > RANK[qd["answer"]] else qd["answer"]
+        if p.answer != p.base_answer and p.base_answer == "nothing-found":
+            base_rows = [r for r in base_rows if not r["check"].startswith("nothing-found-")]
+        if any(r["_no"] for r in rows):  # displacement at insertion: 0.3.2's own ScanState.add rule, Q1 only
+            n_no = sum(1 for r in rows if r["_no"])
+            while len(base_rows) + n_no > cap:
+                for i in range(len(base_rows) - 1, -1, -1):
+                    if _evidence_only(base_rows[i]):
+                        del base_rows[i]
+                        break
+                else:
+                    break
+        room = max(0, cap - len(base_rows))
+        p.unfinished_row = None
+        if not ov.finished and p.base_answer == "nothing-found":
+            p.unfinished_row = _unfinished_row(ov.status)
+            room = max(0, room - 1)
+        p.base_rows = base_rows
+        p.ov_rows = rows[:room]
+        p.changed = p.answer != p.base_answer or bool(p.ov_rows) or p.unfinished_row is not None
+        plans[q] = p
+    return plans
+
+
+def _assemble(result, plans):
+    out = copy.deepcopy(result)
+    for q, p in plans.items():
+        if not p.changed:
+            continue
+        evidence = p.base_rows + [_public(r) for r in p.ov_rows] + ([p.unfinished_row] if p.unfinished_row else [])
+        qd = out["questions"][q]
+        qd["answer"] = p.answer
+        qd["evidence"] = evidence
+        qd["confidence"] = _confidence(q, p.answer, evidence)
     return out
 
 
-def _fit_output(result):
-    """Keep the JSON under the acceptance cap. Rows of the kinds 0.3.3 added go first, then evidence-only rows before
-    any decisive `no` row. The result is partial exactly when 0.3.2's output would not have fit either
-    (`_release_projection`), so the branch goes partial where 0.3.2 did, and not where it did not; a trim that is not
-    partial never takes a question's last row, so no answer changes."""
-    if _json_size(result) <= MAX_OUTPUT_BYTES:
-        return result
-    partial = _json_size(_release_projection(result)) > MAX_OUTPUT_BYTES
-    dropped = 0
-    while _json_size(result) > MAX_OUTPUT_BYTES:
-        target = _trim_target(result, keep_last=not partial)
-        if target is None and not partial:
-            partial = True  # nothing left to trim without emptying a question: the output cannot be kept whole
-            continue
-        if target is None:
+def _compact(row):
+    if row["_no"]:
+        return dict(row, snippet="", path=row["path"].rsplit("/", 1)[-1][:40])
+    return dict(row, snippet="", path="", line=0)
+
+
+def _fit(result, plans):
+    """Keep the output under 0.3.2's cap without touching a 0.3.2 row of any other question and without ever
+    setting partial: drop overlay rows that did not change an answer, then all but one on a question the overlay
+    moved (the unfinished row counts as that one), compact what is left, then (Q1 No only) displace 0.3.2's
+    evidence-only Q1 rows, compact the No row fully, and as a last step demote it once."""
+    cap = release.MAX_OUTPUT_BYTES
+
+    def over():
+        return _size(_assemble(result, plans)) > cap
+
+    if not over():
+        return _assemble(result, plans)
+    moved = lambda p: p.answer != p.base_answer
+    # 1. overlay rows on questions whose answer the overlay did not change, the longest list first
+    while over():
+        idle = [p for p in plans.values() if not moved(p) and p.ov_rows]
+        if not idle:
             break
-        del target[0][target[1]]
-        dropped += 1
-    if dropped:
-        result["stats"]["output_trimmed"] = dropped
-    if partial:
-        result["partial"] = True
-        for q in iter_questions(result):
-            if q["answer"] == "nothing-found":  # never claimed on a partial result, however it became partial
-                q["answer"] = "dont-know"
-                q["evidence"] = [_summary_row(result["files_scanned"])]
-    return result
+        max(idle, key=lambda p: len(p.ov_rows)).ov_rows.pop()
+    # 2. on moved questions, down to one row (the unfinished row is that one when present)
+    while over():
+        busy = [p for p in plans.values() if moved(p) and len(p.ov_rows) > (0 if p.unfinished_row else 1)]
+        if not busy:
+            break
+        max(busy, key=lambda p: len(p.ov_rows)).ov_rows.pop()
+    # 3. compact what is left
+    if over():
+        for p in plans.values():
+            p.ov_rows = [_compact(r) for r in p.ov_rows]
+    q1 = plans["q1"]
+    no_rows = [r for r in q1.ov_rows if r["_no"]]
+    # 4. a Q1 No: displace 0.3.2's evidence-only Q1 rows, last first; then a fully compact No row
+    while over() and no_rows:
+        for i in range(len(q1.base_rows) - 1, -1, -1):
+            if _evidence_only(q1.base_rows[i]):
+                del q1.base_rows[i]
+                break
+        else:
+            break
+    if over() and no_rows:
+        q1.ov_rows = [dict(r, path="", line=0, snippet="") if r["_no"] else r for r in q1.ov_rows]
+    # 5. demote the overlay's No, once
+    if over() and no_rows:
+        base_q1 = result["questions"]["q1"]
+        if q1.base_answer == "nothing-found":
+            q1.answer = "dont-know"
+            q1.ov_rows = [dict(_compact(dict(no_rows[0], _no=False)))]
+        else:
+            q1.answer = q1.base_answer
+            q1.base_rows = list(base_q1["evidence"])
+            q1.ov_rows = []
+            q1.unfinished_row = None
+            q1.changed = False
+    if over():
+        return None  # the caller falls back to 0.3.2's result with Nothing found withheld
+    return _assemble(result, plans)
 
 
-def _trim_target(result, keep_last):
-    """(rows, index) of the next row to drop: the last row of a kind 0.3.3 added in the longest question holding one,
-    else the last evidence-only row in the longest question, else any last row. keep_last: never a question's only row."""
-    best = {}
-    for q in iter_questions(result):
-        rows = q["evidence"]
-        if not rows or (keep_last and len(rows) < 2):
-            continue
-        for rank, keep in ((0, lambda r: r["check"] in NEW_EVIDENCE_0_3_3), (1, lambda r: CHECKS[r["check"]][1] != "no"), (2, lambda r: True)):
-            for i in range(len(rows) - 1, -1, -1):
-                if keep(rows[i]):
-                    if rank not in best or len(rows) > len(best[rank][0]):
-                        best[rank] = (rows, i)
-                    break
-    for rank in (0, 1, 2):
-        if rank in best:
-            return best[rank]
-    return None
+def fallback(result, status):
+    """0.3.2's result with Q1/Q3/Q9 Nothing found withheld: the overlay's answer when it could not run or merge."""
+    out = copy.deepcopy(result)
+    for q in QS:
+        qd = out["questions"][q]
+        if qd["answer"] == "nothing-found":
+            qd["answer"] = "dont-know"
+            qd["evidence"] = [_unfinished_row(status if status in UNFINISHED_SNIPPETS else "error")]
+            qd["confidence"] = _confidence(q, "dont-know", qd["evidence"])
+    return out
 
 
-def build_result(state, repo):
+def merge(result, ov):
+    """0.3.2's result (deep-copied) and the overlay's findings -> the 0.3.3 result. Answers only move toward
+    caution; 0.3.2's rows stay first; partial, stats and every other question are 0.3.2's."""
+    for q in QS:
+        for r in ov.rows[q]:
+            if r["check"] not in OVERLAY_CHECKS and r["check"] not in release.CHECKS:
+                raise ValueError("unknown overlay check: " + r["check"])
+    if _size(result) > release.MAX_OUTPUT_BYTES:
+        return result if ov.finished and not any(ov.rows[q] or ov.gaps[q] for q in QS) else fallback(result, ov.status if not ov.finished else "unfinished")
+    out = _fit(result, _plans(result, ov))
+    return out if out is not None else fallback(result, ov.status)
+
+# ------------------------------------------------------------------ scan
+
+def overlay_budget_end(started, now, opts):
+    """When the overlay must stop: twice 0.3.2's own time, at least OVERLAY_MIN_S (more for a longer
+    --deadline-s), and never past OVERLAY_SHARE_OF_DEADLINE of --deadline-s from the start."""
+    least = max(OVERLAY_MIN_S, opts.deadline_s / 24.0)
+    return min(started + OVERLAY_SHARE_OF_DEADLINE * opts.deadline_s, now + max(least, 2 * (now - started)))
+
+
+def scan_with_overlay(repo, opts, clock=time.monotonic):
+    """(result, 0.3.2's state, overlay status, overlay ms). `clock` must share time.monotonic's base."""
+    started = clock()
+    state = release.ScanState()
+    release.run_scan(repo, state, opts)
+    result = copy.deepcopy(release.build_result(state, repo))
+    result["version"] = __version__
+    if os.environ.get("CUSTODY_CHECK_OVERLAY") == "0":
+        return result, state, "skipped", 0
+    now = clock()
+    end = overlay_budget_end(started, now, opts)
+    ov = Overlay(end)
     try:
-        real_repo = os.path.realpath(repo)
-        cwd = os.path.realpath(os.getcwd())
-        if real_repo == cwd:
-            state.warnings.append("repo-is-cwd")
-        elif cwd.startswith(real_repo + os.sep):
-            state.warnings.append("repo-contains-cwd")
-    except OSError:
-        pass
-    return _fit_output({
-        "ok": True,
-        "partial": bool(state.partial),
-        "version": __version__,
-        "files_scanned": state.files_scanned,
-        "stats": state.stats,
-        "warnings": list(state.warnings),
-        "git": state.git,
-        "questions": resolve(state),
-    })
+        if now > end:
+            ov.stopped_by = "clock"
+            raise OverlayTimeout()
+        overlay_pass(repo, opts, ov, state, result, clock, end)
+    except (release.Deadline, OverlayTimeout):
+        ov.status = "unfinished"
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except Exception:
+        ov.status = "error"
+    try:
+        out = merge(result, ov)
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except Exception:
+        ov.status = "error"
+        out = fallback(result, "error")
+    scan_with_overlay.last = ov  # for the tests: how the pass ended and what it found
+    return out, state, ov.status, int((clock() - now) * 1000)
 
 
-# ---------------------------------------------------------------------- CLI
+def scan(repo, **kwargs):
+    if release is None:
+        raise ReleaseUnavailable(RELEASE_ERROR)
+    opts = release.Options(**kwargs)
+    return scan_with_overlay(repo, opts)[0]
 
-class _Parser(argparse.ArgumentParser):
-    def error(self, message):
-        raise UsageError(message)
-
-
-def envelope(code):
-    base = code.split(":", 1)[0]
-    hint, docs = HINTS.get(base, HINTS["internal"])
-    return {"ok": False, "error": code, "hint": hint, "docs": docs, "partial": True}
-
-
-def emit(obj, pretty=False):
-    if pretty:
-        sys.stdout.write(json.dumps(obj, ensure_ascii=True, indent=2) + "\n")
-    else:
-        sys.stdout.write(json.dumps(obj, ensure_ascii=True, separators=(",", ":")) + "\n")
-    sys.stdout.flush()
-
+# ------------------------------------------------------------------ CLI (0.3.2's main, through the overlay)
 
 def main(argv=None):
     warnings.simplefilter("ignore")  # stderr carries exactly one summary line
     argv = list(sys.argv[1:] if argv is None else argv)
-    parser = _Parser(prog="custody_scan.py", add_help=True, description="Read-only evidence gatherer for the eleven custody questions.")
+    pretty = "--pretty" in argv
+    exit_code = "--exit-code" in argv
+    if release is None:
+        out = release_envelope(RELEASE_ERROR)
+        sys.stdout.write((json.dumps(out, ensure_ascii=True, indent=2) if pretty else json.dumps(out, ensure_ascii=True, separators=(",", ":"))) + "\n")
+        sys.stdout.flush()
+        return 2 if exit_code else 0
+    r = release
+    parser = r._Parser(prog="custody_scan.py", add_help=True, description="Read-only evidence gatherer for the eleven custody questions.")
     parser.add_argument("--repo", help="the app folder (run from the folder that contains it)")
-    parser.add_argument("--max-files", type=int, default=DEFAULT_MAX_FILES)
-    parser.add_argument("--max-file-bytes", type=int, default=DEFAULT_MAX_FILE_BYTES)
-    parser.add_argument("--max-total-bytes", type=int, default=DEFAULT_MAX_TOTAL_BYTES)
-    parser.add_argument("--deadline-s", type=float, default=DEFAULT_DEADLINE_S)
+    parser.add_argument("--max-files", type=int, default=r.DEFAULT_MAX_FILES)
+    parser.add_argument("--max-file-bytes", type=int, default=r.DEFAULT_MAX_FILE_BYTES)
+    parser.add_argument("--max-total-bytes", type=int, default=r.DEFAULT_MAX_TOTAL_BYTES)
+    parser.add_argument("--deadline-s", type=float, default=r.DEFAULT_DEADLINE_S)
     parser.add_argument("--exclude-dir", action="append", default=[])
     parser.add_argument("--browser-prefix", action="append", default=[])
     parser.add_argument("--pretty", action="store_true")
     parser.add_argument("--exit-code", action="store_true")
     parser.add_argument("--version", action="store_true")
     started = time.monotonic()
-    pretty = "--pretty" in argv
-    exit_code = "--exit-code" in argv
     try:
         args = parser.parse_args(argv)
         if args.version:
@@ -3010,49 +1203,47 @@ def main(argv=None):
             return 0
         if not args.repo:
             sys.stderr.write("Missing --repo. Try: python3 custody_scan.py --repo my-app\n")
-            raise UsageError("--repo is required")
+            raise r.UsageError("--repo is required")
         if args.max_files < 1 or args.max_file_bytes < 1 or args.max_total_bytes < 1 or not args.deadline_s > 0:
             sys.stderr.write("Limits must be positive: --max-files, --max-file-bytes, --max-total-bytes, --deadline-s\n")
-            raise UsageError("non-positive limit")
+            raise r.UsageError("non-positive limit")
         raw_repo = os.path.expanduser(args.repo.rstrip("/") or "/")
         if os.path.islink(raw_repo):
-            emit(envelope("repo-is-symlink"), pretty)
+            r.emit(r.envelope("repo-is-symlink"), pretty)
             return 2 if exit_code else 0
         repo = os.path.realpath(raw_repo)
         if not os.path.exists(repo):
-            emit(envelope("repo-not-found"), pretty)
+            r.emit(r.envelope("repo-not-found"), pretty)
             return 2 if exit_code else 0
         if not os.path.isdir(repo):
-            emit(envelope("repo-not-a-directory"), pretty)
+            r.emit(r.envelope("repo-not-a-directory"), pretty)
             return 2 if exit_code else 0
         if not os.access(repo, os.R_OK | os.X_OK):
-            emit(envelope("repo-unreadable"), pretty)
+            r.emit(r.envelope("repo-unreadable"), pretty)
             return 2 if exit_code else 0
         try:
             real_cwd = os.path.realpath(os.getcwd())
         except OSError:
             real_cwd = ""
         if real_cwd and real_cwd != repo and real_cwd.startswith(repo + os.sep):
-            emit(envelope("repo-contains-cwd"), pretty)  # `..` from inside the app would walk everything above it
+            r.emit(r.envelope("repo-contains-cwd"), pretty)  # `..` from inside the app would walk everything above it
             return 2 if exit_code else 0
-        opts = Options(max_files=args.max_files, max_file_bytes=args.max_file_bytes, max_total_bytes=args.max_total_bytes,
-                       deadline_s=args.deadline_s, exclude_dirs=args.exclude_dir, browser_prefixes=args.browser_prefix)
-        state = ScanState()
-        run_scan(repo, state, opts)
-        result = build_result(state, repo)
-        emit(result, pretty)
+        opts = r.Options(max_files=args.max_files, max_file_bytes=args.max_file_bytes, max_total_bytes=args.max_total_bytes,
+                         deadline_s=args.deadline_s, exclude_dirs=args.exclude_dir, browser_prefixes=args.browser_prefix)
+        result, state, status, overlay_ms = scan_with_overlay(repo, opts)
+        r.emit(result, pretty)
         skipped = sum(state.stats[k] for k in ("files_skipped_oversize", "files_skipped_binary", "files_skipped_generated", "files_never_open", "files_skipped_special"))
-        sys.stderr.write("custody-check v%s: scanned %d, skipped %d, errored %d, %d ms\n" % (
-            __version__, state.files_scanned, skipped, state.stats["files_errored"], int((time.monotonic() - started) * 1000)))
+        sys.stderr.write("custody-check v%s: scanned %d, skipped %d, errored %d, %d ms; checks 0.3.3: %s, %d ms\n" % (
+            __version__, state.files_scanned, skipped, state.stats["files_errored"], int((time.monotonic() - started) * 1000), status, overlay_ms))
         return 3 if (exit_code and result["partial"]) else 0
-    except UsageError:
-        emit(envelope("usage"), pretty)
+    except r.UsageError:
+        r.emit(r.envelope("usage"), pretty)
         return 2 if exit_code else 0
     except SystemExit:
         raise
     except Exception as exc:  # last resort: never a traceback, never a path
         try:
-            emit(envelope("internal:" + type(exc).__name__), pretty)
+            r.emit(r.envelope("internal:" + type(exc).__name__), pretty)
         except Exception:
             pass
         return 2 if exit_code else 0
