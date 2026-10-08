@@ -4,6 +4,9 @@ Every secret-shaped string is generated at runtime so no key-shaped value is eve
 committed. Static, secret-free trees live under fixtures/.
 """
 import base64
+import copy
+import hashlib
+import io
 import json
 import os
 import platform
@@ -21,6 +24,7 @@ from unittest import mock
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(SCRIPT_DIR, "custody_scan.py")
+RELEASE_SCRIPT = os.path.join(SCRIPT_DIR, "custody_scan_0_3_2.py")  # 0.3.2, frozen: the overlay runs it first
 FIXTURES = os.path.join(SCRIPT_DIR, "fixtures")
 SKILL_DIR = os.path.dirname(SCRIPT_DIR)
 PLUGIN_DIR = os.path.dirname(os.path.dirname(SKILL_DIR))
@@ -120,6 +124,13 @@ def evidence_checks(q):
     return [e["check"] for e in q["evidence"]]
 
 
+def assert_unconfirmed(tc, q, msg=None):
+    """A rule the scanner reads as open in a shape 0.3.2 did not check: never a new No (every Q3 No comes from
+    0.3.2's own patterns), never Nothing found, and the row names it."""
+    tc.assertEqual(q["answer"], "dont-know", msg)
+    tc.assertIn("open-rule-unconfirmed", evidence_checks(q), msg)
+
+
 class ScanCase(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="custody test ")
@@ -212,7 +223,7 @@ class RedactionTests(ScanCase):
         self.write(".mcp.json", json.dumps({"mcpServers": {"x": {"env": {"TOKEN": GHP}}}}))
         out = json.dumps(self.scan())
         self.assert_no_secret(out)
-        for q in cs.iter_questions(json.loads(out)):
+        for q in cs.release.iter_questions(json.loads(out)):
             for e in q["evidence"]:
                 self.assertLessEqual(len(e["snippet"]), 120)
 
@@ -714,9 +725,9 @@ class NamedKeyFormatTests(ScanCase):
 
     def test_private_key_rows_are_capped_per_file(self):
         block = "`%s\n%s\n%s`" % (PEM_HEAD, PEM_BODY, PEM_TAIL)
-        self.write("src/many.ts", "".join("export const k%d = %s;\n" % (i, block) for i in range(cs.MAX_HITS_PER_FILE_PER_CHECK + 2)))
+        self.write("src/many.ts", "".join("export const k%d = %s;\n" % (i, block) for i in range(cs.release.MAX_HITS_PER_FILE_PER_CHECK + 2)))
         q1 = self.scan()["questions"]["q1"]
-        self.assertEqual(evidence_checks(q1).count("client-private-key"), cs.MAX_HITS_PER_FILE_PER_CHECK)
+        self.assertEqual(evidence_checks(q1).count("client-private-key"), cs.release.MAX_HITS_PER_FILE_PER_CHECK)
 
     def test_a_sample_that_trails_off_is_a_placeholder(self):
         for sample in ("b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAABlwAAAAdzc2gtcn\n...",
@@ -986,7 +997,7 @@ class Q5Tests(ScanCase):
         r = self.scan()
         out = json.dumps(r)
         self.assert_no_secret(out, SK)
-        self.assertLessEqual(len(r["git"]["tracked_env_files"]), cs.MAX_TRACKED_ENV_FILES)
+        self.assertLessEqual(len(r["git"]["tracked_env_files"]), cs.release.MAX_TRACKED_ENV_FILES)
         for p in r["git"]["tracked_env_files"]:
             self.assertLessEqual(len(p), 200)
 
@@ -1038,24 +1049,24 @@ class Q5Tests(ScanCase):
 
     def test_git_timeout_and_unavailable_codes(self):
         self.init_repo(commits=2)
-        with mock.patch.object(cs.subprocess, "Popen", side_effect=subprocess.TimeoutExpired("git", 1)):
+        with mock.patch.object(cs.release.subprocess, "Popen", side_effect=subprocess.TimeoutExpired("git", 1)):
             r = self.scan()
         self.assertIsNone(r["git"]["commits"])
         self.assertIn("git-timeout", evidence_checks(r["questions"]["q5"]["code"]))
-        with mock.patch.object(cs, "_trusted_git", return_value=None):
+        with mock.patch.object(cs.release, "_trusted_git", return_value=None):
             r = self.scan()
         self.assertIn("git-unavailable", evidence_checks(r["questions"]["q5"]["code"]))
 
     def test_darwin_without_command_line_tools(self):
         self.init_repo(commits=2)
         # pin the guard's input: the probe only runs for the system git, whatever the host's PATH order
-        with mock.patch.object(cs, "_darwin_git_ready", return_value=False), mock.patch.object(cs.sys, "platform", "darwin"), \
-                mock.patch.object(cs, "_trusted_git", return_value="/usr/bin/git"):
+        with mock.patch.object(cs.release, "_darwin_git_ready", return_value=False), mock.patch.object(cs.sys, "platform", "darwin"), \
+                mock.patch.object(cs.release, "_trusted_git", return_value="/usr/bin/git"):
             r = self.scan()
         self.assertIn("git-unavailable", evidence_checks(r["questions"]["q5"]["code"]))
         probe = mock.Mock(return_value=False)
-        with mock.patch.object(cs, "_darwin_git_ready", probe), mock.patch.object(cs.sys, "platform", "darwin"), \
-                mock.patch.object(cs, "_trusted_git", return_value=shutil.which("git")):
+        with mock.patch.object(cs.release, "_darwin_git_ready", probe), mock.patch.object(cs.sys, "platform", "darwin"), \
+                mock.patch.object(cs.release, "_trusted_git", return_value=shutil.which("git")):
             if shutil.which("git") != "/usr/bin/git":
                 r = self.scan()
                 probe.assert_not_called()
@@ -1218,24 +1229,25 @@ class ContractTests(ScanCase):
         self.assertEqual(list(r["questions"].keys()), ["q%d" % i for i in range(1, 12)])
         self.assertEqual(list(r["questions"]["q5"].keys()), ["code", "data"])
         self.assertEqual(r["version"], cs.__version__)
-        for q in cs.iter_questions(r):
+        for q in cs.release.iter_questions(r):
             self.assertEqual(list(q.keys()), ["answer", "confidence", "evidence"])
             self.assertIn(q["answer"], ("yes", "no", "dont-know", "nothing-found"))
             self.assertIn(q["confidence"], ("high", "med", "low"))
             for e in q["evidence"]:
                 self.assertEqual(list(e.keys()), ["path", "line", "snippet", "check"])
-                self.assertIn(e["check"], cs.CHECKS)
+                self.assertIn(e["check"], cs.all_checks())
 
     def test_static_registry_covers_every_referenced_check(self):
-        with open(SCRIPT, encoding="utf-8") as fh:
-            src = fh.read()
-        referenced = set(re.findall(r'\bstate\.add\(\s*["\']([a-z0-9-]+)["\']', src))
-        referenced |= set(re.findall(r'\bcheck = ["\']([a-z0-9-]+)["\']', src))
-        referenced |= set(re.findall(r'_finditer_lines\([^\n]*?, ["\']([a-z0-9-]+)["\'], ', src))
-        referenced |= set(re.findall(r'_cap\(counter, ["\']([a-z0-9-]+)["\']\)', src))
-        self.assertTrue(referenced)
-        self.assertLessEqual(referenced, set(cs.CHECKS))
-        for name, (question, effect) in cs.CHECKS.items():
+        for path, registry in ((RELEASE_SCRIPT, set(cs.release.CHECKS)), (SCRIPT, set(cs.all_checks()))):
+            with open(path, encoding="utf-8") as fh:
+                src = fh.read()
+            referenced = set(re.findall(r'\b(?:state|ov)\.(?:add|gap)\(\s*["\']([a-z0-9-]+)["\']', src))
+            referenced |= set(re.findall(r'\bcheck = ["\']([a-z0-9-]+)["\']', src))
+            referenced |= set(re.findall(r'_finditer_(?:lines|rows)\([^\n]*?, ["\']([a-z0-9-]+)["\'], ', src))
+            referenced |= set(re.findall(r'_cap\(counter(?:_views)?, ["\']([a-z0-9-]+)["\']\)', src))
+            self.assertTrue(referenced, path)
+            self.assertLessEqual(referenced, registry, path)
+        for name, (question, effect) in cs.release.CHECKS.items():
             self.assertIn(effect, ("evidence", "hint", "yes-part", "no"))
             self.assertRegex(question, r"^q(\d+)(\.code|\.data)?$")
 
@@ -1243,20 +1255,20 @@ class ContractTests(ScanCase):
         for i in range(30):
             self.write("pages/api/r%d.ts" % i, "export default () => 1;\n")
         q2 = self.scan()["questions"]["q2"]
-        self.assertEqual(len(q2["evidence"]), cs.MAX_EVIDENCE)
+        self.assertEqual(len(q2["evidence"]), cs.release.MAX_EVIDENCE)
 
     def test_decode_jwt_role(self):
-        self.assertEqual(cs.decode_jwt_role(ANON_JWT), "anon")
-        self.assertEqual(cs.decode_jwt_role(SERVICE_JWT), "service_role")
-        self.assertIsNone(cs.decode_jwt_role(NOROLE_JWT))
-        self.assertIsNone(cs.decode_jwt_role("eyJ.notbase64!!.x"))
-        self.assertIsNone(cs.decode_jwt_role("eyJ." + b64url(b"not json") + ".x"))
-        self.assertIsNone(cs.decode_jwt_role("eyJ.two"))
-        self.assertIsNone(cs.decode_jwt_role(make_jwt({"role": 5})))
+        self.assertEqual(cs.release.decode_jwt_role(ANON_JWT), "anon")
+        self.assertEqual(cs.release.decode_jwt_role(SERVICE_JWT), "service_role")
+        self.assertIsNone(cs.release.decode_jwt_role(NOROLE_JWT))
+        self.assertIsNone(cs.release.decode_jwt_role("eyJ.notbase64!!.x"))
+        self.assertIsNone(cs.release.decode_jwt_role("eyJ." + b64url(b"not json") + ".x"))
+        self.assertIsNone(cs.release.decode_jwt_role("eyJ.two"))
+        self.assertIsNone(cs.release.decode_jwt_role(make_jwt({"role": 5})))
 
     def test_prefilter_matches_every_named_shape(self):
-        for sample in (SK, AKIA, GHP, SBS, ANON_JWT) + tuple(p + "X=1" for p in cs.BROWSER_PREFIXES):
-            self.assertTrue(cs.PREFILTER_RE.search("a\n" + sample + "\nb"), sample)
+        for sample in (SK, AKIA, GHP, SBS, ANON_JWT) + tuple(p + "X=1" for p in cs.release.BROWSER_PREFIXES):
+            self.assertTrue(cs.release.PREFILTER_RE.search("a\n" + sample + "\nb"), sample)
 
     def test_determinism(self):
         self.write("src/a.ts", 'const k = "%s";\n' % SK)
@@ -1271,13 +1283,13 @@ class ContractTests(ScanCase):
     def test_no_scanfile_retained(self):
         for i in range(5):
             self.write("src/f%d.ts" % i, "x\n")
-        state = cs.ScanState()
-        cs.run_scan(self.repo, state, cs.Options())
+        state = cs.release.ScanState()
+        cs.release.run_scan(self.repo, state, cs.release.Options())
         for value in vars(state).values():
-            self.assertNotIsInstance(value, cs.ScanFile)
+            self.assertNotIsInstance(value, cs.release.ScanFile)
             if isinstance(value, (list, dict, set)):
                 for item in (value.values() if isinstance(value, dict) else value):
-                    self.assertNotIsInstance(item, cs.ScanFile)
+                    self.assertNotIsInstance(item, cs.release.ScanFile)
 
     def test_error_codes_have_hints_and_docs(self):
         with open(os.path.join(PLUGIN_DIR, "README.md"), encoding="utf-8") as fh:
@@ -1286,12 +1298,12 @@ class ContractTests(ScanCase):
                 if line.startswith("#"):
                     slug = re.sub(r"[^a-z0-9 -]", "", line.lstrip("#").strip().lower()).replace(" ", "-")
                     headings.add(slug)
-        for code, (hint, docs) in cs.HINTS.items():
+        for code, (hint, docs) in cs.release.HINTS.items():
             self.assertTrue(hint and "/" not in hint, code)
             self.assertTrue(docs.startswith("README.md#"), code)
             self.assertIn(docs.split("#", 1)[1], headings, "%s docs anchor does not resolve" % code)
         for code in ("usage", "repo-not-found", "repo-not-a-directory", "repo-unreadable", "repo-is-symlink", "python-too-old", "internal"):
-            self.assertIn(code, cs.HINTS)
+            self.assertIn(code, cs.release.HINTS)
 
     def test_version_guard_envelope(self):
         env = cs.version_guard((3, 8, 0))
@@ -1372,7 +1384,7 @@ class CliTests(ScanCase):
         import io
         self.write("src/a.ts", "x\n")
         buf = io.StringIO()
-        with mock.patch.object(cs, "run_scan", side_effect=RuntimeError("/secret/path boom")), mock.patch.object(cs.sys, "stdout", buf):
+        with mock.patch.object(cs.release, "run_scan", side_effect=RuntimeError("/secret/path boom")), mock.patch.object(cs.sys, "stdout", buf):
             rc = cs.main(["--repo", self.repo])
         env = json.loads(buf.getvalue())
         self.assertEqual(rc, 0)
@@ -1381,7 +1393,7 @@ class CliTests(ScanCase):
         self.assertNotIn("secret", buf.getvalue())
         self.assertNotIn("boom", buf.getvalue())
         buf2 = io.StringIO()
-        with mock.patch.object(cs, "run_scan", side_effect=RuntimeError("x")), mock.patch.object(cs.sys, "stdout", buf2):
+        with mock.patch.object(cs.release, "run_scan", side_effect=RuntimeError("x")), mock.patch.object(cs.sys, "stdout", buf2):
             self.assertEqual(cs.main(["--repo", self.repo, "--exit-code"]), 2)
 
     @unittest.skipIf(sys.platform == "win32", "sitecustomize lookup differs on Windows")
@@ -1407,7 +1419,7 @@ class ResilienceTests(ScanCase):
         def boom(sf, state, opts):
             raise ValueError("boom")
 
-        with mock.patch.object(cs, "DETECTORS", [(lambda sf: True, boom)] + cs.DETECTORS):
+        with mock.patch.object(cs.release, "DETECTORS", [(lambda sf: True, boom)] + cs.release.DETECTORS):
             r = self.scan()
         self.assertTrue(r["ok"])
         self.assertTrue(r["partial"])
@@ -1430,14 +1442,14 @@ class ResilienceTests(ScanCase):
     @unittest.skipUnless(hasattr(os, "mkfifo"), "POSIX special files")
     def test_file_swapped_after_walk_is_rejected(self):
         self.write("src/a.ts", "x\n")
-        real_open = cs.open_regular
+        real_open = cs.release.open_regular
 
         def swap(path):
             os.remove(path)
             os.mkfifo(path)
             return real_open(path)
 
-        with mock.patch.object(cs, "open_regular", side_effect=swap):
+        with mock.patch.object(cs.release, "open_regular", side_effect=swap):
             r = self.scan()
         self.assertEqual(r["files_scanned"], 0)
 
@@ -1451,10 +1463,10 @@ class LinearityTests(unittest.TestCase):
         this, because a ratio does not care how loaded the machine is.
         """
         cases = (
-            ("prefilter keyword", cs.PREFILTER_RE, "secret:"),
-            ("run sweep", cs.RUN_RE, "A1b2C3d4" * 4 + " "),
-            ("client import", cs.CLIENT_IMPORT_RE, "import x from 'y'\n"),
-            ("firebase allow", cs.FIREBASE_ALLOW_TRUE_RE, "allow read, write: if x;\n"),
+            ("prefilter keyword", cs.release.PREFILTER_RE, "secret:"),
+            ("run sweep", cs.release.RUN_RE, "A1b2C3d4" * 4 + " "),
+            ("client import", cs.release.CLIENT_IMPORT_RE, "import x from 'y'\n"),
+            ("firebase allow", cs.FIREBASE_IF_RE, "allow read, write: if x;\n"),
         )
         # Sized so the fastest case still takes ~6x the floor below. At 20k units the two hottest
         # regexes measured 0.0021s and 0.0024s against a 0.002s floor, so a faster runner would have
@@ -1473,13 +1485,13 @@ class LinearityTests(unittest.TestCase):
         # here and 1.32ms on a CI runner, i.e. either side of the floor below: it failed CI loudly and
         # had already flaked once locally. 3M units gives the faster runner ~5x the floor.
         # The quadratic version this replaced grows 4.5x on the same inputs.
-        t_small = _fastest(lambda: cs._blank_block_comments("/* a" * 3000000))
-        t_big = _fastest(lambda: cs._blank_block_comments("/* a" * 6000000))
+        t_small = _fastest(lambda: cs.release._blank_block_comments("/* a" * 3000000))
+        t_big = _fastest(lambda: cs.release._blank_block_comments("/* a" * 6000000))
         self.assertGreater(t_small, _RATIO_FLOOR_S, "input too small to time; the ratio would assert nothing")
         self.assertLess(t_big / t_small, 3.0, "unclosed block comments must stay linear")
 
     def test_prefilter_repeated_keyword_is_linear(self):
-        opts = cs.Options()
+        opts = cs.release.Options()
         t0 = time.perf_counter()
         opts.prefilter_re.search("key" * 170000)
         opts.prefilter_re.search("key " * 100000)
@@ -1488,7 +1500,7 @@ class LinearityTests(unittest.TestCase):
     def test_multiline_patterns_are_linear_on_blank_lines(self):
         blank = "\n" * 524288
         spaced = " \n" * 262144
-        for regex in (cs.CLIENT_IMPORT_RE, cs.CRON_WORKFLOW_RE, cs.TOML_PUBLIC_TRUE_RE, cs.NETLIFY_CONTEXT_RE, cs.WRANGLER_ENV_RE, cs.CRON_WRANGLER_RE, cs.USE_CLIENT_RE, cs.GEM_RE, cs.GO_REQUIRE_RE):
+        for regex in (cs.release.CLIENT_IMPORT_RE, cs.release.CRON_WORKFLOW_RE, cs.release.TOML_PUBLIC_TRUE_RE, cs.release.NETLIFY_CONTEXT_RE, cs.release.WRANGLER_ENV_RE, cs.release.CRON_WRANGLER_RE, cs.release.USE_CLIENT_RE, cs.release.GEM_RE, cs.release.GO_REQUIRE_RE):
             t0 = time.perf_counter()
             regex.search(blank)
             regex.search(spaced)
@@ -1496,7 +1508,7 @@ class LinearityTests(unittest.TestCase):
 
     def test_firebase_and_sql_patterns_are_linear(self):
         t0 = time.perf_counter()
-        cs.FIREBASE_ALLOW_TRUE_RE.search("allow " * 80000)
+        cs.FIREBASE_IF_RE.search("allow " * 80000)
         cs.RLS_DISABLED_RE.search("disable " + " " * 400000)
         cs.RLS_DISABLED_RE.search("disable \n" * 60000)
         self.assertLess(time.perf_counter() - t0, bound(1.0))
@@ -1504,16 +1516,16 @@ class LinearityTests(unittest.TestCase):
     def test_single_line_many_hits_is_fast(self):
         unit = 'NEXT_PUBLIC_A="%s" ' % SK
         text = unit * 8000
-        cls, kinds = cs.classify("src/components/a.tsx", "a.tsx", ".tsx", text)
-        sf = cs.ScanFile("src/components/a.tsx", "a.tsx", ".tsx", cls, kinds, text)
-        state = cs.ScanState()
-        opts = cs.Options()
+        cls, kinds = cs.release.classify("src/components/a.tsx", "a.tsx", ".tsx", text)
+        sf = cs.release.ScanFile("src/components/a.tsx", "a.tsx", ".tsx", cls, kinds, text)
+        state = cs.release.ScanState()
+        opts = cs.release.Options()
         t0 = time.perf_counter()
         claimed = []
-        cs.detect_browser_prefix(sf, state, opts, claimed)
-        cs.detect_key_literals(sf, state, opts, claimed)
+        cs.release.detect_browser_prefix(sf, state, opts, claimed)
+        cs.release.detect_key_literals(sf, state, opts, claimed)
         self.assertLess(time.perf_counter() - t0, bound(2.0))
-        self.assertLessEqual(len(state.evidence["q1"]), cs.MAX_EVIDENCE)
+        self.assertLessEqual(len(state.evidence["q1"]), cs.release.MAX_EVIDENCE)
 
     def test_deadline_is_checked_inside_a_file(self):
         tmp = tempfile.mkdtemp()
@@ -1521,11 +1533,11 @@ class LinearityTests(unittest.TestCase):
             os.makedirs(os.path.join(tmp, "src"))
             with open(os.path.join(tmp, "src", "a.ts"), "w") as fh:
                 fh.write(('const NEXT_PUBLIC_A = "%s";\n' % SK) * 6000)
-            state = cs.ScanState()
+            state = cs.release.ScanState()
             import itertools
             clock = itertools.chain([0.0, 0.0, 0.0, 0.0, 0.0], itertools.repeat(1000.0))
-            with mock.patch.object(cs, "git_facts", lambda repo, state: None), mock.patch.object(cs.time, "monotonic", side_effect=clock):
-                cs.run_scan(tmp, state, cs.Options(deadline_s=1))
+            with mock.patch.object(cs.release, "git_facts", lambda repo, state: None), mock.patch.object(cs.time, "monotonic", side_effect=clock):
+                cs.release.run_scan(tmp, state, cs.release.Options(deadline_s=1))
             self.assertTrue(state.stats["deadline_hit"])
             self.assertTrue(state.partial)
         finally:
@@ -1543,7 +1555,7 @@ class ReviewCycleTwoTests(ScanCase):
                 self.assertEqual(q1["answer"], answer)
 
     def test_prefilter_accepts_keyish_identifiers_and_stays_linear(self):
-        opts = cs.Options()
+        opts = cs.release.Options()
         for sample in ('apiKey = "x"', 'STRIPE_SECRET_KEY: "x"', 'supabaseServiceKey = `x`'):
             self.assertTrue(opts.prefilter_re.search(sample), sample)
         t0 = time.perf_counter()
@@ -1569,7 +1581,7 @@ class ReviewCycleTwoTests(ScanCase):
             self.write("src/%s%d/%s.ts" % (name, i, name), 'const NEXT_PUBLIC_K = "%s";\n' % SK)
         self.write("supabase/migrations/1.sql", "alter table x disable row level security;\n")
         buf = io.StringIO()
-        with mock.patch.object(cs, "MAX_OUTPUT_BYTES", 8192), mock.patch.object(cs.sys, "stdout", buf), mock.patch.object(cs.sys, "stderr", io.StringIO()):
+        with mock.patch.object(cs.release, "MAX_OUTPUT_BYTES", 8192), mock.patch.object(cs.sys, "stdout", buf), mock.patch.object(cs.sys, "stderr", io.StringIO()):
             cs.main(["--repo", self.repo])
         d = json.loads(buf.getvalue())
         self.assertLessEqual(len(buf.getvalue().encode("utf-8")), 8192)
@@ -1585,7 +1597,7 @@ class ReviewCycleTwoTests(ScanCase):
         self.write("src/components/Real.tsx", 'const k = "%s";\n' % GHP)
         q1 = self.scan()["questions"]["q1"]
         self.assertEqual(q1["answer"], "no")
-        self.assertEqual(len(q1["evidence"]), cs.MAX_EVIDENCE)
+        self.assertEqual(len(q1["evidence"]), cs.release.MAX_EVIDENCE)
         self.assertIn("client-key-literal", evidence_checks(q1))
 
     @unittest.skipIf(sys.platform == "win32", "POSIX permissions")
@@ -1666,7 +1678,7 @@ class ReviewCycleTwoTests(ScanCase):
         self.write("src/x.ts", 'const a = "' + SK + '"' + "A1" * 1008 + '"' + GHP + '"\n')
         out = json.dumps(self.scan())
         self.assert_no_secret(out, SK, GHP)
-        with mock.patch.object(cs, "RUN_CHARS", set()):
+        with mock.patch.object(cs.release, "RUN_CHARS", set()):
             leaked = json.dumps(self.scan())
         self.assertTrue(any(SK[i:i + 12] in leaked for i in range(len(SK) - 11)))
 
@@ -1682,10 +1694,10 @@ class ReviewCycleTwoTests(ScanCase):
         import itertools
         for i in range(300):
             os.makedirs(os.path.join(self.repo, "d%d" % i, "e", "f"))
-        state = cs.ScanState()
+        state = cs.release.ScanState()
         clock = itertools.chain([0.0, 0.0, 0.0, 0.0, 0.0], itertools.repeat(1000.0))
-        with mock.patch.object(cs, "git_facts", lambda repo, state: None), mock.patch.object(cs.time, "monotonic", side_effect=clock):
-            cs.run_scan(self.repo, state, cs.Options(deadline_s=1))
+        with mock.patch.object(cs.release, "git_facts", lambda repo, state: None), mock.patch.object(cs.time, "monotonic", side_effect=clock):
+            cs.release.run_scan(self.repo, state, cs.release.Options(deadline_s=1))
         self.assertTrue(state.stats["deadline_hit"])
 
     def test_other_quoted_strings_on_a_hit_line_are_masked(self):
@@ -1731,7 +1743,7 @@ class ReviewCycleThreeTests(ScanCase):
             self.write("src/lib/auth.ts", 'import { cookies } from "%s";\nexport const key = "%s";\n' % (mod, SK))
             q1 = self.scan()["questions"]["q1"]
             self.assertNotEqual(q1["answer"], "no", mod)
-            self.assertIn("non-client-key-literal", evidence_checks(q1), mod)
+            self.assertTrue({"non-client-key-literal", "server-path-key-literal"} & set(evidence_checks(q1)), mod)  # server-only now marks it server code
         self.write("src/lib/auth.ts", 'import Link from "next/link";\nexport const key = "%s";\n' % SK)
         self.assertEqual(self.scan()["questions"]["q1"]["answer"], "no")
 
@@ -1745,7 +1757,7 @@ class ReviewCycleThreeTests(ScanCase):
         for i in range(120):
             self.write("src/f%03d.ts" % i, "x\n")
         self.write("src/api/route.ts", 'const k = "%s";\n' % SK)
-        with mock.patch.object(cs, "MAX_DIR_ENTRIES", 50):
+        with mock.patch.object(cs.release, "MAX_DIR_ENTRIES", 50):
             r = self.scan()
         self.assertTrue(r["partial"])
         self.assertEqual(r["files_scanned"], 50)
@@ -1758,7 +1770,7 @@ class ReviewCycleThreeTests(ScanCase):
         self.init_repo(commits=1)
         for i in range(40):
             self.git("tag", "t%03d" % i)
-        with mock.patch.object(cs, "GIT_OUTPUT_LIMIT", 512):
+        with mock.patch.object(cs.release, "GIT_OUTPUT_LIMIT", 512):
             r = self.scan()
         self.assertTrue(r["ok"])
         self.assertTrue(r["partial"])
@@ -1842,7 +1854,7 @@ class ReviewCycleThreeTests(ScanCase):
 
 class ReviewCycleThreeGateTests(ScanCase):
     def test_sql_comments_never_decide_q3(self):
-        self.write("supabase/migrations/1.sql", "-- do not use: alter table users disable row level security;\n/* create policy p on t using (true); */\nselect 1;\n")
+        self.write("supabase/migrations/1.sql", "-- do not use: alter table users disable row level security;\n/* create policy p on t using (true); */\ncreate table t (id int);\nalter table t enable row level security;\n")
         q3 = self.scan()["questions"]["q3"]
         self.assertEqual(q3["answer"], "nothing-found")  # read, and a commented-out line is not a finding
         self.write("supabase/migrations/2.sql", "alter table users disable row level security; -- oops\n")
@@ -1853,8 +1865,8 @@ class ReviewCycleThreeGateTests(ScanCase):
         self.write(rel, 'const k = "%s";\n' % SK)
         q1 = self.scan()["questions"]["q1"]
         self.assertEqual(q1["evidence"][0]["path"], rel)
-        self.assertEqual(cs.sanitize_path("src/components/settings/admin/Config.tsx"), rel)
-        self.assertIn("src/", cs.sweep("see src/components/settings/admin/Config.tsx for details"))
+        self.assertEqual(cs.release.sanitize_path("src/components/settings/admin/Config.tsx"), rel)
+        self.assertIn("src/", cs.release.sweep("see src/components/settings/admin/Config.tsx for details"))
 
 
 class ReviewCycleThreeSecurityTests(ScanCase):
@@ -1907,7 +1919,7 @@ class ReviewCycleThreeAdversarialTests(ScanCase):
             self.skipTest("git not installed")
         self.write("src/a.ts", "x\n")
         t0 = time.monotonic()
-        with mock.patch.dict(os.environ, {"PATH": bindir}), mock.patch.object(cs, "GIT_BUDGET_S", 2.0), mock.patch.object(cs, "_darwin_git_ready", lambda: True):
+        with mock.patch.dict(os.environ, {"PATH": bindir}), mock.patch.object(cs.release, "GIT_BUDGET_S", 2.0), mock.patch.object(cs.release, "_darwin_git_ready", lambda: True):
             r = self.scan()
         self.assertLess(time.monotonic() - t0, bound(6.0))
         self.assertIn("git-timeout", evidence_checks(r["questions"]["q5"]["code"]))
@@ -1915,7 +1927,7 @@ class ReviewCycleThreeAdversarialTests(ScanCase):
 
     def test_single_long_whitespace_line_is_linear(self):
         line = " " * 400000
-        for regex in (cs.CRON_WORKFLOW_RE, cs.CLIENT_IMPORT_RE, cs.TOML_PUBLIC_TRUE_RE, cs.NETLIFY_CONTEXT_RE, cs.WRANGLER_ENV_RE, cs.CRON_WRANGLER_RE, cs.USE_CLIENT_RE, cs.FIREBASE_ALLOW_TRUE_RE, cs.GEM_RE, cs.GO_REQUIRE_RE):
+        for regex in (cs.release.CRON_WORKFLOW_RE, cs.release.CLIENT_IMPORT_RE, cs.release.TOML_PUBLIC_TRUE_RE, cs.release.NETLIFY_CONTEXT_RE, cs.release.WRANGLER_ENV_RE, cs.release.CRON_WRANGLER_RE, cs.release.USE_CLIENT_RE, cs.FIREBASE_IF_RE, cs.release.GEM_RE, cs.release.GO_REQUIRE_RE):
             t0 = time.perf_counter()
             regex.search(line)
             regex.search("\t" * 400000)
@@ -2030,9 +2042,27 @@ class RepoFilesTests(unittest.TestCase):
         path = os.path.join(SKILL_DIR, "references", "questions.md")
         with open(path, encoding="utf-8") as fh:
             text = fh.read()
-        listed = set(re.findall(r"`([a-z0-9-]+)`", text))
-        missing = sorted(name for name in cs.CHECKS if name not in listed)
+        # only the appendix counts: SKILL.md accepts a check only if it is listed there, and a name mentioned in
+        # the prose above it does not make the skill accept it
+        appendix = text[text.index("## All check names"):]
+        listed = set(re.findall(r"`([a-z0-9-]+)` \(", appendix))
+        registry = cs.all_checks()
+        missing = sorted(name for name in registry if name not in listed)
         self.assertEqual(missing, [], "check names the skill would reject as unknown")
+        placed = set()
+        for line in appendix.splitlines():
+            label = re.match(r"- \*\*Q(\d+)", line)
+            if not label:
+                continue
+            for name, effect in re.findall(r"`([a-z0-9-]+)` \(([a-z-]+)\)", line):
+                with self.subTest(check=name):
+                    questions, real = registry[name]
+                    self.assertIn("q" + label.group(1), [q.split(".")[0] for q in questions], "listed under the wrong question")
+                    self.assertEqual(effect, real, "listed with the wrong effect")
+                    placed.add((name, "q" + label.group(1)))
+        for name, (questions, _) in registry.items():
+            for q in questions:
+                self.assertIn((name, q.split(".")[0]), placed, "%s is not listed under %s" % (name, q))
 
     def test_version_four_way(self):
         with open(os.path.join(PLUGIN_DIR, ".claude-plugin", "plugin.json"), encoding="utf-8") as fh:
@@ -2067,20 +2097,20 @@ class ShipCoverageTests(ScanCase):
 
     def test_redact_run_collapses_a_jwt_triple_when_called_directly(self):
         # sweep() removes JWTs before RUN_RE runs; the triple branch inside _redact_run is the belt to that braces
-        out = cs._redact_run(cs.RUN_RE.search(ANON_JWT))
+        out = cs.release._redact_run(cs.release.RUN_RE.search(ANON_JWT))
         self.assertTrue(out.startswith("eyJ"))
         self.assertIn("…", out)
         self.assert_no_secret(out, ANON_JWT)
-        plain = cs._redact_run(cs.RUN_RE.search("src/components/settings/admin/Config.tsx"))
+        plain = cs.release._redact_run(cs.release.RUN_RE.search("src/components/settings/admin/Config.tsx"))
         self.assertEqual(plain, "src/components/settings/admin/Config.tsx")
 
     def test_long_snippets_and_path_segments_are_truncated(self):
         self.write(".mcp.json", json.dumps({"env": {"K" * 300: SK}}))
         q1 = self.scan()["questions"]["q1"]
         hit = [e for e in q1["evidence"] if e["check"] == "mcp-token"][0]
-        self.assertEqual(len(hit["snippet"]), cs.MAX_SNIPPET)
-        self.assertEqual(len(cs.sanitize("a b " * 100)), cs.MAX_SNIPPET)
-        self.assertLessEqual(len(cs.sanitize_path("p q " * 100 + "/x")), cs.MAX_PATH_CHARS)
+        self.assertEqual(len(hit["snippet"]), cs.release.MAX_SNIPPET)
+        self.assertEqual(len(cs.release.sanitize("a b " * 100)), cs.release.MAX_SNIPPET)
+        self.assertLessEqual(len(cs.release.sanitize_path("p q " * 100 + "/x")), cs.release.MAX_PATH_CHARS)
 
     def test_browser_prefix_value_edges(self):
         long_value = "".join(_RNG.choice(ALNUM) for _ in range(9000))
@@ -2092,7 +2122,7 @@ class ShipCoverageTests(ScanCase):
         self.assertEqual(q1["answer"], "dont-know")
         self.assertEqual(evidence_checks(q1), ["placeholder-key-literal"])
         self.assertNotIn(long_value[:40], json.dumps(r))
-        self.assertTrue(cs.is_placeholder("abcdefghijklmnopqrstuvwxyzABCDEFGH_-", False))
+        self.assertTrue(cs.release.is_placeholder("abcdefghijklmnopqrstuvwxyzABCDEFGH_-", False))
 
     def test_real_key_under_browser_prefix_in_a_test_path_is_evidence_only(self):
         self.write("src/__tests__/env.test.ts", 'const NEXT_PUBLIC_KEY = "%s";\n' % SK)
@@ -2105,7 +2135,7 @@ class ShipCoverageTests(ScanCase):
         for i in range(10):
             self.write(".claude/f%d.md" % i, "x\n")
         self.write("src/a.ts", "x\n")
-        with mock.patch.object(cs, "MAX_NEVER_OPEN_COUNT", 3):
+        with mock.patch.object(cs.release, "MAX_NEVER_OPEN_COUNT", 3):
             r = self.scan()
         self.assertEqual(r["stats"]["files_never_open"], 3)
         self.assertEqual(r["files_scanned"], 1)
@@ -2130,13 +2160,13 @@ class ShipCoverageTests(ScanCase):
     def test_fstat_and_truncated_read_failures_are_contained(self):
         self.write("src/a.ts", "x\n")
         quiet = lambda repo, state: None
-        with mock.patch.object(cs, "git_facts", quiet), mock.patch.object(cs.os, "fstat", side_effect=OSError("gone")):
+        with mock.patch.object(cs.release, "git_facts", quiet), mock.patch.object(cs.os, "fstat", side_effect=OSError("gone")):
             r = self.scan()
         self.assertTrue(r["ok"])
         self.assertEqual(r["files_scanned"], 0)
         self.assertEqual(r["stats"]["files_errored"], 1)
         self.assertTrue(r["partial"])
-        with mock.patch.object(cs, "git_facts", quiet), mock.patch.object(cs.os, "read", return_value=b""):
+        with mock.patch.object(cs.release, "git_facts", quiet), mock.patch.object(cs.os, "read", return_value=b""):
             r = self.scan()
         self.assertTrue(r["ok"])
         self.assertEqual(r["files_scanned"], 0)  # a short read is never scanned as if it were the whole file
@@ -2168,7 +2198,7 @@ class ShipCoverageTests(ScanCase):
     def test_content_hits_are_capped_at_five_per_file_per_check(self):
         self.write("src/ai.ts", "".join('const m%d = "gpt-4o";\n' % i for i in range(7)))
         q8 = self.scan()["questions"]["q8"]
-        self.assertEqual(evidence_checks(q8).count("model-literal"), cs.MAX_HITS_PER_FILE_PER_CHECK)
+        self.assertEqual(evidence_checks(q8).count("model-literal"), cs.release.MAX_HITS_PER_FILE_PER_CHECK)
 
     def test_pii_ordinary_fields_are_capped_and_deduplicated(self):
         self.write("db/schema.sql", "create table t (id int, email text, phone text, address text, street text, salary int, email text, "
@@ -2188,18 +2218,18 @@ class ShipCoverageTests(ScanCase):
 
     def test_git_dir_helper_edge_cases(self):
         dot = os.path.join(self.repo, ".git")
-        self.assertEqual(cs._git_dir(self.repo), dot)
+        self.assertEqual(cs.release._git_dir(self.repo), dot)
         with open(dot, "w") as fh:
             fh.write("junk\n")
-        self.assertEqual(cs._git_dir(self.repo), dot)
+        self.assertEqual(cs.release._git_dir(self.repo), dot)
         with open(dot, "w") as fh:
             fh.write("gitdir: ../elsewhere/.git\n")
-        self.assertEqual(cs._git_dir(self.repo), os.path.join(self.repo, "../elsewhere/.git"))
+        self.assertEqual(cs.release._git_dir(self.repo), os.path.join(self.repo, "../elsewhere/.git"))
         os.remove(dot)
         os.makedirs(os.path.join(self.tmp, "victim-git"))
         os.symlink(os.path.join(self.tmp, "victim-git"), dot)
-        self.assertEqual(cs._git_dir(self.repo), dot)
-        self.assertFalse(cs._git_pointer_ok(self.repo))
+        self.assertEqual(cs.release._git_dir(self.repo), dot)
+        self.assertFalse(cs.release._git_pointer_ok(self.repo))
 
     @unittest.skipUnless(HAVE_GIT, "git not installed")
     def test_getcwd_failure_is_tolerated(self):
@@ -2215,12 +2245,12 @@ class ShipCoverageTests(ScanCase):
     def test_git_budget_spent_and_launch_failure_codes(self):
         self.write("src/a.ts", "x\n")
         self.init_repo(commits=2)
-        with mock.patch.object(cs, "GIT_BUDGET_S", 0.0):
+        with mock.patch.object(cs.release, "GIT_BUDGET_S", 0.0):
             r = self.scan()
         self.assertIsNone(r["git"]["commits"])
         self.assertIn("git-timeout", evidence_checks(r["questions"]["q5"]["code"]))
         self.assertEqual(r["files_scanned"], 3)  # src/a.ts plus the two commit files init_repo wrote
-        with mock.patch.object(cs.subprocess, "Popen", side_effect=OSError("exec failed")):
+        with mock.patch.object(cs.release.subprocess, "Popen", side_effect=OSError("exec failed")):
             r = self.scan()
         self.assertIsNone(r["git"]["commits"])
         rows = [e for e in r["questions"]["q5"]["code"]["evidence"] if e["check"] == "git-unavailable"]
@@ -2230,26 +2260,26 @@ class ShipCoverageTests(ScanCase):
         self.write("a/x.ts", "x\n")
         self.write("a/y.ts", "y\n")
         self.write("b/z.ts", "z\n")
-        state = cs.ScanState()
+        state = cs.release.ScanState()
 
         def clock():
             return 1000.0 if state.files_scanned >= 1 else 0.0
 
-        with mock.patch.object(cs, "git_facts", lambda repo, state: None), mock.patch.object(cs.time, "monotonic", side_effect=clock):
-            cs.run_scan(self.repo, state, cs.Options(deadline_s=1))
+        with mock.patch.object(cs.release, "git_facts", lambda repo, state: None), mock.patch.object(cs.time, "monotonic", side_effect=clock):
+            cs.release.run_scan(self.repo, state, cs.release.Options(deadline_s=1))
         self.assertTrue(state.stats["deadline_hit"])
         self.assertTrue(state.partial)
         self.assertEqual(state.files_scanned, 1)
 
     def test_file_grown_after_lstat_is_skipped_as_oversize(self):
         self.write("src/a.ts", 'const k = "%s";\n' % SK)
-        real_open = cs.open_regular
+        real_open = cs.release.open_regular
 
         def grown(path):
             opened = real_open(path)
             return None if opened is None else (opened[0], 10 ** 9)
 
-        with mock.patch.object(cs, "open_regular", side_effect=grown):
+        with mock.patch.object(cs.release, "open_regular", side_effect=grown):
             r = self.scan()
         self.assertEqual(r["files_scanned"], 0)
         self.assertEqual(r["stats"]["files_skipped_oversize"], 1)
@@ -2257,13 +2287,13 @@ class ShipCoverageTests(ScanCase):
         self.assert_no_secret(json.dumps(r), SK)
 
     def test_fit_output_stops_when_nothing_is_left_to_drop(self):
-        with mock.patch.object(cs, "MAX_OUTPUT_BYTES", 10):
+        with mock.patch.object(cs.release, "MAX_OUTPUT_BYTES", 10):
             r = self.scan()
         self.assertTrue(r["ok"])
         self.assertTrue(r["partial"])
         # the two scan-summary rows plus the git-not-a-repo row: every droppable row goes, then the loop ends
         self.assertEqual(r["stats"]["output_trimmed"], 3)
-        for q in cs.iter_questions(r):
+        for q in cs.release.iter_questions(r):
             self.assertEqual(q["evidence"], [])
 
     def test_repo_contains_cwd_warning(self):
@@ -2271,9 +2301,9 @@ class ShipCoverageTests(ScanCase):
         r = json.loads(self.cli("--repo", self.repo, cwd=os.path.join(self.repo, "src")).stdout)
         self.assertFalse(r["ok"])  # a folder that contains the launch folder is refused outright (red team: `..` walks the home directory)
         self.assertEqual(r["error"], "repo-contains-cwd")
-        state = cs.ScanState()
+        state = cs.release.ScanState()
         with mock.patch.object(cs.os, "getcwd", return_value=os.path.join(self.repo, "src")):
-            result = cs.build_result(state, self.repo)
+            result = cs.release.build_result(state, self.repo)
         self.assertEqual(result["warnings"], ["repo-contains-cwd"])
 
     def test_bad_flags_help_and_tilde(self):
@@ -2311,8 +2341,8 @@ class ShipReviewTests(ScanCase):
     def test_block_comment_stripping_is_linear_on_unclosed_openers(self):
         text = "/* a" * 100000
         t0 = time.perf_counter()
-        cs._strip_sql_comments(text)
-        cs._strip_slash_comments(text)
+        cs._lex_sql(text)[0]
+        cs.release._strip_slash_comments(text)
         self.assertLess(time.perf_counter() - t0, bound(1.0))
         self.write("supabase/migrations/1.sql", "/* a" * 50000 + "\nalter table t disable row level security;\n")
         t0 = time.perf_counter()
@@ -2321,15 +2351,15 @@ class ShipReviewTests(ScanCase):
         self.assertEqual(r["questions"]["q3"]["answer"], "no")
 
     def test_block_comments_still_hide_decisive_lines(self):
-        self.assertEqual(cs._strip_sql_comments("/* disable row level security */\nselect 1;\n"), " " * 32 + "\nselect 1;\n")
-        self.assertEqual(cs._strip_slash_comments("a /* x\ny */ b // c\n"), "a     \n     b     \n")
+        self.assertEqual(cs._lex_sql("/* disable row level security */\nselect 1;\n")[0], " " * 32 + "\nselect 1;\n")
+        self.assertEqual(cs.release._strip_slash_comments("a /* x\ny */ b // c\n"), "a     \n     b     \n")
 
     def test_env_name_detection_is_capped_and_fast(self):
         self.write("netlify.toml", "[context.a]\n" * 40000)
         t0 = time.perf_counter()
         r = self.scan()
         self.assertLess(time.perf_counter() - t0, bound(1.5))
-        self.assertLessEqual(len(r["questions"]["q6"]["evidence"]), cs.MAX_EVIDENCE)
+        self.assertLessEqual(len(r["questions"]["q6"]["evidence"]), cs.release.MAX_EVIDENCE)
 
     # --- codex adversarial
 
@@ -2360,8 +2390,8 @@ class ShipReviewTests(ScanCase):
 
     def test_short_read_marks_partial(self):
         self.write("src/components/a.ts", 'const k = "%s";\n' % SK)
-        real = cs.read_bytes
-        with mock.patch.object(cs, "read_bytes", lambda fd, size: real(fd, size)[:5]):
+        real = cs.release.read_bytes
+        with mock.patch.object(cs.release, "read_bytes", lambda fd, size: real(fd, size)[:5]):
             r = self.scan()
         self.assertTrue(r["partial"])
         self.assertEqual(r["stats"]["files_errored"], 1)
@@ -2452,7 +2482,7 @@ class ShipReviewTests(ScanCase):
         self.write("src/a.ts", "x\n")
         with _w.catch_warnings(record=True) as caught:
             _w.simplefilter("always")
-            with mock.patch.dict(os.environ, {"PATH": bindir}), mock.patch.object(cs, "GIT_BUDGET_S", 1.0), mock.patch.object(cs, "_darwin_git_ready", lambda: True):
+            with mock.patch.dict(os.environ, {"PATH": bindir}), mock.patch.object(cs.release, "GIT_BUDGET_S", 1.0), mock.patch.object(cs.release, "_darwin_git_ready", lambda: True):
                 r = self.scan()
             gc.collect()
         self.assertIn("git-timeout", evidence_checks(r["questions"]["q5"]["code"]))
@@ -2469,7 +2499,7 @@ class ShipReviewTests(ScanCase):
         with open(os.path.join(bindir, "git"), "w") as fh:
             fh.write('#!/bin/sh\ncase "$*" in *ls-files*) exit 128;; esac\nexec "%s" "$@"\n' % real_git)
         os.chmod(os.path.join(bindir, "git"), 0o755)
-        with mock.patch.dict(os.environ, {"PATH": bindir}), mock.patch.object(cs, "_darwin_git_ready", lambda: True):
+        with mock.patch.dict(os.environ, {"PATH": bindir}), mock.patch.object(cs.release, "_darwin_git_ready", lambda: True):
             r = self.scan()
         self.assertEqual(r["git"]["commits"], 1)
         self.assertIsNone(r["git"]["tracked_env_files"])
@@ -2504,24 +2534,24 @@ class ShipReviewTests(ScanCase):
         self.assertEqual(r["files_scanned"], 1)
 
     def test_xcode_select_is_resolved_absolutely(self):
-        with mock.patch.object(cs.subprocess, "run") as run:
+        with mock.patch.object(cs.release.subprocess, "run") as run:
             run.return_value = mock.Mock(returncode=0)
-            cs._darwin_git_ready()
+            cs.release._darwin_git_ready()
         self.assertEqual(run.call_args[0][0][0], "/usr/bin/xcode-select")
-        with mock.patch.object(cs.subprocess, "run", side_effect=FileNotFoundError()):
-            self.assertTrue(cs._darwin_git_ready())
-        with mock.patch.object(cs.subprocess, "run", return_value=mock.Mock(returncode=2)):
-            self.assertFalse(cs._darwin_git_ready())
+        with mock.patch.object(cs.release.subprocess, "run", side_effect=FileNotFoundError()):
+            self.assertTrue(cs.release._darwin_git_ready())
+        with mock.patch.object(cs.release.subprocess, "run", return_value=mock.Mock(returncode=2)):
+            self.assertFalse(cs.release._darwin_git_ready())
 
     def test_dedupe_memory_is_bounded(self):
-        state = cs.ScanState()
-        for i in range(cs.MAX_SEEN + 100):
+        state = cs.release.ScanState()
+        for i in range(cs.release.MAX_SEEN + 100):
             state.add("non-client-key-literal", "p%d.ts" % i, i, "s")
-        self.assertLessEqual(len(state.seen), cs.MAX_SEEN)
+        self.assertLessEqual(len(state.seen), cs.release.MAX_SEEN)
 
     def test_closed_stdout_in_the_last_resort_handler_never_tracebacks(self):
         import io
-        with mock.patch.object(cs, "run_scan", side_effect=RuntimeError("boom")), mock.patch.object(sys, "stdout", io.StringIO()) as out:
+        with mock.patch.object(cs.release, "run_scan", side_effect=RuntimeError("boom")), mock.patch.object(sys, "stdout", io.StringIO()) as out:
             out.close()
             self.assertEqual(cs.main(["--repo", self.repo]), 0)
 
@@ -2529,14 +2559,14 @@ class ShipReviewTests(ScanCase):
 
     def test_truncated_directory_listing_and_mcp_cap_are_reported(self):
         self.write("src/a.ts", "x\n")
-        with mock.patch.object(cs, "MAX_DIR_ENTRIES", 1):
+        with mock.patch.object(cs.release, "MAX_DIR_ENTRIES", 1):
             for i in range(3):
                 self.write("f%d.ts" % i, "x\n")
             r = self.scan()
         self.assertTrue(r["partial"])
         self.assertEqual(r["stats"]["dirs_truncated"], 1)
         self.write(".mcp.json", json.dumps({"a": [[[[1]]]]}))
-        with mock.patch.object(cs, "MCP_MAX_DEPTH", 2):
+        with mock.patch.object(cs.release, "MCP_MAX_DEPTH", 2):
             r = self.scan()
         self.assertTrue(r["partial"])
         self.assertEqual(r["stats"]["mcp_capped"], 1)
@@ -2544,9 +2574,9 @@ class ShipReviewTests(ScanCase):
     def test_skill_pins_the_scanner_contract_literals(self):
         with open(os.path.join(SKILL_DIR, "SKILL.md"), encoding="utf-8") as fh:
             skill = fh.read()
-        self.assertIn(str(cs.MAX_OUTPUT_BYTES), skill)
+        self.assertIn(str(cs.release.MAX_OUTPUT_BYTES), skill)
         self.assertIn(", ".join(ContractTests.TOP_KEYS), skill)
-        for code in cs.HINTS:
+        for code in cs.release.HINTS:
             self.assertIn("`%s" % code, skill, code)  # `internal:*` in the skill covers the internal:<Class> family
         for w in ("repo-is-cwd", "repo-contains-cwd"):
             self.assertIn(w, skill)
@@ -2559,7 +2589,7 @@ class ShipReviewTests(ScanCase):
     def test_readme_lists_every_never_open_directory(self):
         with open(os.path.join(PLUGIN_DIR, "README.md"), encoding="utf-8") as fh:
             readme = fh.read()
-        for d in sorted(cs.NEVER_OPEN_DIRS):
+        for d in sorted(cs.release.NEVER_OPEN_DIRS):
             self.assertIn("`%s/`" % d, readme, d)
 
     # --- testing specialist
@@ -2694,7 +2724,7 @@ class RedTeamTests(ScanCase):
     def test_git_reader_without_nonblocking_pipes_still_works(self):
         self.init_repo(commits=4)
         self.write("vercel.json", "{}\n")
-        with mock.patch.object(cs, "_HAS_NONBLOCK", False):
+        with mock.patch.object(cs.release, "_HAS_NONBLOCK", False):
             r = self.scan()
         self.assertEqual(r["git"]["commits"], 4)
 
@@ -2704,8 +2734,8 @@ class RedTeamTests(ScanCase):
         self.assertEqual(snippets, ["card_number", "dob", "email"])
 
     def test_output_fits_the_host_tool_window(self):
-        self.assertLessEqual(cs.MAX_OUTPUT_BYTES, 30000)
-        self.assertLessEqual(cs.MAX_EVIDENCE, 12)
+        self.assertLessEqual(cs.release.MAX_OUTPUT_BYTES, 30000)
+        self.assertLessEqual(cs.release.MAX_EVIDENCE, 12)
 
     def test_scanning_an_ancestor_of_the_launch_folder_is_refused(self):
         inner = os.path.join(self.repo, "inner")
@@ -2715,7 +2745,7 @@ class RedTeamTests(ScanCase):
         r = json.loads(out.stdout)
         self.assertFalse(r["ok"])
         self.assertEqual(r["error"], "repo-contains-cwd")
-        self.assertIn("repo-contains-cwd", cs.HINTS)
+        self.assertIn("repo-contains-cwd", cs.release.HINTS)
 
     @unittest.skipUnless(HAVE_GIT, "git not installed")
     @unittest.skipIf(sys.platform == "win32", "shell fake git")
@@ -2730,7 +2760,7 @@ class RedTeamTests(ScanCase):
             fh.write('#!/bin/sh\ncase "$*" in *rev-list*) /bin/sleep 30;; esac\nexec "%s" "$@"\n' % shutil.which("git"))
         os.chmod(os.path.join(bindir, "git"), 0o755)
         # a 6 s budget leaves room for the fast index calls under CI load; only rev-list sleeps
-        with mock.patch.dict(os.environ, {"PATH": bindir}), mock.patch.object(cs, "GIT_BUDGET_S", 6.0), mock.patch.object(cs, "_darwin_git_ready", lambda: True):
+        with mock.patch.dict(os.environ, {"PATH": bindir}), mock.patch.object(cs.release, "GIT_BUDGET_S", 6.0), mock.patch.object(cs.release, "_darwin_git_ready", lambda: True):
             r = self.scan()
         self.assertIn("git-timeout", evidence_checks(r["questions"]["q5"]["code"]))
         self.assertIsNone(r["git"]["commits"])
@@ -2889,8 +2919,8 @@ class ReviewCycleTwoShipTests(ScanCase):
         q1 = self.scan()["questions"]["q1"]
         # the approved placeholder guard (no digit -> placeholder-shaped) still decides the answer; the token rule itself holds
         self.assertIn("placeholder-key-literal", evidence_checks(q1))
-        self.assertTrue(cs.is_generic_token(token))
-        self.assertFalse(cs.is_generic_token("abcdefabcdefabcdefabcdefabcdefabcdef", 2))  # two classes need a digit
+        self.assertTrue(cs.release.is_generic_token(token))
+        self.assertFalse(cs.release.is_generic_token("abcdefabcdefabcdefabcdefabcdefabcdef", 2))  # two classes need a digit
 
     def test_yaml_and_toml_snippets_are_the_name_only(self):
         self.write("src/config.yaml", "apiSecret: %s db_password: correct horse battery staple\n" % SK)
@@ -2918,7 +2948,7 @@ class ReviewCycleTwoShipTests(ScanCase):
         self.assertEqual(self.scan()["questions"]["q6"]["answer"], "yes")
 
     def test_platforms_without_o_nonblock_still_scan(self):
-        with open(SCRIPT, encoding="utf-8") as fh:
+        with open(RELEASE_SCRIPT, encoding="utf-8") as fh:
             src = fh.read()
         self.assertNotIn("os.O_NONBLOCK", src)  # every use goes through getattr(os, "O_NONBLOCK", 0)
         self.assertIn('getattr(os, "O_NONBLOCK", 0)', src)
@@ -2935,17 +2965,17 @@ class ReviewCycleTwoShipTests(ScanCase):
         line = ", ".join('"%s"' % ANON_JWT for _ in range(2500))
         self.write("src/components/a.tsx", '"use client";\nconst ks = [%s];\n' % line)
         calls = {"n": 0}
-        real = cs.decode_jwt_role
+        real = cs.release.decode_jwt_role
 
         def counting(token):
             calls["n"] += 1
             return real(token)
         t0 = time.perf_counter()
-        with mock.patch.object(cs, "decode_jwt_role", counting):
+        with mock.patch.object(cs.release, "decode_jwt_role", counting):
             r = self.scan()
         self.assertLess(time.perf_counter() - t0, bound(5.0))
         self.assertIn("client-anon-jwt", evidence_checks(r["questions"]["q1"]))
-        self.assertLessEqual(len([e for e in r["questions"]["q1"]["evidence"] if e["check"] == "client-anon-jwt"]), cs.MAX_HITS_PER_FILE_PER_CHECK)
+        self.assertLessEqual(len([e for e in r["questions"]["q1"]["evidence"] if e["check"] == "client-anon-jwt"]), cs.release.MAX_HITS_PER_FILE_PER_CHECK)
 
 
     # --- testing specialist
@@ -2954,17 +2984,17 @@ class ReviewCycleTwoShipTests(ScanCase):
         with open(os.path.join(self.repo, ".git"), "wb") as fh:
             fh.write(b"gitdir: x\n" + b"g" * 5000)
         self.write("src/a.ts", "x\n")
-        with mock.patch.object(cs, "_git_dir", side_effect=AssertionError("gitfile was read")):
+        with mock.patch.object(cs.release, "_git_dir", side_effect=AssertionError("gitfile was read")):
             r = self.scan()
         self.assertIn("git-config-not-vouched", evidence_checks(r["questions"]["q5"]["code"]))
-        self.assertEqual(cs._git_dir(self.repo), os.path.join(self.repo, ".git"))
+        self.assertEqual(cs.release._git_dir(self.repo), os.path.join(self.repo, ".git"))
 
     def test_utf16_big_endian_and_short_nul_files(self):
         self.write(".env", ("VITE_SERVICE_KEY=%s\n" % SK).encode("utf-16-be"), binary=True)
         r = self.scan()
         self.assertEqual(r["questions"]["q1"]["answer"], "no")
         self.assertEqual(r["stats"]["files_skipped_binary"], 0)
-        self.assertIsNone(cs.decode_text(b"a\x00b\x00c"))
+        self.assertIsNone(cs.release.decode_text(b"a\x00b\x00c"))
 
     @unittest.skipUnless(HAVE_GIT, "git not installed")
     def test_communicate_path_marks_truncation_partial(self):
@@ -2973,7 +3003,7 @@ class ReviewCycleTwoShipTests(ScanCase):
             self.write(".env.%03d" % i, "A=1\n")
         self.git("add", "-A")
         self.git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "envs")
-        with mock.patch.object(cs, "_HAS_NONBLOCK", False), mock.patch.object(cs, "GIT_OUTPUT_LIMIT", 256):
+        with mock.patch.object(cs.release, "_HAS_NONBLOCK", False), mock.patch.object(cs.release, "GIT_OUTPUT_LIMIT", 256):
             r = self.scan()
         self.assertTrue(r["partial"])
         self.assertTrue(r["git"]["tracked_env_files"])
@@ -2985,10 +3015,10 @@ class ReviewCycleTwoShipTests(ScanCase):
         self.assertEqual(snippets, ["card_number", "credit_card", "phone"])
 
     def test_stop_line_fields_have_their_own_cap(self):
-        fields = sorted(cs.STOPLINE_FIELDS) + ["email", "phone", "address", "street"]
+        fields = sorted(cs.release.STOPLINE_FIELDS) + ["email", "phone", "address", "street"]
         self.write("supabase/migrations/1.sql", "create table p (%s);\n" % ", ".join("%s text" % f for f in fields))
         rows = [e for e in self.scan()["questions"]["q10"]["evidence"] if e["check"] == "pii-field"]
-        self.assertEqual(len(rows), cs.MAX_HITS_PER_FILE_PER_CHECK + 3)
+        self.assertEqual(len(rows), cs.release.MAX_HITS_PER_FILE_PER_CHECK + 3)
 
     def test_env_name_rows_carry_the_right_line(self):
         self.write("netlify.toml", "# top\n\n[context.production]\n  a = 1\n# x\n\n[context.staging]\n")
@@ -3009,29 +3039,29 @@ class ReviewCycleTwoShipTests(ScanCase):
         plain = os.path.join(self.tmp, "plain")
         with open(plain, "wb") as fh:
             fh.write(b"abc")
-        self.assertEqual(cs._read_small_regular(plain, 10), b"abc")
-        self.assertIsNone(cs._read_small_regular(plain, 2))
+        self.assertEqual(cs.release._read_small_regular(plain, 10), b"abc")
+        self.assertIsNone(cs.release._read_small_regular(plain, 2))
         fifo = os.path.join(self.tmp, "fifo")
         os.mkfifo(fifo)
         t0 = time.perf_counter()
-        self.assertIsNone(cs._read_small_regular(fifo, 10))
+        self.assertIsNone(cs.release._read_small_regular(fifo, 10))
         self.assertLess(time.perf_counter() - t0, bound(1.0))
         os.link(plain, os.path.join(self.tmp, "linked"))
-        self.assertIsNone(cs._read_small_regular(plain, 10))
-        self.assertIsNone(cs._read_small_regular(os.path.join(self.tmp, "nope"), 10))
+        self.assertIsNone(cs.release._read_small_regular(plain, 10))
+        self.assertIsNone(cs.release._read_small_regular(os.path.join(self.tmp, "nope"), 10))
 
     # --- maintainability
 
     def test_env_file_predicate_is_shared(self):
         for base in (".env", ".env.local", "prod.env", ".envrc"):
-            self.assertTrue(cs.is_env_file(base), base)
+            self.assertTrue(cs.release.is_env_file(base), base)
         for base in (".env.example", "environment.ts"):
-            self.assertFalse(cs.is_env_file(base), base)
+            self.assertFalse(cs.release.is_env_file(base), base)
 
     def test_mcp_key_rule_is_shared(self):
         for key in ("Authorization", "password", "auth", "API_TOKEN", "service_role_key"):
-            self.assertEqual(cs._mcp_check_for(key), "mcp-token", key)
-        self.assertEqual(cs._mcp_check_for("region"), "mcp-token-shaped")
+            self.assertEqual(cs.release._mcp_check_for(key), "mcp-token", key)
+        self.assertEqual(cs.release._mcp_check_for("region"), "mcp-token-shaped")
 
     def test_docs_match_the_scanner(self):
         with open(os.path.join(PLUGIN_DIR, "README.md"), encoding="utf-8") as fh:
@@ -3045,7 +3075,7 @@ class ReviewCycleTwoShipTests(ScanCase):
             skill = fh.read()
         # every failure code the scanner can emit is one the skill will show the founder
         known = skill.split("only for a known `error` code:")[1].split(")")[0]
-        for code in cs.HINTS:
+        for code in cs.release.HINTS:
             shown = "internal:*" if code == "internal" else code  # internal errors carry a suffix
             self.assertIn("`%s`" % shown, known, code)
         self.assertNotIn("sits under your working directory", skill)
@@ -3113,14 +3143,14 @@ class GitConfigAllowlistTests(ScanCase):
         os.makedirs(app)
         with open(os.path.join(app, "a.ts"), "w") as fh:
             fh.write("x\n")
-        with mock.patch.object(cs.subprocess, "Popen", side_effect=AssertionError("git ran")):
+        with mock.patch.object(cs.release.subprocess, "Popen", side_effect=AssertionError("git ran")):
             r = self.scan(repo=app)
         self.assertIn("git-config-not-vouched", self._q5(r))
 
     def test_no_git_anywhere_means_no_git_call(self):
         self.write("src/a.ts", "x\n")
-        with mock.patch.object(cs, "_enclosing_git_root", return_value=None), \
-                mock.patch.object(cs.subprocess, "Popen", side_effect=AssertionError("git ran")):
+        with mock.patch.object(cs.release, "_enclosing_git_root", return_value=None), \
+                mock.patch.object(cs.release.subprocess, "Popen", side_effect=AssertionError("git ran")):
             r = self.scan()
         self.assertIn("git-not-a-repo", self._q5(r))
 
@@ -3155,7 +3185,7 @@ class GitConfigAllowlistTests(ScanCase):
             self.write(".env.%03d" % i, "A=1\n")
         self.git("add", "-A")
         self.git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "envs")
-        with mock.patch.object(cs, "_HAS_NONBLOCK", False), mock.patch.object(cs, "GIT_OUTPUT_LIMIT", 128):
+        with mock.patch.object(cs.release, "_HAS_NONBLOCK", False), mock.patch.object(cs.release, "GIT_OUTPUT_LIMIT", 128):
             r = self.scan()
         self.assertTrue(r["partial"])
         self.assertLessEqual(sum(len(p) + 1 for p in r["git"]["tracked_env_files"]), 128)
@@ -3229,11 +3259,11 @@ class ReviewCycleThreeShipTests(ScanCase):
         with open(os.path.join(bindir, "git"), "w") as fh:
             fh.write("#!/bin/sh\n/bin/sleep 30\n")
         os.chmod(os.path.join(bindir, "git"), 0o755)
-        with mock.patch.dict(os.environ, {"PATH": bindir}), mock.patch.object(cs, "GIT_BUDGET_S", 2.0), mock.patch.object(cs, "_darwin_git_ready", lambda: True):
+        with mock.patch.dict(os.environ, {"PATH": bindir}), mock.patch.object(cs.release, "GIT_BUDGET_S", 2.0), mock.patch.object(cs.release, "_darwin_git_ready", lambda: True):
             r = self.scan()
         self.assertTrue(r["partial"])
         self.assertIn("git-index-unread", evidence_checks(r["questions"]["q1"]))
-        with mock.patch.object(cs, "_trusted_git", return_value=None):
+        with mock.patch.object(cs.release, "_trusted_git", return_value=None):
             r = self.scan()
         self.assertTrue(r["partial"])
 
@@ -3298,7 +3328,7 @@ class ReviewCycleThreeShipTests(ScanCase):
         q1 = self.scan()["questions"]["q1"]
         self.assertEqual(q1["answer"], "no")
         self.assertIn("tracked-env-file", evidence_checks(q1))
-        self.assertTrue(cs.is_env_file(".ENV.production"))
+        self.assertTrue(cs.release.is_env_file(".ENV.production"))
 
     def test_uppercase_env_file_on_disk_is_evidence(self):
         self.write(".ENV.production", "A=%s\n" % SK)
@@ -3307,8 +3337,8 @@ class ReviewCycleThreeShipTests(ScanCase):
     # F8: redaction must not eat the name that carries the finding
 
     def test_screaming_snake_names_survive_redaction(self):
-        self.assertEqual(cs._redact_piece("NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY"), "NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY")
-        self.assertEqual(cs.sanitize_path("src/supabase_service_role_key_helpers/index.ts"), "src/supabase_service_role_key_helpers/index.ts")
+        self.assertEqual(cs.release._redact_piece("NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY"), "NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY")
+        self.assertEqual(cs.release.sanitize_path("src/supabase_service_role_key_helpers/index.ts"), "src/supabase_service_role_key_helpers/index.ts")
         self.write(".env", "NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY=%s\n" % SERVICE_JWT)
         q1 = self.scan()["questions"]["q1"]
         self.assertEqual(q1["answer"], "no")
@@ -3318,7 +3348,7 @@ class ReviewCycleThreeShipTests(ScanCase):
     # F9 / F10 / F12: reader hygiene, bounded walks, stable sort
 
     def test_fallback_reader_closes_cleanly(self):
-        with open(SCRIPT, encoding="utf-8") as fh:
+        with open(RELEASE_SCRIPT, encoding="utf-8") as fh:
             src = fh.read()
         reader = src[src.index("def reader():"):src.index("worker = threading.Thread")]
         self.assertIn("except Exception:", reader)
@@ -3330,21 +3360,21 @@ class ReviewCycleThreeShipTests(ScanCase):
         for i in range(30):
             with open(os.path.join(gitdir, "%02d" % i), "w") as fh:
                 fh.write("x")
-        state = cs.ScanState()
+        state = cs.release.ScanState()
         state.deadline = time.monotonic() - 1
-        self.assertFalse(cs._git_tree_plain(os.path.join(self.repo, ".git"), state))
+        self.assertFalse(cs.release._git_tree_plain(os.path.join(self.repo, ".git"), state))
 
     def test_enclosing_search_stops_at_the_home_directory(self):
         with mock.patch.dict(os.environ, {"HOME": self.tmp}):
-            self.assertIsNone(cs._enclosing_git_root(os.path.realpath(self.repo)))
+            self.assertIsNone(cs.release._enclosing_git_root(os.path.realpath(self.repo)))
         deep = os.path.join(self.repo, "a", "b")
         os.makedirs(deep)
         os.makedirs(os.path.join(self.repo, ".git"))
         with mock.patch.dict(os.environ, {"HOME": self.tmp}):
-            self.assertEqual(cs._enclosing_git_root(os.path.realpath(deep)), os.path.realpath(self.repo))
+            self.assertEqual(cs.release._enclosing_git_root(os.path.realpath(deep)), os.path.realpath(self.repo))
 
     def test_hits_sort_is_stable_without_comparing_none(self):
-        with open(SCRIPT, encoding="utf-8") as fh:
+        with open(RELEASE_SCRIPT, encoding="utf-8") as fh:
             self.assertIn("hits.sort(key=lambda h: (h[0], h[1]))", fh.read())
 
     # F11: a committed .env.local is the real thing
@@ -3388,13 +3418,13 @@ class GitConfigOverriddenKeysTests(ScanCase):
     def test_the_denylist_only_holds_what_the_command_line_cannot_neutralise(self):
         overridden = {"hookspath", "fsmonitor", "pager", "sshcommand", "editor"}
         denied = set()
-        for keys in cs.GIT_DENY_KEYS.values():
+        for keys in cs.release.GIT_DENY_KEYS.values():
             denied |= set(keys)
         self.assertEqual(denied & overridden, set(), "these keys are already blanked with -c on every call")
         for key in ("worktree", "alternaterefscommand"):
-            self.assertIn(key, cs.GIT_DENY_KEYS["core"], key)
+            self.assertIn(key, cs.release.GIT_DENY_KEYS["core"], key)
         for key in ("promisor", "uploadpack"):
-            self.assertIn(key, cs.GIT_DENY_KEYS["remote"], key)
+            self.assertIn(key, cs.release.GIT_DENY_KEYS["remote"], key)
 
     @unittest.skipUnless(HAVE_GIT, "git not installed")
     def test_the_directives_that_actually_escape_are_still_refused(self):
@@ -3463,7 +3493,7 @@ class RailsQuestionsTests(ScanCase):
         section = k[k.index(head):k.index(tail)]
         for check in ("ai-sdk-dependency", "model-env-var", "model-literal"):
             self.assertIn(check, section, check)
-            self.assertIn(check, cs.CHECKS, check + " must be a real check name")
+            self.assertIn(check, cs.release.CHECKS, check + " must be a real check name")
         self.assertIn("train or fine-tune", section)
         self.assertIn("never change the door", section)
         # The verdict template renders a row per question. Deleting the enumeration or the instruction
@@ -3488,8 +3518,8 @@ class RailsQuestionsTests(ScanCase):
         r = self.scan()
         self.assertEqual(list(r["questions"].keys()), ["q%d" % i for i in range(1, 12)])
         self.assertIn("ai-sdk-dependency", evidence_checks(r["questions"]["q8"]))
-        for name, (question, _) in cs.CHECKS.items():
-            self.assertIn(question, cs.QUESTION_KEYS, "no check may answer anything but the eleven: " + name)
+        for name, (question, _) in cs.release.CHECKS.items():
+            self.assertIn(question, cs.release.QUESTION_KEYS, "no check may answer anything but the eleven: " + name)
 
     def test_the_door_rule_is_still_only_the_eleven(self):
         ids = self.rails_ids()[0]
@@ -3551,13 +3581,13 @@ class OversizeRelevanceTests(ScanCase):
     def test_grown_data_file_after_lstat_does_not_mark_partial(self):
         # a photo is never opened now; a data export is opened, found grown past the cap, and skipped as irrelevant
         self.write("data/export.csv", "a,b\n")
-        real_open = cs.open_regular
+        real_open = cs.release.open_regular
 
         def grown(path):
             opened = real_open(path)
             return None if opened is None else (opened[0], 10 ** 9)
 
-        with mock.patch.object(cs, "open_regular", side_effect=grown):
+        with mock.patch.object(cs.release, "open_regular", side_effect=grown):
             r = self.scan()
         self.assertEqual(r["stats"]["files_skipped_oversize"], 1)
         self.assertFalse(r["partial"])
@@ -3711,13 +3741,13 @@ class NothingFoundTests(ScanCase):
     def test_nothing_found_is_never_a_no_and_never_on_a_partial_scan(self):
         self.clean_app()
         self.write("package.json", json.dumps({"dependencies": {"next": "15"}}))
-        self.write("supabase/migrations/1.sql", "select 1;\n")
+        self.write("supabase/migrations/1.sql", "create table t (id int);\nalter table t enable row level security;\n")
         full = self.scan()
         self.write("src/big.ts", "x" * 600000)
         part = self.scan()
         self.assertTrue(part["partial"])
         self.assertEqual({k for k, v in full["questions"].items() if k != "q5" and v["answer"] == "nothing-found"}, {"q1", "q3", "q9"})
-        for q in cs.iter_questions(part):
+        for q in cs.release.iter_questions(part):
             self.assertNotEqual(q["answer"], "nothing-found")
 
     def test_docs_define_nothing_found_as_dont_know_for_the_door(self):
@@ -3767,7 +3797,7 @@ class NothingFoundGapTests(ScanCase):
         r = self.scan()
         self.assertTrue(r["stats"]["output_trimmed"])
         self.assertTrue(r["partial"])
-        for q in cs.iter_questions(r):
+        for q in cs.release.iter_questions(r):
             self.assertNotEqual(q["answer"], "nothing-found")
             self.assertFalse([e for e in q["evidence"] if e["check"].startswith("nothing-found")], "a downgraded answer keeps no reassuring row")
 
@@ -3841,7 +3871,7 @@ class NothingFoundGapTests(ScanCase):
 
     def test_table_past_the_per_file_cap_blocks_q3_nothing_found(self):
         self.base_app()
-        sql = "".join("create table t%d (id int);\nalter table t%d enable row level security;\n" % (i, i) for i in range(cs.MAX_TABLE_MATCHES_PER_FILE))
+        sql = "".join("create table t%d (id int);\nalter table t%d enable row level security;\n" % (i, i) for i in range(cs.release.MAX_TABLE_MATCHES_PER_FILE))
         self.write("supabase/migrations/1.sql", sql + "create table t_open (id int);\n")
         self.assertEqual(self.q("q3")["answer"], "dont-know", "a table the cap hid was not looked at")
 
@@ -3996,7 +4026,7 @@ class NothingFoundGapTests(ScanCase):
         os.makedirs(os.path.join(self.repo, "a", ".git"))
         os.makedirs(os.path.join(self.repo, "b", ".git"))
         self.write("b/.env", "A=b\n")
-        with mock.patch.object(cs, "MAX_SEEN", 1):
+        with mock.patch.object(cs.release, "MAX_SEEN", 1):
             self.assertNotEqual(self.q("q1")["answer"], "nothing-found")
 
     def test_env_cmdrc_is_not_an_environment_name(self):
@@ -4031,16 +4061,16 @@ class NothingFoundGapTests(ScanCase):
         self.write("db/1.sql", "select 1;\n-- c\n\ncreate table profiles (id int);\n")
         row = [e for e in self.q("q3")["evidence"] if e["check"] == "table-without-rls"][0]
         self.assertEqual((row["path"], row["line"]), ("db/1.sql", 4))
-        self.write("db/1.sql", "".join("create table t%d (id int);\n" % i for i in range(cs.MAX_TABLE_WITHOUT_RLS_ROWS + 3)))
+        self.write("db/1.sql", "".join("create table t%d (id int);\n" % i for i in range(cs.release.MAX_TABLE_WITHOUT_RLS_ROWS + 3)))
         q3 = self.q("q3")
-        self.assertEqual(len([e for e in q3["evidence"] if e["check"] == "table-without-rls"]), cs.MAX_TABLE_WITHOUT_RLS_ROWS)
+        self.assertEqual(len([e for e in q3["evidence"] if e["check"] == "table-without-rls"]), cs.release.MAX_TABLE_WITHOUT_RLS_ROWS)
         self.assertEqual(q3["answer"], "dont-know")
 
     def test_table_registry_overflow_is_a_q3_gap(self):
         self.base_app()
         self.write("db/1.sql", "create table a (id int);\ncreate table b (id int);\nalter table a enable row level security;\nalter table b enable row level security;\n")
         self.assertEqual(self.q("q3")["answer"], "nothing-found")
-        with mock.patch.object(cs, "MAX_SEEN", 1):
+        with mock.patch.object(cs.release, "MAX_SEEN", 1):
             self.assertEqual(self.q("q3")["answer"], "dont-know", "a table the registry could not hold was not looked at")
 
     def test_every_review_action_is_recognised(self):
@@ -4101,7 +4131,7 @@ class NothingFoundGapTests(ScanCase):
 
     def test_precompressed_rules_and_sql_are_q3_gaps(self):
         self.base_app()
-        self.write("db/schema.sql", "select 1;\n")
+        self.write("db/schema.sql", "create table t (id int);\nalter table t enable row level security;\n")
         self.assertEqual(self.q("q3")["answer"], "nothing-found")
         self.write("db/dump.sql.gz", b"\x1f\x8b\x01", binary=True)
         r = self.scan()
@@ -4124,7 +4154,7 @@ class NothingFoundGapTests(ScanCase):
         for n in ("customer-portal", "design-system", "marketing-site", "admin-console", "notifications", "zeta"):
             self.write("packages/%s/dist/x.js" % n, "x\n")
         row = [e for e in self.q("q1")["evidence"] if e["check"] == "build-output-unread"][0]
-        self.assertLessEqual(len(row["snippet"]), cs.MAX_SNIPPET)
+        self.assertLessEqual(len(row["snippet"]), cs.release.MAX_SNIPPET)
         self.assertRegex(row["snippet"], r"^6 build folders not read: .* and \d+ more$")
 
     def test_never_read_files_do_not_count_toward_the_file_budget(self):
@@ -4349,6 +4379,2346 @@ class FooterBookingTests(unittest.TestCase):
         template = self._read(SKILL_DIR, "assets", "verdict-template.md")
         block = template.split("```markdown")[1].split("```")[0]
         self.assertNotIn(self.URL, block)
+
+
+class FalseNothingFoundTests(ScanCase):
+    """Post-merge review of v0.3.0: each case produced a false "nothing found" (or a missed hint) on the
+    merged build. Named key formats (Stripe, private keys) are covered by their own branch."""
+
+    def base_app(self):
+        self.write("src/components/A.tsx", "export const A = () => null;\n")
+
+    def fresh(self):
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.base_app()
+
+    def q(self, key, **kw):
+        return self.scan(**kw)["questions"][key]
+
+    def monitoring(self, q9):
+        return sorted(e["snippet"] for e in q9["evidence"] if e["check"] == "monitoring-dependency")
+
+    # ----------------------------------------------------------------- Q9
+    def test_dependency_groups_are_read(self):
+        self.base_app()
+        self.write("pyproject.toml", '[project]\ndependencies = ["requests"]\n[dependency-groups]\nobs = ["sentry-sdk"]\n')
+        self.assertEqual(self.monitoring(self.q("q9")), ["sentry-sdk"])
+
+    def test_gem_lines_count_as_dependencies_read(self):
+        self.base_app()
+        self.write("Gemfile", 'source "https://rubygems.org"\ngem "rails"\n')
+        q9 = self.q("q9")
+        self.assertEqual(q9["answer"], "nothing-found")
+        self.assertIn("1 dependency read", q9["evidence"][0]["snippet"])
+
+    def test_monitoring_families_match_by_prefix(self):
+        names = ["@sentry/vue", "@bugsnag/js", "@opentelemetry/api", "@datadog/browser-logs", "@honeybadger-io/js",
+                 "@rollbar/react", "ddtrace", "elastic-apm", "logfire", "opentelemetry-sdk", "logrocket", "appsignal"]
+        for name in names:
+            with self.subTest(name=name):
+                self.fresh()
+                self.write("package.json", json.dumps({"dependencies": {name: "1"}}))
+                self.assertEqual(self.monitoring(self.q("q9")), [name])
+
+    def test_every_listed_monitoring_dependency_is_recognised(self):
+        # table-driven so deleting any one entry fails; Go paths in go.mod, everything else by name in package.json
+        for name in sorted(cs.MONITORING_DEPS):
+            with self.subTest(name=name):
+                self.fresh()
+                if name.startswith(("github.com/", "gopkg.in/")):
+                    self.write("go.mod", "module x\n\nrequire %s v1.0.0\n" % name)
+                else:
+                    self.write("package.json", json.dumps({"dependencies": {name: "1"}}))
+                self.assertEqual(self.monitoring(self.q("q9")), [name])
+
+    def test_go_version_suffixes_are_stripped(self):
+        for path in ("gopkg.in/DataDog/dd-trace-go.v1", "github.com/newrelic/go-agent/v3"):
+            with self.subTest(path=path):
+                self.fresh()
+                self.write("go.mod", "module x\n\nrequire %s v1.2.3\n" % path)
+                self.assertTrue(self.monitoring(self.q("q9")), path)
+
+    def test_a_manifest_the_scanner_cannot_parse_is_a_q9_gap(self):
+        for rel in ("backend/Pipfile", "backend/requirements-prod.txt", "requirements/base.txt", "setup.py", "setup.cfg",
+                    "composer.json", "Cargo.toml", "pom.xml", "build.gradle", "build.gradle.kts", "pubspec.yaml", "app.gemspec", "deno.json"):
+            with self.subTest(rel=rel):
+                self.fresh()
+                self.write("package.json", json.dumps({"dependencies": {"react": "18"}}))
+                self.assertEqual(self.q("q9")["answer"], "nothing-found", "control")
+                self.write(rel, "sentry-sdk\n")
+                self.assertEqual(self.q("q9")["answer"], "dont-know", rel)
+
+    def test_precompressed_bundle_is_a_q9_gap_too(self):
+        self.base_app()
+        self.write("package.json", json.dumps({"dependencies": {"next": "15"}}))
+        self.assertEqual(self.q("q9")["answer"], "nothing-found", "control")
+        self.write("public/app.js.gz", b"\x1f\x8b" + b"\x01" * 200, binary=True)
+        self.assertEqual(self.q("q9")["answer"], "dont-know")
+
+    def test_a_linked_sentry_config_is_a_q9_gap(self):
+        self.base_app()
+        self.write("package.json", json.dumps({"dependencies": {"next": "15"}}))
+        os.symlink("/nonexistent/sentry.properties", os.path.join(self.repo, "sentry.properties"))
+        self.assertEqual(self.q("q9")["answer"], "dont-know")
+
+    # ----------------------------------------------------------------- Q1
+    def test_mts_and_cts_files_are_code(self):
+        key = "sk-" + "proj-" + "a1b2c3d4e5f6g7h8i9j0" * 2
+        for name, answer in (("src/components/ai.mts", "no"), ("src/components/ai.cts", "no"), ("src/lib/ai.mts", "dont-know")):
+            with self.subTest(name=name):  # src/lib is unclear territory, the same as a .ts there: evidence, not a no
+                self.fresh()
+                self.write(name, 'export const openai = new OpenAI({ apiKey: "%s" });\n' % key)
+                self.assertEqual(self.q("q1")["answer"], answer, name)
+
+    def test_mcp_config_inside_an_agent_folder_is_a_q1_gap(self):
+        token = "ghp_" + "aB3dE6gH9jK2mN5pQ8sT1vW4yZ7bC0eF3hJ6"
+        for rel in (".roo/mcp.json", ".kiro/settings/mcp.json", ".amazonq/mcp.json", ".gemini/settings.json", "opencode.json"):
+            with self.subTest(rel=rel):
+                self.fresh()
+                self.assertEqual(self.q("q1")["answer"], "nothing-found", "control")
+                self.write(rel, json.dumps({"mcpServers": {"gh": {"env": {"GITHUB_TOKEN": token}}}}))
+                r = self.scan()
+                self.assertEqual(r["questions"]["q1"]["answer"], "dont-know", rel)
+                self.assert_no_secret(json.dumps(r), token)
+
+    def test_zstd_bundle_is_browser_code(self):
+        self.base_app()
+        self.write("public/app.js.zst", b"\x28\xb5\x2f\xfd" + b"\x01" * 200, binary=True)
+        self.assertEqual(self.q("q1")["answer"], "dont-know")
+
+    def rls_app(self):
+        self.base_app()
+        self.write("supabase/migrations/001.sql", "create table public.profiles (id uuid);\nalter table public.profiles enable row level security;\n")
+        self.assertEqual(self.q("q3")["answer"], "nothing-found", "control")
+
+    def test_firebase_test_mode_rules_are_not_nothing_found(self):
+        cases = {
+            "firestore.rules": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{db}/documents {\n    match /{doc=**} {\n      allow read, write: if request.time < timestamp.date(2026, 12, 31);\n    }\n  }\n}\n",
+            "database.rules.json": '{\n  "rules": {\n    ".read": "now < 1767139200000",\n    ".write": "now < 1767139200000"\n  }\n}\n',
+        }
+        for name, body in cases.items():
+            with self.subTest(name=name):
+                self.fresh()
+                self.write(name, body)
+                q3 = self.q("q3")
+                self.assertNotEqual(q3["answer"], "nothing-found", name)
+                self.assertIn("firebase-rules-test-mode", evidence_checks(q3), name)
+
+    def test_firebase_if_true_in_parentheses_is_open(self):
+        self.base_app()
+        self.write("storage.rules", "service firebase.storage {\n  match /b/{bucket}/o {\n    match /{all=**} {\n      allow read, write: if (true);\n    }\n  }\n}\n")
+        assert_unconfirmed(self, self.q("q3"))
+
+    def test_rls_text_inside_a_string_does_not_enable_rls(self):
+        self.base_app()
+        self.write("db/1.sql", "create table public.orders (id int);\ncomment on table public.orders is 'TODO: alter table public.orders enable row level security';\n")
+        q3 = self.q("q3")
+        self.assertEqual(q3["answer"], "dont-know")
+        self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], ["orders"])
+
+    def test_a_dropped_and_recreated_table_is_not_nothing_found(self):
+        self.rls_app()
+        self.write("supabase/migrations/002.sql", "drop table public.profiles;\ncreate table public.profiles (id uuid, ssn text);\n")
+        self.assertEqual(self.q("q3")["answer"], "dont-know")
+
+    def test_a_rerunnable_schema_that_drops_and_reenables_rls_is_still_clean(self):
+        # the idempotent schema.sql shape: drop, create, enable, all in one file, in that order
+        self.base_app()
+        self.write("db/schema.sql", "drop table if exists public.profiles;\ncreate table public.profiles (id uuid);\nalter table public.profiles enable row level security;\n")
+        self.assertEqual(self.q("q3")["answer"], "nothing-found")
+        self.write("db/schema.sql", "alter table public.profiles enable row level security;\ndrop table if exists public.profiles;\ncreate table public.profiles (id uuid);\n")
+        self.assertEqual(self.q("q3")["answer"], "dont-know", "RLS turned on before the drop does not survive it")
+
+    def test_a_public_view_is_evidence(self):
+        self.rls_app()
+        self.write("supabase/migrations/002.sql", "create view public.profiles_public as select * from public.profiles;\n")
+        q3 = self.q("q3")
+        self.assertEqual(q3["answer"], "dont-know")
+        self.assertIn("public-view", evidence_checks(q3))
+        self.write("supabase/migrations/002.sql", "create view public.profiles_public with (security_invoker = true) as select * from public.profiles;\n")
+        self.assertEqual(self.q("q3")["answer"], "nothing-found", "a security_invoker view obeys the table's RLS")
+
+    def test_a_seed_file_alone_is_not_a_rule_file(self):
+        self.base_app()
+        self.write("supabase/seed.sql", "insert into profiles (id) values (1);\n")
+        self.assertEqual(self.q("q3")["answer"], "dont-know", "no table definition or policy was read")
+
+    def test_compressed_sql_is_a_q3_gap(self):
+        self.rls_app()
+        self.write("backups/dump.sql.gz", b"\x1f\x8b" + b"\x01" * 200, binary=True)
+        self.assertEqual(self.q("q3")["answer"], "dont-know")
+
+    def test_table_registry_gap_alone_withholds_nothing_found(self):
+        # isolated from the rls_enabled overflow: only the first table gets RLS, so that set never overflows
+        self.base_app()
+        self.write("db/1.sql", "create table a (id int);\nalter table a enable row level security;\ncreate table b (id int);\n")
+        with mock.patch.object(cs.release, "MAX_SEEN", 1):
+            self.assertEqual(self.q("q3")["answer"], "dont-know", "table b never entered the registry, so it was never checked")
+
+class FalseNothingFoundReviewTests(ScanCase):
+    """Pre-merge review of the 0.3.3 fixes: variants that sidestepped them, and two older false "no" answers."""
+
+    def base_app(self):
+        self.write("src/components/A.tsx", "export const A = () => null;\n")
+
+    def fresh(self):
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.base_app()
+
+    def q(self, key, **kw):
+        return self.scan(**kw)["questions"][key]
+
+    def q3_of(self, files):
+        self.fresh()
+        for rel, body in files.items():
+            self.write(rel, body)
+        return self.q("q3")
+
+    RLS = "create table public.notes (id int);\nalter table public.notes enable row level security;\n"
+
+    # ----------------------------------------------------------------- rule files
+    def test_words_in_a_seed_comment_or_string_do_not_make_it_a_rule_file(self):
+        for body in ("-- run after the create table migrations\ninsert into notes values (1);\n",
+                     "/* create policy docs */\ninsert into notes values (1);\n",
+                     "insert into docs values ('how to create policy for row level security');\n",
+                     "insert into docs values ($$create table in a dollar string$$);\n"):
+            with self.subTest(body=body):
+                self.assertEqual(self.q3_of({"supabase/seed.sql": body})["answer"], "dont-know")
+
+    def test_every_access_statement_makes_a_rule_file(self):
+        for body in ("alter table public.t enable row level security;\n", "create policy p on public.t for select using (auth.uid() = owner);\n",
+                     "insert into storage.buckets (id, public) values ('avatars', false);\n"):
+            with self.subTest(body=body):
+                self.assertEqual(self.q3_of({"db/1.sql": body})["answer"], "nothing-found")
+
+    # ----------------------------------------------------------------- strings
+    def test_dollar_and_escape_strings_do_not_enable_rls(self):
+        for tail in ("select $$alter table public.notes enable row level security$$;\n",
+                     "create function f() returns void language sql as $body$ alter table public.notes enable row level security $body$;\n",
+                     "comment on table public.notes is E'it\\'s alter table public.notes enable row level security';\n",
+                     "comment on table public.notes is 'it''s alter table public.notes enable row level security';\n"):
+            with self.subTest(tail=tail):
+                q3 = self.q3_of({"db/1.sql": "create table public.notes (id int);\n" + tail})
+                self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], ["notes"])
+
+    def test_a_do_block_really_runs(self):
+        q3 = self.q3_of({"db/1.sql": "create table public.notes (id int);\ndo $$ begin\n  alter table public.notes enable row level security;\nend $$;\n"})
+        self.assertEqual(q3["answer"], "nothing-found")
+
+    def test_rls_disabled_text_is_a_no_as_in_the_release(self):
+        # a string that mentions it was a No in 0.3.2 and stays one (a false No kept on purpose; see TODOS)
+        q3 = self.q3_of({"db/1.sql": self.RLS + "comment on table public.notes is 'we never disable row level security';\n"})
+        self.assertEqual(q3["answer"], "no")
+        q3 = self.q3_of({"db/1.sql": "create table public.t (id int);\ndo $$ begin execute 'alter table public.t disable row level security'; end $$;\n"})
+        self.assertNotEqual(q3["answer"], "nothing-found", "execute in a DO block is real")
+        self.assertEqual(self.q3_of({"db/1.sql": self.RLS + "alter table public.notes disable row level security;\n"})["answer"], "no")
+
+    # ----------------------------------------------------------------- drops and views
+    def test_every_table_in_a_drop_list_is_checked(self):
+        q3 = self.q3_of({"db/1.sql": "create table public.a (id int);\ncreate table public.notes (id int);\nalter table public.notes enable row level security;\n",
+                         "db/2.sql": "drop table public.a, public.notes cascade;\ncreate table public.a (id int);\ncreate table public.notes (id int);\nalter table public.a enable row level security;\n"})
+        self.assertEqual(q3["answer"], "dont-know")
+
+    def test_security_invoker_must_be_on(self):
+        for opt, flagged in (("with (security_invoker = false)", True), ("with (security_invoker=off)", True), ("with (security_invoker=on)", False),
+                             ("with (security_invoker = true)", False), ("with (security_invoker)", False), ("with (security_barrier)", True)):
+            with self.subTest(opt=opt):
+                q3 = self.q3_of({"db/1.sql": self.RLS + "create view public.v %s as select id as security_invoker from public.notes;\n" % opt})
+                self.assertEqual("public-view" in evidence_checks(q3), flagged, opt)
+
+    def test_view_kinds_and_schemas(self):
+        for stmt, flagged in (("create materialized view public.mv as select * from public.notes;", True),
+                              ("create or replace view public.v as select * from public.notes;", True),
+                              ("create view private.v as select * from public.notes;", False)):
+            with self.subTest(stmt=stmt):
+                self.assertEqual("public-view" in evidence_checks(self.q3_of({"db/1.sql": self.RLS + stmt + "\n"})), flagged, stmt)
+
+    # ----------------------------------------------------------------- Firebase
+    def rules(self, cond):
+        return "service cloud.firestore {\n  match /databases/{db}/documents {\n    match /{doc=**} {\n      allow read, write: %s\n    }\n  }\n}\n" % cond
+
+    def test_firebase_open_variants(self):
+        self.assertEqual(self.q3_of({"firestore.rules": self.rules("if true;")})["answer"], "no")  # 0.3.2's own
+        for cond in ("if ((true));", "if (true)\n", "if\n        true;"):
+            with self.subTest(cond=cond):
+                assert_unconfirmed(self, self.q3_of({"firestore.rules": self.rules(cond)}), cond)
+
+    def test_true_joined_to_a_real_condition_is_not_open(self):
+        for cond in ("if (true) && request.auth != null;",):  # `if true && …` stays a No, as in 0.3.2 (TODOS)
+            with self.subTest(cond=cond):
+                self.assertNotEqual(self.q3_of({"firestore.rules": self.rules(cond)})["answer"], "no", cond)
+
+    def test_firebase_test_mode_variants(self):
+        for cond in ("if (request.time < timestamp.date(2026, 12, 31));", "if request.time<timestamp.date(2026, 12, 31);",
+                     "if\n        request.time < timestamp.date(2026, 12, 31);", "if timestamp.date(2026, 12, 31) > request.time;"):
+            with self.subTest(cond=cond):
+                self.assertIn("firebase-rules-test-mode", evidence_checks(self.q3_of({"firestore.rules": self.rules(cond)})), cond)
+        q3 = self.q3_of({"database.rules.json": '{"rules": {".read": "now < 1767139200000", ".write": "auth != null"}}\n'})
+        self.assertIn("firebase-rules-test-mode", evidence_checks(q3))
+
+    def test_rtdb_true_as_a_string_is_open(self):
+        assert_unconfirmed(self, self.q3_of({"database.rules.json": '{"rules": {".read": "true", ".write": "true"}}\n'}))
+        self.assertEqual(self.q3_of({"database.rules.json": '{"rules": {".write": true}}\n'})["answer"], "no")  # 0.3.2's own
+
+    # ----------------------------------------------------------------- Q1 agent configs
+    def test_more_agent_configs_that_hold_tokens_are_q1_gaps(self):
+        token = "ghp_" + "aB3dE6gH9jK2mN5pQ8sT1vW4yZ7bC0eF3hJ6"
+        for rel in ("opencode.jsonc", ".aider.conf.yml", ".trae/mcp.json", ".amazonq/cli-agents/dev.json", ".windsurf/mcp_config.json",
+                    ".continue/config.yaml", ".continue/mcpServers/gh.json", ".junie/mcp/mcp.json", ".codex/config.toml",
+                    ".github/agents/mcp.json", ".roo/servers/team-mcp.json"):
+            with self.subTest(rel=rel):
+                self.fresh()
+                self.write(rel, json.dumps({"mcpServers": {"gh": {"env": {"GITHUB_TOKEN": token}}}}))
+                r = self.scan()
+                self.assertEqual(r["questions"]["q1"]["answer"], "dont-know", rel)
+                self.assert_no_secret(json.dumps(r), token)
+
+    def test_zstd_long_suffix_is_browser_code(self):
+        self.base_app()
+        self.write("public/app.js.zstd", b"\x28\xb5\x2f\xfd" + b"\x01" * 200, binary=True)
+        self.assertEqual(self.q("q1")["answer"], "dont-know")
+
+    # ----------------------------------------------------------------- Q9
+    EXPECTED_MONITORING = ["@sentry/node", "@sentry/nextjs", "sentry-sdk", "sentry_sdk", "dd-trace", "ddtrace", "datadog", "@datadog/browser-rum",
+                           "newrelic", "newrelic_rpm", "@axiomhq/js", "next-axiom", "node-cron", "cron", "bull", "bullmq", "agenda", "@vercel/cron",
+                           "pino", "winston", "better-stack", "elastic-apm", "elastic-apm-node", "logrocket", "logfire", "sentry-ruby", "sentry-rails",
+                           "honeybadger", "rollbar", "bugsnag", "airbrake", "scout_apm", "appsignal", "skylight", "structlog", "loguru",
+                           "@logtail/node", "@highlight-run/next", "@appsignal/nodejs", "@bugsnag/js", "@honeybadger-io/js", "@rollbar/react",
+                           "@opentelemetry/api", "opentelemetry-sdk",
+                           "github.com/getsentry/sentry-go", "github.com/rollbar/rollbar-go", "github.com/bugsnag/bugsnag-go",
+                           "github.com/newrelic/go-agent", "github.com/datadog/dd-trace-go", "gopkg.in/datadog/dd-trace-go"]
+
+    def test_each_expected_monitoring_name_is_recognised(self):
+        # a literal list, so deleting an entry from the scanner's set or prefixes fails here
+        for name in self.EXPECTED_MONITORING:
+            with self.subTest(name=name):
+                self.fresh()
+                if name.startswith(("github.com/", "gopkg.in/")):
+                    self.write("go.mod", "module x\n\nrequire %s v1.0.0\n" % name)
+                else:
+                    self.write("package.json", json.dumps({"dependencies": {name: "1"}}))
+                self.assertEqual(sorted(e["snippet"] for e in self.q("q9")["evidence"] if e["check"] == "monitoring-dependency"), [name])
+
+    def test_no_exact_monitoring_name_is_already_covered_by_a_prefix(self):
+        self.assertEqual(sorted(n for n in cs.MONITORING_DEPS if n.startswith(cs.MONITORING_PREFIXES)), [])
+
+    def test_more_manifest_shapes_are_q9_gaps(self):
+        for rel in ("requirements.in", "requirements-dev.in", "dev-requirements.txt", "environment.yml", "supabase/functions/import_map.json",
+                    "deno.jsonc", "api/App.csproj", "mix.exs", "requirements/dev.in"):
+            with self.subTest(rel=rel):
+                self.fresh()
+                self.write("package.json", json.dumps({"dependencies": {"react": "18"}}))
+                self.write(rel, "sentry-sdk\n")
+                self.assertEqual(self.q("q9")["answer"], "dont-know", rel)
+
+
+
+class StringBlankingIsOnlyEverCautiousTests(ScanCase):
+    """Review cycle two: blanking SQL strings may only make the scanner more careful. Good signals (RLS on, a rule
+    file read) come from code alone; bad ones (drops, disables, open policies) come from everywhere, and one inside a
+    string is evidence rather than a No."""
+
+    RLS = "create table public.notes (id int);\nalter table public.notes enable row level security;\n"
+
+    def q3_of(self, body):
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.write("src/components/A.tsx", "export const A = () => null;\n")
+        self.write("db/1.sql", body)
+        return self.scan()["questions"]["q3"]
+
+    def test_open_policy_text_inside_a_string_is_evidence_not_a_no(self):
+        q3 = self.q3_of(self.RLS + "comment on table public.notes is 'doc says using (true) is unsafe';\n")
+        self.assertEqual(q3["answer"], "no", "0.3.2 read this as a No; it stays one")
+        self.assertEqual(self.q3_of(self.RLS + "create policy p on public.notes for all using (true);\n")["answer"], "no")
+
+    def test_a_string_over_several_lines_is_still_a_string(self):
+        q3 = self.q3_of(self.RLS + "comment on table public.notes is 'line one\ndisable row level security\nline three';\n")
+        self.assertEqual(q3["answer"], "no", "0.3.2 read this as a No; it stays one")
+        q3 = self.q3_of("create table public.notes (id int);\ncomment on table public.notes is 'a\nalter table public.notes enable row level security\nb';\n")
+        self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], ["notes"])
+
+    def test_a_drop_inside_a_function_body_still_counts(self):
+        q3 = self.q3_of(self.RLS + "create function public.rebuild() returns void language plpgsql as $$ begin execute 'drop table public.notes'; execute 'create table public.notes (id int)'; end $$;\nselect public.rebuild();\n")
+        self.assertEqual(q3["answer"], "dont-know")
+
+    def test_a_drop_list_too_long_to_read_whole_is_a_gap(self):
+        items = ", ".join("private.f%04d" % i for i in range(180))  # past the 2000-character window, under every other cap
+        q3 = self.q3_of(self.RLS + "drop table %s, public.notes cascade;\ncreate table public.notes (id int);\n" % items)
+        self.assertEqual(q3["answer"], "dont-know")
+
+    def test_string_blanking_growth_is_linear(self):
+        for name, unit in (("closed quotes", "'a' "), ("escape strings", "E'a\\'b' "), ("dollar bodies", "$$a$$ "), ("doubled quotes", "'a''b' ")):
+            t_small = _fastest(lambda: cs._lex_sql(unit * 150000))
+            t_big = _fastest(lambda: cs._lex_sql(unit * 300000))
+            self.assertGreater(t_small, _RATIO_FLOOR_S, "%s: too fast to time, the ratio would assert nothing" % name)
+            self.assertLess(t_big / t_small, 3.0, "%s grew %.1fx when the input doubled" % (name, t_big / t_small))
+
+    def test_a_view_inside_a_function_body_still_counts(self):
+        q3 = self.q3_of(self.RLS + "create function public.mk() returns void language sql as $$ create view public.v as select * from public.notes $$;\n")
+        self.assertIn("public-view", evidence_checks(q3))
+
+    def test_a_long_drop_list_of_private_tables_is_still_read_whole(self):
+        items = ", ".join("private.f%04d" % i for i in range(180))  # ~2700 characters, all outside public
+        q3 = self.q3_of(self.RLS + "drop table %s cascade;\n" % items)
+        self.assertEqual(q3["answer"], "nothing-found", "nothing public was dropped, and the whole list was read")
+
+    def test_a_drop_list_cut_inside_a_table_name_is_still_a_gap(self):
+        # place the cut exactly inside a private table's name, so a stray public-looking fragment cannot pass the test
+        names = ["private.t%05d" % i for i in range(cs.MAX_DROP_LIST_CHARS // 10)]
+        pad = 0
+        while True:
+            names[0] = "private.t" + "x" * pad + "00000"
+            joined = ", ".join(names)
+            cut = joined[:cs.MAX_DROP_LIST_CHARS]
+            last = cut.split(",")[-1].strip()
+            if last.startswith("private.t") and len(last) > len("private.t"):
+                break
+            pad += 1
+        self.assertGreater(len(joined), cs.MAX_DROP_LIST_CHARS)
+        q3 = self.q3_of(self.RLS + "drop table %s, public.notes;\ncreate table public.notes (id int);\n" % joined)
+        self.assertEqual(q3["answer"], "dont-know", "public.notes sits past the cut, so the list was not read whole")
+
+    def test_firebase_true_in_any_depth_of_parentheses_is_open(self):
+        rules = "service cloud.firestore {\n  match /{d=**} {\n    allow read, write: if ((((((true))))));\n  }\n}\n"
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.write("firestore.rules", rules)
+        assert_unconfirmed(self, self.scan()["questions"]["q3"])
+
+
+
+class ReviewCycleThreeRegressionTests(ScanCase):
+    """Final review cycle of 0.3.3: two regressions against 0.3.1 and the gaps behind them. Comments, strings,
+    dollar bodies and quoted identifiers are now read in one left-to-right pass."""
+
+    RLS = "create table public.notes (id int);\nalter table public.notes enable row level security;\n"
+
+    def q3_of(self, files):
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.write("src/components/A.tsx", "export const A = () => null;\n")
+        for rel, body in files.items():
+            self.write(rel, body)
+        return self.scan()["questions"]["q3"]
+
+    def sql(self, body):
+        return self.q3_of({"db/1.sql": body})
+
+    # ----------------------------------------------------------------- regression 1: Firebase ||
+    def rules(self, cond):
+        return "service cloud.firestore {\n  match /{d=**} {\n    allow read, write: %s\n  }\n}\n" % cond
+
+    def test_true_or_anything_is_open(self):
+        self.assertEqual(self.q3_of({"firestore.rules": self.rules("if true || request.auth != null;")})["answer"], "no")  # 0.3.2's `if true`
+        for cond in ("if request.auth != null || true;", "if ((true) || request.auth != null);", "if false || true;"):
+            with self.subTest(cond=cond):
+                assert_unconfirmed(self, self.q3_of({"firestore.rules": self.rules(cond)}), cond)
+
+    def test_true_and_something_is_never_a_no(self):
+        for cond in ("if (true || request.auth != null) && request.auth.uid == 'x';", "if (request.auth != null || true) && false;"):
+            with self.subTest(cond=cond):
+                self.assertNotEqual(self.q3_of({"firestore.rules": self.rules(cond)})["answer"], "no", cond)
+
+    def test_a_condition_with_true_the_scanner_did_not_evaluate_is_not_nothing_found(self):
+        for cond in ("if true == true;", "if true && request.auth != null;"):
+            with self.subTest(cond=cond):
+                q3 = self.q3_of({"firestore.rules": self.rules(cond)})
+                self.assertNotEqual(q3["answer"], "nothing-found", cond)
+
+    # ----------------------------------------------------------------- regression 2: parity
+    def test_a_double_dash_inside_a_string_is_not_a_comment(self):
+        q3 = self.sql(self.RLS + "insert into public.log(msg) values ('a -- b');\nalter table public.notes disable row level security;\nselect 'x';\n")
+        self.assertEqual(q3["answer"], "no")
+        q3 = self.sql("create table public.notes (id int);\ninsert into public.log(msg) values ('a -- b');\ncomment on table public.notes is 'alter table public.notes enable row level security';\n")
+        self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], ["notes"])
+
+    def test_a_do_block_does_not_flip_later_dollar_quotes(self):
+        do = "do $$ begin if not exists (select 1) then perform 1; end if; end $$;\n"
+        fn = "create or replace function public.touch() returns trigger language plpgsql as $$ begin return new; end; $$;\n"
+        q3 = self.sql("create table public.notes (id int);\n" + do + "alter table public.notes disable row level security;\n" + fn)
+        self.assertEqual(q3["answer"], "no")
+        q3 = self.sql("create table public.notes (id int);\n" + do + "create function f() returns void language plpgsql as $$ begin alter table public.notes enable row level security; end $$;\n")
+        self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], ["notes"], "a function body is not run")
+
+    def test_statements_inside_a_do_block_still_run(self):
+        self.assertEqual(self.sql("create table public.notes (id int);\ndo $body$ begin alter table public.notes enable row level security; end $body$;\n")["answer"], "nothing-found")
+        self.assertEqual(self.sql(self.RLS + "do $$ begin alter table public.notes disable row level security; end $$;\n")["answer"], "no")
+
+    def test_an_apostrophe_in_a_quoted_identifier_is_not_a_string(self):
+        q3 = self.sql("create table public.notes (id int);\ncreate index \"o'brien_idx\" on public.notes(id);\ncomment on table public.notes is 'alter table public.notes enable row level security';\n")
+        self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], ["notes"])
+
+    def test_an_unclosed_quote_is_a_gap(self):
+        q3 = self.sql(self.RLS + "select 'unterminated;\n")
+        self.assertEqual(q3["answer"], "dont-know")
+        q3 = self.sql("create table public.notes (id int);\nselect 'unterminated;\ncomment on table public.notes is 'alter table public.notes enable row level security';\n")
+        self.assertNotEqual(q3["answer"], "nothing-found")
+        # a quote that is really the last one: everything after it is inside a string that never ends
+        q3 = self.sql("create table public.notes (id int);\nselect 'unterminated;\nalter table public.notes enable row level security;\n")
+        self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], ["notes"],
+                         "nothing after an unclosed quote earns RLS credit, whatever the gap does")
+
+    def test_a_double_dash_inside_a_dollar_string_keeps_its_evidence(self):
+        q3 = self.sql(self.RLS + "comment on table public.notes is $$-- docs: create policy p on public.notes using (true)$$;\n")
+        self.assertIn("open-rule-in-string", evidence_checks(q3))
+
+    # ----------------------------------------------------------------- older regexes
+    def test_a_long_inline_comment_does_not_hide_a_rule(self):
+        pad = "/* " + "padding " * 10 + "*/"
+        for body in ("alter table public.notes disable %s row level security;\n" % pad, "create policy open on public.notes for all using %s (true);\n" % pad):
+            assert_unconfirmed(self, self.sql(self.RLS + body))
+        q3 = self.sql(self.RLS + "drop %s table public.notes;\ncreate table public.notes (id int);\n" % pad)
+        self.assertEqual(q3["answer"], "dont-know")
+
+    def test_using_true_in_any_depth_of_parentheses(self):
+        assert_unconfirmed(self, self.sql(self.RLS + "create policy open on public.notes for all using (((((((true)))))));\n"))
+
+    def test_a_recursive_view_is_evidence(self):
+        self.assertIn("public-view", evidence_checks(self.sql(self.RLS + "create recursive view public.v(n) as select id from public.notes;\n")))
+
+    def test_an_identifier_named_like_a_rule_is_not_a_rule(self):
+        # pg_dump quotes every name: a quoted table still earns its RLS credit
+        self.assertEqual(self.sql('CREATE TABLE "public"."notes" (id int);\nALTER TABLE "public"."notes" ENABLE ROW LEVEL SECURITY;\n')["answer"], "nothing-found")
+        self.assertEqual(self.sql(self.RLS + 'ALTER TABLE "public"."notes" DISABLE ROW LEVEL SECURITY;\n')["answer"], "no")
+
+    def test_an_unclosed_identifier_is_a_gap(self):
+        q3 = self.sql('create table public.notes (id int);\n"unterminated\nalter table public.notes enable row level security;\n')
+        self.assertEqual(q3["answer"], "dont-know")
+        self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], ["notes"])
+
+    def test_a_firebase_condition_too_long_to_read_is_a_gap(self):
+        cond = "if " + "request.auth != null || " * 25 + "true;"
+        self.assertNotEqual(self.q3_of({"firestore.rules": self.rules(cond)})["answer"], "nothing-found")
+
+    def test_a_crowded_agent_folder_is_walked_in_linear_time(self):
+        d = os.path.join(self.repo, ".codex")
+        os.makedirs(d)
+        for i in range(4000):
+            open(os.path.join(d, "mcp%05d" % i), "w").close()
+        t0 = time.perf_counter()
+        r = self.scan()
+        self.assertLess(time.perf_counter() - t0, bound(2.0))
+        self.assertEqual(r["questions"]["q1"]["answer"], "dont-know")
+
+
+
+class FreshReviewTests(ScanCase):
+    """Fresh pre-merge review of PR #24: cases the branch answered worse than 0.3.2, or where a guard had no
+    test that bites."""
+
+    RLS = "create table public.notes (id int);\nalter table public.notes enable row level security;\n"
+
+    def q3_of(self, files):
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.write("src/components/A.tsx", "export const A = () => null;\n")
+        for rel, body in files.items():
+            self.write(rel, body)
+        return self.scan()["questions"]["q3"]
+
+    def sql(self, body):
+        return self.q3_of({"db/1.sql": body})
+
+    def rules(self, cond):
+        return "service cloud.firestore {\n  match /{d=**} {\n    allow write: %s\n  }\n}\n" % cond
+
+    # ----------------------------------------------------------------- views
+    def test_only_the_with_clause_holds_view_options(self):
+        for stmt in ("create view public.v (security_invoker) as select id from public.notes;",
+                     "create view public.v as select id as security_invoker, id from public.notes;",
+                     "create view public.v as select 'with (security_invoker = on)' as note from public.notes;"):
+            with self.subTest(stmt=stmt):
+                self.assertIn("public-view", evidence_checks(self.sql(self.RLS + stmt + "\n")), stmt)
+
+    # ----------------------------------------------------------------- policies
+    def test_using_true_joined_to_more_is_evidence_not_a_no(self):
+        q3 = self.sql(self.RLS + "create policy own on public.notes for all using (((((true))) and false));\n")
+        self.assertNotEqual(q3["answer"], "no")
+        self.assertIn("policy-true-unevaluated", evidence_checks(q3))
+        self.assertEqual(self.sql(self.RLS + "create policy p on public.notes for all using (((true)));\n")["answer"], "no")
+
+    # ----------------------------------------------------------------- lexer
+    def test_do_with_a_language_still_runs(self):
+        self.assertEqual(self.sql(self.RLS + "do language plpgsql $$ begin alter table public.notes disable row level security; end $$;\n")["answer"], "no")
+
+    def test_block_comments_nest(self):
+        body = self.RLS + '/* old /* inner */ 27" monitor */\nalter table public.notes disable row level security;\n-- 27" again\n'
+        self.assertEqual(self.sql(body)["answer"], "no")
+        body = self.RLS + "/* /* x */ we don't need this */\ncreate policy p on public.notes for all using (true);\n"
+        self.assertEqual(self.sql(body)["answer"], "no")
+
+    def test_a_quoted_name_across_lines_never_hides_a_rule(self):
+        body = self.RLS + 'select "not a name\nalter table public.notes disable row level security;\n" from x;\n'
+        self.assertNotEqual(self.sql(body)["answer"], "nothing-found")
+
+    def test_rule_words_in_a_name_earn_no_credit(self):
+        q3 = self.sql('create table public.notes (id int);\ncreate index "alter table public.notes enable row level security" on public.notes(id);\n')
+        self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], ["notes"])
+
+    def test_an_unclosed_quote_inside_a_do_block_is_a_gap(self):
+        self.assertEqual(self.sql(self.RLS + "do $$ begin perform 'oops; end $$;\n")["answer"], "dont-know")
+
+    def test_do_blocks_nested_past_the_cap_still_finish(self):
+        depth = cs.MAX_DO_NESTING + 5
+        body = "".join("do $t%d$ " % i for i in range(depth)) + "select 1;" + "".join(" $t%d$" % i for i in reversed(range(depth)))
+        self.sql(self.RLS + body + "\n")  # completes without recursion errors
+
+    # ----------------------------------------------------------------- drops
+    def test_a_drop_list_past_the_character_cut_is_a_gap(self):
+        q3 = self.q3_of({"db/1.sql": self.RLS, "db/2.sql": "drop table other.a," + " " * (cs.MAX_DROP_LIST_CHARS + 1) + "public.notes;\ncreate table public.notes (id int);\n"})
+        self.assertEqual(q3["answer"], "dont-know")
+
+    def test_a_drop_list_past_the_item_cap_is_a_gap(self):
+        items = ", ".join("other.t%d" % i for i in range(cs.release.MAX_TABLE_MATCHES_PER_FILE + 1))
+        q3 = self.q3_of({"db/1.sql": self.RLS, "db/2.sql": "drop table %s, public.notes;\ncreate table public.notes (id int);\n" % items})
+        self.assertEqual(q3["answer"], "dont-know")
+
+    # ----------------------------------------------------------------- Firebase
+    def test_negated_or_compared_groups_are_never_open(self):
+        for cond in ("if !(request.auth == null || true);", "if false == (request.auth == null || true);", "if f(request.auth || true);"):
+            with self.subTest(cond=cond):
+                q3 = self.q3_of({"firestore.rules": self.rules(cond)})
+                self.assertNotEqual(q3["answer"], "no", cond)
+                self.assertIn("firebase-rules-true-unevaluated", evidence_checks(q3), cond)
+
+    def test_a_parenthesised_or_group_is_still_open(self):
+        for cond in ("if (request.auth == null || true);", "if ((false) || (true));"):
+            with self.subTest(cond=cond):
+                assert_unconfirmed(self, self.q3_of({"firestore.rules": self.rules(cond)}), cond)
+
+    def test_a_rule_without_a_semicolon_before_a_nested_match(self):
+        rules = "service cloud.firestore {\n  match /notes/{id} {\n    allow write: if true\n    match /c/{c} { allow read: if request.auth != null; }\n  }\n}\n"
+        self.assertEqual(self.q3_of({"firestore.rules": rules})["answer"], "no")
+
+    # ----------------------------------------------------------------- Q1
+    def test_mcp_rows_name_nested_folders_and_are_capped(self):
+        self.write("src/components/A.tsx", "export const A = 1;\n")
+        self.write("apps/web/.continue/mcp.json", "{}")
+        q1 = self.scan()["questions"]["q1"]
+        self.assertEqual([e["path"] for e in q1["evidence"] if e["check"] == "mcp-config-not-opened"], ["apps/web/.continue/mcp.json"])
+        for i in range(cs.release.MAX_HITS_PER_FILE_PER_CHECK + 3):
+            self.write(".roo/mcp%d.json" % i, "{}")
+        q1 = self.scan()["questions"]["q1"]
+        self.assertEqual(len([e for e in q1["evidence"] if e["check"] == "mcp-config-not-opened"]), cs.release.MAX_HITS_PER_FILE_PER_CHECK)
+        self.assertEqual(q1["answer"], "dont-know")
+
+
+
+class PreMergeReviewFourTests(ScanCase):
+    """The fresh pre-merge review of e5644ce (since 0.3.3's overlay, 0.3.2 runs first and its rows stand): RLS credit capped at 0.3.2's read,
+    linear paren handling, the Firebase ternary, Unicode dollar tags, manifest names under code folders, and the
+    MCP path check that never follows a link."""
+
+    RLS = "create table public.notes (id int);\nalter table public.notes enable row level security;\n"
+
+    def answers(self, files):
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.write("src/components/A.tsx", "export const A = () => null;\n")
+        for rel, body in files.items():
+            self.write(rel, body)
+        return self.scan()["questions"]
+
+    def test_a_select_or_altered_row_never_stands_in_for_the_releases_no(self):
+        for body in ('create policy "x--y" on public.notes for select\nusing (true);\n',
+                     "create policy p on public.notes for /* reviewed 2026-09: public read is intended */ select using (true);\n"):  # longer than 0.3.2's 20 spaces
+            with self.subTest(body=body):
+                self.assertEqual(self.answers({"db/1.sql": self.RLS + body})["q3"]["answer"], "no")
+
+    def test_an_enable_the_release_did_not_read_earns_no_credit(self):
+        for body in ("create table public.t (id int);\ninsert into public.log(m) values ('--'); alter table public.t enable row level security;\n",
+                     "create table public.t (id int);\nalter table public.t" + " " * 30 + "enable row level security;\n"):
+            with self.subTest(body=body):
+                q3 = self.answers({"db/1.sql": body})["q3"]
+                self.assertEqual(q3["answer"], "dont-know")
+                self.assertIn("table-without-rls", evidence_checks(q3))
+
+    def test_a_unicode_dollar_tag_body_is_a_string(self):
+        text = "select $\u00e9$ alter table public.t enable row level security; $\u00e9$;"
+        nc, code, bare, unclosed = cs._lex_sql(text)
+        self.assertNotIn("enable", code)
+        self.assertIn("enable", nc)
+        self.assertFalse(unclosed)
+        self.assertEqual(len(code), len(text))
+
+    def test_a_firebase_ternary_is_not_worked_out(self):
+        self.assertEqual(cs._firebase_condition("request.auth==null?false:request.auth.uid==id||true"), "unevaluated")
+        self.assertEqual(cs._firebase_condition("(request.auth==null?false:true)||true"), "open")
+
+    def test_setup_py_under_tests_or_src_is_not_a_manifest(self):
+        for rel in ("tests/setup.py", "src/setup.py", "app/__tests__/setup.py"):
+            with self.subTest(rel=rel):
+                q9 = self.answers({"requirements.txt": "flask\n", rel: "def setup(): pass\n"})["q9"]
+                self.assertNotIn("manifest-not-parsed", evidence_checks(q9))
+        q9 = self.answers({"requirements.txt": "flask\n", "setup.py": "from setuptools import setup\n"})["q9"]
+        self.assertIn("manifest-not-parsed", evidence_checks(q9))
+
+    @unittest.skipUnless(hasattr(os, "symlink"), "needs symlinks")
+    def test_the_mcp_path_check_never_follows_a_link(self):
+        outside = os.path.join(self.tmp, "outside")
+        os.makedirs(outside)
+        with open(os.path.join(outside, "mcp.json"), "w") as fh:
+            fh.write("{}")
+        kiro = os.path.join(self.tmp, "kiro")
+        os.makedirs(kiro)
+        os.symlink(outside, os.path.join(kiro, "settings"))
+        self.assertFalse(cs._lexists_inside(kiro, "settings/mcp.json"))
+        os.makedirs(os.path.join(kiro, "real"))
+        with open(os.path.join(kiro, "real", "mcp.json"), "w") as fh:
+            fh.write("{}")
+        self.assertTrue(cs._lexists_inside(kiro, "real/mcp.json"))
+
+    def test_strip_outer_parens_is_linear_in_depth(self):
+        def deep(d):
+            return "(" * d + "true" + ")" * d
+        t_small = _fastest(lambda: cs._firebase_open(deep(20000), 0))
+        t_big = _fastest(lambda: cs._firebase_open(deep(40000), 0))
+        self.assertGreater(t_small, _RATIO_FLOOR_S, "too fast to time, the ratio would assert nothing")
+        self.assertLess(t_big / t_small, 3.0, "deep parens grew %.1fx when the depth doubled" % (t_big / t_small))
+
+    def test_deep_and_unclosed_using_groups_stay_near_release_speed(self):
+        deep = "create policy p on public.notes for all using (" + "(" * 1990 + "true" + ")" * 1991 + ";\n"
+        unclosed = "using(((((true)\n"
+        for name, unit, reps in (("deep", deep, 120), ("unclosed", unclosed, 30000)):
+            with self.subTest(shape=name):
+                self.write("db/1.sql", self.RLS + unit * reps)
+                t0 = time.perf_counter()
+                self.scan()
+                self.assertLess(time.perf_counter() - t0, bound(3.0), "%s using groups must not be read char by char per match" % name)
+
+
+class WorseThanMainPerformanceTests(ScanCase):
+    """PR #24's two worse-than-main performance P1s: Firebase/SQL condition recursion had no work budget, and the
+    never-open MCP walk rebuilt every path prefix for every folder. RED tests fail on 22797d9; GUARD tests pass
+    there and each has a recorded mutation that fails it."""
+
+    RLS = "create table public.notes (id int);\nalter table public.notes enable row level security;\n"
+    FIREBASE_UNIT = "(()||" * 64 + "true" + ")" * 64  # 388 chars, inside FIREBASE_IF_RE's 400
+    SQL_UNIT = "create policy p on t using ((((((true)) and x) or " + "(() or " * 64 + "x" + ")" * 64 + ")));\n"
+    OPS = ["request.auth.uid==resource.data.owner%d" % i for i in range(10)]
+
+    def rules(self, *conds):
+        allows = "".join("    allow write: if %s;\n" % c for c in conds)
+        return "service cloud.firestore {\n  match /{d=**} {\n%s  }\n}\n" % allows
+
+    def q_of(self, files, q="q3"):
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.write("src/components/A.tsx", "export const A = () => null;\n")
+        for rel, body in files.items():
+            self.write(rel, body)
+        return self.scan()["questions"][q]
+
+    def charged(self, fn):
+        """Implementation-specific guard: every `_firebase_open` call strips its input once, so the characters
+        handed to `_strip_outer_parens` are the recursion's work. Returns (result, chars, calls, first length)."""
+        real, seen = cs._strip_outer_parens, []
+
+        def wrap(expr):
+            seen.append(len(expr))
+            return real(expr)
+        with mock.patch.object(cs, "_strip_outer_parens", wrap):
+            result = fn()
+        return result, sum(seen), len(seen), (seen[0] if seen else 0)
+
+    def assert_linear_work(self, fn, what):
+        result, chars, calls, top = self.charged(fn)
+        self.assertGreater(calls, 0, "the work-count wrapper was never called, so this test measures nothing")
+        self.assertLessEqual(chars, 4 * top + 200, "%s: %d chars of recursion for a %d-char condition" % (what, chars, top))
+        return result
+
+    # ----------------------------------------------------------------- RED: P1-a
+    def test_firebase_condition_work_is_linear(self):
+        verdict = self.assert_linear_work(lambda: cs._firebase_condition(self.FIREBASE_UNIT), "firebase repro")
+        self.assertEqual(verdict, "unevaluated")
+
+    def test_a_condition_too_nested_to_evaluate_says_so(self):
+        q3 = self.q_of({"firestore.rules": self.rules(self.FIREBASE_UNIT)})
+        rows = [e for e in q3["evidence"] if e["check"] == "firebase-rules-true-unevaluated"]
+        self.assertTrue(rows)
+        self.assertIn("nested too deeply to evaluate", rows[0]["snippet"])
+        self.assertIn("review it by hand", rows[0]["snippet"])
+
+    def test_sql_predicate_work_is_linear(self):
+        text = self.SQL_UNIT
+        closes = cs._paren_closes(text)
+        start = cs.USING_TRUE_RE.search(text).start()
+        opened = self.assert_linear_work(lambda: cs._sql_predicate_open(text, start, closes, {"left": 10 ** 9}), "sql repro")
+        self.assertFalse(opened)
+
+    def test_a_depth_15_condition_with_long_operands_is_linear(self):
+        cond = "true"
+        for op in (self.OPS * 2)[:15]:
+            cond = "(%s||%s)" % (op, cond)
+        self.assert_linear_work(lambda: cs._firebase_condition(cond), "depth 15")
+
+    # ----------------------------------------------------------------- GUARD: P1-a
+    def test_a_nested_open_condition_stays_open(self):
+        # GUARD 1. Mutation: budget len + 200 makes this unevaluated.
+        cond = "(%s||%s)||(%s||(%s||(%s||(%s||true))))" % tuple(self.OPS[:6])
+        self.assertEqual(cs._firebase_condition(cond), "open")
+        assert_unconfirmed(self, self.q_of({"firestore.rules": self.rules(cond)}))
+
+    def test_a_long_true_operand_after_a_deep_one_stays_open(self):
+        # GUARD 1b. Mutation: recursing in written order instead of cheapest first makes this unevaluated.
+        op = "request.auth.uid==resource.data.owner"
+        cond = "(((((%s||%s)||%s)||%s)||%s)||%s)||(request.auth.token.admin==false||true)" % ((op,) * 6)
+        self.assertEqual(cs._firebase_condition(cond), "open")
+
+    def test_an_open_condition_after_a_heavy_one_stays_open(self):
+        # GUARD 2: no starvation; each condition has its own budget.
+        q3 = self.q_of({"firestore.rules": self.rules(self.FIREBASE_UNIT, "(request.auth == null || true)")})
+        assert_unconfirmed(self, q3)
+
+    def test_the_two_argument_firebase_open_call_still_works(self):
+        self.assertTrue(cs._firebase_open("((a||true))", 0))
+        self.assertFalse(cs._firebase_open("a&&true", 0))
+
+    def test_rules_and_policy_files_stay_fast(self):
+        # GUARD 6, coarse: the work-count tests above are the real guard.
+        if os.environ.get("CUSTODY_SLOW") != "1":
+            self.skipTest("CUSTODY_SLOW=1 not set")
+        fire = "service cloud.firestore {\n  match /{d=**} {\n" + ("    allow write: if %s;\n" % self.FIREBASE_UNIT) * 1270 + "  }\n}\n"
+        sql = self.RLS + self.SQL_UNIT * 920
+        for name, files in (("firebase", {"firestore.rules": fire}), ("sql", {"db/1.sql": sql})):
+            with self.subTest(shape=name):
+                body = list(files.values())[0]
+                self.assertLessEqual(len(body), cs.release.DEFAULT_MAX_FILE_BYTES, "a file over the cap is skipped, not read")
+                t0 = time.perf_counter()
+                q3 = self.q_of(files)
+                self.assertLess(time.perf_counter() - t0, bound(3.0), "%s: a 512 KB file of nested conditions" % name)
+                self.assertTrue(q3["evidence"], "the file was read")
+
+    # ----------------------------------------------------------------- P1-b: the never-open MCP walk
+    def agent_dir(self, name=".kiro"):
+        path = os.path.join(self.tmp, "agent", name)
+        os.makedirs(path)
+        return path
+
+    @staticmethod
+    def found(res):
+        """The names reported, from an McpScan or from 22797d9's plain list, so the guards run on both."""
+        return list(res.found if hasattr(res, "found") else res)
+
+    def touch(self, base, rel):
+        full = os.path.join(base, *rel.split("/"))
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        with open(full, "w") as fh:
+            fh.write("{}")
+
+    def test_the_mcp_walk_returns_found_and_truncated(self):
+        path = self.agent_dir(".claude")
+        self.touch(path, "mcp.json")
+        res = cs._mcp_configs_inside(path, ".claude")
+        found, truncated = res
+        self.assertEqual((res.found, res.truncated), (["mcp.json"], False))
+        self.assertEqual((found, truncated), (["mcp.json"], False))
+
+    @unittest.skipIf(platform.system() == "Windows", "a 400-deep chain is past MAX_PATH")
+    def test_a_deep_and_wide_agent_folder_walks_fast(self):
+        if os.environ.get("CUSTODY_SLOW") != "1":
+            self.skipTest("CUSTODY_SLOW=1 not set")
+        path = self.agent_dir(".claude")
+        bottom = os.path.join(path, *(["a"] * 400))
+        os.makedirs(bottom)
+        for i in range(9000):
+            os.mkdir(os.path.join(bottom, "d%d" % i))
+        t0 = time.perf_counter()
+        res = cs._mcp_configs_inside(path, ".claude", time.monotonic() + 120)
+        self.assertLess(time.perf_counter() - t0, bound(1.0), "the never-open MCP walk must be linear in folders")
+        # each folder walked counts toward the cap, as in count_files (9,400 entries + 401 folders > 10,000).
+        # Mutation: dropping the per-folder count leaves this untruncated and about 14x slower.
+        self.assertTrue(res.truncated)
+
+    def test_an_mcp_folder_inside_an_mcp_folder_reports_only_the_outer_one(self):
+        # GUARD 3. Mutation: deleting the prune reports both.
+        path = self.agent_dir(".claude")
+        self.touch(path, "mcp-servers/mcp.json")
+        self.touch(path, "mcp-servers/deeper/mcp-two.json")
+        self.assertEqual(self.found(cs._mcp_configs_inside(path, ".claude")), ["mcp-servers"])
+
+    def test_the_walk_never_goes_below_a_reported_folder(self):
+        # GUARD 4. Mutation: deleting the prune walks into mcp-servers/.
+        path = self.agent_dir(".claude")
+        self.touch(path, "mcp-servers/a/b/c.json")
+        self.touch(path, "other/x.json")
+        real, yielded = os.walk, []
+
+        def walk(top, *a, **kw):
+            for step in real(top, *a, **kw):
+                yielded.append(step[0])
+                yield step
+        with mock.patch.object(cs.os, "walk", walk):
+            found = self.found(cs._mcp_configs_inside(path, ".claude"))
+        self.assertEqual(list(found), ["mcp-servers"])
+        below = [d for d in yielded if d.startswith(os.path.join(path, "mcp-servers") + os.sep)]
+        self.assertEqual(below, [])
+        self.assertIn(os.path.join(path, "other"), yielded)
+
+    def test_a_trailing_separator_does_not_change_the_names(self):
+        # GUARD 4b. Mutation: dropping the rstrip cuts the first character of every nested name.
+        path = self.agent_dir(".claude")
+        self.touch(path, "tools/mcp.json")
+        self.assertEqual(self.found(cs._mcp_configs_inside(path + os.sep, ".claude")), ["tools/mcp.json"])
+
+    def test_pre_seeded_agent_paths_report_as_before(self):
+        # GUARD 5: the same lists 22797d9 gave.
+        kiro = self.agent_dir(".kiro")
+        self.touch(kiro, "settings/mcp.json")
+        self.touch(kiro, "settings/other-mcp.json")
+        self.assertEqual(self.found(cs._mcp_configs_inside(kiro, ".kiro")), ["settings/mcp.json", "settings/other-mcp.json"])
+        amazonq = self.agent_dir(".amazonq")
+        self.touch(amazonq, "cli-agents/mcp.json")
+        self.touch(amazonq, "mcp.json")
+        self.assertEqual(self.found(cs._mcp_configs_inside(amazonq, ".amazonq")), ["cli-agents", "mcp.json"])
+
+    def test_an_agent_folder_cut_off_by_the_cap_withholds_q1(self):
+        # GUARD 7. Mutation: dropping the q1 gap increment lets Q1 say nothing found.
+        self.assertEqual(self.q_of({".claude/x/f.txt": "x"}, "q1")["answer"], "nothing-found")
+        files = {".claude/x/sub/mcp.json": "{}"}
+        files.update({".claude/x/f%d.txt" % i: "x" for i in range(60)})
+        with mock.patch.object(cs.release, "MAX_NEVER_OPEN_COUNT", 50):
+            q1 = self.q_of(files, "q1")
+        self.assertNotEqual(q1["answer"], "nothing-found")
+
+
+class FreshReviewOfPerfFixTests(ScanCase):
+    """The fresh pre-merge review of 4b7d615: three new false Nos from text inside strings and quoted names, a Q3
+    gap 0.3.2 gave that the branch dropped, and SQL files lexed three times. The quoted-name, string, list, unclosed
+    quote, table-cap and lex-once tests fail on 4b7d615; the others are guards that also pass there."""
+
+    RLS = "create table public.t (id int, name text);\nalter table public.t enable row level security;\n"
+
+    def q_of(self, files, q="q3"):
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.write("src/components/A.tsx", "export const A = () => null;\n")
+        for rel, body in files.items():
+            self.write(rel, body)
+        return self.scan()["questions"][q]
+
+    def rules(self, cond):
+        return "service cloud.firestore {\n  match /p/{id} {\n    allow write: if %s;\n  }\n}\n" % cond
+
+    def test_a_rule_shape_inside_a_quoted_name_is_not_a_no(self):
+        for name in ('"disable' + " " * 25 + 'row level security"', '"using (((((true)))))"'):
+            with self.subTest(name=name):
+                q3 = self.q_of({"db/1.sql": self.RLS + "create index %s on public.t (id);\n" % name})
+                self.assertNotEqual(q3["answer"], "no")
+                self.assertIn("open-rule-in-string", evidence_checks(q3))
+
+    def test_the_release_no_for_a_quoted_name_is_kept(self):
+        # 0.3.2's own false No (TODOS: "False Nos kept from 0.3.2"); 0.3.2 runs first, so it stands until its own PR
+        q3 = self.q_of({"db/1.sql": self.RLS + 'create index "disable row level security" on public.t (id);\n'})
+        self.assertEqual(q3["answer"], "no")
+
+    def test_or_true_inside_a_firebase_string_is_not_open(self):
+        for cond in ('request.auth != null && request.resource.data.tag in ["a||true||b"]',
+                     'request.auth != null && request.resource.data.sep == "||true||"',
+                     "request.auth != null && resource.data.x == 'y||true'"):
+            with self.subTest(cond=cond):
+                self.assertNotEqual(cs._firebase_condition(cond), "open")
+                self.assertNotEqual(self.q_of({"firestore.rules": self.rules(cond)})["answer"], "no")
+
+    def test_an_or_true_in_a_list_is_not_top_level(self):
+        self.assertNotEqual(cs._firebase_condition("request.resource.data.v in [false || true || x]"), "open")
+
+    def test_open_firebase_rules_with_strings_stay_open(self):
+        for cond in ('request.auth.token.email == "a@b.co" || true', "(resource.data.kind == 'x||y') || true"):
+            with self.subTest(cond=cond):
+                self.assertEqual(cs._firebase_condition(cond), "open")
+
+    def test_an_unclosed_quote_in_a_firebase_condition_is_not_open(self):
+        self.assertNotEqual(cs._firebase_condition('resource.data.x == "y || true'), "open")
+
+    def test_or_true_inside_a_sql_string_is_not_open(self):
+        for using in ("(((((true)) and false)) or name = 'x or true or y')", "((((((true)))) and name = 'a or true or b'))"):
+            with self.subTest(using=using):
+                q3 = self.q_of({"db/1.sql": self.RLS + "create policy p on public.t for update using %s;\n" % using})
+                self.assertNotEqual(q3["answer"], "no")
+
+    def test_deep_sql_policy_open_outside_strings_is_still_no(self):
+        q3 = self.q_of({"db/1.sql": self.RLS + "create policy p on public.t for update using ((((((true)))) or name = 'x'));\n"})
+        assert_unconfirmed(self, q3)
+
+    def test_enables_inside_strings_still_count_toward_the_table_cap(self):
+        pairs = "".join("create table public.t%d (id int);\nalter table public.t%d enable row level security;\n" % (i, i) for i in range(150))
+        strings = "insert into notes(body) values ('alter table public.x enable row level security');\n" * 60
+        q3 = self.q_of({"db/1.sql": pairs + strings})
+        self.assertNotEqual(q3["answer"], "nothing-found", "0.3.2 read 210 enables, past its cap of 200, and withheld Q3")
+
+    def test_a_sql_file_is_lexed_once(self):
+        real, calls = cs._lex_sql, []
+
+        def spy(text, depth=0, tick=None):
+            if depth == 0:
+                calls.append(1)
+            return real(text, depth, tick)
+        self.write("supabase/migrations/1.sql", self.RLS + "create table public.u (email text);\n")
+        with mock.patch.object(cs, "_lex_sql", spy):
+            self.scan()
+        self.assertEqual(len(calls), 1, "each SQL file is lexed once and shared by every reader")
+
+    def test_string_dense_sql_stays_near_release_speed(self):
+        if os.environ.get("CUSTODY_SLOW") != "1":
+            self.skipTest("CUSTODY_SLOW=1 not set")
+        body = ("'a' " * 131072)[:524000]
+        for i in range(5):
+            self.write("supabase/migrations/%d.sql" % i, body)
+        t0 = time.perf_counter()
+        self.scan()
+        # measured 2026-10-02: 0.3.2 about 1.1 s, 4b7d615 about 6.7 s for these five files
+        self.assertLess(time.perf_counter() - t0, bound(3.0), "string-dense SQL must not be lexed char by char three times")
+
+    def test_a_sql_policy_too_nested_to_evaluate_says_so(self):
+        unit = "create policy p on t using ((((((true)) and x) or " + "(() or " * 64 + "x" + ")" * 64 + ")));\n"
+        q3 = self.q_of({"db/1.sql": self.RLS + unit})
+        rows = [e for e in q3["evidence"] if e["check"] == "policy-true-unevaluated"]
+        self.assertTrue(rows)
+        self.assertIn("nested too deeply to evaluate", rows[0]["snippet"])
+
+    def test_an_expired_deadline_truncates_the_mcp_walk(self):
+        path = os.path.join(self.tmp, "agent", ".claude")
+        for i in range(cs.release.DEADLINE_TICK + 10):
+            os.makedirs(os.path.join(path, "d%d" % i))
+        os.makedirs(os.path.join(path, "zz"))
+        with open(os.path.join(path, "zz", "mcp.json"), "w") as fh:
+            fh.write("{}")
+        with self.assertRaises(cs.OverlayTimeout):  # stops at the deadline, and says it was the clock, not the size cap
+            cs._mcp_configs_inside(path, ".claude", time.monotonic() - 1)
+
+
+class FreshReviewPassTwoTests(ScanCase):
+    """Pass 2 of the fresh review of 4b7d615. RED on the pass-1 tree: new false Nos where the branch's lexer and
+    0.3.2's disagree about where a comment or string ends, SQL `||` read as OR, a Firebase condition cut by `/*`
+    inside strings, and two new alarms 0.3.2 never raised. The rest pin guards the testing review found unpinned."""
+
+    RLS = "create table public.t (id int, name text);\nalter table public.t enable row level security;\n"
+
+    def q_of(self, files, q="q3"):
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.write("src/components/A.tsx", "export const A = () => null;\n")
+        for rel, body in files.items():
+            self.write(rel, body)
+        return self.scan()["questions"][q]
+
+    # ----------------------------------------------------------------- RED: lexer disagreement (the two-view rule)
+    def test_text_0_3_2_read_as_a_comment_is_never_a_new_no(self):
+        copy = ("create table public.authors (id int, name text);\nalter table public.authors enable row level security;\n"
+                "copy public.authors (id, name) from stdin;\n1\tO'Brien\n\\.\n")
+        for name, body in (
+                ("dollar in a name", self.RLS + "create table public.a$x$ (id int);\n-- old: $x$ alter table public.t disable row level security;\n"),
+                ("nested block comment", self.RLS + "/* old /* tmp */ '--' alter table public.t disable row level security; */\n"),
+                ("nested comment, apostrophes", self.RLS + "/* outer /* inner */ it's fine */\n-- don't: alter table public.t disable row level security\n"),
+                ("copy data, disable", copy + "-- Don't disable row level security on authors\n"),
+                ("copy data, using true", copy + "-- Don't add a policy with using (true) here\n")):
+            with self.subTest(name=name):
+                self.assertNotEqual(self.q_of({"supabase/migrations/1.sql": body})["answer"], "no")
+
+    def test_open_rules_beyond_0_3_2s_patterns_are_named_evidence(self):
+        for name, body in (
+                ("wide whitespace", self.RLS + "alter table public.t disable" + " " * 30 + "row level security;\n"),
+                ("six parens", self.RLS + "create policy p on public.t for all using ((((((true))))));\n")):
+            with self.subTest(name=name):
+                assert_unconfirmed(self, self.q_of({"db/1.sql": body}))
+
+    def test_sql_concatenation_is_not_or(self):
+        for using in ("(\n" + " " * 24 + "(true) || name = 'x')", "(((((true)))) || 'a' = 'b')"):
+            with self.subTest(using=using):
+                q3 = self.q_of({"db/1.sql": self.RLS + "create policy p on public.t for update using %s;\n" % using})
+                self.assertNotEqual(q3["answer"], "no")
+
+    def test_a_comment_marker_inside_firebase_strings_never_opens_a_rule(self):
+        rules = ("service firebase.storage {\n match /b/{bucket}/o {\n  match /{f} {\n   allow write: if (request.resource.contentType.matches('image/*'))"
+                 " && (request.resource.size < 100 || request.resource.name.matches('.*/a') || true);\n  }\n }\n}\n")
+        self.assertNotEqual(self.q_of({"storage.rules": rules})["answer"], "no")
+
+    # ----------------------------------------------------------------- RED: new alarms 0.3.2 never raised
+    def test_mcp_named_skills_and_instructions_are_not_configs(self):
+        q1 = self.q_of({".claude/skills/mcp-builder/SKILL.md": "# skill\n", ".cursor/rules/mcp.mdc": "rules\n",
+                        ".claude/skills/mcp-builder/reference/mcp_best_practices.md": "notes\n"}, "q1")
+        self.assertEqual([e["path"] for e in q1["evidence"] if e["check"] == "mcp-config-not-opened"], [])
+        self.assertEqual(q1["answer"], "nothing-found")
+
+    def test_mcp_configs_are_still_reported(self):
+        q1 = self.q_of({".claude/mcp.json": "{}", ".roo/mcp-servers/s.json": "{}", ".continue/mcpServers/s.yaml": "x: 1\n"}, "q1")
+        paths = sorted(e["path"] for e in q1["evidence"] if e["check"] == "mcp-config-not-opened")
+        self.assertEqual(paths, [".claude/mcp.json", ".continue/mcpServers", ".roo/mcp-servers"])
+
+    def test_true_only_inside_a_firebase_string_is_not_evidence(self):
+        self.assertIsNone(cs._firebase_condition('request.auth != null && resource.data.visibility == "true"'))
+        rules = "service cloud.firestore {\n  match /p/{id} {\n    allow write: if request.auth != null && resource.data.v == \"true\";\n  }\n}\n"
+        self.assertEqual(self.q_of({"firestore.rules": rules})["answer"], "nothing-found")
+
+    # ----------------------------------------------------------------- guards the testing review found unpinned
+    def test_an_escaped_quote_does_not_end_a_firebase_string(self):
+        self.assertNotEqual(cs._firebase_condition(r'request.auth != null && resource.data.x == "a\" || true || \"b"'), "open")
+        self.assertEqual(cs._firebase_condition(r"resource.data.x == 'it\'s' || true"), "open")
+
+    def test_a_list_before_a_top_level_or_true_is_open(self):
+        self.assertEqual(cs._firebase_condition('resource.data.x in ["a", "b"] || true'), "open")
+
+    def test_a_paren_inside_a_sql_string_does_not_hide_an_open_policy(self):
+        q3 = self.q_of({"db/1.sql": self.RLS + "create policy p on public.t for update using ((((((true)))) and name = ')') or true);\n"})
+        assert_unconfirmed(self, q3)
+
+    def test_the_release_enable_cap_boundary(self):
+        pairs = "".join("create table public.t%d (id int);\nalter table public.t%d enable row level security;\n" % (i, i) for i in range(150))
+        line = "insert into notes(body) values ('alter table public.x enable row level security');\n"
+        self.assertEqual(self.q_of({"db/1.sql": pairs + line * 50})["answer"], "nothing-found")
+        self.assertNotEqual(self.q_of({"db/1.sql": pairs + line * 51})["answer"], "nothing-found")
+
+    def test_a_rule_without_a_semicolon_ends_at_an_indented_allow(self):
+        rules = ("service cloud.firestore {\n  match /p/{id} {\n    allow read: if request.auth != null\n"
+                 "                    allow write: if request.auth != null || true;\n  }\n}\n")
+        for indent in (20, 24, 60):
+            with self.subTest(indent=indent):
+                q3 = self.q_of({"firestore.rules": rules.replace(" " * 20 + "allow", " " * indent + "allow")})
+                assert_unconfirmed(self, q3)  # the write rule is read on its own, so the open write is named
+
+    def test_whitespace_after_allow_heads_stays_fast(self):
+        if os.environ.get("CUSTODY_SLOW") != "1":
+            self.skipTest("CUSTODY_SLOW=1 not set")
+        body = "allow a:if x " * 36 + "\n" + "\t" * 500000 + "x"
+        self.write("firestore.rules", body)
+        t0 = time.perf_counter()
+        self.scan()
+        # measured 2026-10-02: 0.3.2 0.13 s, the pass-1 tree 1.13 s
+        self.assertLess(time.perf_counter() - t0, bound(0.5), "the lookahead after a newline must not rescan a long run")
+
+
+class FreshReviewPassThreeTests(ScanCase):
+    """Pass 3 of the fresh review of 4b7d615: every Q3 No now comes from 0.3.2's own patterns, a long scan reads
+    its last SQL and rules files with 0.3.2's readers, trimming the rows 0.3.3 added never makes a scan partial,
+    and MCP configs inside instruction folders are still named."""
+
+    RLS = "create table public.t (id int, name text);\nalter table public.t enable row level security;\n"
+
+    def q_of(self, files, q="q3", **kw):
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.write("src/components/A.tsx", "export const A = () => null;\n")
+        for rel, body in files.items():
+            self.write(rel, body)
+        r = self.scan(**kw)
+        return r if q is None else r["questions"][q]
+
+    def test_shapes_pass_three_found_are_never_a_new_no(self):
+        fb = "service cloud.firestore {\n  match /x/{id} {\n    allow write: if %s;\n  }\n}\n"
+        for name, files in (
+                ("firebase map literal", {"firestore.rules": fb % "request.resource.data == {'public': a || true}"}),
+                ("rule runs into a function", {"firestore.rules": "service cloud.firestore {\n  match /x/{id} {\n    allow write: if isOwner()\n      function helper() { return a || true; }\n  }\n}\n"}),
+                ("nested comment in a using group", {"db/1.sql": self.RLS + "create policy p on public.t for all using ((((((true)))) /* a /* b */ or true */ and auth.uid() = id));\n"}),
+                ("dollar names across a group", {"db/1.sql": "create table public.t (id int, owner$q$ uuid, x$q$ int);\nalter table public.t enable row level security;\ncreate policy p on public.t for all using (((((true)))) and owner$q$ = auth.uid());\ncreate policy p2 on public.t for select using (x$q$ is null or true);\n"}),
+                ("copy data then a quoted comment", {"db/1.sql": self.RLS + "copy t (name) from stdin;\nit's\n\\.\ncomment on table public.t is 'create policy p on public.t for all using ((((((true))))))';\n"})):
+            with self.subTest(name=name):
+                self.assertNotEqual(self.q_of(files)["answer"], "no")
+
+    def test_trimming_rows_0_3_3_added_does_not_make_a_scan_partial(self):
+        files = {".claude/mcp-%d.json" % i: "{}" for i in range(5)}
+        files.update({"svc%d/Pipfile" % i: "x\n" for i in range(5)})
+        files["db/1.sql"] = "".join("create view public.v%d as select 1;\n" % i for i in range(5))
+        full = self.q_of(files, None)
+        size = len(json.dumps(full, ensure_ascii=True, separators=(",", ":")).encode("utf-8"))
+        with mock.patch.object(cs.release, "MAX_OUTPUT_BYTES", size - 200):
+            r = self.q_of(files, None)
+            self.assertLessEqual(len(json.dumps(r, ensure_ascii=True, separators=(",", ":")).encode("utf-8")), size - 200)
+        self.assertFalse(r["partial"], "only rows 0.3.3 added were trimmed; 0.3.2's output would have fit")
+        self.assertNotIn("output_trimmed", [k for k, v in r["stats"].items() if v], "0.3.2 trimmed nothing; the overlay never writes stats")
+        for before, after in zip(cs.release.iter_questions(full), cs.release.iter_questions(r)):
+            if before["evidence"]:
+                self.assertTrue(after["evidence"], "a question never loses its last row")
+            self.assertEqual(before["answer"], after["answer"])
+
+    def test_manifest_rows_are_capped_and_the_gap_still_counts(self):
+        files = {"svc%d/Pipfile" % i: "x\n" for i in range(9)}
+        files["package.json"] = '{"dependencies": {"@sentry/node": "1"}}'
+        q9 = self.q_of(files, "q9")
+        self.assertEqual(evidence_checks(q9).count("manifest-not-parsed"), cs.release.MAX_HITS_PER_FILE_PER_CHECK)
+        self.assertNotEqual(q9["answer"], "nothing-found")
+
+    def test_mcp_configs_inside_instruction_folders_are_named(self):
+        q1 = self.q_of({".claude/skills/mcp-github/config.json": "{}", ".claude/commands/mcpServers/config.json": "{}",
+                        ".claude/agents/mcp/servers.json": "{}", ".claude/notes/mcp.txt": "x",
+                        ".claude/skills/mcp-builder/SKILL.md": "# skill\n", ".claude/skills/mcp-builder/ref/mcp-notes.markdown": "x"}, "q1")
+        paths = sorted(e["path"] for e in q1["evidence"] if e["check"] == "mcp-config-not-opened")
+        self.assertEqual(paths, [".claude/agents/mcp/servers.json", ".claude/commands/mcpServers/config.json",
+                                 ".claude/notes/mcp.txt", ".claude/skills/mcp-github/config.json"])
+
+    def test_blanked_comments_and_strings_keep_line_numbers(self):
+        body = self.RLS + "/* one\ntwo\nthree */\nselect 'a\nb\nc';\nalter table public.t disable row level security;\n"
+        rows = [e for e in self.q_of({"db/1.sql": body})["evidence"] if e["check"] == "rls-disabled"]
+        self.assertEqual([e["line"] for e in rows], [9])
+        split = self.RLS + "create policy p on public.t /* x\n*/ for select to anon using (auth.uid() = id);\n"
+        self.assertNotIn("policy-to-anon", evidence_checks(self.q_of({"db/1.sql": split})))
+
+    def test_commented_enables_do_not_count_toward_the_table_cap(self):
+        pairs = "".join("create table public.t%d (id int);\nalter table public.t%d enable row level security;\n" % (i, i) for i in range(150))
+        self.assertEqual(self.q_of({"db/1.sql": pairs + "-- alter table public.x enable row level security;\n" * 60})["answer"], "nothing-found")
+
+
+class FreshReviewOf8a6c32bTests(ScanCase):
+    """Fresh review of 8a6c32b (2026-10-05): 0.3.2's whole SQL reader runs first and its answers stand, the overlay's
+    trimming never sets partial, and one row per line for a No 0.3.2 already gives."""
+
+    RLS = "create table public.t (id int, name text);\nalter table public.t enable row level security;\n"
+
+    def q_of(self, files, q="q3", **kw):
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.write("src/components/A.tsx", "export const A = () => null;\n")
+        for rel, body in files.items():
+            self.write(rel, body)
+        r = self.scan(**kw)
+        return r if q is None else r["questions"][q]
+
+    def test_a_plain_0_3_2_no_is_one_row(self):
+        q3 = self.q_of({"db/1.sql": self.RLS + "alter table public.t disable row level security;\ncreate policy p on public.t using (true);\n"})
+        self.assertEqual(q3["answer"], "no")
+        self.assertEqual(sorted(evidence_checks(q3)), ["policy-using-true", "rls-disabled"])
+
+    def test_a_table_name_0_3_2_read_across_spaces_is_kept(self):
+        q3 = self.q_of({"db/1.sql": ("create table x" + " " * 2000 + ".") * 240})
+        self.assertNotEqual(q3["answer"], "nothing-found")
+
+    def test_trimming_keeps_a_question_s_only_row(self):
+        files = {".claude/mcp-%d.json" % i: "{}" for i in range(5)}
+        files["db/1.sql"] = self.RLS + "create view public.v as select 1;\n"
+        full = self.q_of(files, None)
+        size = len(json.dumps(full, ensure_ascii=True, separators=(",", ":")).encode("utf-8"))
+        with mock.patch.object(cs.release, "MAX_OUTPUT_BYTES", size - 150):
+            r = self.q_of(files, None)
+        self.assertIn("public-view", evidence_checks(r["questions"]["q3"]))
+        self.assertFalse(r["partial"])
+
+    def test_an_oversize_env_file_named_zst_is_still_a_gap(self):
+        q1 = self.q_of({".env.zst": "API_TOKEN=" + "x" * 4000 + "\n"}, "q1", max_file_bytes=1024)
+        self.assertNotEqual(q1["answer"], "nothing-found")
+
+    def test_the_firebase_pass_equals_the_patterns(self):
+        toks = ["allow ", "ALLOW ", "read", ",", " write", ": ", "if ", "if(", "true", " ", "\n", "\n  allow ", "\n match ",
+                ";", "}", "||", "(", ")", "'x;'", "request.auth != null", "\t", "x" * 130]
+        rnd = random.Random(5)
+        for _ in range(3000):
+            t = "".join(rnd.choice(toks) for _ in range(rnd.randint(1, 30))) * rnd.choice((1, 1, 1, 7))
+            want = [(m.start(), m.group(0), m.group(1), m.group(2), m.start(2), m.end(2)) for m in cs.FIREBASE_IF_RE.finditer(t)]
+            got, long_n = cs._firebase_ifs(t)
+            self.assertEqual([(m.start(), m.group(0), m.group(1), m.group(2), m.start(2), m.end(2)) for m in got], want, repr(t))
+            self.assertEqual(long_n, len(cs.FIREBASE_IF_LONG_RE.findall(t)), repr(t))
+
+    def test_an_unreadable_env_file_named_zst_marks_the_scan_partial(self):
+        if getattr(os, "geteuid", lambda: 1)() == 0:
+            self.skipTest("root can read anything")
+        self.q_of({})
+        path = self.write(".env.zst", "API_TOKEN=x\n")
+        os.chmod(path, 0)
+        try:
+            r = self.scan()
+        finally:
+            os.chmod(path, 0o644)
+        self.assertTrue(r["partial"], "0.3.2 counted an unreadable .env.zst as a file that could hold a key")
+
+    def test_the_firebase_pass_skips_heads_inside_a_condition_it_took(self):
+        for t in ("allow read: if a allow write: if true;", "allow read: if " + "x" * 401 + " allow write: if " + "y" * 450 + ";",
+                  "allow read: if b\n  allow write: if a allow read: if true }", "allow read: if " + "z" * 395 + " allow write: if t;",
+                  "allow read: if " + "x" * 10 + " allow write: if " + "y" * 450 + ";"):
+            with self.subTest(t=t[:40]):
+                want = [(m.start(), m.group(0)) for m in cs.FIREBASE_IF_RE.finditer(t)]
+                got, long_n = cs._firebase_ifs(t)
+                self.assertEqual([(m.start(), m.group(0)) for m in got], want)
+                self.assertEqual(long_n, len(cs.FIREBASE_IF_LONG_RE.findall(t)))
+
+    def test_rows_0_3_3_added_never_push_out_a_row_0_3_2_gave(self):
+        files = {"db/a%d.sql" % i: "".join("create view public.v%d_%d as select 1;\n" % (i, j) for j in range(5)) for i in range(3)}
+        files["db/z.sql"] = self.RLS + "create policy p on public.t for select using (true);\n"
+        self.assertIn("policy-select-true", evidence_checks(self.q_of(files)))
+
+    def test_mcp_instruction_folder_rules_hold_below_the_first_level(self):
+        q1 = self.q_of({".claude/skills/mcp-github/scripts/servers.json": "{}", ".claude/skills/mcp-x/mcp-notes.txt": "x"}, "q1")
+        paths = sorted(e["path"] for e in q1["evidence"] if e["check"] == "mcp-config-not-opened")
+        self.assertEqual(paths, [".claude/skills/mcp-github/scripts/servers.json"])
+
+
+class ReadingCostRatchetTests(unittest.TestCase):
+    """The whole 0.3.3 scan (0.3.2's pass plus the overlay, given time to finish) against 0.3.2's scan alone, on
+    each adversarial file shape a review has measured, may not grow past today's ratio + 30%. Both are timed in
+    the same run, so a loaded runner slows both; CUSTODY_TIME_SLACK adds only a little. Add a shape here whenever
+    a review finds one. The overlay budget bounds the rest: past it, Nothing found is withheld, never claimed."""
+
+    SHAPES = (  # name, repeated text, file, ratio measured 2026-10-06 (python 3.9.6) x 1.3
+        ("firebase allow-if", "allow read: if ", "firestore.rules", 3.1),
+        ("firebase parens", "allow read: if ((((((( ", "firestore.rules", 3.4),
+        ("firebase nested or", "allow write: if " + "(()||" * 64 + "true" + ")" * 64 + ";\n", "firestore.rules", 29.5),
+        ("sql dash string then using true", "'--' using(true)\n", "db/1.sql", 3.3),
+        ("sql using true then dash string", "using(true) '--'\n", "db/1.sql", 1.9),
+        ("sql deep using", "using ((((((true))))))\n", "db/1.sql", 5.1),
+        ("sql line comments", "--\n", "db/1.sql", 2.8),
+        ("sql quote then newline", '"\n', "db/1.sql", 4.2),
+        ("sql create table", "create table public.t (id int);\n", "db/1.sql", 2.3),
+        ("sql short strings", "'a' ", "db/1.sql", 3.7),
+        ("sql using true matches", "using (true) ", "db/1.sql", 1.8),
+    )
+
+    def test_reading_cost_never_grows_past_the_ratchet(self):
+        if os.environ.get("CUSTODY_SLOW") != "1":
+            self.skipTest("CUSTODY_SLOW=1 not set")
+        allowance = 1 + (TIME_SLACK - 1) * 0.1
+        tmp = tempfile.mkdtemp(prefix="custody ratchet ")
+        try:
+            for name, unit, rel, ceiling in self.SHAPES:
+                with self.subTest(shape=name):
+                    shutil.rmtree(tmp)
+                    path = os.path.join(tmp, rel)
+                    os.makedirs(os.path.dirname(path))
+                    with open(path, "w", encoding="utf-8") as fh:
+                        fh.write(unit * (500 * 1024 // len(unit)))
+                    with mock.patch.object(cs, "OVERLAY_MIN_S", 600.0):
+                        new = _fastest(lambda: cs.scan(tmp))
+                        self.assertEqual(cs.scan_with_overlay.last.status, "finished", "the ratio is only a measure when the overlay finishes")
+                    release = _fastest(lambda: cs.release.scan(tmp))
+                    self.assertLessEqual(new / release, ceiling * allowance, "%s: %.2fs vs 0.3.2 %.2fs" % (name, new, release))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+class WallTimeBoundTests(unittest.TestCase):
+    """C2: the overlay adds at most its budget: total <= 0.3.2's time + max(OVERLAY_MIN_S, 2 x 0.3.2's time), and
+    never past 80% of the deadline, on both PR #24 performance shapes. The .claude shape is scaled down unless
+    CUSTODY_SLOW=1 (then 400 deep and 9,000 folders, as measured in review)."""
+
+    def bounded(self, root, **kw):
+        t0 = time.perf_counter()
+        cs.release.scan(root, **kw)
+        rel = time.perf_counter() - t0
+        t0 = time.perf_counter()
+        cs.scan(root, **kw)
+        total = time.perf_counter() - t0
+        opts = cs.release.Options(**kw)
+        budget = max(cs.OVERLAY_MIN_S, opts.deadline_s / 24.0, 2 * rel)
+        self.assertLessEqual(total, bound(rel + budget + 0.5))
+        self.assertLessEqual(total, bound(cs.OVERLAY_SHARE_OF_DEADLINE * opts.deadline_s + 0.5))
+
+    def test_nested_firebase_and_a_deep_wide_agent_folder(self):
+        tmp = tempfile.mkdtemp(prefix="custody walltime ")
+        try:
+            with open(os.path.join(tmp, "firestore.rules"), "w") as fh:
+                fh.write(("allow write: if " + "(()||" * 64 + "true" + ")" * 64 + ";\n") * 1270)
+            self.bounded(tmp)
+            self.bounded(tmp, deadline_s=5.0)
+            slow = os.environ.get("CUSTODY_SLOW") == "1"
+            deep = os.path.join(tmp, ".claude")
+            for i in range(400 if slow else 100):
+                deep = os.path.join(deep, "d")
+            os.makedirs(deep)
+            for i in range(9000 if slow else 1500):
+                os.makedirs(os.path.join(tmp, ".claude", "w%d" % i))
+            self.bounded(tmp)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+class NeverWorseThanMainTests(unittest.TestCase):
+    """The scanner on this branch against the answers the released baseline gave on the same files
+    (fixtures/differential/cases.json: realistic shapes plus every repro from review). Two rules:
+
+    1. never more trusting: an answer may not move toward Nothing found (no > don't know > nothing found);
+    2. never a new No: a No the baseline did not give needs a reason, because a false No is the worst answer.
+       A "new alarm" means a new No; Nothing found -> Don't know is the cautious direction and needs no listing.
+
+    An exception is allowed only when it is listed below with the reason the baseline was wrong. To move the
+    baseline after a release, regenerate cases.json from the released scanner (see fixtures/differential/README.md)."""
+
+    RANK = {"no": 2, "dont-know": 1, "nothing-found": 0, "yes": 0}
+    KEYS = {"{KEY}": "sk-" + "proj-" + "a1b2c3d4e5f6g7h8i9j0" * 2,
+            "{PEM}": "-----BEGIN " + "PRIVATE KEY-----\\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\\n-----END " + "PRIVATE KEY-----\\n",
+            "{PEM_BODY}": "-----BEGIN " + "PRIVATE KEY-----\n" + "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7" * 3 + "\n-----END " + "PRIVATE KEY-----\n"}
+    # (case, question) -> why the baseline's more cautious answer was wrong
+    ALLOW_SOFTER = {}  # the overlay can only move answers toward caution
+    # (case, question) -> why a No the baseline did not give is right
+    ALLOW_NEW_NO = {
+        ("mts client key", "q1"): ".mts is read as code now; a key in a browser folder is a No, as in a .ts file",
+        ("mts server only", "q1"): ".mts is read as code now and follows the release's rule for a .ts file in the same folder",
+        ("cts client key", "q1"): ".cts is read as code now; a key in a browser folder is a No, as in a .ts file",
+    }
+
+    def _scan(self, c):
+        """Write a case as build_cases.materialize does (generated bodies, hard links) and scan it with its args."""
+        tmp = tempfile.mkdtemp(prefix="custody differential ")
+        try:
+            for rel, body in c["files"].items():
+                if isinstance(body, dict):
+                    body = body["repeat"] * body["times"]
+                for k, v in self.KEYS.items():
+                    body = body.replace(k, v)
+                path = os.path.join(tmp, rel)
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with open(path, "w", encoding="utf-8", newline="\n") as fh:
+                    fh.write(body)
+            for new, old in c.get("links", {}).items():
+                os.makedirs(os.path.dirname(os.path.join(tmp, new)), exist_ok=True)
+                os.link(os.path.join(tmp, old), os.path.join(tmp, new))
+            r = cs.scan(tmp, **c.get("args", {}))
+            q = r["questions"]
+            pii = sorted(set(e["snippet"] for e in q["q10"]["evidence"] if e["check"] == "pii-field"))
+            return {k: q[k]["answer"] for k in ("q1", "q3", "q9")}, r["partial"], pii, r["stats"]
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def _same_partial_and_pii(self, c, partial, pii):
+        """A scan the baseline finished is never partial here, and Q10 names exactly the baseline's PII fields:
+        none lost (a stop-line field decides the tier) and none added (a new stop-line is a new alarm)."""
+        if partial:
+            self.assertTrue(c["main_partial"], "%s: partial where the baseline finished" % c["name"])
+        self.assertEqual(pii, c["main_pii"], "%s: Q10 PII fields differ from the baseline" % c["name"])
+
+    def test_never_worse_than_the_baseline(self):
+        with open(os.path.join(SCRIPT_DIR, "fixtures", "differential", "cases.json"), encoding="utf-8") as fh:
+            data = json.load(fh)
+        self.assertGreater(len(data["cases"]), 40, "the corpus must stay broad")
+        used = set()
+        for c in data["cases"]:
+            new, partial, pii, _ = self._scan(c)
+            with self.subTest(case=c["name"], question="partial and q10"):
+                self._same_partial_and_pii(c, partial, pii)
+            for q, base in sorted(c["main"].items()):
+                with self.subTest(case=c["name"], question=q):
+                    key = (c["name"], q)
+                    if self.RANK[new[q]] < self.RANK[base]:
+                        self.assertIn(key, self.ALLOW_SOFTER, "%s %s: %s -> %s is more trusting than the baseline" % (c["name"], q, base, new[q]))
+                        used.add(key)
+                    if new[q] == "no" and base != "no":
+                        self.assertIn(key, self.ALLOW_NEW_NO, "%s %s: a new No the baseline did not give" % (c["name"], q))
+                        used.add(key)
+        stale = (set(self.ALLOW_SOFTER) | set(self.ALLOW_NEW_NO)) - used
+        self.assertEqual(stale, set(), "an allowed exception that no longer happens should be removed")
+
+
+def _json_bytes(obj):
+    return len(json.dumps(obj, ensure_ascii=True, separators=(",", ":")).encode("utf-8"))
+
+
+def _corpus():
+    with open(os.path.join(SCRIPT_DIR, "fixtures", "differential", "cases.json"), encoding="utf-8") as fh:
+        return json.load(fh)["cases"]
+
+
+def _materialize(root, c):
+    for rel, body in c["files"].items():
+        if isinstance(body, dict):
+            body = body["repeat"] * body["times"]
+        for k, v in NeverWorseThanMainTests.KEYS.items():
+            body = body.replace(k, v)
+        path = os.path.join(root, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(body)
+    for new, old in c.get("links", {}).items():
+        os.makedirs(os.path.dirname(os.path.join(root, new)), exist_ok=True)
+        os.link(os.path.join(root, old), os.path.join(root, new))
+
+
+class OverlayContractTests(ScanCase):
+    """0.3.3 is 0.3.2, untouched, plus an overlay that can only make an answer more cautious (D6). These pin the
+    contract: the frozen release, the loader, the merge rules, the budget, and the CLI."""
+
+    QS = ("q1", "q3", "q9")
+    OTHERS = ("q2", "q4", "q5", "q6", "q7", "q8", "q10", "q11")
+
+    def app(self):
+        self.write("src/components/A.tsx", "export const A = () => null;\n")
+        self.write("supabase/migrations/1.sql", "create table public.notes (id int);\nalter table public.notes enable row level security;\n")
+        self.write("package.json", '{"dependencies": {"react": "18"}}\n')
+
+    def release_result(self, **kw):
+        r = copy.deepcopy(cs.release.scan(self.repo, **kw))
+        r["version"] = cs.__version__
+        return r
+
+    def overlay(self, finished=True):
+        ov = cs.Overlay(float("inf"))
+        if not finished:
+            ov.status = "unfinished"
+        return ov
+
+    def test_skill_md_renders_every_path_less_overlay_row_without_a_line(self):
+        with open(os.path.join(SKILL_DIR, "SKILL.md"), encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertIn("Any row whose `path` is empty renders the same way", text)
+        for check in ("checks-not-finished", "no-rule-statements"):
+            self.assertIn("`%s`" % check, text, "%s rows have no path" % check)
+        # every overlay row the size loop can compact loses its path: the general rule above covers it
+        row = cs._compact({"path": "a/b.sql", "line": 3, "snippet": "x", "check": "public-view", "_no": False, "_effect": "caution", "_source": "sql"})
+        self.assertEqual((row["path"], row["line"]), ("", 0))
+
+    # ---------------------------------------------------------------- the frozen release and its loader
+
+    def test_the_release_file_is_0_3_2_byte_for_byte(self):
+        with open(RELEASE_SCRIPT, "rb") as fh:
+            data = fh.read().replace(b"\r\n", b"\n")
+        self.assertEqual(hashlib.sha256(data).hexdigest(), cs.RELEASE_SHA256)
+        if HAVE_GIT and os.path.exists(os.path.join(REPO_ROOT, ".git")):
+            out = subprocess.run(["git", "show", "12621fd:custody-check/skills/custody-check/scripts/custody_scan.py"], cwd=REPO_ROOT,
+                                 capture_output=True, timeout=60)
+            if out.returncode == 0:  # a shallow CI checkout may not have 12621fd: the hash above still pins it
+                self.assertEqual(out.stdout.replace(b"\r\n", b"\n"), data)
+        self.assertEqual(cs.release.__version__, "0.3.2")
+
+    def test_the_cli_loads_the_release_and_writes_no_bytecode(self):
+        scripts = os.path.join(self.tmp, "scripts")
+        os.makedirs(scripts)
+        for name in ("custody_scan.py", "custody_scan_0_3_2.py"):
+            shutil.copy(os.path.join(SCRIPT_DIR, name), scripts)
+        out = subprocess.run([sys.executable, "-I", os.path.join(scripts, "custody_scan.py"), "--version"], capture_output=True, text=True, timeout=60)
+        self.assertEqual(out.stdout.strip(), cs.__version__)
+        self.app()
+        out = subprocess.run([sys.executable, "-I", os.path.join(scripts, "custody_scan.py"), "--repo", os.path.basename(self.repo)],
+                             capture_output=True, text=True, cwd=self.tmp, timeout=120)
+        self.assertTrue(json.loads(out.stdout)["ok"])
+        self.assertEqual(sorted(os.listdir(scripts)), ["custody_scan.py", "custody_scan_0_3_2.py"], "no __pycache__ beside the scripts")
+
+    def test_a_missing_or_changed_release_is_an_envelope_with_both_installs_named(self):
+        scripts = os.path.join(self.tmp, "scripts")
+        os.makedirs(scripts)
+        shutil.copy(SCRIPT, scripts)
+        run = lambda: json.loads(subprocess.run([sys.executable, "-I", os.path.join(scripts, "custody_scan.py"), "--repo", "x"],
+                                                capture_output=True, text=True, cwd=self.tmp, timeout=60).stdout)
+        out = run()
+        self.assertEqual(out["error"], "internal:release-missing")
+        self.assertFalse(out["ok"])
+        self.assertTrue(out["partial"])
+        self.assertIn("reinstall the plugin", out["hint"])
+        self.assertIn("cp -R", out["hint"])
+        with open(RELEASE_SCRIPT, encoding="utf-8") as fh:
+            src = fh.read()
+        with open(os.path.join(scripts, "custody_scan_0_3_2.py"), "w", encoding="utf-8") as fh:
+            fh.write(src.replace("0.3.2", "0.3.9", 1))
+        self.assertEqual(run()["error"], "internal:release-modified")
+        with open(os.path.join(scripts, "custody_scan_0_3_2.py"), "w", encoding="utf-8", newline="\r\n") as fh:
+            fh.write(src)  # a Windows checkout with core.autocrlf
+        self.assertEqual(run()["error"], "repo-not-found", "a CRLF copy of the release loads and runs 0.3.2's checks")
+
+    def test_a_release_that_does_not_compile_is_modified_and_an_exit_is_not_swallowed(self):
+        path = os.path.join(self.tmp, "custody_scan_0_3_2.py")
+        with open(path, "w") as fh:
+            fh.write("def broken(:\n")
+        with mock.patch.object(cs, "RELEASE_SHA256", hashlib.sha256(b"def broken(:\n").hexdigest()):
+            with self.assertRaises(cs.ReleaseUnavailable) as ctx:
+                cs.load_release(path)
+        self.assertEqual(ctx.exception.code, "internal:release-modified")
+        with open(path, "w") as fh:
+            fh.write("import sys\nsys.exit(0)\n")
+        with mock.patch.object(cs, "RELEASE_SHA256", hashlib.sha256(b"import sys\nsys.exit(0)\n").hexdigest()):
+            with self.assertRaises(SystemExit):
+                cs.load_release(path)
+        self.assertEqual(cs.version_guard((3, 8))["error"], "python-too-old")
+        self.assertEqual(cs.version_guard((3, 8)), cs.release.version_guard((3, 8)), "0.3.2's own message")
+        self.assertIsNone(cs.version_guard((3, 9)))
+
+    def test_the_skill_folder_copied_as_the_readme_says_runs(self):
+        dest = os.path.join(self.tmp, "codex-skills")
+        shutil.copytree(SKILL_DIR, os.path.join(dest, "custody-check"), ignore=shutil.ignore_patterns("__pycache__", "fixtures"))
+        script = os.path.join(dest, "custody-check", "scripts", "custody_scan.py")
+        self.assertTrue(os.path.isfile(os.path.join(dest, "custody-check", "scripts", "custody_scan_0_3_2.py")))
+        self.app()
+        out = subprocess.run([sys.executable, "-I", script, "--repo", os.path.basename(self.repo)], capture_output=True, text=True, cwd=self.tmp, timeout=120)
+        self.assertEqual(json.loads(out.stdout)["version"], cs.__version__)
+        with open(os.path.join(PLUGIN_DIR, "README.md"), encoding="utf-8") as fh:
+            self.assertIn("cp -R ~/townsend-plugins/custody-check/skills/custody-check ~/.codex/skills/", fh.read(), "the copy takes the whole folder")
+
+    def test_no_test_patches_the_release_by_its_module_name(self):
+        with open(os.path.abspath(__file__), encoding="utf-8") as fh:
+            src = fh.read()
+        self.assertNotRegex(src, r"mock\.patch\(\s*['\"]custody_scan_0_3_2" + "", "patch through cs.release: the release is not in sys.modules")
+
+    # ---------------------------------------------------------------- 0.3.2's output is untouched
+
+    def test_with_the_overlay_off_the_output_is_0_3_2s_except_the_version(self):
+        for c in _corpus():
+            with self.subTest(case=c["name"]):
+                root = tempfile.mkdtemp(prefix="custody overlay off ", dir=self.tmp)
+                _materialize(root, c)
+                with mock.patch.dict(os.environ, {"CUSTODY_CHECK_OVERLAY": "0"}):
+                    got = cs.scan(root, **c.get("args", {}))
+                want = cs.release.scan(root, **c.get("args", {}))
+                want["version"] = cs.__version__
+                self.assertEqual(json.dumps(got, sort_keys=False), json.dumps(want, sort_keys=False))
+
+    def test_0_3_2s_rows_partial_and_other_questions_survive_the_overlay(self):
+        for c in _corpus():
+            with self.subTest(case=c["name"]):
+                root = tempfile.mkdtemp(prefix="custody overlay on ", dir=self.tmp)
+                _materialize(root, c)
+                got = cs.scan(root, **c.get("args", {}))
+                want = cs.release.scan(root, **c.get("args", {}))
+                for key in ("partial", "files_scanned", "stats", "warnings", "git", "ok"):
+                    self.assertEqual(got[key], want[key], key)
+                for q in self.OTHERS:
+                    self.assertEqual(got["questions"][q], want["questions"][q], q)
+                self.assertLessEqual(_json_bytes(got), cs.release.MAX_OUTPUT_BYTES)
+                for q in self.QS:
+                    g, w = got["questions"][q], want["questions"][q]
+                    self.assertGreaterEqual(cs.RANK[g["answer"]], cs.RANK[w["answer"]], q)
+                    kept = [r for r in w["evidence"] if not (r["check"].startswith("nothing-found-") and g["answer"] != w["answer"])]
+                    it = iter(g["evidence"])
+                    missing = [r for r in kept if not any(r == x for x in it)]
+                    if q == "q1" and g["answer"] == "no" and w["answer"] != "no":
+                        missing = [r for r in missing if cs._evidence_only(r)]  # displaced by the overlay's No: 0.3.2's own add() rule
+                        self.assertTrue(all(cs._evidence_only(r) for r in missing))
+                    else:
+                        self.assertEqual(missing, [], "%s lost 0.3.2 rows" % q)
+                    if g["answer"] != w["answer"]:
+                        self.assertNotIn("scan-summary", [r["check"] for r in g["evidence"]], "a moved question names why")
+
+    def test_the_overlay_never_touches_0_3_2s_state(self):
+        self.app()
+        self.write("db/2.sql", "create view public.v as select 1;\n")
+        state = cs.release.ScanState()
+        opts = cs.release.Options()
+        cs.release.run_scan(self.repo, state, opts)
+        before = copy.deepcopy((state.stats, state.gaps, sorted(state.tables), sorted(state.rls_enabled), state.partial))
+        r = copy.deepcopy(cs.release.build_result(state, self.repo))
+        ov = cs.Overlay(time.monotonic() + 60)
+        cs.overlay_pass(self.repo, opts, ov, state, r, time.monotonic, time.monotonic() + 60)
+        self.assertTrue(ov.rows["q3"], "control: the overlay found the view")
+        self.assertEqual(before, (state.stats, state.gaps, sorted(state.tables), sorted(state.rls_enabled), state.partial))
+
+    def test_the_overlay_opens_no_file_0_3_2_refuses(self):
+        self.app()
+        outside = os.path.join(self.tmp, "outside")
+        os.makedirs(outside)
+        with open(os.path.join(outside, "x.sql"), "w") as fh:
+            fh.write("alter table public.notes disable row level security;\n")
+        os.symlink(outside, os.path.join(self.repo, "linked"))
+        self.write(".claude/mcp.json", '{"mcpServers": {}}')
+        self.write(".claude/skills/a.sql", "create view public.v as select 1;\n")
+        self.write("db/a.sql", "create view public.v as select 1;\n")
+        os.link(os.path.join(self.repo, "db", "a.sql"), os.path.join(self.repo, "db", "b.sql"))
+        self.write("x.mts", "export const x = 1\n")
+        if hasattr(os, "mkfifo"):
+            os.mkfifo(os.path.join(self.repo, "pipe.sql"))
+        real = cs.release.open_regular
+        for kw in ({}, {"max_files": 2}, {"max_total_bytes": 200}):
+            with self.subTest(limits=kw):
+                seen = {"release": set(), "both": set()}
+                which = ["release"]
+
+                def spy(path):
+                    seen[which[0]].add(os.path.realpath(path))
+                    return real(path)
+                with mock.patch.object(cs.release, "open_regular", spy):
+                    cs.release.scan(self.repo, **kw)
+                    which[0] = "both"
+                    cs.scan(self.repo, **kw)
+                self.assertLessEqual(seen["both"], seen["release"], "the overlay opened a file 0.3.2 did not")
+        c = [c for c in _corpus() if c["name"] == "opencode.jsonc counts toward max files"][0]
+        root = tempfile.mkdtemp(prefix="custody max files ", dir=self.tmp)
+        _materialize(root, c)
+        with mock.patch.object(cs.release, "open_regular", spy):
+            which[0] = "release"
+            seen["release"].clear()
+            cs.release.scan(root, max_files=2)
+            which[0] = "both"
+            seen["both"].clear()
+            cs.scan(root, max_files=2)
+        self.assertLessEqual(seen["both"], seen["release"])
+
+    # ---------------------------------------------------------------- merge rules
+
+    def test_only_an_mts_key_is_ever_an_overlay_no(self):
+        self.app()
+        r = self.release_result()
+        ov = self.overlay()
+        ov.add("client-key-literal", "db/x.sql", 3, "x", effect="no", source="sql")  # a No from anywhere else is a caution
+        ov.add("rls-disabled", "db/x.sql", 4, "x", effect="no", source="sql")
+        out = cs.merge(r, ov)
+        self.assertEqual(out["questions"]["q1"]["answer"], "dont-know")
+        self.assertEqual(out["questions"]["q3"]["answer"], "dont-know", "every Q3 No comes from 0.3.2")
+        ov = self.overlay()
+        ov.add("client-key-literal", "src/k.mts", 1, "x", effect="no", source="mts-key", questions=("q1",))
+        self.assertEqual(cs.merge(self.release_result(), ov)["questions"]["q1"]["answer"], "no")
+
+    def test_an_unknown_check_is_refused_and_falls_back(self):
+        self.app()
+        ov = self.overlay()
+        ov.rows["q3"].append({"path": "x", "line": 0, "snippet": "", "check": "made-up", "_effect": "caution", "_source": "sql"})
+        with self.assertRaises(ValueError):
+            cs.merge(self.release_result(), ov)
+        with mock.patch.object(cs, "merge", side_effect=ValueError("boom")):
+            out = cs.scan(self.repo)
+        for q in self.QS:
+            self.assertEqual(out["questions"][q]["answer"], "dont-know")
+            self.assertEqual(out["questions"][q]["evidence"], [cs._unfinished_row("error")])
+        self.assertEqual(cs.scan_with_overlay.last.status, "error")
+
+    def test_unfinished_withholds_nothing_found_with_one_short_row(self):
+        self.app()
+        r = self.release_result()
+        out = cs.merge(r, self.overlay(finished=False))
+        for q in self.QS:
+            self.assertEqual(r["questions"][q]["answer"], "nothing-found", "control")
+            self.assertEqual(out["questions"][q]["answer"], "dont-know")
+            self.assertEqual(out["questions"][q]["evidence"], [cs._unfinished_row("unfinished")])
+            nf = r["questions"][q]["evidence"][0]
+            self.assertLess(_json_bytes(cs._unfinished_row("unfinished")), _json_bytes(nf), "the swap never grows the output")
+            self.assertLess(_json_bytes(cs._unfinished_row("error")), _json_bytes(nf))
+        for q in self.OTHERS:
+            self.assertEqual(out["questions"][q], r["questions"][q])
+
+    def test_the_shortest_nothing_found_rows_are_longer_than_the_unfinished_row(self):
+        for files in ({"a.ts": "x\n"}, {"x.rules": "x\n"}, {"package.json": "{}\n"}):
+            root = tempfile.mkdtemp(prefix="custody nf ", dir=self.tmp)
+            for rel, body in files.items():
+                with open(os.path.join(root, rel), "w") as fh:
+                    fh.write(body)
+            for q in self.QS:
+                for row in cs.release.scan(root)["questions"][q]["evidence"]:
+                    if row["check"].startswith("nothing-found-"):
+                        self.assertLess(_json_bytes(cs._unfinished_row("unfinished")), _json_bytes(row), row)
+
+    def test_confidence_only_changes_where_the_overlay_changed_the_answer(self):
+        self.app()
+        r = self.release_result()
+        ov = self.overlay()
+        ov.add("public-view", "db/x.sql", 1, "v", source="sql")
+        out = cs.merge(r, ov)
+        self.assertEqual(out["questions"]["q3"]["confidence"], "med")
+        self.assertEqual(out["questions"]["q9"], r["questions"]["q9"])
+
+    def near_cap(self, r, slack):
+        return mock.patch.object(cs.release, "MAX_OUTPUT_BYTES", _json_bytes(r) + slack)
+
+    def assert_fits(self, r, out, cap):
+        self.assertLessEqual(_json_bytes(out), cap)
+        self.assertEqual(out["partial"], r["partial"])
+        self.assertEqual(out["stats"], r["stats"])
+        for q in self.OTHERS:
+            self.assertEqual(out["questions"][q], r["questions"][q])
+        for q in self.QS:
+            self.assertGreaterEqual(cs.RANK[out["questions"][q]["answer"]], cs.RANK[r["questions"][q]["answer"]])
+
+    def test_near_the_cap_an_mts_no_fits_without_losing_other_questions_rows(self):
+        self.app()
+        for name, setup in (("nothing found", lambda: None),
+                            ("dont know, not full", lambda: self.write(".env.local", "A=1\n")),
+                            ("full", lambda: [self.write(".env.%s" % c, "A=1\n") for c in "abcdefghijklm"])):
+            with self.subTest(q1=name):
+                setup()
+                r = self.release_result()
+                for slack in (0, 5, 40):
+                    for finished in (True, False):
+                        ov = self.overlay(finished)
+                        ov.add("client-key-literal", "src/components/deep/" + "x" * 150 + "/k.mts", 7, "const k = [redacted]",
+                               effect="no", source="mts-key", questions=("q1",))
+                        for i in range(30):
+                            ov.add("public-view", "db/%d/%s.sql" % (i, "v" * 120), i + 1, "v%d" % i, source="sql")
+                        cap = _json_bytes(r) + slack
+                        with self.near_cap(r, slack):
+                            out = cs.merge(r, ov)
+                        self.assert_fits(r, out, cap)
+
+    def test_near_the_cap_every_question_can_move_off_nothing_found(self):
+        self.app()
+        r = self.release_result()
+        for finished in (True, False):
+            ov = self.overlay(finished)
+            ov.add("mcp-config-not-opened", ".claude/" + "m" * 180 + ".json", 0, "")
+            ov.add("public-view", "db/" + "v" * 180 + ".sql", 1, "v")
+            ov.add("manifest-not-parsed", "x/" + "p" * 180 + "/Pipfile", 0, "")
+            with self.near_cap(r, 0):
+                out = cs.merge(r, ov)
+            self.assert_fits(r, out, _json_bytes(r))
+            for q in self.QS:
+                self.assertEqual(out["questions"][q]["answer"], "dont-know")
+                self.assertTrue(out["questions"][q]["evidence"])
+
+    def test_a_0_3_2_result_already_over_the_cap_gets_no_rows(self):
+        self.app()
+        r = self.release_result()
+        ov = self.overlay()
+        ov.add("public-view", "db/x.sql", 1, "v", source="sql")
+        with mock.patch.object(cs.release, "MAX_OUTPUT_BYTES", _json_bytes(r) - 100):
+            out = cs.merge(r, ov)
+        self.assertEqual(out["questions"]["q3"]["answer"], "dont-know")
+        self.assertEqual(out["questions"]["q3"]["evidence"], [cs._unfinished_row("full")], "the checks finished; the output was full")
+        self.assertNotIn("public-view", json.dumps(out))
+
+    def test_an_mts_no_displaces_only_q1_evidence(self):
+        for c in "abcdefghijklm":
+            self.write(".env.%s" % c, "A=1\n")
+        self.write("src/components/A.tsx", "export const A = () => null;\n")
+        r = self.release_result()
+        self.assertEqual(len(r["questions"]["q1"]["evidence"]), cs.release.MAX_EVIDENCE, "control: Q1 is full")
+        ov = self.overlay()
+        ov.add("client-key-literal", "src/k.mts", 1, "x", effect="no", source="mts-key", questions=("q1",))
+        out = cs.merge(r, ov)
+        q1 = out["questions"]["q1"]
+        self.assertEqual(q1["answer"], "no")
+        self.assertEqual(len(q1["evidence"]), cs.release.MAX_EVIDENCE)
+        self.assertIn("client-key-literal", [e["check"] for e in q1["evidence"]])
+        self.assertEqual(q1["evidence"][:-1], r["questions"]["q1"]["evidence"][:-1])
+
+    def test_an_mts_no_near_the_cap_never_takes_rows_from_another_question(self):
+        for c in "abcdefghijklm":
+            self.write(".env.%s" % c, "A=1\n")
+        self.write("src/components/A.tsx", "export const A = () => null;\n")
+        self.write("db/1.sql", "create table public.t1 (id int);\ncreate table public.t2 (id int);\n")  # Q3 rows 0.3.2 gave
+        r = self.release_result()
+        self.assertTrue(r["questions"]["q3"]["evidence"], "control: Q3 has 0.3.2 rows")
+        for slack in (0, 20):
+            ov = self.overlay()
+            ov.add("client-key-literal", "src/components/k" + "x" * 80 + ".mts", 7, "x", effect="no", source="mts-key", questions=("q1",))
+            with self.near_cap(r, slack):
+                out = cs.merge(r, ov)
+            self.assertLessEqual(_json_bytes(out), _json_bytes(r) + slack)
+            self.assertLess(len(out["questions"]["q1"]["evidence"]), cs.release.MAX_EVIDENCE, "control: the No needed room past one displacement")
+            for q in ("q3", "q9"):
+                self.assertEqual(out["questions"][q]["evidence"], r["questions"][q]["evidence"], q)
+
+    def test_an_mts_too_large_to_read_keeps_q1_off_nothing_found(self):
+        self.write("src/components/A.tsx", "export const A = () => null;\n")
+        self.write("src/big.mts", "export const a = 1;\n" * 30000)
+        q1 = self.scan()["questions"]["q1"]
+        self.assertEqual(q1["answer"], "dont-know")
+        self.assertIn("code-file-not-read", [e["check"] for e in q1["evidence"]])
+
+    def test_the_overlay_leaves_0_3_2s_state_as_0_3_2_left_it(self):
+        self.app()
+        self.write("requirements.txt", "-r other.txt\nflask\n")  # 0.3.2's dependency reader counts a gap for the include
+        self.write("db/2.sql", "create view public.v as select 1;\n")
+        alone = cs.release.ScanState()
+        cs.release.run_scan(self.repo, alone, cs.release.Options())
+        _, state, status, _ = cs.scan_with_overlay(self.repo, cs.release.Options())
+        self.assertEqual(status, "finished")
+        for attr in ("gaps", "dependencies", "q1_files", "rule_files", "tables", "rls_enabled", "partial", "env_names"):
+            self.assertEqual(getattr(state, attr), getattr(alone, attr), attr)
+
+    def test_a_linked_agent_folder_is_never_walked(self):
+        self.app()
+        outside = os.path.join(self.tmp, "elsewhere")
+        os.makedirs(os.path.join(outside, "mcp-servers"))
+        os.symlink(outside, os.path.join(self.repo, ".claude"))
+        q1 = self.scan()["questions"]["q1"]
+        self.assertNotIn("mcp-config-not-opened", [e["check"] for e in q1["evidence"]], "names outside the app were listed")
+
+    # ---------------------------------------------------------------- the budget
+
+    def test_the_budget(self):
+        opts = cs.release.Options()
+        self.assertEqual(cs.overlay_budget_end(100.0, 101.0, opts), 101.0 + 5.0)  # at least OVERLAY_MIN_S
+        self.assertEqual(cs.overlay_budget_end(100.0, 110.0, opts), 130.0)  # twice 0.3.2's time
+        self.assertEqual(cs.overlay_budget_end(100.0, 160.0, opts), 100.0 + 0.8 * 120.0)  # never past 80% of the deadline
+        self.assertEqual(cs.overlay_budget_end(100.0, 101.0, cs.release.Options(deadline_s=600)), 101.0 + 25.0)  # a longer deadline lifts it
+
+    def test_a_late_0_3_2_leaves_the_overlay_no_time(self):
+        self.app()
+        calls = []
+
+        def clock():
+            calls.append(1)
+            return time.monotonic() + (0 if len(calls) == 1 else 200.0)  # 0.3.2 "took" 200 s of a 120 s deadline
+        t0 = time.monotonic()
+        out, _, status, _ = cs.scan_with_overlay(self.repo, cs.release.Options(), clock)
+        self.assertEqual(status, "unfinished")
+        self.assertEqual(cs.scan_with_overlay.last.stopped_by, "clock")
+        self.assertEqual(out["questions"]["q1"]["evidence"], [cs._unfinished_row("unfinished")])
+        self.assertLess(time.monotonic() - t0, bound(1.0))
+
+    def test_unfinished_between_files_and_inside_a_file(self):
+        self.app()
+        n = [0]
+
+        def clock():
+            n[0] += 1
+            return time.monotonic() + (0 if n[0] < 4 else 1e6)
+        with mock.patch.object(cs, "OVERLAY_MIN_S", 600.0):
+            _, _, status, _ = cs.scan_with_overlay(self.repo, cs.release.Options(), clock)
+        self.assertEqual((status, cs.scan_with_overlay.last.stopped_by), ("unfinished", "clock"))
+        self.write("db/big.sql", "select 'a'; " * 40000)
+        with mock.patch.object(cs, "overlay_budget_end", lambda started, now, opts: time.monotonic() - 1):
+            _, _, status, _ = cs.scan_with_overlay(self.repo, cs.release.Options(), lambda: -1e18)
+        self.assertEqual((status, cs.scan_with_overlay.last.stopped_by), ("unfinished", "tick"), "release.Deadline is unfinished, not error")
+
+    def test_an_error_in_the_pass_is_error_and_withholds_nothing_found(self):
+        self.app()
+        with mock.patch.object(cs, "detect_sql", side_effect=RuntimeError("boom")):
+            out, _, status, _ = cs.scan_with_overlay(self.repo, cs.release.Options())
+        self.assertEqual(status, "error")
+        self.assertEqual(out["questions"]["q3"]["evidence"][-1], cs._unfinished_row("error"))
+
+    # ---------------------------------------------------------------- .mts and .cts
+
+    def test_an_mts_key_in_browser_code_is_a_no_and_a_route_mts_is_server_code(self):
+        self.write("src/components/k.mts", 'export const k = "%s";\n' % SK)
+        out = self.scan()
+        self.assertEqual(out["questions"]["q1"]["answer"], "no")
+        self.assertEqual(cs.scan_with_overlay.last.status, "finished")
+        self.assert_no_secret(json.dumps(out), SK)
+        for rel in ("src/app/api/x/route.mts", "src/routes/+server.cts"):
+            with self.subTest(rel=rel):
+                shutil.rmtree(self.repo)
+                os.makedirs(self.repo)
+                self.write(rel, 'export const k = "%s";\n' % SK)
+                as_mts = self.scan()["questions"]["q1"]
+                shutil.rmtree(self.repo)
+                os.makedirs(self.repo)
+                self.write(rel[:-4] + ".ts", 'export const k = "%s";\n' % SK)
+                as_ts = self.scan()["questions"]["q1"]
+                self.assertEqual(as_mts["answer"], as_ts["answer"], "classified as its .ts sibling")
+                self.assertNotEqual(as_mts["answer"], "no")
+
+    def test_a_pem_in_browser_mts_gives_one_client_private_key_row(self):
+        self.write("src/components/k.mts", "export const k = `%s\n%s\n%s`;\n" % (PEM_HEAD, PEM_BODY, PEM_TAIL))
+        q1 = self.scan()["questions"]["q1"]
+        self.assertEqual(q1["answer"], "no")
+        self.assertEqual([e["check"] for e in q1["evidence"]].count("client-private-key"), 1)
+        self.assert_no_secret(json.dumps(q1), PEM_BODY)
+
+    # ---------------------------------------------------------------- linear by construction
+
+    def test_firebase_operands_are_tried_cheapest_first_without_a_sort(self):
+        with mock.patch("builtins.sorted", side_effect=AssertionError("sorted")):
+            self.assertTrue(cs._firebase_open("||".join(["(a&&b)"] * 10000 + ["true"]), 0))
+        calls = []
+        real = cs._firebase_open
+
+        def spy(expr, depth, rec_budget=None):
+            calls.append(len(expr))
+            return real(expr, depth, rec_budget)
+        with mock.patch.object(cs, "_firebase_open", spy):
+            self.assertTrue(real("||".join(["(a&&b)"] * 10000 + ["true"]), 0))
+        self.assertLess(len(calls), 3, "the short `true` operand is tried first")
+
+    def test_the_using_true_window_is_read_by_position(self):
+        prefix = "İ" * 3000 + "\n"  # str.lower() would grow this and shift every offset after it
+        sf = cs.OverlayFile("db/1.sql", "1.sql", ".sql", prefix + "create policy p on public.t for select using (true);\n")
+        ov = cs.Overlay(float("inf"))
+        state = cs.release.ScanState()
+        cs.detect_sql(sf, ov, state)
+        self.assertIn("policy-select-true", [r["check"] for r in ov.rows["q3"]])
+
+    def test_using_true_matches_cost_no_copy_per_match(self):
+        text = "create policy p on public.t using (true);\n" + "using (true) " * 40000
+        sf = cs.OverlayFile("db/1.sql", "1.sql", ".sql", text)
+        for n in (1, 2):
+            sf = cs.OverlayFile("db/1.sql", "1.sql", ".sql", text * n)
+            t0 = time.perf_counter()
+            cs.detect_sql(sf, cs.Overlay(float("inf")), cs.release.ScanState())
+            if n == 1:
+                one = time.perf_counter() - t0
+        self.assertLess((time.perf_counter() - t0) / max(one, 1e-4), 3.0 * TIME_SLACK)
+
+    # ---------------------------------------------------------------- the CLI
+
+    def test_the_cli_reports_the_overlay_status_on_stderr(self):
+        self.app()
+        out = self.cli("--repo", os.path.basename(self.repo))
+        self.assertRegex(out.stderr, r"; checks 0\.3\.3: finished, \d+ ms\n$")
+        env = dict(os.environ, CUSTODY_CHECK_OVERLAY="0")
+        out = subprocess.run([sys.executable, "-I", SCRIPT, "--repo", os.path.basename(self.repo)], capture_output=True, text=True, cwd=self.tmp, env=env, timeout=120)
+        self.assertRegex(out.stderr, r"; checks 0\.3\.3: skipped, 0 ms\n$")
+        out = self.cli("--repo", os.path.basename(self.repo), "--deadline-s", "0.000001")
+        self.assertRegex(out.stderr, r"; checks 0\.3\.3: unfinished, \d+ ms\n$")
+        err = io.StringIO()
+        with mock.patch.object(cs, "detect_sql", side_effect=RuntimeError("boom")), mock.patch.object(cs.sys, "stderr", err), \
+             mock.patch.object(cs.sys, "stdout", io.StringIO()), mock.patch.object(os, "getcwd", lambda: self.tmp):
+            cs.main(["--repo", self.repo])
+        self.assertRegex(err.getvalue(), r"; checks 0\.3\.3: error, \d+ ms\n$")
+
+    def test_the_cli_matches_0_3_2s_cli_with_the_overlay_off(self):
+        env = dict(os.environ, CUSTODY_CHECK_OVERLAY="0")
+        run = lambda script, args, cwd: subprocess.run([sys.executable, "-I", script] + args, capture_output=True, text=True, cwd=cwd, env=env, timeout=120)
+        cases = [c for c in _corpus()]
+        for c in cases[::3] + cases[-10:]:
+            with self.subTest(case=c["name"]):
+                root = tempfile.mkdtemp(prefix="custody cli ", dir=self.tmp)
+                _materialize(os.path.join(root, "app"), c)
+                args = ["--repo", "app"] + sum((["--" + k.replace("_", "-"), str(v)] for k, v in c.get("args", {}).items()), [])
+                for extra in ([], ["--exit-code"]):
+                    got, want = run(SCRIPT, args + extra, root), run(RELEASE_SCRIPT, args + extra, root)
+                    self.assertEqual(got.returncode, want.returncode)
+                    self.assertEqual(got.stdout.replace('"version":"0.3.3"', '"version":"0.3.2"'), want.stdout)
+        os.makedirs(os.path.join(self.repo, "inner"))
+        with open(os.path.join(self.tmp, "afile"), "w") as fh:
+            fh.write("x")
+        os.symlink(self.repo, os.path.join(self.tmp, "link"))
+        for args, cwd in ((["--max-files", "0"], self.tmp), (["--repo", "nope"], self.tmp), (["--repo", "afile"], self.tmp),
+                          (["--repo", "link"], self.tmp), (["--repo", ".."], os.path.join(self.repo, "inner")), ([], self.tmp)):
+            for extra in ([], ["--exit-code"]):
+                with self.subTest(args=args + extra):
+                    got, want = run(SCRIPT, args + extra, cwd), run(RELEASE_SCRIPT, args + extra, cwd)
+                    self.assertEqual((got.returncode, got.stdout), (want.returncode, want.stdout))
+
+    # ---------------------------------------------------------------- fresh review of 231b456 (2026-10-07)
+
+    def test_every_corpus_name_fits_a_linux_file_name(self):
+        for c in _corpus():
+            for rel in list(c["files"]) + list(c.get("links", {})):
+                for seg in rel.split("/"):
+                    self.assertLessEqual(len(seg.encode("utf-8")), 255, "%s: ext4 refuses a name over 255 bytes" % c["name"])
+
+    def test_a_drop_list_counts_lines_once_per_statement_and_ticks_per_name(self):
+        stmts = 50
+        text = "-- pad\n" * 2000 + "".join("drop table %s;\n" % ",".join("t%d_%d" % (d, p) for p in range(200)) for d in range(stmts))
+        sf = cs.OverlayFile("db/m.sql", "m.sql", ".sql", text)
+        ov = cs.Overlay(float("inf"))
+
+        class Rel(object):
+            tables, rls_enabled = {}, set()
+        calls = []
+        real = cs.release.line_of
+
+        def spy(t, pos):
+            calls.append(pos)
+            return real(t, pos)
+        with mock.patch.object(cs.release, "line_of", spy):
+            cs.detect_sql(sf, ov, Rel)
+        self.assertLessEqual(len(calls), stmts + 2 * cs.release.MAX_HITS_PER_FILE_PER_CHECK, "line_of is O(file): once per statement")
+        self.assertGreaterEqual(ov.ticks, stmts * 200, "every dropped name ticks, so the deadline is checked inside one file")
+        dropped = [r for r in ov.rows["q3"] if r["check"] == "table-dropped"]
+        self.assertTrue(dropped, "control: the drops are still named")
+        self.assertLessEqual(len(dropped), cs.release.MAX_HITS_PER_FILE_PER_CHECK)
+        self.assertGreater(ov.gaps["q3"], len(dropped), "the rest still count as gaps")
+        self.assertLessEqual(len(ov.keys), 3 * 2 * cs.release.MAX_EVIDENCE, "only kept rows are remembered")
+
+    def test_overlay_snippets_are_redacted_before_they_are_cut(self):
+        key = STRIPE_LIVE
+        head = 'allow read: if request.auth.token.plan == "x" || request.k == "'
+        head = head.replace("plan", "plan" + "x" * (101 - len(head)))
+        self.write("firestore.rules", "service cloud.firestore {\n  match /x/{id} {\n    " + head + key + '" || true;\n  }\n}\n')
+        self.write("rtdb/firestore.rules", 'service cloud.firestore {\n  match /y/{id} {\n    allow read: if request.auth.token.pw == "hunter2pass" || true;\n  }\n}\n')
+        self.write("supabase/migrations/1.sql", "insert into storage.buckets (id, note, secret, public) values ('a--b', '%s', '%s', true);\n" % ("n" * 40, key))
+        self.write("package.json", '{"dependencies": {"react": "18"}}\n')
+        out = json.dumps(self.scan())
+        self.assertIn("firebase-rules-public-read", out, "control: the overlay names the rule")
+        self.assertIn("storage-bucket-public-sql", out, "control: the overlay names the bucket")
+        self.assertNotIn(key[:12], out)
+        self.assertNotIn("hunter2pass", out, "a quoted value in a condition is masked, as on a key hit line")
+        self.assertNotIn(key[:12], json.dumps(cs.release.scan(self.repo)), "control: 0.3.2 printed none of it")
+        bare = "allow read: if request.auth.token.plan == request.resource.data.t || request.k == "
+        bare = bare.replace("plan", "plan" + "x" * (101 - len(bare)))
+        self.write("firestore.rules", "service cloud.firestore {\n  match /x/{id} {\n    " + bare + key + " || true;\n  }\n}\n")
+        out = json.dumps(self.scan())
+        self.assertIn("firebase-rules-public-read", out, "control")
+        self.assertNotIn(key[:12], out, "a key outside quotes is redacted before the cut, not masked")
+
+    def q1_full_of_0_3_2_nos(self, extra_evidence=0):
+        self.app()
+        r = self.release_result()
+        rows = [{"path": "src/components/a%d.ts" % i, "line": 1, "snippet": "const k = [redacted]", "check": "client-key-literal"}
+                for i in range(cs.release.MAX_EVIDENCE - extra_evidence)]
+        rows += [{"path": "src/components/z%d.ts" % i, "line": 1, "snippet": "x", "check": "client-anon-jwt"} for i in range(extra_evidence)]
+        r["questions"]["q1"] = {"answer": "no", "confidence": "high", "evidence": rows}
+        return r, rows
+
+    def test_an_mts_no_never_displaces_a_0_3_2_no_row(self):
+        r, rows = self.q1_full_of_0_3_2_nos()
+        for slack in (None, 0):
+            ov = self.overlay()
+            ov.add("client-key-literal", "src/components/k.mts", 1, "x", effect="no", source="mts-key", questions=("q1",))
+            if slack is None:
+                out = cs.merge(r, ov)
+            else:
+                with self.near_cap(r, slack):
+                    out = cs.merge(r, ov)
+            self.assertEqual(out["questions"]["q1"]["evidence"][:len(rows)], rows)
+            self.assertLessEqual(len(out["questions"]["q1"]["evidence"]), cs.release.MAX_EVIDENCE)
+
+    def test_displacement_takes_the_last_evidence_row_never_a_no_row_after_it(self):
+        self.app()
+        r = self.release_result()
+        ev = [{"path": "src/components/z%d.ts" % i, "line": 1, "snippet": "x", "check": "client-anon-jwt"} for i in range(6)]
+        nos = [{"path": "src/components/a%d.ts" % i, "line": 1, "snippet": "x", "check": "client-key-literal"} for i in range(6)]
+        r["questions"]["q1"] = {"answer": "no", "confidence": "high", "evidence": ev + nos}
+        ov = self.overlay()
+        ov.add("client-key-literal", "src/components/k.mts", 1, "x", effect="no", source="mts-key", questions=("q1",))
+        q1 = cs.merge(r, ov)["questions"]["q1"]["evidence"]
+        self.assertEqual(q1[:11], ev[:5] + nos, "the last evidence-only row gives way; every 0.3.2 No row stays")
+        self.assertEqual([e["path"] for e in q1[11:]], ["src/components/k.mts"])
+
+    def test_a_trimmed_overlay_no_gives_back_the_0_3_2_rows_it_displaced(self):
+        r, rows = self.q1_full_of_0_3_2_nos(extra_evidence=6)
+        for slack in (0, 20, 60, 120, 400):
+            for finished in (True, False):
+                with self.subTest(slack=slack, finished=finished):
+                    ov = self.overlay(finished)
+                    for i in range(6):
+                        ov.add("client-key-literal", "src/components/%s/k%d.mts" % ("k" * 150, i), 1, "x", effect="no", source="mts-key", questions=("q1",))
+                    with self.near_cap(r, slack):
+                        out = cs.merge(r, ov)
+                    ev = out["questions"]["q1"]["evidence"]
+                    kept_nos = [e for e in ev if e not in rows and e["check"] == "client-key-literal"]
+                    lost = [e for e in rows if e not in ev]
+                    self.assertTrue(all(cs._evidence_only(e) for e in lost), "a 0.3.2 No row is never displaced")
+                    self.assertLessEqual(len(lost), len(kept_nos), "each displaced 0.3.2 row is paid for by an overlay No row shown")
+                    self.assertLessEqual(_json_bytes(out), _json_bytes(r) + slack)
+
+    def test_near_the_cap_a_no_always_names_its_row(self):
+        self.app()
+        r = self.release_result()
+        for slack in (0, 5, 40, 120):
+            for finished in (True, False):
+                with self.subTest(slack=slack, finished=finished):
+                    ov = self.overlay(finished)
+                    ov.add("client-key-literal", "src/components/k.mts", 7, "const k = [redacted]", effect="no", source="mts-key", questions=("q1",))
+                    ov.add("public-view", "db/" + "v" * 200 + ".sql", 1, "v", source="sql")
+                    with self.near_cap(r, slack):
+                        out = cs.merge(r, ov)
+                    q1 = out["questions"]["q1"]
+                    if q1["answer"] == "no":
+                        self.assertIn("client-key-literal", [e["check"] for e in q1["evidence"]], "a No names its row")
+
+    def test_the_overlay_keeps_its_no_past_its_row_cap(self):
+        ov = self.overlay()
+        for i in range(3 * cs.release.MAX_EVIDENCE):
+            ov.add("client-anon-jwt", "src/components/a%d.mts" % i, 1, "x", source="mts-key", questions=("q1",))
+        ov.add("client-key-literal", "src/components/z.mts", 1, "x", effect="no", source="mts-key", questions=("q1",))
+        self.assertIn("no", [r["_effect"] for r in ov.rows["q1"]], "a No is never crowded out: 0.3.2's own add() rule")
+        self.assertLessEqual(len(ov.rows["q1"]), 2 * cs.release.MAX_EVIDENCE)
+        self.assertEqual(len(ov.keys), len(ov.rows["q1"]), "only kept rows are remembered: memory is bounded by the cap")
+
+    def test_an_agent_folder_walk_stopped_by_the_clock_leaves_the_pass_unfinished(self):
+        self.app()
+        for i in range(40):
+            self.write(".claude/d%d/x.txt" % i, "x\n")
+        with mock.patch.object(cs.release, "DEADLINE_TICK", 1):
+            with self.assertRaises((cs.release.Deadline, cs.OverlayTimeout)):
+                cs._mcp_configs_inside(os.path.join(self.repo, ".claude"), ".claude", time.monotonic() - 1)
+        self.assertFalse(cs._mcp_configs_inside(os.path.join(self.repo, ".claude"), ".claude", time.monotonic() + 60).truncated, "control")
+
+    def test_a_fallback_row_never_blames_an_error_or_the_clock_when_the_output_was_full(self):
+        self.app()
+        r = self.release_result()
+        ov = self.overlay()
+        ov.add("public-view", "db/x.sql", 1, "v", source="sql")
+        with mock.patch.object(cs.release, "MAX_OUTPUT_BYTES", _json_bytes(r) - 100):
+            out = cs.merge(r, ov)
+        snippets = [e["snippet"] for q in self.QS for e in out["questions"][q]["evidence"] if e["check"] == "checks-not-finished"]
+        self.assertTrue(snippets, "control: Nothing found is withheld")
+        for s in snippets:
+            self.assertNotIn(s, (cs.UNFINISHED_SNIPPETS["unfinished"], cs.UNFINISHED_SNIPPETS["error"]))
+        nf = r["questions"]["q3"]["evidence"][0]
+        self.assertLess(_json_bytes(cs._unfinished_row("full")), _json_bytes(nf), "the swap never grows the output")
+
+    def test_opencode_jsonc_is_never_called_unopened(self):
+        self.write("src/app.ts", "export const x = 1\n")
+        self.write("opencode.jsonc", "{}\n")
+        self.write("opencode.json", "{}\n")
+        rows = dict((e["path"], e["snippet"]) for e in self.scan()["questions"]["q1"]["evidence"] if e["check"] == "mcp-config-not-opened")
+        self.assertIn("opencode.jsonc", rows, "control: still a gap, its MCP servers are not checked")
+        self.assertNotIn("not opened", rows["opencode.jsonc"], "0.3.2 reads opencode.jsonc as text")
+        self.assertIn("not opened", rows["opencode.json"], "0.3.2 never opens opencode.json")
+        self.assertFalse(cs.release.is_never_open_file("opencode.jsonc"), "control: 0.3.2's list")
+        with open(os.path.join(PLUGIN_DIR, "README.md"), encoding="utf-8") as fh:
+            never = [l for l in fh.read().splitlines() if l.startswith("- The scanner never opens your AI instruction files")][0]
+        self.assertNotIn("`opencode.jsonc`,", never.split(". The list lives")[0], "README lists only what 0.3.2 never opens")
+
+    def test_fixed_shape_rtdb_snippets_keep_their_text(self):
+        self.write("database.rules.json", '{"rules": {\n  ".read": "now < 1700000000000",\n  ".write": "true"\n}}\n')
+        rows = dict((e["check"], e["snippet"]) for e in self.scan()["questions"]["q3"]["evidence"])
+        self.assertEqual(rows["firebase-rules-test-mode"], '".read": "now <')
+        self.assertEqual(rows["open-rule-unconfirmed"], '".write": "true"')
+
+    def test_a_dollar_inside_a_name_is_not_a_dollar_quote_and_long_tags_are(self):
+        sql = "create table public.a$b$c (id int);\nalter table public.a$b$c enable row level security;\n"
+        nc, code, bare, unclosed = cs._lex_sql(sql)
+        self.assertFalse(unclosed)
+        self.assertEqual(code, sql)
+        tag = "$" + "a" * 35 + "$"
+        _, code, _, _ = cs._lex_sql("create function f() returns void as " + tag + " drop table public.secret_tbl; " + tag + ";\n")
+        self.assertNotIn("drop table", code, "a 35-character tag still quotes a function body")
+        self.write("supabase/migrations/1.sql", sql + "create table public.notes (id int);\nalter table public.notes enable row level security;\n")
+        self.write("package.json", '{"dependencies": {"react": "18"}}\n')
+        self.assertEqual(self.scan()["questions"]["q3"]["answer"], cs.release.scan(self.repo)["questions"]["q3"]["answer"])
+
+    def test_code_rows_fire_where_0_3_2_strips_a_dash_dash_string(self):
+        self.write("supabase/migrations/1.sql", "create table public.t (id int);\nalter table public.t enable row level security;\n"
+                   "insert into log values ('--'); create policy p on public.t for insert to anon with check (true); select cron.schedule('a','* * * * *','select 1');\n")
+        out = self.scan()
+        q3 = [e["check"] for e in out["questions"]["q3"]["evidence"]]
+        self.assertIn("policy-with-check-true", q3)
+        self.assertIn("policy-to-anon", q3)
+        self.assertIn("cron-schedule", [e["check"] for e in out["questions"]["q9"]["evidence"]])
+
+    # mutation pins: each guard below survived a mutation run with the suite green
+
+    def spy_opens(self, **kw):
+        real = cs.release.open_regular
+        seen = {"release": set(), "both": set()}
+        which = ["release"]
+
+        def spy(path):
+            seen[which[0]].add(os.path.realpath(path))
+            return real(path)
+        with mock.patch.object(cs.release, "open_regular", spy):
+            cs.release.scan(self.repo, **kw)
+            which[0] = "both"
+            cs.scan(self.repo, **kw)
+        return seen
+
+    def test_the_overlay_never_opens_a_never_open_file_an_excluded_folder_or_an_oversize_file(self):
+        self.write("src/components/A.tsx", "export const A = () => null;\n")
+        self.write("supabase/migrations/1.sql", "create table public.notes (id int);\n")
+        self.write(".rules", "allow read: if true;\n")
+        self.write("legacy/x.sql", "alter table public.notes disable row level security;\n")
+        self.write("db/big.sql", "create view public.v as select 1;\n" * 50)
+        for kw in ({}, {"exclude_dirs": ["legacy"]}, {"max_file_bytes": 200}):
+            with self.subTest(limits=kw):
+                seen = self.spy_opens(**kw)
+                self.assertLessEqual(seen["both"], seen["release"])
+
+    def test_an_excluded_folder_never_gives_a_new_no(self):
+        self.write("src/components/A.tsx", "export const A = () => null;\n")
+        self.write("src/components/legacy/k.mts", 'export const k = "%s";\n' % SK)
+        self.assertNotEqual(cs.release.scan(self.repo, exclude_dirs=["legacy"])["questions"]["q1"]["answer"], "no", "control")
+        self.assertNotEqual(self.scan(exclude_dirs=["legacy"])["questions"]["q1"]["answer"], "no")
+        self.assertEqual(self.scan()["questions"]["q1"]["answer"], "no", "control: not excluded, it is a No")
+
+    def test_the_overlay_stops_where_0_3_2s_folder_cut_stops(self):
+        for i in range(6):
+            self.write("a%d.txt" % i, "x\n")
+        self.write("z.sql", "alter table public.t disable row level security;\n")
+        self.write("zz.mts", 'export const k = "%s";\n' % SK)
+        with mock.patch.object(cs.release, "MAX_DIR_ENTRIES", 4):
+            seen = self.spy_opens()
+        self.assertLessEqual(seen["both"], seen["release"])
+
+    # ---------------------------------------------------------------- fresh review of 231b456, cycle 2 (2026-10-08)
+
+    def assert_string_never_printed(self, files, secret, same_q3=False):
+        self.write("package.json", '{"dependencies": {"react": "18"}}\n')
+        self.write("src/app.ts", "export const a = 1;\n")
+        for rel, body in files.items():
+            self.write(rel, body)
+        out = self.scan()
+        self.assertNotIn(secret, json.dumps(out))
+        self.assertNotIn(secret, json.dumps(cs.release.scan(self.repo)), "control: 0.3.2 printed none of it")
+        if same_q3:
+            self.assertEqual(out["questions"]["q3"]["answer"], cs.release.scan(self.repo)["questions"]["q3"]["answer"],
+                             "text inside a string moves no answer")
+
+    def test_a_rule_snippet_never_shows_what_a_string_holds(self):
+        rules = "service cloud.firestore {\n  match /x/{id} {\n    %s\n  }\n}\n"
+        for line in ('allow read: if resource.data.k == "a\\"Hunter2Pass_word\\"b" || true;',
+                     'allow read: if resource.data.note == "abc; allow write: if Hunter2Pass_word == "q" || true;',
+                     'allow read: if timestamp.date("Hunter2Pass_word") > request.time;',
+                     'let note = "abc allow read: if Hunter2Pass_word || true;',  # an unclosed quote masks to the end of its line
+                     "allow read: if request.path == '/*' || request.auth.token.email == \"ops*/\" || request.auth.token.email == 'Hunter2Pass_word@acme.example' || true;",
+                     'allow read: if (true == x) && x == "/*" || y == \'*/ A\' || b == "Hunter2Pass_word-zzq";'):  # a comment cut across two strings
+            with self.subTest(line=line):
+                shutil.rmtree(self.repo)
+                os.makedirs(self.repo)
+                self.assert_string_never_printed({"firestore.rules": rules % line}, "Hunter2Pass_word")
+
+    def test_sql_text_inside_a_string_is_never_a_row(self):
+        base = "create table public.notes (id int);\nalter table public.notes enable row level security;\n"
+        for body in ("insert into public.notes values ('/*'), ('update storage.buckets set pw = Hunter2Pass_word, public = true'), ('*/');\n",
+                     "insert into public.notes values ('--'), ('update storage.buckets set pw = Hunter2Pass_word, public = true');\n",
+                     "insert into audit(q) values ('create view Hunter2Pass_word as select 1'), ('drop table Hunter2Pass_word');\n",
+                     "insert into public.notes values ('-- reminder: create table Hunter2Pass_word (x int)');\n",
+                     "drop table public.gone\ninsert into public.notes values ('x, Hunter2Pass_word');\n"):
+            with self.subTest(body=body):
+                shutil.rmtree(self.repo)
+                os.makedirs(self.repo)
+                self.assert_string_never_printed({"supabase/migrations/1.sql": base + body}, "Hunter2Pass_word".lower())
+                self.assertNotIn("Hunter2Pass_word", json.dumps(self.scan()))
+        # a drop or view inside a function body may run (`execute '…'`), so it still counts, without its name
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.write("supabase/migrations/1.sql", base + "create function f() returns void language sql as $$ create view public.hunter2view as select 1 $$;\n")
+        q3 = self.scan()["questions"]["q3"]
+        self.assertIn(cs.IN_STRING_DETAIL, [e["snippet"] for e in q3["evidence"] if e["check"] == "public-view"])
+        self.assertNotIn("hunter2view", json.dumps(q3))
+
+    def test_sql_rows_outside_strings_still_fire(self):
+        self.write("supabase/migrations/1.sql", "create table public.notes (id int);\nalter table public.notes enable row level security;\n"
+                   "create view public.v as select 1;\ndrop table public.old;\n"
+                   "insert into storage.buckets (id, name, public) values ('avatars', 'avatars', true);\n")
+        checks = [e["check"] for e in self.scan()["questions"]["q3"]["evidence"]]
+        for check in ("public-view", "table-dropped", "storage-bucket-public-sql"):
+            self.assertIn(check, checks, "control: the same rows outside strings")
+
+    def test_a_nested_predicate_file_checks_the_clock_by_work(self):
+        text = ("using (" + "(" * 1900 + "true" + ")" * 1900 + " or x);\n") * 137
+        ov = cs.Overlay(time.monotonic() - 1)
+        sf = cs.OverlayFile("a.sql", "a.sql", ".sql", text)
+
+        class Rel(object):
+            tables, rls_enabled = {}, set()
+        t0 = time.monotonic()
+        with self.assertRaises(cs.release.Deadline):
+            cs.detect_sql(sf, ov, Rel)
+        self.assertLess(time.monotonic() - t0, bound(0.2), "the deadline is seen within one predicate, not 256 of them")
+        real = cs._paren_closes
+        with mock.patch.object(cs, "_paren_closes", lambda text, tick=None: real(text)):  # the per-predicate check alone
+            with self.assertRaises(cs.release.Deadline):
+                cs.detect_sql(sf, cs.Overlay(time.monotonic() - 1), Rel)
+        ticks = []
+        self.assertEqual(len(real("((a)(b))", lambda: ticks.append(1))), 3)
+        self.assertEqual(len(ticks), 6, "the paren pass ticks once per paren")
+
+    def test_the_overlay_stops_exactly_at_0_3_2s_file_and_byte_caps(self):
+        self.write("a.txt", "x\n")
+        self.write("b.txt", "x\n")
+        self.write("c.sql", "create view public.v as select 1;\n")
+        seen = self.spy_opens(max_files=2)
+        self.assertLessEqual(seen["both"], seen["release"])
+        self.assertNotIn("public-view", json.dumps(self.scan(max_files=2)), "the file at the cut is never read")
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.write("a.txt", "x" * 150 + "\n")
+        self.write("b.sql", "create view public.v as select 1;\n")
+        self.assertNotIn("public-view", json.dumps(self.scan(max_total_bytes=160)), "the file that crosses the byte cap is never read")
+        self.assertIn("public-view", json.dumps(self.scan()), "control")
+
+    def test_an_unfinished_pass_keeps_its_row_inside_0_3_2s_row_cap(self):
+        self.app()
+        r = self.release_result()
+        ov = self.overlay(finished=False)
+        for i in range(2 * cs.release.MAX_EVIDENCE):
+            ov.add("public-view", "db/%d.sql" % i, 1, "v%d" % i, source="sql")
+        q3 = cs.merge(r, ov)["questions"]["q3"]["evidence"]
+        self.assertLessEqual(len(q3), cs.release.MAX_EVIDENCE)
+        self.assertEqual(q3[-1], cs._unfinished_row("unfinished"))
+
+    def test_an_unfinished_pass_on_an_over_cap_result_still_withholds_nothing_found(self):
+        self.app()
+        r = self.release_result()
+        with mock.patch.object(cs.release, "MAX_OUTPUT_BYTES", _json_bytes(r) - 100):
+            out = cs.merge(r, self.overlay(finished=False))
+        for q in self.QS:
+            self.assertEqual(out["questions"][q]["answer"], "dont-know")
+            self.assertEqual(out["questions"][q]["evidence"], [cs._unfinished_row("unfinished")])
+
+    def test_a_no_that_cannot_fit_gives_q1_back_to_0_3_2_exactly(self):
+        self.app()
+        r = self.release_result()
+        rows = [{"path": "src/components/a%d.ts" % i, "line": 1, "snippet": "x", "check": "client-key-literal"} for i in range(3)]
+        r["questions"]["q1"] = {"answer": "dont-know", "confidence": "med", "evidence": rows}  # nothing displaceable
+        ov = self.overlay()
+        ov.add("client-key-literal", "src/components/k.mts", 1, "x", effect="no", source="mts-key", questions=("q1",))
+        with self.near_cap(r, 0):
+            out = cs._fit(r, cs._plans(r, ov))
+        self.assertIsNotNone(out, "control: step 5 makes it fit")
+        self.assertEqual(out["questions"]["q1"], r["questions"]["q1"])
+
+    def test_the_corpus_baseline_is_what_the_pinned_release_says(self):
+        names = []
+        with open(os.path.join(FIXTURES, "differential", "build_cases.py"), encoding="utf-8") as fh:
+            src = fh.read()
+        self.assertEqual(src.count("\ncase("), len(_corpus()), "every case() in build_cases.py is in cases.json")
+        for c in _corpus():
+            names.append(c["name"])
+            with self.subTest(case=c["name"]):
+                root = tempfile.mkdtemp(prefix="custody baseline ", dir=self.tmp)
+                _materialize(root, c)
+                r = cs.release.scan(root, **c.get("args", {}))
+                self.assertEqual(dict((q, r["questions"][q]["answer"]) for q in self.QS), c["main"])
+                self.assertEqual(r["partial"], c["main_partial"])
+        self.assertEqual(len(names), len(set(names)))
 
 
 if __name__ == "__main__":

@@ -20,7 +20,7 @@
 
 **Why:** The workshop is macOS and Linux only, so this does not block the giveaway, but a Windows attendee currently gets the by-hand interview with no scan. The job already runs and is informational, so the failure count is visible.
 
-**Context:** The CI job is `custody-check-windows` in `.github/workflows/ci.yml`, kept `continue-on-error: true` until it is green. The plan's drop order named the Windows job as the first thing to cut, and it was cut. Start with the threaded reader path in `git_facts` (already written for platforms without non-blocking pipes) and the `tearDown` permission handling in `ScanCase`.
+**Context:** The CI job is `custody-check-windows` in `.github/workflows/ci.yml`, kept `continue-on-error: true` until it is green. The plan's drop order named the Windows job as the first thing to cut, and it was cut. Start with the threaded reader path in `git_facts` (already written for platforms without non-blocking pipes) and the `tearDown` permission handling in `ScanCase`. On Windows the 0.3.3 overlay also ends with status `error` (seen in the PR #24 CI log, 2026-10-07: rows read `an error; please report it` where 0.3.2 says `0 files scanned`); that is the cautious direction, but find the exception before calling Windows supported.
 
 **Effort:** L
 **Priority:** P3
@@ -110,18 +110,6 @@
 **Priority:** P4
 **Depends on:** PR 2 evals
 
-### Q3 "nothing found" from a lone seed.sql
-
-**What:** Any `.sql` file counts as a rule file, so a project whose only SQL is `supabase/seed.sql` (one `insert`) can reach Q3 Nothing found with "1 rule file read".
-
-**Why:** `questions.md` promises that with no rule file the answer stays Don't know because rules live in a dashboard; a seed file is not a rule file. Found by the Claude adversarial pass in the v0.3.0 pre-merge review.
-
-**Context:** `test_nothing_found_is_never_a_no_and_never_on_a_partial_scan` encodes the current rule (`select 1;` in a migration earns Nothing found), so this is a design change, not a bug fix: count a `.sql` file as a rule file only when it holds `create table`, `create policy`, `alter table … row level security` or `storage.buckets`; `.rules` and `database.rules.json` always count. Decide against the workshop corpus.
-
-**Effort:** S
-**Priority:** P2
-**Depends on:** None
-
 ### Q1 "nothing found" after one file, and file kinds Q1 never reads
 
 **What:** Q1 Nothing found needs only one code or env file read, and `.xml`, `.plist`, `.properties`, `.prisma`, `.sh`, `.ini` are neither read for keys nor counted as gaps, although `EXPO_PUBLIC_` support puts mobile apps (`strings.xml`, `GoogleService-Info.plist`) in scope.
@@ -136,7 +124,7 @@
 
 ### Smaller v0.3.0 review leftovers
 
-**What:** Four evidence-only or observability items from the v0.3.0 pre-merge review, kept as designed for now: (1) `alter table t add column x, enable row level security` (comma-joined actions) is not recognised as enabling RLS, so `table-without-rls` can name a table that is covered; (2) the synthetic Q2 `client-server-split` and Q11 `code-history-local` rows are inserted at index 0 and can push out the twelfth real row without counting as trimmed; (3) `state.gaps` is never emitted, so a withheld Nothing found is indistinguishable in `stats` from the old "0 hits" (adding a `gaps` object to `stats` is contract-safe per SKILL.md); (4) MCP configs inside never-open agent folders (`.claude/settings.local.json`, `.kiro/settings/mcp.json`) are counted but not named in the Q1 row.
+**What:** Four evidence-only or observability items from the v0.3.0 pre-merge review, kept as designed for now: (1) `alter table t add column x, enable row level security` (comma-joined actions) is not recognised as enabling RLS, so `table-without-rls` can name a table that is covered; (2) the synthetic Q2 `client-server-split` and Q11 `code-history-local` rows are inserted at index 0 and can push out the twelfth real row without counting as trimmed; (3) `state.gaps` is never emitted, so a withheld Nothing found is indistinguishable in `stats` from the old "0 hits" (adding a `gaps` object to `stats` is contract-safe per SKILL.md); (4) `.claude/settings.local.json` can carry MCP server env tokens but is counted as an agent file, not a Q1 gap (the MCP-only paths such as `.kiro/settings/mcp.json` became `mcp-config-not-opened` gaps in 0.3.3); every Claude Code project has one, so gating Q1 on it needs the workshop corpus first.
 
 **Why:** None changes an answer or the door; each is a wording or visibility nit worth one small PR together.
 
@@ -144,18 +132,6 @@
 
 **Effort:** S
 **Priority:** P3
-**Depends on:** None
-
-### Open-rule shapes the Q3 "nothing found" row does not cover
-
-**What:** The `nothing-found-rules` row now names exactly what was checked ("no RLS disabled, no using (true) policy, no if-true Firebase rule"), but three common open shapes pass every check: Firebase's generated test-mode default `allow read, write: if request.time < timestamp.date(...)`, Postgres `using (1=1)`, and `using (true or auth.uid() = owner)`. A rules file holding only those earns Q3 Nothing found.
-
-**Why:** Time-boxed test mode is the most common vibe-coded Firebase layout. Found by the Red Team pass in the v0.3.0 pre-merge review; the row wording was fixed there, the detectors were not.
-
-**Context:** Add `firebase-rules-test-mode` as an evidence row (`allow … : if request.time <`), and widen `USING_TRUE_RE` only as evidence (`policy-using-tautology`), never as a decisive `no`, until the workshop corpus shows no false positives. Also from the same review: a committed `.env-cmdrc` (env-cmd's rc file) is reported as `tracked-env-file-nonprod` evidence, never a `no`; decide whether it should be evidence at all.
-
-**Effort:** S
-**Priority:** P2
 **Depends on:** None
 
 ### Door rule when Q1 or Q3 is Don't know on a complete scan
@@ -170,7 +146,177 @@
 **Priority:** P2
 **Depends on:** None
 
+### Open-rule shapes the Q3 "nothing found" row still does not cover
+
+**What:** After 0.3.3 (test mode, `if (true)`, string literals, dropped tables and public views), three shapes still pass every Q3 check: Postgres `using (1=1)`, `using (true or auth.uid() = owner)`, and `using (auth.uid() is not null)`, which lets every signed-in user read every row.
+
+**Why:** A rules file holding only those earns Q3 Nothing found. Found by the adversarial passes in the v0.3.0 pre- and post-merge reviews.
+
+**Context:** Widen `USING_TRUE_RE` only as evidence (`policy-using-tautology`, `policy-any-signed-in`), never as a decisive `no`, until the workshop corpus shows no false positives. Also: a committed `.env-cmdrc` is `tracked-env-file-nonprod` evidence while `.env-cmdrc.json` is a tracked env file (`no`); both usually hold every environment, production included, so pick one rule.
+
+**Effort:** S
+**Priority:** P2
+**Depends on:** None
+
+### Q1 and Q3 claims the file tree cannot settle
+
+**What:** (1) A `.env` committed and later `git rm --cached` still holds its key in history, but Q1 says "no tracked env file". (2) The scanner does not replay migration order across files, so 0.3.3 withholds Nothing found on any cross-file drop; it could order `supabase/migrations/*` by filename instead. (3) A down migration (`*.down.sql`) that disables RLS gives Q3 a high-confidence `no` for a state production never runs.
+
+**Why:** Each is either a false reassurance (1) or a false alarm (2, 3). From the v0.3.0 post-merge adversarial review.
+
+**Context:** (1) `git log --all --diff-filter=A --name-only -- ':(icase).env*'` inside the existing git budget, or say in the row that history was not checked. (3) treat `*.down.sql` and `down/` as evidence-only for `rls-disabled`.
+
+**Effort:** M
+**Priority:** P2
+**Depends on:** None
+
+### Leftovers from the v0.3.3 review
+
+**What:** (1) A `;` or `}` inside a Firebase string or map literal before `|| true` (`'a;b' || true`, `{'a': 1} || true`), and a URL in a condition string (`== 'https://x.com' || true`, where the `//` strip eats the rest of the line), still end the condition early, so Q3 can read Nothing found; same on 0.3.2. (2) A Supabase edge function importing `npm:@sentry/deno` with no manifest is not seen by Q9. (3) Never-open folder lookups are case-sensitive on Linux (`.Roo/MCP.json`), matching the tools themselves there. (4) A file of only `drop table` statements reports "no SQL or security-rules file among them", though one was read.
+
+**Why:** (1) is a false Nothing found on a realistic rule (the URL case); the rest are wording or reach. From the adversarial and Codex passes on the v0.3.3 branch.
+
+**Context:** (1) lex Firebase rules the way `_lex_sql` lexes SQL (strings and `//` comments in one pass) before reading conditions. (2) a code-import check for `npm:@sentry/` and `jsr:` specifiers under `supabase/functions/`.
+
+**Effort:** S
+**Priority:** P2 for (1), P3 for the rest
+**Depends on:** None
+
+### Leftovers from the pre-merge review of PR #24 (2026-10-01)
+
+**What:** (1) Text that names a view inside a SQL string (`comment on table … is 'create view public.v as …'`) is a `public-view` row, so Q3 says Don't know where no view is created. (2) Some answers 0.3.3 holds back to match 0.3.2 are wrong in 0.3.2's direction: an `enable row level security` after a `'--'` or `'/*'` string, or with a comment longer than 20 spaces inside it, really runs, but RLS credit is capped at what 0.3.2 read, so Q3 stays at Don't know. (3) `_mcp_configs_inside` walks a never-open folder a second time after `count_files` (see "One walk per never-open folder"). (4) Two prefilter timing tests (`test_prefilter_repeated_keyword_is_linear`, `test_prefilter_accepts_keyish_identifiers_and_stays_linear`) miss their 1.0 s bound under load; they time a regex main also has.
+
+**Why:** (1) and (2) are cautious answers that are not needed: (1) reads strings for bad signals on purpose, since `EXECUTE '…'` runs them; (2) follows the never-worse rule. (3) is cost, measured as linear (a 560 KB migration takes 1.06 s against 0.3.2's 0.76 s). (4) is flake.
+
+**Context:** (1) tell `EXECUTE` strings from other strings in `_lex_sql`. (2) list each shape in `ALLOW_SOFTER` with the reason, with corpus cases. (3) see that entry. (4) widen the bound, or measure a ratio as the other linearity tests do.
+
+**Effort:** S
+**Priority:** P3
+**Depends on:** None
+
+### Never worse than 0.3.2 for time
+
+**What:** `NeverWorseThanMainTests` compares answers only. Add a time check per case: this branch's scan takes at most max(5 x 0.3.2's time, 0.3.2's time + 1 s), median of 3 runs each, honouring `CUSTODY_TIME_SLACK`, with both PR #24 performance repros (512 KB nested Firebase rules; a 400-deep, 9,000-folder `.claude/`) in the corpus.
+
+**Why:** Both PR #24 performance P1s (unbudgeted condition recursion; an O(depth²) never-open MCP walk) passed the answer-only differential test, and a reviewer had to find them. For PR #24, "not worse on time" meant no `partial: true` that 0.3.2 does not also give.
+
+**Context:** the blocker is gone: 0.3.3 runs 0.3.2 as `cs.release` (`custody_scan_0_3_2.py`), and `cases.json` now takes generated bodies (`{"repeat", "times"}`), scan args and hard links. Done in PR #24: `WallTimeBoundTests` pins the overlay's budget (total <= 0.3.2's time + max(5 s, 2 x 0.3.2's time), never past 80% of the deadline) on both performance shapes, and `ReadingCostRatchetTests` ratchets the whole-scan ratio per adversarial shape. Still open: the per-case time check across the whole corpus.
+
+**Effort:** S
+**Priority:** P2
+**Depends on:** None
+
+### One work budget per file, and a linear condition parser
+
+**What:** (1) Replace the per-condition recursion budgets (`_rec_budget`, `_charge`) with one work budget per scanned file, owned by the scan loop and passed to every evaluator added since 0.3.2, where running out leads to each check's unevaluated or gap path. (2) Parse a Firebase or SQL condition once into a tree instead of stripping and re-splitting at every level; build the paren levels at C speed (`itertools.accumulate` over a translated string) meanwhile.
+
+**Why:** Conditions are linear but about 20x slower than 0.3.2 on adversarial input (2026-10-06, whole scan: 0.43 s against 0.02 s on a 512 KB file of 64-deep groups). Since the overlay redesign this cannot make a scan partial or slow it past the overlay budget (2 x 0.3.2's time, at least 5 s, at most 80% of the deadline); past the budget, Nothing found on Q1/Q3/Q9 is withheld with a `checks-not-finished` row. So the cost is a lost Nothing found on hostile repos, not a worse answer. Agreed stop rule: if another review finds a superlinear path in code this branch added, do (1) rather than another per-function budget.
+
+**Context:** the SQL lexer has the same kind of residual: `_lex_sql` is a per-token Python loop, so after the PR #24 review fixes (lex once per file, C-speed blanking) a string-dense 512 KB migration still takes about 2.6x 0.3.2's time (realistic seed files 1.4x; 420 of them finish in 77 s against 0.3.2's 50 s). A single master regex per token kind would cut it. `_firebase_open`, `_strip_outer_parens`, `_sql_predicate_open` in `custody_scan.py`. The work-count tests in `WorseThanMainPerformanceTests` patch `_strip_outer_parens`; replace them with a budget-level oracle when the parser changes.
+
+**Effort:** M
+**Priority:** P2
+**Depends on:** None
+
+### One walk per never-open folder, and pruning heavy subtrees
+
+**What:** `count_files` and `_mcp_configs_inside` each walk a never-open agent folder; merge them into one bounded walk. In that walk, skip known heavy subtrees (`node_modules`, `.git`, `worktrees/*`) for the MCP name search, or count them without descending.
+
+**Why:** Each folder now counts toward the 10,000-entry cap twice in the MCP walk (as an entry and as a step), so a `.claude/worktrees/<name>/node_modules` checkout of about 5,000 folders stops the walk and withholds Q1, and mcp-named packages inside it become `mcp-config-not-opened` rows. Measured on 2026-10-02: zero Q1 drift on the owner's nine repos, but a synthetic `.claude/worktrees/x/node_modules` of 6,000 packages moves Q1 from Nothing found (0.3.2) to Don't know. Cautious, not wrong, but noisy.
+
+**Context:** 0.3.2's `count_files` (frozen in `custody_scan_0_3_2.py`) and the overlay's `_mcp_configs_inside` (`overlay_walk` in `custody_scan.py`); merging them waits for the 0.3.4 path below. Keep `followlinks=False` and `_lexists_inside`. Also: the MCP walk passes `onerror=lambda e: None`, so an unreadable folder inside a never-open agent folder (`chmod 000 .claude/locked`) is skipped without a Q1 gap; set `truncated` from `onerror` (0.3.2 never walked these folders, so this is not worse than main).
+
+**Effort:** S
+**Priority:** P3
+**Depends on:** None
+
+### Leftovers from the fresh review of 4b7d615 (2026-10-02)
+
+**What:** Not worse than 0.3.2 in the unsafe direction, deferred under the fix-PR rule. (1) New Don't-knows 0.3.2 never raised: `do /* note */ $$ … $$` and `do '…'` bodies are not read as running SQL; the gaps each now carry a named row (`table-dropped`, `rules-not-read-whole`, `no-rule-statements`, `mcp-config-not-opened`), but each is still a Don't know 0.3.2 never raised; Supabase's own fix `alter view … set (security_invoker = on)` is not credited, and a permanent `drop table` with no re-create blocks Q3 for good. (2) Every Q3 No now comes from 0.3.2's own patterns, so every open rule the new readers find beyond them is `open-rule-unconfirmed` evidence (Don't know), not a No: `using ((((((true))))))`, a top-level `|| true` in Firebase, `if (true)`, `".write": "true"`, `disable` with long whitespace or an inline comment, a real `disable` on a line where 0.3.2 cut a `--` inside a string. (3) Same as 0.3.2: a Firebase condition is cut at `//` (`== "https://…" || true`), `;` or a map's `}` inside a string; a SQL file whose only rule-like text is a quoted name (`create index "row level security"`) counts as a rule file read. (4) Speed residuals, linear, whole scan against 0.3.2 alone per 512 KB file (2026-10-06, python 3.9.6, after the overlay redesign): Firebase 2.4-2.6x, nested-or Firebase 22x, SQL 1.4-3.9x (`using ((((((true))))))` 3.9x, `"` + newline 3.2x). `ReadingCostRatchetTests` (CUSTODY_SLOW) fails if any shape grows past its ratio + 30%; add each new shape a review finds. The two-phase scan declined on 2026-10-05 is what PR #24 became (D6, 2026-10-06): 0.3.2 runs first and alone, so these costs can delay a scan by at most the overlay budget and never make it partial.
+
+**Why:** Each changes an answer or a row in the cautious direction, or matches 0.3.2; a fix PR fixes only what it made worse. (1) is the tester's main complaint (false alarms), so it comes first.
+
+**Context:** (1) `_lex_sql` (`DO_BEFORE_RE`), overlay row order in `_plans`/`_assemble` (0.3.2's `resolve()` is frozen) and a named row per gap, `CREATE_VIEW_RE` plus an `ALTER VIEW` reader. (2) Promote one shape at a time from `open-rule-unconfirmed` to a No (`_caution` in `custody_scan.py`; the merge clamp in `_plans` must then allow that source), each in its own PR with corpus cases, an `ALLOW_NEW_NO` reason, and an adversarial pass aimed at that shape alone: three review passes on PR #24 each found new false Nos in these readers (strings, comments, `$` names, COPY data, nested comments, map literals, SQL `||`). (3) `FIREBASE_IF_END_RE` / `_firebase_ifs` should end a condition at `;`/`}` only outside strings (update the test-only `FIREBASE_IF_RE` spec with it). (4) `_lex_sql`'s per-token loop, `_sql_predicate_open` caching by group text.
+
+**Effort:** M
+**Priority:** P2
+**Depends on:** None
+
+### The 0.3.4 path for the overlay
+
+**What:** Decide, before the next scanner change, how 0.3.4 builds on 0.3.3: either (a) the baseline becomes 0.3.3's full output, the overlay folds into one module, and a fresh frozen copy of 0.3.3 becomes the floor, or (b) overlays stack (0.3.2 frozen, 0.3.3's overlay, then 0.3.4's).
+
+**Why:** PR #24 ships two files on purpose (0.3.2 verbatim plus the overlay) after five review rounds showed that weaving new checks into 0.3.2's state leaks into its answers. Folding without a plan reopens that.
+
+**Context:** maintainer checklist for either option: (1) regenerate the frozen file from the new release tag (`git show <tag>:…/custody_scan.py > custody_scan_<ver>.py`); (2) update `RELEASE_FILE` and `RELEASE_SHA256` (sha256 of the text with CRLF read as LF); (3) regenerate `cases.json` with `build_cases.py` against that release; (4) move `ALLOW_NEW_NO` entries the release now gives out of the list; (5) decide fold vs stack and record it here.
+
+**Effort:** S (decision), M (fold)
+**Priority:** P2
+**Depends on:** PR #24
+
+### Regenerate the differential corpus in CI from the pinned release
+
+**What:** CI computes each case's 0.3.2 answers by running `cs.release` instead of reading the answers checked into `cases.json`.
+
+**Why:** the checked-in answers can drift from the release they claim to be; `cs.release` makes the release importable in CI, so the stored answers become an audit artifact rather than the source of truth.
+
+**Context:** `build_cases.py` already runs any scanner by path; `NeverWorseThanMainTests` would call it in-process. Keep the stored answers as a second check until the CI path has run green for a release.
+
+**Effort:** M
+**Priority:** P3
+**Depends on:** None
+
+### Names inside never-open agent folders in the output
+
+**What:** decide whether `mcp-config-not-opened` rows should name paths inside never-open folders (`.claude/…/mcp.json`) or only the folder.
+
+**Why:** 0.3.2 only counted those files; 0.3.3 names up to five per scan so the founder can find the config. The names pass through `sanitize_path`, but a folder or file name can still say more than the founder expects to see in a report (fresh review of 231b456, 2026-10-07, INVESTIGATE).
+
+**Context:** `_mcp_configs_inside` and `overlay_walk` in `custody_scan.py`. The plan approved naming them (C9); this is a privacy wording call, not a defect.
+
+**Effort:** S
+**Priority:** P3
+**Depends on:** None
+
+### Leftovers from the fresh review of 231b456 (2026-10-07/08)
+
+**What:** (1) SKILL.md: render No-effect rows first in the five-row verdict table, so the row behind a No is never inside "and N more" (0.3.2 does the same for a key found late; the overlay's No is always last). (2) 0.3.2's `sanitize_path`: a short key ID after `-` or `_` in a file name (`mcp-AKIA…json`) is not redacted; the overlay now names files inside never-open agent folders, so the gap shows in a new place. (3) `_lex_sql`: the `DO` lookback window is 40 characters while `DO_BEFORE_RE` can match about 101, so a `DO   language   plpgsql $$` with long whitespace is read as a function body (cautious: its statements do not count). (4) Put the seeded merge fuzzer from the review (random near-cap 0.3.2 results and overlays, every invariant) in the default suite.
+
+**Why:** none is worse than 0.3.2; each is a weakness in 0.3.2 or a test the fix PR did not need.
+
+**Context:** fresh review of PR #24 at 231b456, cycles 1-2. The fuzzer sketch ran 12,000 cases with 0 violations.
+
+**Effort:** S
+**Priority:** P3
+**Depends on:** None
+
+### False Nos kept from 0.3.2
+
+**What:** 0.3.2 answers No, wrongly, for (1) `disable row level security` or `using (true)` inside a SQL string or comment string (`comment on table … is 'never disable row level security'`), (2) the same words as a quoted name (`create index "disable row level security"`), (3) Firebase `if true && request.auth != null`, (4) a key in a browser folder in a file with a bare `import "server-only"` (in Next.js the build refuses to bundle it; in Vite it does not), and (5) a disable line after an unbalanced nested comment (`/* avatars/* */ … -- old block ended here */`), which Postgres treats as commented out. 0.3.3 keeps every one of these Nos on purpose.
+
+**Why:** PR #24 changed all five and each change broke a correct No somewhere else (a commented-out `import "server-only"`, a `/* … avatars/* … */` glob). The rule since then: a fix never makes an answer less cautious than the release. Each of these needs its own PR, its own cases in the differential corpus, and a proof that no correct No is lost.
+
+**Context:** the lexer already knows where strings, names and comments are (`_lex_sql`), so (1) and (2) need only the decision; (4) needs framework detection (Next/RSC only) and comment-free matching; (3) needs `&&` evaluated as "depends on auth" rather than open.
+
+**Effort:** M
+**Priority:** P2
+**Depends on:** None
+
 ## Completed
+
+### Q3 "nothing found" from a lone seed.sql
+
+**What:** Any `.sql` file counts as a rule file, so a project whose only SQL is `supabase/seed.sql` (one `insert`) can reach Q3 Nothing found with "1 rule file read".
+
+**Why:** `questions.md` promises that with no rule file the answer stays Don't know because rules live in a dashboard; a seed file is not a rule file. Found by the Claude adversarial pass in the v0.3.0 pre-merge review.
+
+**Context:** `test_nothing_found_is_never_a_no_and_never_on_a_partial_scan` encodes the current rule (`select 1;` in a migration earns Nothing found), so this is a design change, not a bug fix: count a `.sql` file as a rule file only when it holds `create table`, `create policy`, `alter table … row level security` or `storage.buckets`; `.rules` and `database.rules.json` always count. Decide against the workshop corpus.
+
+**Effort:** S
+**Priority:** P2
+**Depends on:** None
+
+**Completed:** v0.3.3 (2026-09-30)
 
 ### Test fixtures use real .env filenames
 
