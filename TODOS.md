@@ -20,7 +20,7 @@
 
 **Why:** The workshop is macOS and Linux only, so this does not block the giveaway, but a Windows attendee currently gets the by-hand interview with no scan. The job already runs and is informational, so the failure count is visible.
 
-**Context:** The CI job is `custody-check-windows` in `.github/workflows/ci.yml`, kept `continue-on-error: true` until it is green. The plan's drop order named the Windows job as the first thing to cut, and it was cut. Start with the threaded reader path in `git_facts` (already written for platforms without non-blocking pipes) and the `tearDown` permission handling in `ScanCase`.
+**Context:** The CI job is `custody-check-windows` in `.github/workflows/ci.yml`, kept `continue-on-error: true` until it is green. The plan's drop order named the Windows job as the first thing to cut, and it was cut. Start with the threaded reader path in `git_facts` (already written for platforms without non-blocking pipes) and the `tearDown` permission handling in `ScanCase`. On Windows the 0.3.3 overlay also ends with status `error` (seen in the PR #24 CI log, 2026-10-07: rows read `an error; please report it` where 0.3.2 says `0 files scanned`); that is the cautious direction, but find the exception before calling Windows supported.
 
 **Effort:** L
 **Priority:** P3
@@ -236,7 +236,7 @@
 
 **Why:** Each changes an answer or a row in the cautious direction, or matches 0.3.2; a fix PR fixes only what it made worse. (1) is the tester's main complaint (false alarms), so it comes first.
 
-**Context:** (1) `_lex_sql` (`DO_BEFORE_RE`), `resolve()` row order and a named row per gap, `CREATE_VIEW_RE` plus an `ALTER VIEW` reader. (2) Promote one shape at a time from `open-rule-unconfirmed` to a No (`_caution` in `custody_scan.py`; the merge clamp in `_plans` must then allow that source), each in its own PR with corpus cases, an `ALLOW_NEW_NO` reason, and an adversarial pass aimed at that shape alone: three review passes on PR #24 each found new false Nos in these readers (strings, comments, `$` names, COPY data, nested comments, map literals, SQL `||`). (3) `FIREBASE_IF_RE` should end at `;`/`}` only outside strings. (4) `_lex_sql`'s per-token loop, `_sql_predicate_open` caching by group text.
+**Context:** (1) `_lex_sql` (`DO_BEFORE_RE`), overlay row order in `_plans`/`_assemble` (0.3.2's `resolve()` is frozen) and a named row per gap, `CREATE_VIEW_RE` plus an `ALTER VIEW` reader. (2) Promote one shape at a time from `open-rule-unconfirmed` to a No (`_caution` in `custody_scan.py`; the merge clamp in `_plans` must then allow that source), each in its own PR with corpus cases, an `ALLOW_NEW_NO` reason, and an adversarial pass aimed at that shape alone: three review passes on PR #24 each found new false Nos in these readers (strings, comments, `$` names, COPY data, nested comments, map literals, SQL `||`). (3) `FIREBASE_IF_END_RE` / `_firebase_ifs` should end a condition at `;`/`}` only outside strings (update the test-only `FIREBASE_IF_RE` spec with it). (4) `_lex_sql`'s per-token loop, `_sql_predicate_open` caching by group text.
 
 **Effort:** M
 **Priority:** P2
@@ -263,6 +263,30 @@
 **Context:** `build_cases.py` already runs any scanner by path; `NeverWorseThanMainTests` would call it in-process. Keep the stored answers as a second check until the CI path has run green for a release.
 
 **Effort:** M
+**Priority:** P3
+**Depends on:** None
+
+### Names inside never-open agent folders in the output
+
+**What:** decide whether `mcp-config-not-opened` rows should name paths inside never-open folders (`.claude/…/mcp.json`) or only the folder.
+
+**Why:** 0.3.2 only counted those files; 0.3.3 names up to five per scan so the founder can find the config. The names pass through `sanitize_path`, but a folder or file name can still say more than the founder expects to see in a report (fresh review of 231b456, 2026-10-07, INVESTIGATE).
+
+**Context:** `_mcp_configs_inside` and `overlay_walk` in `custody_scan.py`. The plan approved naming them (C9); this is a privacy wording call, not a defect.
+
+**Effort:** S
+**Priority:** P3
+**Depends on:** None
+
+### Leftovers from the fresh review of 231b456 (2026-10-07/08)
+
+**What:** (1) SKILL.md: render No-effect rows first in the five-row verdict table, so the row behind a No is never inside "and N more" (0.3.2 does the same for a key found late; the overlay's No is always last). (2) 0.3.2's `sanitize_path`: a short key ID after `-` or `_` in a file name (`mcp-AKIA…json`) is not redacted; the overlay now names files inside never-open agent folders, so the gap shows in a new place. (3) `_lex_sql`: the `DO` lookback window is 40 characters while `DO_BEFORE_RE` can match about 101, so a `DO   language   plpgsql $$` with long whitespace is read as a function body (cautious: its statements do not count). (4) Put the seeded merge fuzzer from the review (random near-cap 0.3.2 results and overlays, every invariant) in the default suite.
+
+**Why:** none is worse than 0.3.2; each is a weakness in 0.3.2 or a test the fix PR did not need.
+
+**Context:** fresh review of PR #24 at 231b456, cycles 1-2. The fuzzer sketch ran 12,000 cases with 0 violations.
+
+**Effort:** S
 **Priority:** P3
 **Depends on:** None
 

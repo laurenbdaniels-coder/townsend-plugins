@@ -5008,7 +5008,7 @@ class FreshReviewTests(ScanCase):
 
 
 class PreMergeReviewFourTests(ScanCase):
-    """The fresh pre-merge review of e5644ce: the floor kept by start and kind, RLS credit capped at 0.3.2's read,
+    """The fresh pre-merge review of e5644ce (since 0.3.3's overlay, 0.3.2 runs first and its rows stand): RLS credit capped at 0.3.2's read,
     linear paren handling, the Firebase ternary, Unicode dollar tags, manifest names under code folders, and the
     MCP path check that never follows a link."""
 
@@ -5311,7 +5311,7 @@ class FreshReviewOfPerfFixTests(ScanCase):
                 self.assertIn("open-rule-in-string", evidence_checks(q3))
 
     def test_the_release_no_for_a_quoted_name_is_kept(self):
-        # 0.3.2's own false No (TODOS: "False Nos kept from 0.3.2"); the floor keeps it until its own PR
+        # 0.3.2's own false No (TODOS: "False Nos kept from 0.3.2"); 0.3.2 runs first, so it stands until its own PR
         q3 = self.q_of({"db/1.sql": self.RLS + 'create index "disable row level security" on public.t (id);\n'})
         self.assertEqual(q3["answer"], "no")
 
@@ -5387,8 +5387,8 @@ class FreshReviewOfPerfFixTests(ScanCase):
         os.makedirs(os.path.join(path, "zz"))
         with open(os.path.join(path, "zz", "mcp.json"), "w") as fh:
             fh.write("{}")
-        res = cs._mcp_configs_inside(path, ".claude", time.monotonic() - 1)
-        self.assertTrue(res.truncated)
+        with self.assertRaises(cs.OverlayTimeout):  # stops at the deadline, and says it was the clock, not the size cap
+            cs._mcp_configs_inside(path, ".claude", time.monotonic() - 1)
 
 
 class FreshReviewPassTwoTests(ScanCase):
@@ -5562,8 +5562,8 @@ class FreshReviewPassThreeTests(ScanCase):
 
 
 class FreshReviewOf8a6c32bTests(ScanCase):
-    """Fresh review of 8a6c32b (2026-10-05): 0.3.2's whole SQL reader is the floor, trimming is partial exactly when
-    0.3.2's output would not have fit, and one row per line for a No 0.3.2 already gives."""
+    """Fresh review of 8a6c32b (2026-10-05): 0.3.2's whole SQL reader runs first and its answers stand, the overlay's
+    trimming never sets partial, and one row per line for a No 0.3.2 already gives."""
 
     RLS = "create table public.t (id int, name text);\nalter table public.t enable row level security;\n"
 
@@ -5677,22 +5677,12 @@ class ReadingCostRatchetTests(unittest.TestCase):
                     with open(path, "w", encoding="utf-8") as fh:
                         fh.write(unit * (500 * 1024 // len(unit)))
                     with mock.patch.object(cs, "OVERLAY_MIN_S", 600.0):
-                        new = self._best(lambda: cs.scan(tmp))
+                        new = _fastest(lambda: cs.scan(tmp))
                         self.assertEqual(cs.scan_with_overlay.last.status, "finished", "the ratio is only a measure when the overlay finishes")
-                    release = self._best(lambda: cs.release.scan(tmp))
+                    release = _fastest(lambda: cs.release.scan(tmp))
                     self.assertLessEqual(new / release, ceiling * allowance, "%s: %.2fs vs 0.3.2 %.2fs" % (name, new, release))
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
-
-    @staticmethod
-    def _best(fn, runs=3):
-        best = None
-        for _ in range(runs):
-            t = time.perf_counter()
-            fn()
-            t = time.perf_counter() - t
-            best = t if best is None else min(best, t)
-        return best
 
 
 class WallTimeBoundTests(unittest.TestCase):
@@ -6153,7 +6143,7 @@ class OverlayContractTests(ScanCase):
         with mock.patch.object(cs.release, "MAX_OUTPUT_BYTES", _json_bytes(r) - 100):
             out = cs.merge(r, ov)
         self.assertEqual(out["questions"]["q3"]["answer"], "dont-know")
-        self.assertEqual(out["questions"]["q3"]["evidence"], [cs._unfinished_row("unfinished")])
+        self.assertEqual(out["questions"]["q3"]["evidence"], [cs._unfinished_row("full")], "the checks finished; the output was full")
         self.assertNotIn("public-view", json.dumps(out))
 
     def test_an_mts_no_displaces_only_q1_evidence(self):
@@ -6361,6 +6351,374 @@ class OverlayContractTests(ScanCase):
                 with self.subTest(args=args + extra):
                     got, want = run(SCRIPT, args + extra, cwd), run(RELEASE_SCRIPT, args + extra, cwd)
                     self.assertEqual((got.returncode, got.stdout), (want.returncode, want.stdout))
+
+    # ---------------------------------------------------------------- fresh review of 231b456 (2026-10-07)
+
+    def test_every_corpus_name_fits_a_linux_file_name(self):
+        for c in _corpus():
+            for rel in list(c["files"]) + list(c.get("links", {})):
+                for seg in rel.split("/"):
+                    self.assertLessEqual(len(seg.encode("utf-8")), 255, "%s: ext4 refuses a name over 255 bytes" % c["name"])
+
+    def test_a_drop_list_counts_lines_once_per_statement_and_ticks_per_name(self):
+        stmts = 50
+        text = "-- pad\n" * 2000 + "".join("drop table %s;\n" % ",".join("t%d_%d" % (d, p) for p in range(200)) for d in range(stmts))
+        sf = cs.OverlayFile("db/m.sql", "m.sql", ".sql", text)
+        ov = cs.Overlay(float("inf"))
+
+        class Rel(object):
+            tables, rls_enabled = {}, set()
+        calls = []
+        real = cs.release.line_of
+
+        def spy(t, pos):
+            calls.append(pos)
+            return real(t, pos)
+        with mock.patch.object(cs.release, "line_of", spy):
+            cs.detect_sql(sf, ov, Rel)
+        self.assertLessEqual(len(calls), stmts + 2 * cs.release.MAX_HITS_PER_FILE_PER_CHECK, "line_of is O(file): once per statement")
+        self.assertGreaterEqual(ov.ticks, stmts * 200, "every dropped name ticks, so the deadline is checked inside one file")
+        dropped = [r for r in ov.rows["q3"] if r["check"] == "table-dropped"]
+        self.assertTrue(dropped, "control: the drops are still named")
+        self.assertLessEqual(len(dropped), cs.release.MAX_HITS_PER_FILE_PER_CHECK)
+        self.assertGreater(ov.gaps["q3"], len(dropped), "the rest still count as gaps")
+        self.assertLessEqual(len(ov.keys), 3 * 2 * cs.release.MAX_EVIDENCE, "only kept rows are remembered")
+
+    def test_overlay_snippets_are_redacted_before_they_are_cut(self):
+        key = STRIPE_LIVE
+        head = 'allow read: if request.auth.token.plan == "x" || request.k == "'
+        head = head.replace("plan", "plan" + "x" * (101 - len(head)))
+        self.write("firestore.rules", "service cloud.firestore {\n  match /x/{id} {\n    " + head + key + '" || true;\n  }\n}\n')
+        self.write("rtdb/firestore.rules", 'service cloud.firestore {\n  match /y/{id} {\n    allow read: if request.auth.token.pw == "hunter2pass" || true;\n  }\n}\n')
+        self.write("supabase/migrations/1.sql", "insert into storage.buckets (id, note, secret, public) values ('a--b', '%s', '%s', true);\n" % ("n" * 40, key))
+        self.write("package.json", '{"dependencies": {"react": "18"}}\n')
+        out = json.dumps(self.scan())
+        self.assertIn("firebase-rules-public-read", out, "control: the overlay names the rule")
+        self.assertIn("storage-bucket-public-sql", out, "control: the overlay names the bucket")
+        self.assertNotIn(key[:12], out)
+        self.assertNotIn("hunter2pass", out, "a quoted value in a condition is masked, as on a key hit line")
+        self.assertNotIn(key[:12], json.dumps(cs.release.scan(self.repo)), "control: 0.3.2 printed none of it")
+        bare = "allow read: if request.auth.token.plan == request.resource.data.t || request.k == "
+        bare = bare.replace("plan", "plan" + "x" * (101 - len(bare)))
+        self.write("firestore.rules", "service cloud.firestore {\n  match /x/{id} {\n    " + bare + key + " || true;\n  }\n}\n")
+        out = json.dumps(self.scan())
+        self.assertIn("firebase-rules-public-read", out, "control")
+        self.assertNotIn(key[:12], out, "a key outside quotes is redacted before the cut, not masked")
+
+    def q1_full_of_0_3_2_nos(self, extra_evidence=0):
+        self.app()
+        r = self.release_result()
+        rows = [{"path": "src/components/a%d.ts" % i, "line": 1, "snippet": "const k = [redacted]", "check": "client-key-literal"}
+                for i in range(cs.release.MAX_EVIDENCE - extra_evidence)]
+        rows += [{"path": "src/components/z%d.ts" % i, "line": 1, "snippet": "x", "check": "client-anon-jwt"} for i in range(extra_evidence)]
+        r["questions"]["q1"] = {"answer": "no", "confidence": "high", "evidence": rows}
+        return r, rows
+
+    def test_an_mts_no_never_displaces_a_0_3_2_no_row(self):
+        r, rows = self.q1_full_of_0_3_2_nos()
+        for slack in (None, 0):
+            ov = self.overlay()
+            ov.add("client-key-literal", "src/components/k.mts", 1, "x", effect="no", source="mts-key", questions=("q1",))
+            if slack is None:
+                out = cs.merge(r, ov)
+            else:
+                with self.near_cap(r, slack):
+                    out = cs.merge(r, ov)
+            self.assertEqual(out["questions"]["q1"]["evidence"][:len(rows)], rows)
+            self.assertLessEqual(len(out["questions"]["q1"]["evidence"]), cs.release.MAX_EVIDENCE)
+
+    def test_displacement_takes_the_last_evidence_row_never_a_no_row_after_it(self):
+        self.app()
+        r = self.release_result()
+        ev = [{"path": "src/components/z%d.ts" % i, "line": 1, "snippet": "x", "check": "client-anon-jwt"} for i in range(6)]
+        nos = [{"path": "src/components/a%d.ts" % i, "line": 1, "snippet": "x", "check": "client-key-literal"} for i in range(6)]
+        r["questions"]["q1"] = {"answer": "no", "confidence": "high", "evidence": ev + nos}
+        ov = self.overlay()
+        ov.add("client-key-literal", "src/components/k.mts", 1, "x", effect="no", source="mts-key", questions=("q1",))
+        q1 = cs.merge(r, ov)["questions"]["q1"]["evidence"]
+        self.assertEqual(q1[:11], ev[:5] + nos, "the last evidence-only row gives way; every 0.3.2 No row stays")
+        self.assertEqual([e["path"] for e in q1[11:]], ["src/components/k.mts"])
+
+    def test_a_trimmed_overlay_no_gives_back_the_0_3_2_rows_it_displaced(self):
+        r, rows = self.q1_full_of_0_3_2_nos(extra_evidence=6)
+        for slack in (0, 20, 60, 120, 400):
+            for finished in (True, False):
+                with self.subTest(slack=slack, finished=finished):
+                    ov = self.overlay(finished)
+                    for i in range(6):
+                        ov.add("client-key-literal", "src/components/%s/k%d.mts" % ("k" * 150, i), 1, "x", effect="no", source="mts-key", questions=("q1",))
+                    with self.near_cap(r, slack):
+                        out = cs.merge(r, ov)
+                    ev = out["questions"]["q1"]["evidence"]
+                    kept_nos = [e for e in ev if e not in rows and e["check"] == "client-key-literal"]
+                    lost = [e for e in rows if e not in ev]
+                    self.assertTrue(all(cs._evidence_only(e) for e in lost), "a 0.3.2 No row is never displaced")
+                    self.assertLessEqual(len(lost), len(kept_nos), "each displaced 0.3.2 row is paid for by an overlay No row shown")
+                    self.assertLessEqual(_json_bytes(out), _json_bytes(r) + slack)
+
+    def test_near_the_cap_a_no_always_names_its_row(self):
+        self.app()
+        r = self.release_result()
+        for slack in (0, 5, 40, 120):
+            for finished in (True, False):
+                with self.subTest(slack=slack, finished=finished):
+                    ov = self.overlay(finished)
+                    ov.add("client-key-literal", "src/components/k.mts", 7, "const k = [redacted]", effect="no", source="mts-key", questions=("q1",))
+                    ov.add("public-view", "db/" + "v" * 200 + ".sql", 1, "v", source="sql")
+                    with self.near_cap(r, slack):
+                        out = cs.merge(r, ov)
+                    q1 = out["questions"]["q1"]
+                    if q1["answer"] == "no":
+                        self.assertIn("client-key-literal", [e["check"] for e in q1["evidence"]], "a No names its row")
+
+    def test_the_overlay_keeps_its_no_past_its_row_cap(self):
+        ov = self.overlay()
+        for i in range(3 * cs.release.MAX_EVIDENCE):
+            ov.add("client-anon-jwt", "src/components/a%d.mts" % i, 1, "x", source="mts-key", questions=("q1",))
+        ov.add("client-key-literal", "src/components/z.mts", 1, "x", effect="no", source="mts-key", questions=("q1",))
+        self.assertIn("no", [r["_effect"] for r in ov.rows["q1"]], "a No is never crowded out: 0.3.2's own add() rule")
+        self.assertLessEqual(len(ov.rows["q1"]), 2 * cs.release.MAX_EVIDENCE)
+        self.assertEqual(len(ov.keys), len(ov.rows["q1"]), "only kept rows are remembered: memory is bounded by the cap")
+
+    def test_an_agent_folder_walk_stopped_by_the_clock_leaves_the_pass_unfinished(self):
+        self.app()
+        for i in range(40):
+            self.write(".claude/d%d/x.txt" % i, "x\n")
+        with mock.patch.object(cs.release, "DEADLINE_TICK", 1):
+            with self.assertRaises((cs.release.Deadline, cs.OverlayTimeout)):
+                cs._mcp_configs_inside(os.path.join(self.repo, ".claude"), ".claude", time.monotonic() - 1)
+        self.assertFalse(cs._mcp_configs_inside(os.path.join(self.repo, ".claude"), ".claude", time.monotonic() + 60).truncated, "control")
+
+    def test_a_fallback_row_never_blames_an_error_or_the_clock_when_the_output_was_full(self):
+        self.app()
+        r = self.release_result()
+        ov = self.overlay()
+        ov.add("public-view", "db/x.sql", 1, "v", source="sql")
+        with mock.patch.object(cs.release, "MAX_OUTPUT_BYTES", _json_bytes(r) - 100):
+            out = cs.merge(r, ov)
+        snippets = [e["snippet"] for q in self.QS for e in out["questions"][q]["evidence"] if e["check"] == "checks-not-finished"]
+        self.assertTrue(snippets, "control: Nothing found is withheld")
+        for s in snippets:
+            self.assertNotIn(s, (cs.UNFINISHED_SNIPPETS["unfinished"], cs.UNFINISHED_SNIPPETS["error"]))
+        nf = r["questions"]["q3"]["evidence"][0]
+        self.assertLess(_json_bytes(cs._unfinished_row("full")), _json_bytes(nf), "the swap never grows the output")
+
+    def test_opencode_jsonc_is_never_called_unopened(self):
+        self.write("src/app.ts", "export const x = 1\n")
+        self.write("opencode.jsonc", "{}\n")
+        self.write("opencode.json", "{}\n")
+        rows = dict((e["path"], e["snippet"]) for e in self.scan()["questions"]["q1"]["evidence"] if e["check"] == "mcp-config-not-opened")
+        self.assertIn("opencode.jsonc", rows, "control: still a gap, its MCP servers are not checked")
+        self.assertNotIn("not opened", rows["opencode.jsonc"], "0.3.2 reads opencode.jsonc as text")
+        self.assertIn("not opened", rows["opencode.json"], "0.3.2 never opens opencode.json")
+        self.assertFalse(cs.release.is_never_open_file("opencode.jsonc"), "control: 0.3.2's list")
+        with open(os.path.join(PLUGIN_DIR, "README.md"), encoding="utf-8") as fh:
+            never = [l for l in fh.read().splitlines() if l.startswith("- The scanner never opens your AI instruction files")][0]
+        self.assertNotIn("`opencode.jsonc`,", never.split(". The list lives")[0], "README lists only what 0.3.2 never opens")
+
+    def test_fixed_shape_rtdb_snippets_keep_their_text(self):
+        self.write("database.rules.json", '{"rules": {\n  ".read": "now < 1700000000000",\n  ".write": "true"\n}}\n')
+        rows = dict((e["check"], e["snippet"]) for e in self.scan()["questions"]["q3"]["evidence"])
+        self.assertEqual(rows["firebase-rules-test-mode"], '".read": "now <')
+        self.assertEqual(rows["open-rule-unconfirmed"], '".write": "true"')
+
+    def test_a_dollar_inside_a_name_is_not_a_dollar_quote_and_long_tags_are(self):
+        sql = "create table public.a$b$c (id int);\nalter table public.a$b$c enable row level security;\n"
+        nc, code, bare, unclosed = cs._lex_sql(sql)
+        self.assertFalse(unclosed)
+        self.assertEqual(code, sql)
+        tag = "$" + "a" * 35 + "$"
+        _, code, _, _ = cs._lex_sql("create function f() returns void as " + tag + " drop table public.secret_tbl; " + tag + ";\n")
+        self.assertNotIn("drop table", code, "a 35-character tag still quotes a function body")
+        self.write("supabase/migrations/1.sql", sql + "create table public.notes (id int);\nalter table public.notes enable row level security;\n")
+        self.write("package.json", '{"dependencies": {"react": "18"}}\n')
+        self.assertEqual(self.scan()["questions"]["q3"]["answer"], cs.release.scan(self.repo)["questions"]["q3"]["answer"])
+
+    def test_code_rows_fire_where_0_3_2_strips_a_dash_dash_string(self):
+        self.write("supabase/migrations/1.sql", "create table public.t (id int);\nalter table public.t enable row level security;\n"
+                   "insert into log values ('--'); create policy p on public.t for insert to anon with check (true); select cron.schedule('a','* * * * *','select 1');\n")
+        out = self.scan()
+        q3 = [e["check"] for e in out["questions"]["q3"]["evidence"]]
+        self.assertIn("policy-with-check-true", q3)
+        self.assertIn("policy-to-anon", q3)
+        self.assertIn("cron-schedule", [e["check"] for e in out["questions"]["q9"]["evidence"]])
+
+    # mutation pins: each guard below survived a mutation run with the suite green
+
+    def spy_opens(self, **kw):
+        real = cs.release.open_regular
+        seen = {"release": set(), "both": set()}
+        which = ["release"]
+
+        def spy(path):
+            seen[which[0]].add(os.path.realpath(path))
+            return real(path)
+        with mock.patch.object(cs.release, "open_regular", spy):
+            cs.release.scan(self.repo, **kw)
+            which[0] = "both"
+            cs.scan(self.repo, **kw)
+        return seen
+
+    def test_the_overlay_never_opens_a_never_open_file_an_excluded_folder_or_an_oversize_file(self):
+        self.write("src/components/A.tsx", "export const A = () => null;\n")
+        self.write("supabase/migrations/1.sql", "create table public.notes (id int);\n")
+        self.write(".rules", "allow read: if true;\n")
+        self.write("legacy/x.sql", "alter table public.notes disable row level security;\n")
+        self.write("db/big.sql", "create view public.v as select 1;\n" * 50)
+        for kw in ({}, {"exclude_dirs": ["legacy"]}, {"max_file_bytes": 200}):
+            with self.subTest(limits=kw):
+                seen = self.spy_opens(**kw)
+                self.assertLessEqual(seen["both"], seen["release"])
+
+    def test_an_excluded_folder_never_gives_a_new_no(self):
+        self.write("src/components/A.tsx", "export const A = () => null;\n")
+        self.write("src/components/legacy/k.mts", 'export const k = "%s";\n' % SK)
+        self.assertNotEqual(cs.release.scan(self.repo, exclude_dirs=["legacy"])["questions"]["q1"]["answer"], "no", "control")
+        self.assertNotEqual(self.scan(exclude_dirs=["legacy"])["questions"]["q1"]["answer"], "no")
+        self.assertEqual(self.scan()["questions"]["q1"]["answer"], "no", "control: not excluded, it is a No")
+
+    def test_the_overlay_stops_where_0_3_2s_folder_cut_stops(self):
+        for i in range(6):
+            self.write("a%d.txt" % i, "x\n")
+        self.write("z.sql", "alter table public.t disable row level security;\n")
+        self.write("zz.mts", 'export const k = "%s";\n' % SK)
+        with mock.patch.object(cs.release, "MAX_DIR_ENTRIES", 4):
+            seen = self.spy_opens()
+        self.assertLessEqual(seen["both"], seen["release"])
+
+    # ---------------------------------------------------------------- fresh review of 231b456, cycle 2 (2026-10-08)
+
+    def assert_string_never_printed(self, files, secret, same_q3=False):
+        self.write("package.json", '{"dependencies": {"react": "18"}}\n')
+        self.write("src/app.ts", "export const a = 1;\n")
+        for rel, body in files.items():
+            self.write(rel, body)
+        out = self.scan()
+        self.assertNotIn(secret, json.dumps(out))
+        self.assertNotIn(secret, json.dumps(cs.release.scan(self.repo)), "control: 0.3.2 printed none of it")
+        if same_q3:
+            self.assertEqual(out["questions"]["q3"]["answer"], cs.release.scan(self.repo)["questions"]["q3"]["answer"],
+                             "text inside a string moves no answer")
+
+    def test_a_rule_snippet_never_shows_what_a_string_holds(self):
+        rules = "service cloud.firestore {\n  match /x/{id} {\n    %s\n  }\n}\n"
+        for line in ('allow read: if resource.data.k == "a\\"Hunter2Pass_word\\"b" || true;',
+                     'allow read: if resource.data.note == "abc; allow write: if Hunter2Pass_word == "q" || true;',
+                     'allow read: if timestamp.date("Hunter2Pass_word") > request.time;',
+                     'let note = "abc allow read: if Hunter2Pass_word || true;',  # an unclosed quote masks to the end of its line
+                     "allow read: if request.path == '/*' || request.auth.token.email == \"ops*/\" || request.auth.token.email == 'Hunter2Pass_word@acme.example' || true;",
+                     'allow read: if (true == x) && x == "/*" || y == \'*/ A\' || b == "Hunter2Pass_word-zzq";'):  # a comment cut across two strings
+            with self.subTest(line=line):
+                shutil.rmtree(self.repo)
+                os.makedirs(self.repo)
+                self.assert_string_never_printed({"firestore.rules": rules % line}, "Hunter2Pass_word")
+
+    def test_sql_text_inside_a_string_is_never_a_row(self):
+        base = "create table public.notes (id int);\nalter table public.notes enable row level security;\n"
+        for body in ("insert into public.notes values ('/*'), ('update storage.buckets set pw = Hunter2Pass_word, public = true'), ('*/');\n",
+                     "insert into public.notes values ('--'), ('update storage.buckets set pw = Hunter2Pass_word, public = true');\n",
+                     "insert into audit(q) values ('create view Hunter2Pass_word as select 1'), ('drop table Hunter2Pass_word');\n",
+                     "insert into public.notes values ('-- reminder: create table Hunter2Pass_word (x int)');\n",
+                     "drop table public.gone\ninsert into public.notes values ('x, Hunter2Pass_word');\n"):
+            with self.subTest(body=body):
+                shutil.rmtree(self.repo)
+                os.makedirs(self.repo)
+                self.assert_string_never_printed({"supabase/migrations/1.sql": base + body}, "Hunter2Pass_word".lower())
+                self.assertNotIn("Hunter2Pass_word", json.dumps(self.scan()))
+        # a drop or view inside a function body may run (`execute '…'`), so it still counts, without its name
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.write("supabase/migrations/1.sql", base + "create function f() returns void language sql as $$ create view public.hunter2view as select 1 $$;\n")
+        q3 = self.scan()["questions"]["q3"]
+        self.assertIn(cs.IN_STRING_DETAIL, [e["snippet"] for e in q3["evidence"] if e["check"] == "public-view"])
+        self.assertNotIn("hunter2view", json.dumps(q3))
+
+    def test_sql_rows_outside_strings_still_fire(self):
+        self.write("supabase/migrations/1.sql", "create table public.notes (id int);\nalter table public.notes enable row level security;\n"
+                   "create view public.v as select 1;\ndrop table public.old;\n"
+                   "insert into storage.buckets (id, name, public) values ('avatars', 'avatars', true);\n")
+        checks = [e["check"] for e in self.scan()["questions"]["q3"]["evidence"]]
+        for check in ("public-view", "table-dropped", "storage-bucket-public-sql"):
+            self.assertIn(check, checks, "control: the same rows outside strings")
+
+    def test_a_nested_predicate_file_checks_the_clock_by_work(self):
+        text = ("using (" + "(" * 1900 + "true" + ")" * 1900 + " or x);\n") * 137
+        ov = cs.Overlay(time.monotonic() - 1)
+        sf = cs.OverlayFile("a.sql", "a.sql", ".sql", text)
+
+        class Rel(object):
+            tables, rls_enabled = {}, set()
+        t0 = time.monotonic()
+        with self.assertRaises(cs.release.Deadline):
+            cs.detect_sql(sf, ov, Rel)
+        self.assertLess(time.monotonic() - t0, bound(0.2), "the deadline is seen within one predicate, not 256 of them")
+        real = cs._paren_closes
+        with mock.patch.object(cs, "_paren_closes", lambda text, tick=None: real(text)):  # the per-predicate check alone
+            with self.assertRaises(cs.release.Deadline):
+                cs.detect_sql(sf, cs.Overlay(time.monotonic() - 1), Rel)
+        ticks = []
+        self.assertEqual(len(real("((a)(b))", lambda: ticks.append(1))), 3)
+        self.assertEqual(len(ticks), 6, "the paren pass ticks once per paren")
+
+    def test_the_overlay_stops_exactly_at_0_3_2s_file_and_byte_caps(self):
+        self.write("a.txt", "x\n")
+        self.write("b.txt", "x\n")
+        self.write("c.sql", "create view public.v as select 1;\n")
+        seen = self.spy_opens(max_files=2)
+        self.assertLessEqual(seen["both"], seen["release"])
+        self.assertNotIn("public-view", json.dumps(self.scan(max_files=2)), "the file at the cut is never read")
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.write("a.txt", "x" * 150 + "\n")
+        self.write("b.sql", "create view public.v as select 1;\n")
+        self.assertNotIn("public-view", json.dumps(self.scan(max_total_bytes=160)), "the file that crosses the byte cap is never read")
+        self.assertIn("public-view", json.dumps(self.scan()), "control")
+
+    def test_an_unfinished_pass_keeps_its_row_inside_0_3_2s_row_cap(self):
+        self.app()
+        r = self.release_result()
+        ov = self.overlay(finished=False)
+        for i in range(2 * cs.release.MAX_EVIDENCE):
+            ov.add("public-view", "db/%d.sql" % i, 1, "v%d" % i, source="sql")
+        q3 = cs.merge(r, ov)["questions"]["q3"]["evidence"]
+        self.assertLessEqual(len(q3), cs.release.MAX_EVIDENCE)
+        self.assertEqual(q3[-1], cs._unfinished_row("unfinished"))
+
+    def test_an_unfinished_pass_on_an_over_cap_result_still_withholds_nothing_found(self):
+        self.app()
+        r = self.release_result()
+        with mock.patch.object(cs.release, "MAX_OUTPUT_BYTES", _json_bytes(r) - 100):
+            out = cs.merge(r, self.overlay(finished=False))
+        for q in self.QS:
+            self.assertEqual(out["questions"][q]["answer"], "dont-know")
+            self.assertEqual(out["questions"][q]["evidence"], [cs._unfinished_row("unfinished")])
+
+    def test_a_no_that_cannot_fit_gives_q1_back_to_0_3_2_exactly(self):
+        self.app()
+        r = self.release_result()
+        rows = [{"path": "src/components/a%d.ts" % i, "line": 1, "snippet": "x", "check": "client-key-literal"} for i in range(3)]
+        r["questions"]["q1"] = {"answer": "dont-know", "confidence": "med", "evidence": rows}  # nothing displaceable
+        ov = self.overlay()
+        ov.add("client-key-literal", "src/components/k.mts", 1, "x", effect="no", source="mts-key", questions=("q1",))
+        with self.near_cap(r, 0):
+            out = cs._fit(r, cs._plans(r, ov))
+        self.assertIsNotNone(out, "control: step 5 makes it fit")
+        self.assertEqual(out["questions"]["q1"], r["questions"]["q1"])
+
+    def test_the_corpus_baseline_is_what_the_pinned_release_says(self):
+        names = []
+        with open(os.path.join(FIXTURES, "differential", "build_cases.py"), encoding="utf-8") as fh:
+            src = fh.read()
+        self.assertEqual(src.count("\ncase("), len(_corpus()), "every case() in build_cases.py is in cases.json")
+        for c in _corpus():
+            names.append(c["name"])
+            with self.subTest(case=c["name"]):
+                root = tempfile.mkdtemp(prefix="custody baseline ", dir=self.tmp)
+                _materialize(root, c)
+                r = cs.release.scan(root, **c.get("args", {}))
+                self.assertEqual(dict((q, r["questions"][q]["answer"]) for q in self.QS), c["main"])
+                self.assertEqual(r["partial"], c["main_partial"])
+        self.assertEqual(len(names), len(set(names)))
 
 
 if __name__ == "__main__":

@@ -217,16 +217,21 @@ case("output over the cap with manifests the release did not read", TRIM)
 FIELDS = ["email", "phone", "ssn", "dob", "address", "street", "postal_code", "passport", "iban", "medical", "diagnosis", "salary"]
 
 
+def _long(e):
+    """`e` "é" as two folders: each "é" is six bytes of JSON but two on disk, and Linux allows 255 bytes per name."""
+    return "é" * (e // 2) + "/" + "é" * (e - e // 2)
+
+
 def near_cap(e, extra, health=11, auth=2, tail=None):
     """0.3.2's output a few bytes either side of its 30,000-byte cap: long folder names (each "é" is six bytes of JSON)
     in health routes (Q9), one-field schemas (Q10) and auth folders (Q4); `tail` ASCII characters fine-tune it."""
     f = {}
     for i in range(health):
-        f["h%02d/%s/a/health.ts" % (i, "é" * e)] = "export const x = 1;\n"
+        f["h%02d/%s/a/health.ts" % (i, _long(e))] = "export const x = 1;\n"
     for i, field in enumerate(FIELDS):
-        f["m%02d/%s/schema.prisma" % (i, "é" * e)] = "model U%d {\n %s String\n}\n" % (i, field)
+        f["m%02d/%s/schema.prisma" % (i, _long(e))] = "model U%d {\n %s String\n}\n" % (i, field)
     for i in range(auth):
-        f["auth/%d%s/x.ts" % (i, "é" * e)] = "export const x = 1;\n"
+        f["auth/%d%s/x.ts" % (i, _long(e))] = "export const x = 1;\n"
     if tail:
         f["hz/%s/health.ts" % ("a" * tail)] = "export const x = 1;\n"
     f.update(extra)
@@ -237,7 +242,7 @@ case("compressed env template with a browser secret", {".env.example.zst": "NEXT
 case("private key in a zst file", {"x.zst": PEM})
 case("private key in a pem.zst file", {"key.pem.zst": PEM})
 case("firestore test mode just over the cap", near_cap(176, {"firestore.rules": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /{document=**} {\n      allow read, write: if request.time < timestamp.date(2026, 12, 1);\n    }\n  }\n}\n"}))
-case("open read rows the release never gave, just under the cap", near_cap(174, {"database.rules.json": '{"rules": {".read": "true", ".write": "true"}}\n', "db/1.sql": "create table public.t (id int);\n"}, tail=93))
+case("open read rows the release never gave, just under the cap", near_cap(174, {"database.rules.json": '{"rules": {".read": "true", ".write": "true"}}\n', "db/1.sql": "create table public.t (id int);\n"}, tail=68))
 case("pii field just under the cap", near_cap(190, {"supabase/migrations/1.sql": RLS + "create table public.people (id int, ssn text);\nalter table public.people enable row level security;\n"}, health=9, auth=3, tail=72))
 case("opencode.jsonc counts toward max files", {"src/app.ts": "export const x = 1\n", "package.json": '{"dependencies": {"react": "18"}}\n', "opencode.jsonc": "{}\n"}, base=False, args={"max_files": 2})
 case("private key in a public opencode.jsonc", {"public/opencode.jsonc": "{PEM_BODY}"})

@@ -119,7 +119,8 @@ OVERLAY_SHARE_OF_DEADLINE = 0.8  # the whole scan ends by this share of --deadli
 QS = ("q1", "q3", "q9")
 RANK = {"nothing-found": 0, "dont-know": 1, "no": 2}
 UNFINISHED_SNIPPETS = {"unfinished": "time ran out; rerun with --deadline-s 600",
-                       "error": "an error; please report it"}  # each row shorter than any nothing-found row it replaces
+                       "error": "an error; please report it",
+                       "full": "more found than the output can hold"}  # each row shorter than any nothing-found row it replaces
 
 # check id -> the questions its rows go to. Every overlay row is evidence; the one No is a key in browser-side
 # .mts/.cts code (source "mts-key"), read with 0.3.2's own key detectors.
@@ -132,10 +133,6 @@ OVERLAY_CHECKS = {
     "compressed-file-not-read": ("q1", "q3", "q9"), "checks-not-finished": ("q1", "q3", "q9"),
 }
 CAPPED_PER_SCAN = {"mcp-config-not-opened", "manifest-not-parsed", "compressed-file-not-read", "code-file-not-read"}
-REUSED_CHECKS = ("policy-with-check-true", "policy-to-anon", "storage-bucket-public-sql", "firebase-rules-public-read",
-                 "table-without-rls", "policy-select-true", "policy-altered-true", "cron-schedule", "monitoring-dependency",
-                 "health-route")  # plus every 0.3.2 Q1 id, from the .mts key read
-
 
 
 def all_checks():
@@ -156,6 +153,7 @@ NEVER_OPEN_SECRET_FILE_RE = re.compile(r"^(?:opencode\.jsonc?|\.aider[^/]*\.ya?m
 COMPRESSED_EXTS = (".zst", ".zstd")  # 0.3.2 read these as text; the overlay names what they could hide
 MODULE_EXTS = (".mts", ".cts")  # TypeScript modules 0.3.2 did not read as code
 NESTED_DETAIL = "condition nested too deeply to evaluate (%d chars); review it by hand"
+IN_STRING_DETAIL = "named inside a string or function body"  # it may run (`execute '…'`), so it counts; its text is not shown
 
 RLS_DISABLED_RE = re.compile(r"disable\s+row\s+level\s+security", re.I)
 USING_TRUE_RE = re.compile(r"\busing\s*\((?:\s*\()*\s*true(?:\s*::\s*bool(?:ean)?)?(?:\s*\))+", re.I)  # any depth: using (((true)))
@@ -169,7 +167,7 @@ SQL_BOOL_CAST_RE = re.compile(r"\s*::\s*bool(?:ean)?\b")
 SQL_OR_RE = re.compile(r"\bor\b")
 SQL_AND_RE = re.compile(r"\band\b")
 WHITESPACE_RE = re.compile(r"\s+")
-# The specification _firebase_ifs implements without reading up to 400 characters per `allow` (the tests compare them):
+# Test specifications only (the tests compare _firebase_ifs and FIREBASE_IF_END_RE against them); the scanner never runs them:
 FIREBASE_IF_RE = re.compile(r"\ballow\s{1,20}([a-z]+(?:\s{0,20},\s{0,20}[a-z]+){0,10})\s{0,20}:\s{0,20}if(?=[\s(])(?=((?:[^;}\n]|\n(?![ \t]{0,80}(?:allow|match)\b)){0,400}))\2(?=[;}]|\n[ \t]{0,80}(?:allow|match)\b)", re.I)
 FIREBASE_IF_LONG_RE = re.compile(r"\ballow\s{1,20}[a-z]+(?:\s{0,20},\s{0,20}[a-z]+){0,10}\s{0,20}:\s{0,20}if(?=[\s(])(?:[^;}\n]|\n(?![ \t]{0,80}(?:allow|match)\b)){401}", re.I)  # past what FIREBASE_IF_RE reads
 FIREBASE_IF_HEAD_RE = re.compile(r"\ballow\s{1,20}([a-z]+(?:\s{0,20},\s{0,20}[a-z]+){0,10})\s{0,20}:\s{0,20}if(?=[\s(])", re.I)
@@ -194,7 +192,9 @@ MAX_DROP_LIST_CHARS = 20000
 DROP_TABLE_RE = re.compile(r"\bdrop\s+table\s+(?:if\s+exists\s+)?([^;]{1,%d})" % MAX_DROP_LIST_CHARS, re.I)
 DROP_ITEM_RE = re.compile(r"\s{0,20}" + _SQL_TABLE)
 CREATE_VIEW_RE = re.compile(r"\bcreate\s+(?:or\s+replace\s+)?(?:recursive\s+)?(materialized\s+)?view\s+(?:if\s+not\s+exists\s+)?" + _SQL_TABLE + r"([^;]{0,400})", re.I)
-SQL_LEX_OPENER_RE = re.compile(r"--|/\*|\"|(?<![A-Za-z0-9_])[Ee]'|'|\$(?:[^\W\d]\w{0,30})?\$")  # whichever comes first; a dollar tag may use any letter
+# whichever comes first; a dollar tag may use any letter and be as long as a name (63), and a `$` right after a name
+# character is part of that name (`a$b$c`), as in Postgres
+SQL_LEX_OPENER_RE = re.compile(r"--|/\*|\"|(?<![A-Za-z0-9_])[Ee]'|'|(?<![\w$])\$(?:[^\W\d]\w{0,62})?\$")
 SQL_PLAIN_BODY_RE = re.compile(r"(?:[^']|'')*'")  # a SQL string may span lines
 SQL_ESCAPE_BODY_RE = re.compile(r"(?:[^'\\]|\\[\s\S]|'')*'")
 SQL_IDENT_BODY_RE = re.compile(r'(?:[^"]|"")*"')  # a quoted identifier: "o'brien_idx" holds no string
@@ -213,7 +213,8 @@ McpScan = collections.namedtuple("McpScan", "found truncated")
 
 
 class OverlayTimeout(Exception):
-    """The overlay's time ran out between files."""
+    """The overlay stopped early: its time ran out between files or inside an agent-folder walk, or it reached the
+    file where 0.3.2 hit --max-files or --max-total-bytes. Either way the pass is unfinished."""
 
 
 # ------------------------------------------------------------------ findings
@@ -226,14 +227,14 @@ class Overlay(object):
         self.deadline = deadline
         self.ticks = 0
         self.rows = dict((q, []) for q in QS)
-        self.more = dict((q, 0) for q in QS)  # rows past the per-question cap: counted, not kept
         self.gaps = dict((q, 0) for q in QS)
         self.keys = set()
         self.tables = {}  # public table -> (path, line), only tables 0.3.2 did not register
+        self.code_tables = set()  # tables whose `create table` the overlay read as code: only these names are shown
         self.rls_enabled = set()
         self.rule_files = 0
         self.status = "finished"
-        self.stopped_by = None  # "clock" (between files) or "tick" (inside a file), for the tests
+        self.stopped_by = None  # "clock" (between files), "tick" (inside a file) or "caps" (where 0.3.2 hit a cap), for the tests
         self.named = {}  # rows per name-only check: five name the files, the gap counts every one
 
     @property
@@ -258,11 +259,21 @@ class Overlay(object):
             key = (q, check, row["path"], row["line"], row["snippet"])
             if key in self.keys:
                 continue
-            self.keys.add(key)
-            if len(self.rows[q]) < 2 * release.MAX_EVIDENCE:
-                self.rows[q].append(dict(row, _effect=effect, _source=source))
+            kept = self.rows[q]
+            if len(kept) < 2 * release.MAX_EVIDENCE:
+                kept.append(dict(row, _effect=effect, _source=source))
+            elif effect == "no":  # 0.3.2's own add() rule: a No is never crowded out, it takes the last caution's place
+                for i in range(len(kept) - 1, -1, -1):
+                    if kept[i]["_effect"] != "no":
+                        old = kept[i]
+                        self.keys.discard((q, old["check"], old["path"], old["line"], old["snippet"]))
+                        kept[i] = dict(row, _effect=effect, _source=source)
+                        break
+                else:
+                    continue
             else:
-                self.more[q] += 1
+                continue  # only kept rows are remembered, so memory stays bounded however many matches a file has
+            self.keys.add(key)
 
     def gap(self, check, path, line=0, snippet="", questions=None):
         """A thing the overlay could not look at: a named row, so no gap shows as a bare summary row. Name-only
@@ -277,23 +288,56 @@ class Overlay(object):
 
 
 class OverlayFile(object):
-    __slots__ = ("rel", "base", "ext", "text", "_lex")
+    __slots__ = ("rel", "base", "ext", "text")
 
     def __init__(self, rel, base, ext, text):
         self.rel, self.base, self.ext, self.text = rel, base, ext, text
-        self._lex = None
-
-    def sql_lex(self):
-        if self._lex is None:
-            self._lex = _lex_sql(self.text)
-        return self._lex
 
 
-def _clause(m):
-    return m.group(0)[:release.MAX_SNIPPET]
+ELLIPSIS_RUN_RE = re.compile("\u2026{2,}")
+
+
+def _clause(m, mask=True, source=None):
+    """Redact first, then cut, in 0.3.2's make_snippet order: a cut through a key leaves a fragment no pattern
+    catches. Quoted values left in the clause are hidden. Firebase rows pass `source`, the rules file with every
+    string masked (detect_rules), so a clause that starts inside a string or holds an escaped quote shows none
+    of it. SQL rows either match `code` (strings already blanked) or are fixed shape (`disable row level
+    security`, `using (true)`); RTDB matches are fixed shape too and pass mask=False to keep their text."""
+    text = release.sweep(m.group(0) if source is None else source[m.start():m.end()])
+    return ELLIPSIS_RUN_RE.sub("\u2026", release.sanitize(release._mask_quoted(text) if mask else text))
+
+
+def _mask_strings(text, tick=None):
+    """The rules file with every string literal's contents replaced by \u2026, offsets kept, read left to right
+    with the lexer the condition reader uses (FIREBASE_STRING_RE, escapes included). A quote that never closes
+    masks to the end of its line. Linear: each character is passed once."""
+    out = []
+    pos = 0
+    n = len(text)
+    quote = re.compile("[\"']")
+    while pos < n:
+        if tick is not None:
+            tick()
+        q = quote.search(text, pos)
+        if not q:
+            break
+        out.append(text[pos:q.start()])
+        m = FIREBASE_STRING_RE.match(text, q.start())
+        if m:
+            end = m.end()
+            out.append(text[q.start()] + "\u2026" * (end - q.start() - 2) + text[end - 1])
+        else:
+            end = text.find("\n", q.start())
+            end = n if end < 0 else end
+            out.append(text[q.start()] + "\u2026" * (end - q.start() - 1))
+        pos = end
+    out.append(text[pos:])
+    return "".join(out)
 
 
 def _finditer_rows(regex, text, sf, ov, check, counter):
+    """`text` is the file with strings blanked (`code`): a match inside a string is 0.3.2's to judge, and a row
+    built here can never print what a string holds."""
     for m in regex.finditer(text):
         ov.tick()
         if not release._cap(counter, check):
@@ -390,10 +434,12 @@ def _lex_sql(text, depth=0, tick=None):
     return "".join(nc), "".join(code), "".join(bare), unclosed
 
 
-def _paren_closes(text):
+def _paren_closes(text, tick=None):
     """Each '(' offset mapped to the offset of the ')' that brings the level back down: one pass, linear."""
     closes, stack = {}, []
     for m in PAREN_RE.finditer(text):
+        if tick is not None:
+            tick()
         if m.group(0) == "(":
             stack.append(m.start())
         elif stack:
@@ -458,17 +504,20 @@ def detect_sql(sf, ov, rel_state):
         rec = {}
         if not release.USING_TRUE_RE.match(text, m.start()):
             if closes is None:
-                closes = _paren_closes(bare)  # only when a group needs reading; parens in strings do not count
+                closes = _paren_closes(bare, ov.tick)  # only when a group needs reading; parens in strings do not count
+            if time.monotonic() > ov.deadline:  # one predicate can cost thousands of ticks' work: check the clock before each
+                ov.stopped_by = "tick"
+                raise release.Deadline()
             if not _sql_predicate_open(bare, m.start(), closes, budget, rec):
                 check = "policy-true-unevaluated"
         check = _caution(check) if _in_code(m, bare) else "open-rule-in-string"
         if release._cap(counter, check):
             nested = check == "policy-true-unevaluated" and rec.get("exhausted")
             ov.add(check, sf.rel, release.line_of(text, m.start()), NESTED_DETAIL % rec["chars"] if nested else _clause(m), source="sql")
-    _finditer_rows(WITH_CHECK_TRUE_RE, text, sf, ov, "policy-with-check-true", counter)
-    _finditer_rows(release.POLICY_TO_ANON_RE, text, sf, ov, "policy-to-anon", counter)
-    _finditer_rows(release.STORAGE_BUCKET_TRUE_RE, text, sf, ov, "storage-bucket-public-sql", counter)
-    _finditer_rows(release.CRON_SQL_RE, text, sf, ov, "cron-schedule", counter)
+    _finditer_rows(WITH_CHECK_TRUE_RE, code, sf, ov, "policy-with-check-true", counter)
+    _finditer_rows(release.POLICY_TO_ANON_RE, code, sf, ov, "policy-to-anon", counter)
+    _finditer_rows(release.STORAGE_BUCKET_TRUE_RE, code, sf, ov, "storage-bucket-public-sql", counter)
+    _finditer_rows(release.CRON_SQL_RE, code, sf, ov, "cron-schedule", counter)
     pos, line = 0, 1
     for n, m in enumerate(CREATE_TABLE_RE.finditer(text)):
         if n >= release.MAX_TABLE_MATCHES_PER_FILE:
@@ -478,6 +527,8 @@ def detect_sql(sf, ov, rel_state):
         line += text.count("\n", pos, m.start())
         pos = m.start()
         name = release._public_table(m.group(1))
+        if name and code[m.start():m.end()] == m.group(0) and len(ov.code_tables) < release.MAX_SEEN:
+            ov.code_tables.add(name)
         if name and name not in rel_state.tables and name not in ov.tables and len(ov.tables) < release.MAX_SEEN:
             ov.tables[name] = (sf.rel, line)
     enabled_at = {}  # public table -> offset of its last `enable row level security` in this file
@@ -493,21 +544,29 @@ def detect_sql(sf, ov, rel_state):
             enabled_at[name] = m.start()
             if len(ov.rls_enabled) < release.MAX_SEEN:
                 ov.rls_enabled.add(name)  # credit for the overlay's own tables only; 0.3.2's credit is its own
+    pos, line = 0, 1
     for n, m in enumerate(DROP_TABLE_RE.finditer(text)):
         if n >= release.MAX_TABLE_MATCHES_PER_FILE:
             ov.gap("rules-not-read-whole", sf.rel, 0, "more drop table statements than the scanner reads")
             break
         ov.tick()
+        line += text.count("\n", pos, m.start())  # counted forward once per statement, never from the top per name
+        pos = m.start()
         parts = m.group(1).split(",")
+        shown = code[m.start():m.end()] == m.group(0)  # a list that reaches into a string or body shows no names
         if len(m.group(1)) >= MAX_DROP_LIST_CHARS or len(parts) > release.MAX_TABLE_MATCHES_PER_FILE:
-            ov.gap("rules-not-read-whole", sf.rel, release.line_of(text, m.start()), "a drop list too long to read whole")
+            ov.gap("rules-not-read-whole", sf.rel, line, "a drop list too long to read whole")
         for part in parts[:release.MAX_TABLE_MATCHES_PER_FILE]:
+            ov.tick()
             t = DROP_ITEM_RE.match(part)
             name = release._public_table(t.group(1)) if t else None
             # a table dropped and made again loses its RLS; unless this file turns it back on afterwards, migration
             # order across files decides, and the scanner does not replay migrations
             if name and enabled_at.get(name, -1) < m.start():
-                ov.gap("table-dropped", sf.rel, release.line_of(text, m.start()), name)
+                if release._cap(counter, "table-dropped"):
+                    ov.gap("table-dropped", sf.rel, line, name if shown else IN_STRING_DETAIL)
+                else:
+                    ov.gaps["q3"] += 1  # named five times per file; every one still keeps Q3 off Nothing found
     counter_views = {}
     for m in CREATE_VIEW_RE.finditer(text):
         ov.tick()
@@ -516,7 +575,8 @@ def detect_sql(sf, ov, rel_state):
         head = VIEW_AS_RE.split(m.group(3), 1)[0]
         options = " ".join(w.group(1) + ")" for w in VIEW_WITH_RE.finditer(head))
         if name and (m.group(1) or not SAFE_INVOKER_RE.search(options)) and release._cap(counter_views, "public-view"):
-            ov.add("public-view", sf.rel, release.line_of(text, m.start()), name, source="sql")
+            shown = code[m.start():m.end(2)] == text[m.start():m.end(2)]
+            ov.add("public-view", sf.rel, release.line_of(text, m.start()), name if shown else IN_STRING_DETAIL, source="sql")
 
 # ------------------------------------------------------------------ Firebase rules
 
@@ -657,6 +717,9 @@ def detect_rules(sf, ov):
     ov.rule_files += 1
     # JSON rules files have no // comments, and a URL inside a string would eat the rest of the line
     text = release._blank_block_comments(sf.text) if sf.base.lower().endswith(".json") else release._strip_slash_comments(sf.text)
+    # snippets come from here: a character shows only when it is outside a string both in the file as written and
+    # with comments blanked (a `/*` in one string and `*/` in a later one would otherwise re-pair the quotes)
+    masked = "".join(c if r == o else "\u2026" for c, r, o in zip(_mask_strings(text, ov.tick), _mask_strings(sf.text, ov.tick), sf.text))
     ifs, long_n = _firebase_ifs(text, ov.tick)
     for m in ifs:
         ov.tick()
@@ -672,23 +735,23 @@ def detect_rules(sf, ov):
             continue
         if release._cap(counter, check):
             nested = verdict == "unevaluated" and rec.get("exhausted")
-            ov.add(check, sf.rel, release.line_of(text, m.start()), NESTED_DETAIL % rec["chars"] if nested else _clause(m), source="rules")
+            ov.add(check, sf.rel, release.line_of(text, m.start()), NESTED_DETAIL % rec["chars"] if nested else _clause(m, source=masked), source="rules")
     for _ in range(long_n):
         ov.tick()
         ov.gap("rules-not-read-whole", sf.rel, 0, "a condition longer than the scanner reads")
-    for regex in (FIREBASE_TEST_MODE_RE, RTDB_TEST_MODE_RE):
+    for regex, how in ((FIREBASE_TEST_MODE_RE, {"source": masked}), (RTDB_TEST_MODE_RE, {"mask": False})):  # RTDB: fixed shape, no free text
         for m in regex.finditer(text):
             ov.tick()
             if release._cap(counter, "firebase-rules-test-mode"):
-                ov.add("firebase-rules-test-mode", sf.rel, release.line_of(text, m.start()), _clause(m), source="rules")
+                ov.add("firebase-rules-test-mode", sf.rel, release.line_of(text, m.start()), _clause(m, **how), source="rules")
     for m in RTDB_WRITE_OPEN_RE.finditer(text):
         ov.tick()
         if release._cap(counter, "open-rule-unconfirmed"):
-            ov.add("open-rule-unconfirmed", sf.rel, release.line_of(text, m.start()), _clause(m), source="rules")
+            ov.add("open-rule-unconfirmed", sf.rel, release.line_of(text, m.start()), _clause(m, mask=False), source="rules")
     for m in RTDB_READ_OPEN_RE.finditer(text):
         ov.tick()
         if release._cap(counter, "firebase-rules-public-read"):
-            ov.add("firebase-rules-public-read", sf.rel, release.line_of(text, m.start()), _clause(m), source="rules")
+            ov.add("firebase-rules-public-read", sf.rel, release.line_of(text, m.start()), _clause(m, mask=False), source="rules")
 
 # ------------------------------------------------------------------ .mts / .cts, manifests
 
@@ -752,7 +815,8 @@ def _lexists_inside(path, inner):
 def _mcp_configs_inside(path, name, deadline=None):
     """Paths, relative to a never-open agent folder, of anything that looks like an MCP server config. Only names
     are read, never contents. Each entry counts once and each folder counts again as a step, against
-    0.3.2's MAX_NEVER_OPEN_COUNT; truncated means the walk stopped at that cap or the deadline. Nothing below a
+    0.3.2's MAX_NEVER_OPEN_COUNT; truncated means the walk stopped at that cap. Past the deadline it raises
+    OverlayTimeout, so the pass ends unfinished instead of calling a clock stop a size cap. Nothing below a
     reported folder is walked. An mcp-named folder of instructions (under skills/, rules/, agents/ …) is not
     reported by name, but a config-shaped file inside it is."""
     path = path.rstrip(os.sep + (os.altsep or "")) or path
@@ -764,7 +828,9 @@ def _mcp_configs_inside(path, name, deadline=None):
     cap = release.MAX_NEVER_OPEN_COUNT
 
     def stop():
-        return entries >= cap or (deadline is not None and entries % release.DEADLINE_TICK == 0 and time.monotonic() > deadline)
+        if deadline is not None and entries % release.DEADLINE_TICK == 0 and time.monotonic() > deadline:
+            raise OverlayTimeout()
+        return entries >= cap
     for dirpath, dirs, files in os.walk(path, followlinks=False, onerror=lambda e: None):
         rel = "." if dirpath == path else dirpath[len(path) + 1:].replace(os.sep, "/")
         entries += 1
@@ -847,7 +913,11 @@ def overlay_walk(repo, opts, ov, rel_state, caps, clock, end):
                 continue
             if release.is_never_open_dir(d, parent_name):
                 rel_d = (rel_dir + "/" + d) if rel_dir else d
-                scan = _mcp_configs_inside(full, d, end)
+                try:
+                    scan = _mcp_configs_inside(full, d, end)
+                except OverlayTimeout:
+                    ov.stopped_by = "clock"
+                    raise
                 for inner in scan.found:
                     ov.gap(MCP_CHECK, rel_d + "/" + inner)
                 if scan.truncated:
@@ -865,8 +935,8 @@ def overlay_walk(repo, opts, ov, rel_state, caps, clock, end):
             full = os.path.join(dirpath, name)
             ext = os.path.splitext(name)[1].lower()
             module = ext in MODULE_EXTS
-            if NEVER_OPEN_SECRET_FILE_RE.match(name):
-                ov.gap(MCP_CHECK, rel, 0, "agent config, not opened")
+            if NEVER_OPEN_SECRET_FILE_RE.match(name):  # 0.3.2 never opens opencode.json or .aider*; it reads opencode.jsonc as text
+                ov.gap(MCP_CHECK, rel, 0, "agent config, not opened" if release.is_never_open_file(name) else "agent config; MCP servers not checked")
             if release.is_never_open_file(name) or name == ".git":
                 continue
             try:
@@ -938,12 +1008,12 @@ def overlay_pass(repo, opts, ov, rel_state, result, clock, end):
     for name in sorted(set(ov.tables) - set(rel_state.tables) - rel_state.rls_enabled - ov.rls_enabled):
         if release._cap(counter, "table-without-rls"):
             path, line = ov.tables[name]
-            ov.add("table-without-rls", path, line, name, source="sql")
+            ov.add("table-without-rls", path, line, name if name in ov.code_tables else IN_STRING_DETAIL, source="sql")
     # text inside a string or comment never turns RLS on: a table 0.3.2 credited from such an enable alone
     for name in sorted(set(rel_state.tables) & rel_state.rls_enabled - ov.rls_enabled):
         if release._cap(counter, "table-without-rls"):
             path, line = rel_state.tables[name]
-            ov.add("table-without-rls", path, line, name, source="sql")
+            ov.add("table-without-rls", path, line, name if name in ov.code_tables else IN_STRING_DETAIL, source="sql")
     if ov.rule_files == 0 and result["questions"]["q3"]["answer"] == "nothing-found":
         ov.add("no-rule-statements", "", 0, "no SQL file creates a table or policy; no rules file")
 
@@ -974,9 +1044,32 @@ def _evidence_only(row):
 
 
 class _Plan(object):
-    """One question's merged state: 0.3.2's rows (after the nothing-found row is gone and any displacement), the
-    overlay's rows after them, the answer, and whether the overlay changed anything."""
-    __slots__ = ("q", "base_answer", "answer", "base_rows", "ov_rows", "unfinished_row", "changed")
+    """One question's merged state: 0.3.2's rows (after the nothing-found row is gone), the overlay's rows after
+    them, and the answer. 0.3.2's Q1 evidence-only rows are withheld only
+    while overlay No rows are shown in their place (_shown_base), so a No the size loop trims gives its row back."""
+    __slots__ = ("base_answer", "answer", "base_rows", "ov_rows", "unfinished_row", "extra")
+
+
+def _changed(p):
+    return p.answer != p.base_answer or bool(p.ov_rows) or p.unfinished_row is not None
+
+
+def _shown_base(p):
+    """0.3.2's rows as shown: on Q1, one evidence-only row (last first) per overlay No row past MAX_EVIDENCE,
+    0.3.2's own ScanState.add rule, plus any the size loop displaced for a No it still shows. A 0.3.2 No row is
+    never displaced."""
+    n_no = sum(1 for r in p.ov_rows if r["_no"])
+    if not n_no:
+        return p.base_rows
+    need = max(0, len(p.base_rows) + n_no + (1 if p.unfinished_row else 0) - release.MAX_EVIDENCE) + p.extra
+    shown = list(p.base_rows)
+    for i in range(len(shown) - 1, -1, -1):
+        if need <= 0:
+            break
+        if _evidence_only(shown[i]):
+            del shown[i]
+            need -= 1
+    return shown
 
 
 def _plans(result, ov):
@@ -996,27 +1089,17 @@ def _plans(result, ov):
         rows.sort(key=lambda r: 0 if r["_no"] else 1)
         want = "no" if any(r["_no"] for r in rows) else ("dont-know" if rows or ov.gaps[q] or not ov.finished else "nothing-found")
         p = _Plan()
-        p.q, p.base_answer = q, qd["answer"]
+        p.base_answer, p.extra = qd["answer"], 0
         p.answer = want if RANK[want] > RANK[qd["answer"]] else qd["answer"]
         if p.answer != p.base_answer and p.base_answer == "nothing-found":
             base_rows = [r for r in base_rows if not r["check"].startswith("nothing-found-")]
-        if any(r["_no"] for r in rows):  # displacement at insertion: 0.3.2's own ScanState.add rule, Q1 only
-            n_no = sum(1 for r in rows if r["_no"])
-            while len(base_rows) + n_no > cap:
-                for i in range(len(base_rows) - 1, -1, -1):
-                    if _evidence_only(base_rows[i]):
-                        del base_rows[i]
-                        break
-                else:
-                    break
-        room = max(0, cap - len(base_rows))
-        p.unfinished_row = None
-        if not ov.finished and p.base_answer == "nothing-found":
-            p.unfinished_row = _unfinished_row(ov.status)
-            room = max(0, room - 1)
         p.base_rows = base_rows
-        p.ov_rows = rows[:room]
-        p.changed = p.answer != p.base_answer or bool(p.ov_rows) or p.unfinished_row is not None
+        p.unfinished_row = _unfinished_row(ov.status) if not ov.finished and p.base_answer == "nothing-found" else None
+        # Nos first: each takes one evidence-only 0.3.2 slot when Q1 is full; cautions only take free slots
+        displaceable = sum(1 for r in base_rows if _evidence_only(r))
+        free = max(0, cap - len(base_rows) - (1 if p.unfinished_row else 0))
+        nos = [r for r in rows if r["_no"]][:free + displaceable]
+        p.ov_rows = nos + [r for r in rows if not r["_no"]][:max(0, free - len(nos))]
         plans[q] = p
     return plans
 
@@ -1024,9 +1107,9 @@ def _plans(result, ov):
 def _assemble(result, plans):
     out = copy.deepcopy(result)
     for q, p in plans.items():
-        if not p.changed:
+        if not _changed(p):
             continue
-        evidence = p.base_rows + [_public(r) for r in p.ov_rows] + ([p.unfinished_row] if p.unfinished_row else [])
+        evidence = _shown_base(p) + [_public(r) for r in p.ov_rows] + ([p.unfinished_row] if p.unfinished_row else [])
         qd = out["questions"][q]
         qd["answer"] = p.answer
         qd["evidence"] = evidence
@@ -1042,9 +1125,11 @@ def _compact(row):
 
 def _fit(result, plans):
     """Keep the output under 0.3.2's cap without touching a 0.3.2 row of any other question and without ever
-    setting partial: drop overlay rows that did not change an answer, then all but one on a question the overlay
-    moved (the unfinished row counts as that one), compact what is left, then (Q1 No only) displace 0.3.2's
-    evidence-only Q1 rows, compact the No row fully, and as a last step demote it once."""
+    setting partial: drop overlay rows that did not change an answer, then on a question the overlay moved keep
+    only its No row (one) or else one row (the unfinished row counts as that one), compact what is left, then (Q1
+    No only) displace 0.3.2's evidence-only Q1 rows, compact the No row fully, and as a last step demote it once.
+    An overlay No that moved Q1 keeps its row while the answer stays No; where 0.3.2 already said No, the overlay's
+    No row trims like any other, and a dropped No gives back the 0.3.2 row it displaced."""
     cap = release.MAX_OUTPUT_BYTES
 
     def over():
@@ -1053,15 +1138,26 @@ def _fit(result, plans):
     if not over():
         return _assemble(result, plans)
     moved = lambda p: p.answer != p.base_answer
-    # 1. overlay rows on questions whose answer the overlay did not change, the longest list first
+    # Nos sort first in ov_rows, so pop() takes cautions before any No.
+    # 1. overlay rows on questions whose answer the overlay did not change, the longest list first; a No dropped
+    #    here (0.3.2 already said No) gives back the 0.3.2 row it displaced
     while over():
         idle = [p for p in plans.values() if not moved(p) and p.ov_rows]
         if not idle:
             break
         max(idle, key=lambda p: len(p.ov_rows)).ov_rows.pop()
-    # 2. on moved questions, down to one row (the unfinished row is that one when present)
+    # 2. on moved questions: cautions go while a No stays, then down to one No; otherwise down to one row (the
+    #    unfinished row is that one when present)
     while over():
-        busy = [p for p in plans.values() if moved(p) and len(p.ov_rows) > (0 if p.unfinished_row else 1)]
+        busy = []
+        for p in plans.values():
+            if not moved(p):
+                continue
+            n_no = sum(1 for r in p.ov_rows if r["_no"])
+            if n_no and (n_no > 1 or len(p.ov_rows) > n_no):
+                busy.append(p)
+            elif not n_no and len(p.ov_rows) > (0 if p.unfinished_row else 1):
+                busy.append(p)
         if not busy:
             break
         max(busy, key=lambda p: len(p.ov_rows)).ov_rows.pop()
@@ -1070,29 +1166,26 @@ def _fit(result, plans):
         for p in plans.values():
             p.ov_rows = [_compact(r) for r in p.ov_rows]
     q1 = plans["q1"]
-    no_rows = [r for r in q1.ov_rows if r["_no"]]
     # 4. a Q1 No: displace 0.3.2's evidence-only Q1 rows, last first; then a fully compact No row
-    while over() and no_rows:
-        for i in range(len(q1.base_rows) - 1, -1, -1):
-            if _evidence_only(q1.base_rows[i]):
-                del q1.base_rows[i]
-                break
-        else:
+    while over() and any(r["_no"] for r in q1.ov_rows):
+        before = len(_shown_base(q1))
+        q1.extra += 1
+        if len(_shown_base(q1)) == before:
+            q1.extra -= 1
             break
-    if over() and no_rows:
+    if over() and any(r["_no"] for r in q1.ov_rows):
         q1.ov_rows = [dict(r, path="", line=0, snippet="") if r["_no"] else r for r in q1.ov_rows]
     # 5. demote the overlay's No, once
-    if over() and no_rows:
-        base_q1 = result["questions"]["q1"]
+    if over() and any(r["_no"] for r in q1.ov_rows):
+        no_row = [r for r in q1.ov_rows if r["_no"]][0]
+        q1.extra = 0
         if q1.base_answer == "nothing-found":
             q1.answer = "dont-know"
-            q1.ov_rows = [dict(_compact(dict(no_rows[0], _no=False)))]
+            q1.ov_rows = [_compact(dict(no_row, _no=False))]
         else:
             q1.answer = q1.base_answer
-            q1.base_rows = list(base_q1["evidence"])
             q1.ov_rows = []
             q1.unfinished_row = None
-            q1.changed = False
     if over():
         return None  # the caller falls back to 0.3.2's result with Nothing found withheld
     return _assemble(result, plans)
@@ -1117,10 +1210,11 @@ def merge(result, ov):
         for r in ov.rows[q]:
             if r["check"] not in OVERLAY_CHECKS and r["check"] not in release.CHECKS:
                 raise ValueError("unknown overlay check: " + r["check"])
+    why = ov.status if not ov.finished else "full"  # a finished pass falls back only because its rows did not fit
     if _size(result) > release.MAX_OUTPUT_BYTES:
-        return result if ov.finished and not any(ov.rows[q] or ov.gaps[q] for q in QS) else fallback(result, ov.status if not ov.finished else "unfinished")
+        return result if ov.finished and not any(ov.rows[q] or ov.gaps[q] for q in QS) else fallback(result, why)
     out = _fit(result, _plans(result, ov))
-    return out if out is not None else fallback(result, ov.status)
+    return out if out is not None else fallback(result, why)
 
 # ------------------------------------------------------------------ scan
 
