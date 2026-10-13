@@ -249,6 +249,41 @@ case("private key in a public opencode.jsonc", {"public/opencode.jsonc": "{PEM_B
 case("oversize mts", {"src/big.mts": {"repeat": "export const a = 1;\n", "times": 30000}})
 case("hard-linked mts", {"src/a.mts": "export const x = 1\n"}, links={"src/b.mts": "src/a.mts"})
 
+# ---- fresh review of d90c4fd (2026-10-12): string contents printed where 0.3.2 printed none; "hunter2" marks
+# text inside a string, a function body or a quoted name (NeverWorseThanMainTests.test_never_prints_text_the_baseline_did_not)
+FBR = "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /x/{id} {\n      %s\n    }\n  }\n}\n"
+TAG = "$" + "a" * 70 + "$"
+case("rules mask: a quote in a comment and a comment across two strings", {"firestore.rules": FBR % "allow read: if /* \" */ request.auth.uid == \"p /* q\" || 'r */ s' == \"hunter2-pw jane.doe@example.com\" || true;"})
+case("rules mask: a comment opener in a string, a quote in a comment", {"firestore.rules": FBR % "allow read: if resource.data.p == '/*' /* don't */ || resource.data.pw == 'hunter2!prod' || true;"})
+case("rules mask: mirrored quotes on two lines", {"firestore.rules": FBR % ("allow read: if a == '/*' || b == \"*/\" /* ' */ || c == 'hunter2aaa' || true;\n"
+                                                                       "      allow write: if a == \"/*\" || b == '*/' /* \" */ || c == \"hunter2bbb\" || true;")})
+case("rules mask: a quote inside a comment only", {"firestore.rules": FBR % "allow read: if resource.data.k == /* \" */ \"hunter2Pass_word\" || true;"})
+case("dollar tag longer than a name", {"supabase/migrations/1.sql": RLS + "create function f() returns void language plpgsql as " + TAG +
+                                       " begin drop table public.hunter2tbl; create view public.hunter2view as select 1; end " + TAG + ";\n"})
+case("dollar tag opened right after one closes", {"supabase/migrations/1.sql": RLS + "create function g() returns void as $a$x$a$$b$ begin drop table public.hunter2_second; end $b$ language plpgsql;\n"})
+case("dollar signs inside a name before a function body", {"supabase/migrations/1.sql": RLS + "create table public.x$$b$ (id int);\ncreate function f() returns void as $b$ drop table public.hunter2tbl; $b$;\n"})
+case("a name ending in $e before a string", {"supabase/migrations/1.sql": RLS + "create policy p on public.notes using (pw = x$e'--\\' or pw = 'hunter2prod' /* ' */) to anon;\n"})
+case("nested block comment around a string", {"supabase/migrations/1.sql": RLS + "create policy p on public.notes using (/* /* */ ' -- */ pw = 'x' or pw = 'hunter2prod' /* ' */) to anon;\n"})
+case("quoted view name", {"supabase/migrations/1.sql": RLS + 'create view "jane hunter2 view" as select 1;\n'})
+MIG = "supabase/migrations/1.sql"
+case("quoted dropped table", {MIG: RLS + 'drop table "hunter2";\n'})
+case("quoted view", {MIG: RLS + 'create view "hunter2" as select 1;\n'})
+case("comma inside a quoted dropped name", {MIG: RLS + 'drop table "Jane Doe,hunter2_ssn";\n'})
+case("E string right after a dollar quote", {MIG: RLS + "select $a$x$a$e'\\' ; drop table hunter2; create view hunter2v as select 1; ';\n"})
+case("block comment that does not nest", {MIG: RLS + "/* Don't edit: generated from src/*.sql */\ninsert into log values ('drop table hunter2;');\ninsert into log values ('create view hunter2v as select 1;');\n"})
+case("non-ascii dollar tag", {MIG: RLS + "create function f() returns void as $€$ drop table hunter2; $€$ language sql;\n"})
+case("dollar tag after a parameter", {MIG: RLS + "select $1$x$ drop table hunter2; $x$;\n"})
+case("quoted name over two lines", {MIG: RLS + 'select "x\ndrop table hunter2; ";\n'})
+case("E string after a non-ascii name", {MIG: RLS + "select €E'\\' x ' drop table hunter2; ';\n"})
+case("table and enable only inside a string", {MIG: RLS + "insert into t values ('create table hunter2tbl (id int); alter table hunter2tbl enable row level security');\n"})
+case("long dollar tag right after one closes", {MIG: RLS + "create function g() returns void as $a$x$a$" + TAG + " begin drop table public.hunter2x; end " + TAG + " language plpgsql;\n"})
+case("rls enable only inside a string for a quoted table", {MIG: 'create table public."Hunter2 Secret" (id int);\nselect \'alter table public."Hunter2 Secret" enable row level security\';\n'})
+case("a table only the overlay reads", {MIG: "create table" + " " * 30 + "public.hunter2 (id int);\n"})
+case("monitoring family with free text", {"package.json": '{"dependencies": {"react": "18", "@sentry/hunter2-x jane.doe@example.com": "1"}}\n'})
+case("monitoring family in requirements", {"requirements.txt": "opentelemetry-hunter2pw==1.0\n"})
+case("rls words inside a comment string",{"db/1.sql": RLS + "comment on table public.notes is 'disable                row level security';\n"
+                                           "comment on column public.notes.id is 'doc says using (((((true))))) is bad';\n"})
+
 
 def answers(scanner, c):
     tmp = tempfile.mkdtemp()

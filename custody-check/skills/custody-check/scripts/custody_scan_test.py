@@ -131,6 +131,25 @@ def assert_unconfirmed(tc, q, msg=None):
     tc.assertIn("open-rule-unconfirmed", evidence_checks(q), msg)
 
 
+# Specifications _firebase_ifs implements without reading up to 400 characters per `allow`; only the tests run them.
+FIREBASE_IF_RE = re.compile(r"\ballow\s{1,20}([a-z]+(?:\s{0,20},\s{0,20}[a-z]+){0,10})\s{0,20}:\s{0,20}if(?=[\s(])(?=((?:[^;}\n]|\n(?![ \t]{0,80}(?:allow|match)\b)){0,400}))\2(?=[;}]|\n[ \t]{0,80}(?:allow|match)\b)", re.I)
+FIREBASE_IF_LONG_RE = re.compile(r"\ballow\s{1,20}[a-z]+(?:\s{0,20},\s{0,20}[a-z]+){0,10}\s{0,20}:\s{0,20}if(?=[\s(])(?:[^;}\n]|\n(?![ \t]{0,80}(?:allow|match)\b)){401}", re.I)  # past what FIREBASE_IF_RE reads
+
+
+def _monitoring_shown(name):
+    """What a monitoring-dependency row shows: a name from the scanner's own list, or a family's prefix (the rest of
+    the name is the file's text and is not shown)."""
+    if name.lower() in cs.release.MONITORING_DEPS:
+        return name  # 0.3.2's own row, unchanged
+    if name.lower() in cs.MONITORING_DEPS:
+        return name.lower()
+    return [f for f in cs.MONITORING_PREFIXES if name.lower().startswith(f)][0] + "\u2026 (name not shown)"
+
+def _ifs_view(text, ifs):
+    """_firebase_ifs' (head, end) pairs in the shape of a FIREBASE_IF_RE match, to compare the two."""
+    return [(h.start(), text[h.start():e], h.group(1), text[h.end():e], h.end(), e) for h, e in ifs]
+
+
 class ScanCase(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="custody test ")
@@ -1466,7 +1485,7 @@ class LinearityTests(unittest.TestCase):
             ("prefilter keyword", cs.release.PREFILTER_RE, "secret:"),
             ("run sweep", cs.release.RUN_RE, "A1b2C3d4" * 4 + " "),
             ("client import", cs.release.CLIENT_IMPORT_RE, "import x from 'y'\n"),
-            ("firebase allow", cs.FIREBASE_IF_RE, "allow read, write: if x;\n"),
+            ("firebase allow", cs.FIREBASE_IF_HEAD_RE, "allow read, write: if x;\n"),
         )
         # Sized so the fastest case still takes ~6x the floor below. At 20k units the two hottest
         # regexes measured 0.0021s and 0.0024s against a 0.002s floor, so a faster runner would have
@@ -1508,7 +1527,7 @@ class LinearityTests(unittest.TestCase):
 
     def test_firebase_and_sql_patterns_are_linear(self):
         t0 = time.perf_counter()
-        cs.FIREBASE_IF_RE.search("allow " * 80000)
+        cs.FIREBASE_IF_HEAD_RE.search("allow " * 80000)
         cs.RLS_DISABLED_RE.search("disable " + " " * 400000)
         cs.RLS_DISABLED_RE.search("disable \n" * 60000)
         self.assertLess(time.perf_counter() - t0, bound(1.0))
@@ -1927,7 +1946,7 @@ class ReviewCycleThreeAdversarialTests(ScanCase):
 
     def test_single_long_whitespace_line_is_linear(self):
         line = " " * 400000
-        for regex in (cs.release.CRON_WORKFLOW_RE, cs.release.CLIENT_IMPORT_RE, cs.release.TOML_PUBLIC_TRUE_RE, cs.release.NETLIFY_CONTEXT_RE, cs.release.WRANGLER_ENV_RE, cs.release.CRON_WRANGLER_RE, cs.release.USE_CLIENT_RE, cs.FIREBASE_IF_RE, cs.release.GEM_RE, cs.release.GO_REQUIRE_RE):
+        for regex in (cs.release.CRON_WORKFLOW_RE, cs.release.CLIENT_IMPORT_RE, cs.release.TOML_PUBLIC_TRUE_RE, cs.release.NETLIFY_CONTEXT_RE, cs.release.WRANGLER_ENV_RE, cs.release.CRON_WRANGLER_RE, cs.release.USE_CLIENT_RE, cs.FIREBASE_IF_HEAD_RE, cs.release.GEM_RE, cs.release.GO_REQUIRE_RE):
             t0 = time.perf_counter()
             regex.search(line)
             regex.search("\t" * 400000)
@@ -4419,7 +4438,7 @@ class FalseNothingFoundTests(ScanCase):
             with self.subTest(name=name):
                 self.fresh()
                 self.write("package.json", json.dumps({"dependencies": {name: "1"}}))
-                self.assertEqual(self.monitoring(self.q("q9")), [name])
+                self.assertEqual(self.monitoring(self.q("q9")), [_monitoring_shown(name)])
 
     def test_every_listed_monitoring_dependency_is_recognised(self):
         # table-driven so deleting any one entry fails; Go paths in go.mod, everything else by name in package.json
@@ -4515,7 +4534,7 @@ class FalseNothingFoundTests(ScanCase):
         self.write("db/1.sql", "create table public.orders (id int);\ncomment on table public.orders is 'TODO: alter table public.orders enable row level security';\n")
         q3 = self.q("q3")
         self.assertEqual(q3["answer"], "dont-know")
-        self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], ["orders"])
+        self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], [cs.NAME_LABELS["table"]])
 
     def test_a_dropped_and_recreated_table_is_not_nothing_found(self):
         self.rls_app()
@@ -4601,7 +4620,7 @@ class FalseNothingFoundReviewTests(ScanCase):
                      "comment on table public.notes is 'it''s alter table public.notes enable row level security';\n"):
             with self.subTest(tail=tail):
                 q3 = self.q3_of({"db/1.sql": "create table public.notes (id int);\n" + tail})
-                self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], ["notes"])
+                self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], [cs.NAME_LABELS["table"]])
 
     def test_a_do_block_really_runs(self):
         q3 = self.q3_of({"db/1.sql": "create table public.notes (id int);\ndo $$ begin\n  alter table public.notes enable row level security;\nend $$;\n"})
@@ -4699,7 +4718,7 @@ class FalseNothingFoundReviewTests(ScanCase):
                     self.write("go.mod", "module x\n\nrequire %s v1.0.0\n" % name)
                 else:
                     self.write("package.json", json.dumps({"dependencies": {name: "1"}}))
-                self.assertEqual(sorted(e["snippet"] for e in self.q("q9")["evidence"] if e["check"] == "monitoring-dependency"), [name])
+                self.assertEqual(sorted(e["snippet"] for e in self.q("q9")["evidence"] if e["check"] == "monitoring-dependency"), [_monitoring_shown(name)])
 
     def test_no_exact_monitoring_name_is_already_covered_by_a_prefix(self):
         self.assertEqual(sorted(n for n in cs.MONITORING_DEPS if n.startswith(cs.MONITORING_PREFIXES)), [])
@@ -4738,7 +4757,7 @@ class StringBlankingIsOnlyEverCautiousTests(ScanCase):
         q3 = self.q3_of(self.RLS + "comment on table public.notes is 'line one\ndisable row level security\nline three';\n")
         self.assertEqual(q3["answer"], "no", "0.3.2 read this as a No; it stays one")
         q3 = self.q3_of("create table public.notes (id int);\ncomment on table public.notes is 'a\nalter table public.notes enable row level security\nb';\n")
-        self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], ["notes"])
+        self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], [cs.NAME_LABELS["table"]])
 
     def test_a_drop_inside_a_function_body_still_counts(self):
         q3 = self.q3_of(self.RLS + "create function public.rebuild() returns void language plpgsql as $$ begin execute 'drop table public.notes'; execute 'create table public.notes (id int)'; end $$;\nselect public.rebuild();\n")
@@ -4833,7 +4852,7 @@ class ReviewCycleThreeRegressionTests(ScanCase):
         q3 = self.sql(self.RLS + "insert into public.log(msg) values ('a -- b');\nalter table public.notes disable row level security;\nselect 'x';\n")
         self.assertEqual(q3["answer"], "no")
         q3 = self.sql("create table public.notes (id int);\ninsert into public.log(msg) values ('a -- b');\ncomment on table public.notes is 'alter table public.notes enable row level security';\n")
-        self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], ["notes"])
+        self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], [cs.NAME_LABELS["table"]])
 
     def test_a_do_block_does_not_flip_later_dollar_quotes(self):
         do = "do $$ begin if not exists (select 1) then perform 1; end if; end $$;\n"
@@ -4841,7 +4860,7 @@ class ReviewCycleThreeRegressionTests(ScanCase):
         q3 = self.sql("create table public.notes (id int);\n" + do + "alter table public.notes disable row level security;\n" + fn)
         self.assertEqual(q3["answer"], "no")
         q3 = self.sql("create table public.notes (id int);\n" + do + "create function f() returns void language plpgsql as $$ begin alter table public.notes enable row level security; end $$;\n")
-        self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], ["notes"], "a function body is not run")
+        self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], [cs.NAME_LABELS["table"]], "a function body is not run")
 
     def test_statements_inside_a_do_block_still_run(self):
         self.assertEqual(self.sql("create table public.notes (id int);\ndo $body$ begin alter table public.notes enable row level security; end $body$;\n")["answer"], "nothing-found")
@@ -4849,7 +4868,7 @@ class ReviewCycleThreeRegressionTests(ScanCase):
 
     def test_an_apostrophe_in_a_quoted_identifier_is_not_a_string(self):
         q3 = self.sql("create table public.notes (id int);\ncreate index \"o'brien_idx\" on public.notes(id);\ncomment on table public.notes is 'alter table public.notes enable row level security';\n")
-        self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], ["notes"])
+        self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], [cs.NAME_LABELS["table"]])
 
     def test_an_unclosed_quote_is_a_gap(self):
         q3 = self.sql(self.RLS + "select 'unterminated;\n")
@@ -4858,7 +4877,7 @@ class ReviewCycleThreeRegressionTests(ScanCase):
         self.assertNotEqual(q3["answer"], "nothing-found")
         # a quote that is really the last one: everything after it is inside a string that never ends
         q3 = self.sql("create table public.notes (id int);\nselect 'unterminated;\nalter table public.notes enable row level security;\n")
-        self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], ["notes"],
+        self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], [cs.NAME_LABELS["table"]],
                          "nothing after an unclosed quote earns RLS credit, whatever the gap does")
 
     def test_a_double_dash_inside_a_dollar_string_keeps_its_evidence(self):
@@ -4887,7 +4906,7 @@ class ReviewCycleThreeRegressionTests(ScanCase):
     def test_an_unclosed_identifier_is_a_gap(self):
         q3 = self.sql('create table public.notes (id int);\n"unterminated\nalter table public.notes enable row level security;\n')
         self.assertEqual(q3["answer"], "dont-know")
-        self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], ["notes"])
+        self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], [cs.NAME_LABELS["table"]])
 
     def test_a_firebase_condition_too_long_to_read_is_a_gap(self):
         cond = "if " + "request.auth != null || " * 25 + "true;"
@@ -4956,7 +4975,7 @@ class FreshReviewTests(ScanCase):
 
     def test_rule_words_in_a_name_earn_no_credit(self):
         q3 = self.sql('create table public.notes (id int);\ncreate index "alter table public.notes enable row level security" on public.notes(id);\n')
-        self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], ["notes"])
+        self.assertEqual([e["snippet"] for e in q3["evidence"] if e["check"] == "table-without-rls"], [cs.NAME_LABELS["table"]])
 
     def test_an_unclosed_quote_inside_a_do_block_is_a_gap(self):
         self.assertEqual(self.sql(self.RLS + "do $$ begin perform 'oops; end $$;\n")["answer"], "dont-know")
@@ -5605,10 +5624,10 @@ class FreshReviewOf8a6c32bTests(ScanCase):
         rnd = random.Random(5)
         for _ in range(3000):
             t = "".join(rnd.choice(toks) for _ in range(rnd.randint(1, 30))) * rnd.choice((1, 1, 1, 7))
-            want = [(m.start(), m.group(0), m.group(1), m.group(2), m.start(2), m.end(2)) for m in cs.FIREBASE_IF_RE.finditer(t)]
+            want = [(m.start(), m.group(0), m.group(1), m.group(2), m.start(2), m.end(2)) for m in FIREBASE_IF_RE.finditer(t)]
             got, long_n = cs._firebase_ifs(t)
-            self.assertEqual([(m.start(), m.group(0), m.group(1), m.group(2), m.start(2), m.end(2)) for m in got], want, repr(t))
-            self.assertEqual(long_n, len(cs.FIREBASE_IF_LONG_RE.findall(t)), repr(t))
+            self.assertEqual(_ifs_view(t, got), want, repr(t))
+            self.assertEqual(long_n, len(FIREBASE_IF_LONG_RE.findall(t)), repr(t))
 
     def test_an_unreadable_env_file_named_zst_marks_the_scan_partial(self):
         if getattr(os, "geteuid", lambda: 1)() == 0:
@@ -5627,10 +5646,10 @@ class FreshReviewOf8a6c32bTests(ScanCase):
                   "allow read: if b\n  allow write: if a allow read: if true }", "allow read: if " + "z" * 395 + " allow write: if t;",
                   "allow read: if " + "x" * 10 + " allow write: if " + "y" * 450 + ";"):
             with self.subTest(t=t[:40]):
-                want = [(m.start(), m.group(0)) for m in cs.FIREBASE_IF_RE.finditer(t)]
+                want = [(m.start(), m.group(0)) for m in FIREBASE_IF_RE.finditer(t)]
                 got, long_n = cs._firebase_ifs(t)
-                self.assertEqual([(m.start(), m.group(0)) for m in got], want)
-                self.assertEqual(long_n, len(cs.FIREBASE_IF_LONG_RE.findall(t)))
+                self.assertEqual([v[:2] for v in _ifs_view(t, got)], want)
+                self.assertEqual(long_n, len(FIREBASE_IF_LONG_RE.findall(t)))
 
     def test_rows_0_3_3_added_never_push_out_a_row_0_3_2_gave(self):
         files = {"db/a%d.sql" % i: "".join("create view public.v%d_%d as select 1;\n" % (i, j) for j in range(5)) for i in range(3)}
@@ -5795,6 +5814,26 @@ class NeverWorseThanMainTests(unittest.TestCase):
                         used.add(key)
         stale = (set(self.ALLOW_SOFTER) | set(self.ALLOW_NEW_NO)) - used
         self.assertEqual(stale, set(), "an allowed exception that no longer happens should be removed")
+
+    SENTINELS = ("hunter2",)  # text the corpus hides inside strings, function bodies and quoted names
+
+    def test_never_prints_text_the_baseline_did_not(self):
+        """A third rule: the branch never shows a sentinel the released scanner did not show on the same files.
+        The release here is the pinned copy (custody_scan_0_3_2.py, byte-identical to the baseline)."""
+        cases = [c for c in _corpus() if any(s in json.dumps(c["files"]).lower() for s in self.SENTINELS)]
+        self.assertGreaterEqual(len(cases), 10, "control: the review repros carry sentinels")
+        for c in cases:
+            tmp = tempfile.mkdtemp(prefix="custody differential ")
+            try:
+                _materialize(tmp, c)
+                new = json.dumps(cs.scan(tmp, **c.get("args", {}))).lower()
+                old = json.dumps(cs.release.scan(tmp, **c.get("args", {}))).lower()
+            finally:
+                shutil.rmtree(tmp, ignore_errors=True)
+            for s in self.SENTINELS:
+                with self.subTest(case=c["name"], sentinel=s):
+                    if s not in old:
+                        self.assertNotIn(s, new)
 
 
 def _json_bytes(obj):
@@ -6384,7 +6423,7 @@ class OverlayContractTests(ScanCase):
         self.assertGreater(ov.gaps["q3"], len(dropped), "the rest still count as gaps")
         self.assertLessEqual(len(ov.keys), 3 * 2 * cs.release.MAX_EVIDENCE, "only kept rows are remembered")
 
-    def test_overlay_snippets_are_redacted_before_they_are_cut(self):
+    def test_overlay_rule_rows_show_labels_not_file_text(self):
         key = STRIPE_LIVE
         head = 'allow read: if request.auth.token.plan == "x" || request.k == "'
         head = head.replace("plan", "plan" + "x" * (101 - len(head)))
@@ -6396,14 +6435,14 @@ class OverlayContractTests(ScanCase):
         self.assertIn("firebase-rules-public-read", out, "control: the overlay names the rule")
         self.assertIn("storage-bucket-public-sql", out, "control: the overlay names the bucket")
         self.assertNotIn(key[:12], out)
-        self.assertNotIn("hunter2pass", out, "a quoted value in a condition is masked, as on a key hit line")
+        self.assertNotIn("hunter2pass", out, "rows show a fixed label; no condition text reaches the output")
         self.assertNotIn(key[:12], json.dumps(cs.release.scan(self.repo)), "control: 0.3.2 printed none of it")
         bare = "allow read: if request.auth.token.plan == request.resource.data.t || request.k == "
         bare = bare.replace("plan", "plan" + "x" * (101 - len(bare)))
         self.write("firestore.rules", "service cloud.firestore {\n  match /x/{id} {\n    " + bare + key + " || true;\n  }\n}\n")
         out = json.dumps(self.scan())
         self.assertIn("firebase-rules-public-read", out, "control")
-        self.assertNotIn(key[:12], out, "a key outside quotes is redacted before the cut, not masked")
+        self.assertNotIn(key[:12], out, "a key outside quotes never reaches the output either")
 
     def q1_full_of_0_3_2_nos(self, extra_evidence=0):
         self.app()
@@ -6516,11 +6555,11 @@ class OverlayContractTests(ScanCase):
             never = [l for l in fh.read().splitlines() if l.startswith("- The scanner never opens your AI instruction files")][0]
         self.assertNotIn("`opencode.jsonc`,", never.split(". The list lives")[0], "README lists only what 0.3.2 never opens")
 
-    def test_fixed_shape_rtdb_snippets_keep_their_text(self):
+    def test_rtdb_rows_show_their_fixed_labels(self):
         self.write("database.rules.json", '{"rules": {\n  ".read": "now < 1700000000000",\n  ".write": "true"\n}}\n')
         rows = dict((e["check"], e["snippet"]) for e in self.scan()["questions"]["q3"]["evidence"])
-        self.assertEqual(rows["firebase-rules-test-mode"], '".read": "now <')
-        self.assertEqual(rows["open-rule-unconfirmed"], '".write": "true"')
+        self.assertEqual(rows["firebase-rules-test-mode"], cs.SNIPPET_LABELS["rtdb-test-mode"])
+        self.assertEqual(rows["open-rule-unconfirmed"], cs.SNIPPET_LABELS["rtdb-write-true"])
 
     def test_a_dollar_inside_a_name_is_not_a_dollar_quote_and_long_tags_are(self):
         sql = "create table public.a$b$c (id int);\nalter table public.a$b$c enable row level security;\n"
@@ -6719,6 +6758,168 @@ class OverlayContractTests(ScanCase):
                 self.assertEqual(dict((q, r["questions"][q]["answer"]) for q in self.QS), c["main"])
                 self.assertEqual(r["partial"], c["main_partial"])
         self.assertEqual(len(names), len(set(names)))
+
+    # ---------------------------------------------------------------- fresh review of d90c4fd (2026-10-12)
+
+    RLS_SQL = "create table public.notes (id int);\nalter table public.notes enable row level security;\n"
+    FB_RULES = "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /x/{id} {\n      %s\n    }\n  }\n}\n"
+
+    def overlay_rows(self):
+        """(question, row) for every row the overlay added: rows 0.3.2 gave on the same files are its own."""
+        base = cs.release.scan(self.repo)["questions"]
+        out = self.scan()["questions"]
+        return [(q, e) for q in self.QS for e in out[q]["evidence"] if e not in base[q]["evidence"]]
+
+    def test_overlay_rows_never_quote_the_file(self):
+        """A row the overlay builds from a SQL, rules or manifest file shows fixed text, never the file's own text:
+        no clause, and no table, view or package name it found by itself. Then no misread string (a lexer or mask
+        mistake) can reach the output. `zz` marks file text."""
+        self.write("package.json", '{"dependencies": {"react": "18", "@sentry/zzpkg": "1"}}\n')
+        self.write("supabase/migrations/1.sql", self.RLS_SQL +
+                   "insert into log values ('--'); create policy zzp1 on public.notes for insert to anon with check (true);\n"
+                   "insert into log values ('--'); update storage.buckets set zzcol = 1, public = true;\n"
+                   "insert into log values ('--'); select cron.schedule('zzjob', '* * * * *', 'select 1');\n"
+                   "create policy zzp2 on public.notes for select using (zzx = 1 or (true));\n"
+                   "create view public.zzv as select 1;\ndrop table public.zzold;\n")
+        self.write("firestore.rules", self.FB_RULES % "allow read: if zzq == 1 || true;\n      allow write: if request.time < timestamp.date(2026, 1, 1) && zzr;")
+        self.write("database.rules.json", '{"rules": {".read": "now < 1700000000000", ".write": "true"}}\n')
+        rows = self.overlay_rows()
+        checks = set(e["check"] for _, e in rows)
+        for c in ("policy-to-anon", "policy-with-check-true", "storage-bucket-public-sql", "cron-schedule", "firebase-rules-test-mode",
+                  "open-rule-unconfirmed", "public-view", "table-dropped", "monitoring-dependency"):
+            self.assertIn(c, checks, "control: the overlay gives a %s row here" % c)
+        self.assertTrue([e for _, e in rows if e["path"] == "firestore.rules"], "control: a Firestore row")
+        for q, e in rows:
+            with self.subTest(check=e["check"], path=e["path"]):
+                self.assertNotIn("zz", e["snippet"].lower())
+
+    def test_sql_rule_words_inside_a_string_show_no_text(self):
+        self.write("package.json", '{"dependencies": {"react": "18"}}\n')
+        for text, needs_row in (("comment on column public.notes.id is 'doc says using (((((true))))) is bad';\n", True),
+                                ("comment on table public.notes is 'disable" + " " * 30 + "row level security';\n", True)):  # past 0.3.2's \\s{1,20}
+            with self.subTest(text=text):
+                self.write("db/1.sql", self.RLS_SQL + text)
+                rows = [e for q, e in self.overlay_rows() if e["check"] == "open-rule-in-string"]
+                if needs_row:
+                    self.assertTrue(rows, "control: it still counts")
+                for e in rows:
+                    self.assertEqual(e["snippet"], cs.SNIPPET_LABELS["rule-in-string"])
+
+    def test_review_repros_of_d90c4fd_never_print_string_contents(self):
+        tag = "$" + "a" * 70 + "$"
+        repros = [
+            {"firestore.rules": self.FB_RULES % "allow read: if /* \" */ request.auth.uid == \"p /* q\" || 'r */ s' == \"hunter2-pw jane.doe@example.com\" || true;"},
+            {"firestore.rules": self.FB_RULES % "allow read: if resource.data.p == '/*' /* don't */ || resource.data.pw == 'hunter2!prod' || true;"},
+            {"firestore.rules": self.FB_RULES % ("allow read: if a == '/*' || b == \"*/\" /* ' */ || c == 'hunter2aaa' || true;\n"
+                                                 "      allow write: if a == \"/*\" || b == '*/' /* \" */ || c == \"hunter2bbb\" || true;")},
+            {"firestore.rules": self.FB_RULES % "allow read: if resource.data.k == /* \" */ \"hunter2Pass_word\" || true;"},
+            {"supabase/migrations/1.sql": self.RLS_SQL + "create function f() returns void language plpgsql as " + tag +
+             " begin drop table public.hunter2tbl; create view public.hunter2view as select 1; end " + tag + ";\n"},
+            {"supabase/migrations/1.sql": self.RLS_SQL + "create function g() returns void as $a$x$a$$b$ begin drop table public.hunter2_second; end $b$ language plpgsql;\n"},
+            {"supabase/migrations/1.sql": self.RLS_SQL + "create table public.x$$b$ (id int);\ncreate function f() returns void as $b$ drop table public.hunter2tbl; $b$;\n"},
+            {"supabase/migrations/1.sql": self.RLS_SQL + "create policy p on public.notes using (pw = x$e'--\\' or pw = 'hunter2prod' /* ' */) to anon;\n"},
+            {"supabase/migrations/1.sql": self.RLS_SQL + "create policy p on public.notes using (/* /* */ ' -- */ pw = 'x' or pw = 'hunter2prod' /* ' */) to anon;\n"},
+            {"supabase/migrations/1.sql": self.RLS_SQL + 'create view "jane hunter2 view" as select 1;\n'},
+        ]
+        for files in repros:
+            with self.subTest(files=files):
+                shutil.rmtree(self.repo)
+                os.makedirs(self.repo)
+                self.assert_string_never_printed(files, "hunter2")
+
+    def test_review_repros_of_pass_two_never_print_names(self):
+        """Names the overlay found by itself are never printed: each repro is a name a misread file could show."""
+        tag = "$" + "a" * 70 + "$"
+        sql = [
+            'drop table "hunter2";\n', 'create view "hunter2" as select 1;\n', 'drop table "Jane Doe,hunter2_ssn";\n',
+            "select $a$x$a$e'\\' ; drop table hunter2; create view hunter2v as select 1; ';\n",
+            "/* Don't edit: generated from src/*.sql */\ninsert into log values ('drop table hunter2;');\ninsert into log values ('create view hunter2v as select 1;');\n",
+            "create function f() returns void as $\u20ac$ drop table hunter2; $\u20ac$ language sql;\n",
+            "select $1$x$ drop table hunter2; $x$;\n", 'select "x\ndrop table hunter2; ";\n',
+            "select \u20acE'\\' x ' drop table hunter2; ';\n",
+            "insert into t values ('create table hunter2tbl (id int); alter table hunter2tbl enable row level security');\n",
+            "create function g() returns void as $a$x$a$" + tag + " begin drop table public.hunter2x; end " + tag + " language plpgsql;\n",
+        ]
+        repros = [{"supabase/migrations/1.sql": self.RLS_SQL + body} for body in sql]
+        repros.append({"supabase/migrations/1.sql": 'create table public."Hunter2 Secret" (id int);\nselect \'alter table public."Hunter2 Secret" enable row level security\';\n'})
+        repros.append({"package.json": '{"dependencies": {"react": "18", "@sentry/hunter2-x jane.doe@example.com": "1"}}\n'})
+        repros.append({"requirements.txt": "opentelemetry-hunter2pw==1.0\n"})
+        for files in repros:
+            with self.subTest(files=files):
+                shutil.rmtree(self.repo)
+                os.makedirs(self.repo)
+                self.assert_string_never_printed(files, "hunter2")
+        shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        self.write("package.json", '{"dependencies": {"react": "18", "@sentry/vue": "8", "logrocket": "1"}}\n')
+        rows = [e["snippet"] for q, e in self.overlay_rows() if e["check"] == "monitoring-dependency"]
+        self.assertEqual(sorted(rows), ["@sentry/\u2026 (name not shown)", "logrocket"], "a family shows its prefix; a listed name is the scanner's own text")
+
+    def test_the_sql_lexer_after_a_tag_and_after_a_nest_that_never_closes(self):
+        for sql in ("select $a$x$a$e'\\' , SECRETX ';\n", "select $$$$E'\\' , SECRETX ';\n",  # E'\' …: the \' is a quote inside the string
+                    "/* Don't edit: generated from src/*.sql */\nselect 'SECRETX';\n"):
+            with self.subTest(sql=sql):
+                _, code, _, _ = cs._lex_sql(sql)
+                self.assertNotIn("SECRETX", code)
+        long_tag = "$" + "a" * 70 + "$"
+        _, code, _, _ = cs._lex_sql("select $a$x$a$" + long_tag + " drop table public.t; " + long_tag + ";\n")
+        self.assertNotIn("drop table", code, "a long tag may open right after one closes")
+        _, code, _, _ = cs._lex_sql("/* a /* b */ select 1; /* c */ select 2;\n")
+        self.assertIn("select 2", code, "control: after a nest that never closes, comments close at the first */ as in 0.3.2")
+        self.assertNotIn(" c ", code)
+        t0 = time.perf_counter()
+        cs._lex_sql("/* /* */ " * 60000)
+        cs._lex_sql("/* /* */ '" * 50000)
+        self.assertLess(time.perf_counter() - t0, bound(1.0), "an unclosed nest is searched once")
+
+    def test_a_using_true_inside_a_string_is_never_read_as_a_predicate(self):
+        """The row says rule-in-string whatever the predicate holds, so reading it is wasted, and with the string
+        blanked the reader would scan on to the next `(`: O(matches x distance) on one file."""
+        sql = "select 'x " + "using(((((true)))))" * 3000 + "';\n"
+        ov = cs.Overlay(time.monotonic() + 60)
+        sf = cs.OverlayFile("db/1.sql", "1.sql", ".sql", sql)
+        with mock.patch.object(cs, "_sql_predicate_open", wraps=cs._sql_predicate_open) as spy:
+            cs.detect_sql(sf, ov, cs.release.ScanState())
+        self.assertEqual(spy.call_count, 0)
+        self.assertIn("open-rule-in-string", [r["check"] for r in ov.rows["q3"]], "control: it still counts")
+
+    def test_a_table_only_the_overlay_saw_shows_no_name(self):
+        self.write("package.json", '{"dependencies": {"react": "18"}}\n')
+        self.write("supabase/migrations/1.sql", "create table" + " " * 30 + "public.hunter2 (id int);\n")  # past 0.3.2's \\s{1,20}
+        rows = [e for q, e in self.overlay_rows() if e["check"] == "table-without-rls"]
+        self.assertEqual([e["snippet"] for e in rows], [cs.NAME_LABELS["table"]])
+
+    def test_a_rule_over_several_lines_points_at_its_allow_line(self):
+        self.write("package.json", '{"dependencies": {"react": "18"}}\n')
+        self.write("firestore.rules", self.FB_RULES % "allow read: if request.auth != null\n        || true\n        || false;")
+        rows = [e for q, e in self.overlay_rows() if e["path"] == "firestore.rules"]
+        self.assertTrue(rows, "control: the rule is a row")
+        self.assertEqual(set(e["line"] for e in rows), {5})
+
+    def test_the_sql_lexer_reads_quotes_as_postgres_does(self):
+        """Postgres: a dollar tag has no length limit, a new $tag$ may open right after one closes, `$` is a name
+        character (so `x$e'…'` is a name then a plain string), and block comments nest."""
+        for n in (63, 64, 200):
+            tag = "$" + "a" * n + "$"
+            with self.subTest(tag_length=n):
+                _, code, _, unclosed = cs._lex_sql("create function f() returns void as " + tag + " drop table public.t; " + tag + ";\n")
+                self.assertNotIn("drop table", code)
+                self.assertFalse(unclosed)
+        for sql in ("create function g() returns void as $a$x$a$$b$ drop table public.t; $b$;\n",
+                    "create function g() returns void as $a$x$a$$$ drop table public.t; $$;\n",
+                    "create table public.x$$b$ (id int);\ncreate function f() returns void as $b$ drop table public.t; $b$;\n"):
+            with self.subTest(sql=sql):
+                _, code, _, unclosed = cs._lex_sql(sql)
+                self.assertNotIn("drop table", code)
+                self.assertFalse(unclosed)
+        for sql in ("select x$e'--\\' , 'SECRETX';\n", "select 1 /* /* */ ' -- */ , 'SECRETX' /* ' */;\n"):
+            with self.subTest(sql=sql):
+                _, code, _, unclosed = cs._lex_sql(sql)
+                self.assertNotIn("SECRETX", code)
+                self.assertFalse(unclosed)
+        _, code, _, _ = cs._lex_sql("select 1; /* a /* b */ c */ select 2;\n")
+        self.assertIn("select 2", code, "control: a closed nest ends where Postgres ends it")
+        self.assertNotIn(" c ", code)
 
 
 if __name__ == "__main__":

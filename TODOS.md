@@ -290,6 +290,18 @@
 **Priority:** P3
 **Depends on:** None
 
+### Firebase rules: a `//` or `/*` inside a string hides a later `true` (pre-existing)
+
+**What:** `allow write: if a == 'http://x' || true;` and `allow read: if a == '/*' || true || b == '*/';` get Nothing found from 0.3.2 and from 0.3.3 alike: comment stripping (0.3.2's `_strip_slash_comments` / `_blank_block_comments`) runs before strings are known, so the `true` is cut as part of a comment.
+
+**Why:** a false Nothing found on Q3, but main has it too, so it stays out of the fix PR (fix PRs stay in scope). Needs one left-to-right rules lexer (strings, `//`, `/* */` together) for the condition reader, with differential cases.
+
+**Context:** found by the testing reviewer in the 2026-10-12 re-review of PR #24 (pass 2).
+
+**Effort:** M
+**Priority:** P2
+**Depends on:** None
+
 ### False Nos kept from 0.3.2
 
 **What:** 0.3.2 answers No, wrongly, for (1) `disable row level security` or `using (true)` inside a SQL string or comment string (`comment on table … is 'never disable row level security'`), (2) the same words as a quoted name (`create index "disable row level security"`), (3) Firebase `if true && request.auth != null`, (4) a key in a browser folder in a file with a bare `import "server-only"` (in Next.js the build refuses to bundle it; in Vite it does not), and (5) a disable line after an unbalanced nested comment (`/* avatars/* */ … -- old block ended here */`), which Postgres treats as commented out. 0.3.3 keeps every one of these Nos on purpose.

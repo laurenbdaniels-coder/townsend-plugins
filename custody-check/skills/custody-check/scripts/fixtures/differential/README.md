@@ -7,7 +7,9 @@ scanner gave on them. `NeverWorseThanMainTests` runs the current scanner on the 
 - a new No appears, unless the case is in `ALLOW_NEW_NO` with the reason the baseline was wrong. A "new alarm"
   means a new No: Nothing found -> Don't know is the cautious direction and needs no listing;
 - the scan is partial where the baseline finished;
-- the Q10 fields differ.
+- the Q10 fields differ;
+- the output shows a sentinel (`hunter2`, hidden inside a string, a function body or a quoted name) that the
+  released scanner did not show on the same files (`test_never_prints_text_the_baseline_did_not`).
 
 `ALLOW_SOFTER` is empty: since 0.3.3, 0.3.2 runs underneath every scan (`custody_scan_0_3_2.py`) and the overlay
 can only move an answer toward caution, so a softer answer is a bug. `OverlayContractTests` also checks, case by

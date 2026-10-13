@@ -135,6 +135,12 @@ OVERLAY_CHECKS = {
 CAPPED_PER_SCAN = {"mcp-config-not-opened", "manifest-not-parsed", "compressed-file-not-read", "code-file-not-read"}
 
 
+def named_per_scan():
+    """How many rows of one CAPPED_PER_SCAN check name a file in a whole scan (five); the rest only count as gaps.
+    Read from 0.3.2 at call time, like every release constant."""
+    return release.MAX_HITS_PER_FILE_PER_CHECK
+
+
 def all_checks():
     """Every check id the output can hold: 0.3.2's (question, effect) and the overlay's, as {id: (questions, effect)}."""
     out = dict((k, ((q,), e)) for k, (q, e) in release.CHECKS.items())
@@ -167,9 +173,6 @@ SQL_BOOL_CAST_RE = re.compile(r"\s*::\s*bool(?:ean)?\b")
 SQL_OR_RE = re.compile(r"\bor\b")
 SQL_AND_RE = re.compile(r"\band\b")
 WHITESPACE_RE = re.compile(r"\s+")
-# Test specifications only (the tests compare _firebase_ifs and FIREBASE_IF_END_RE against them); the scanner never runs them:
-FIREBASE_IF_RE = re.compile(r"\ballow\s{1,20}([a-z]+(?:\s{0,20},\s{0,20}[a-z]+){0,10})\s{0,20}:\s{0,20}if(?=[\s(])(?=((?:[^;}\n]|\n(?![ \t]{0,80}(?:allow|match)\b)){0,400}))\2(?=[;}]|\n[ \t]{0,80}(?:allow|match)\b)", re.I)
-FIREBASE_IF_LONG_RE = re.compile(r"\ballow\s{1,20}[a-z]+(?:\s{0,20},\s{0,20}[a-z]+){0,10}\s{0,20}:\s{0,20}if(?=[\s(])(?:[^;}\n]|\n(?![ \t]{0,80}(?:allow|match)\b)){401}", re.I)  # past what FIREBASE_IF_RE reads
 FIREBASE_IF_HEAD_RE = re.compile(r"\ballow\s{1,20}([a-z]+(?:\s{0,20},\s{0,20}[a-z]+){0,10})\s{0,20}:\s{0,20}if(?=[\s(])", re.I)
 FIREBASE_IF_END_RE = re.compile(r"[;}]|\n(?=[ \t]{0,80}(?:allow|match)\b)", re.I)
 MAX_FIREBASE_CONDITION = 400
@@ -192,9 +195,13 @@ MAX_DROP_LIST_CHARS = 20000
 DROP_TABLE_RE = re.compile(r"\bdrop\s+table\s+(?:if\s+exists\s+)?([^;]{1,%d})" % MAX_DROP_LIST_CHARS, re.I)
 DROP_ITEM_RE = re.compile(r"\s{0,20}" + _SQL_TABLE)
 CREATE_VIEW_RE = re.compile(r"\bcreate\s+(?:or\s+replace\s+)?(?:recursive\s+)?(materialized\s+)?view\s+(?:if\s+not\s+exists\s+)?" + _SQL_TABLE + r"([^;]{0,400})", re.I)
-# whichever comes first; a dollar tag may use any letter and be as long as a name (63), and a `$` right after a name
-# character is part of that name (`a$b$c`), as in Postgres
-SQL_LEX_OPENER_RE = re.compile(r"--|/\*|\"|(?<![A-Za-z0-9_])[Ee]'|'|(?<![\w$])\$(?:[^\W\d]\w{0,62})?\$")
+# whichever comes first, as Postgres reads it: a dollar tag may use any letter and has no length limit, and a `$`
+# right after a name character is part of that name (`a$b$c`, `x$e'…'` is a name then a plain string). A `$` right
+# after a closing tag may open a new tag or an E'…' string; _lex_sql tries SQL_AFTER_TAG_RE there, where the
+# lookbehinds would refuse them.
+SQL_LEX_OPENER_RE = re.compile(r"--|/\*|\"|(?<![\w$])[Ee]'|'|(?<![\w$])\$(?:[^\W\d]\w*)?\$")
+SQL_AFTER_TAG_RE = re.compile(r"\$(?:[^\W\d]\w*)?\$|[Ee]'")
+SQL_BLOCK_MARK_RE = re.compile(r"/\*|\*/")  # Postgres block comments nest
 SQL_PLAIN_BODY_RE = re.compile(r"(?:[^']|'')*'")  # a SQL string may span lines
 SQL_ESCAPE_BODY_RE = re.compile(r"(?:[^'\\]|\\[\s\S]|'')*'")
 SQL_IDENT_BODY_RE = re.compile(r'(?:[^"]|"")*"')  # a quoted identifier: "o'brien_idx" holds no string
@@ -230,7 +237,7 @@ class Overlay(object):
         self.gaps = dict((q, 0) for q in QS)
         self.keys = set()
         self.tables = {}  # public table -> (path, line), only tables 0.3.2 did not register
-        self.code_tables = set()  # tables whose `create table` the overlay read as code: only these names are shown
+        self.code_tables = set()  # tables whose `create table` the overlay read as code: "a table (name not shown)", not IN_STRING_DETAIL
         self.rls_enabled = set()
         self.rule_files = 0
         self.status = "finished"
@@ -280,7 +287,7 @@ class Overlay(object):
         checks (an agent folder's configs, unparsed manifests) name five files per scan; the gap counts all."""
         if check in CAPPED_PER_SCAN:
             self.named[check] = self.named.get(check, 0) + 1
-            if self.named[check] > release.MAX_HITS_PER_FILE_PER_CHECK:
+            if self.named[check] > named_per_scan():
                 for q in (questions or OVERLAY_CHECKS[check]):
                     self.gaps[q] += 1
                 return
@@ -294,60 +301,56 @@ class OverlayFile(object):
         self.rel, self.base, self.ext, self.text = rel, base, ext, text
 
 
-ELLIPSIS_RUN_RE = re.compile("\u2026{2,}")
+# A row the overlay builds from a SQL or rules file shows one of these, never the file's own text, so a lexer
+# that misreads a string can never print what it holds; path:line points at the rule.
+SNIPPET_LABELS = {
+    "rls-disabled": "disable row level security",
+    "using-true": "using (true)",
+    "policy-with-check-true": "with check (true)",
+    "policy-to-anon": "a policy for anon",
+    "storage-bucket-public-sql": "a storage bucket set public",
+    "cron-schedule": "cron.schedule (job not shown)",
+    "firebase-if": "allow \u2026: if \u2026 (condition not shown)",
+    "firebase-test-mode": "allow \u2026: if request.time < \u2026 (test mode)",
+    "rtdb-test-mode": '"now < \u2026" (test mode)',
+    "rtdb-write-true": '".write": true',
+    "rtdb-read-true": '".read": true',
+    "rule-in-string": "rule text inside a string or function body (not shown)",
+}
+# Names the overlay found by itself are not shown either: a name is only text the file chose, and reading it right
+# needs the file read exactly as Postgres would. 0.3.2's own rows keep their names.
+NAME_LABELS = {"table": "a table (name not shown)", "view": "a view (name not shown)"}
 
 
-def _clause(m, mask=True, source=None):
-    """Redact first, then cut, in 0.3.2's make_snippet order: a cut through a key leaves a fragment no pattern
-    catches. Quoted values left in the clause are hidden. Firebase rows pass `source`, the rules file with every
-    string masked (detect_rules), so a clause that starts inside a string or holds an escaped quote shows none
-    of it. SQL rows either match `code` (strings already blanked) or are fixed shape (`disable row level
-    security`, `using (true)`); RTDB matches are fixed shape too and pass mask=False to keep their text."""
-    text = release.sweep(m.group(0) if source is None else source[m.start():m.end()])
-    return ELLIPSIS_RUN_RE.sub("\u2026", release.sanitize(release._mask_quoted(text) if mask else text))
-
-
-def _mask_strings(text, tick=None):
-    """The rules file with every string literal's contents replaced by \u2026, offsets kept, read left to right
-    with the lexer the condition reader uses (FIREBASE_STRING_RE, escapes included). A quote that never closes
-    masks to the end of its line. Linear: each character is passed once."""
-    out = []
-    pos = 0
-    n = len(text)
-    quote = re.compile("[\"']")
-    while pos < n:
-        if tick is not None:
-            tick()
-        q = quote.search(text, pos)
-        if not q:
-            break
-        out.append(text[pos:q.start()])
-        m = FIREBASE_STRING_RE.match(text, q.start())
-        if m:
-            end = m.end()
-            out.append(text[q.start()] + "\u2026" * (end - q.start() - 2) + text[end - 1])
-        else:
-            end = text.find("\n", q.start())
-            end = n if end < 0 else end
-            out.append(text[q.start()] + "\u2026" * (end - q.start() - 1))
-        pos = end
-    out.append(text[pos:])
-    return "".join(out)
+def _name(kind, in_code):
+    return NAME_LABELS[kind] if in_code else IN_STRING_DETAIL
 
 
 def _finditer_rows(regex, text, sf, ov, check, counter):
-    """`text` is the file with strings blanked (`code`): a match inside a string is 0.3.2's to judge, and a row
-    built here can never print what a string holds."""
+    """`text` is the file with strings blanked (`code`): a match inside a string is 0.3.2's to judge."""
     for m in regex.finditer(text):
         ov.tick()
         if not release._cap(counter, check):
             break
-        ov.add(check, sf.rel, release.line_of(text, m.start()), _clause(m), source="sql")
+        ov.add(check, sf.rel, release.line_of(text, m.start()), SNIPPET_LABELS[check], source="sql")
 
 # ------------------------------------------------------------------ SQL
 
 def _blank(chunk):
     return NOT_NEWLINE_RE.sub(" ", chunk) if "\n" in chunk else " " * len(chunk)
+
+
+def _block_comment_end(text, start, tick=None):
+    """The offset just past the */ that closes a /* opened before `start`, counting nested /* */ pairs as Postgres
+    does, or -1 when the nest never closes. Each marker is read once."""
+    depth = 1
+    for t in SQL_BLOCK_MARK_RE.finditer(text, start):
+        if tick is not None:
+            tick()
+        depth += 1 if t.group(0) == "/*" else -1
+        if depth == 0:
+            return t.end()
+    return -1
 
 
 def _lex_sql(text, depth=0, tick=None):
@@ -367,10 +370,14 @@ def _lex_sql(text, depth=0, tick=None):
         code.append(in_code)
         bare.append(in_bare)
 
+    after_tag = -1  # where the last dollar quote closed
+    nest_failed = False  # a nested comment never closed: comments close at the first */ from then on
+
     while pos < n:
         if tick is not None:
             tick()
-        m = SQL_LEX_OPENER_RE.search(text, pos)
+        m = SQL_AFTER_TAG_RE.match(text, pos) if pos == after_tag else None
+        m = m or SQL_LEX_OPENER_RE.search(text, pos)
         if not m:
             break
         tok = m.group(0)
@@ -383,13 +390,23 @@ def _lex_sql(text, depth=0, tick=None):
             gap = _blank(text[m.start():stop])
             emit(gap, gap, gap)
         elif tok == "/*":
-            k = -1 if no_block_close else text.find("*/", m.end())  # the first */ closes, as in 0.3.2
+            if no_block_close:
+                k = -1
+            elif nest_failed:
+                k = text.find("*/", m.end())
+                k = k + 2 if k >= 0 else -1
+            else:
+                k = _block_comment_end(text, m.end(), tick)
+                if k < 0:  # Postgres would read the rest as one comment; read it as 0.3.2 does (MySQL, SQLite too):
+                    nest_failed = True  # the first */ closes, here and for every later comment, keeping one pass
+                    k = text.find("*/", m.end())
+                    k = k + 2 if k >= 0 else -1
             if k < 0:
                 no_block_close = True  # no */ anywhere after this: later openers skip the search, keeping one pass
                 emit(tok, tok, tok)
                 pos = m.end()
                 continue
-            stop = k + 2
+            stop = k
             gap = _blank(text[m.start():stop])
             emit(gap, gap, gap)
         elif tok == '"':
@@ -405,7 +422,7 @@ def _lex_sql(text, depth=0, tick=None):
         elif tok.startswith("$"):
             close = text.find(tok, m.end())
             if close >= 0:
-                stop = close + len(tok)
+                stop = after_tag = close + len(tok)
                 if depth < MAX_DO_NESTING and DO_BEFORE_RE.search(text, max(0, m.start() - 40), m.start()):
                     inner_nc, inner_code, inner_bare, inner_unclosed = _lex_sql(text[m.end():close], depth + 1, tick)
                     unclosed = unclosed or inner_unclosed
@@ -497,12 +514,13 @@ def detect_sql(sf, ov, rel_state):
         ov.tick()
         check = "open-rule-unconfirmed" if _in_code(m, bare) else "open-rule-in-string"
         if release._cap(counter, check):
-            ov.add(check, sf.rel, release.line_of(text, m.start()), _clause(m), source="sql")
+            ov.add(check, sf.rel, release.line_of(text, m.start()), SNIPPET_LABELS["rls-disabled" if check != "open-rule-in-string" else "rule-in-string"], source="sql")
     for m in USING_TRUE_RE.finditer(text):
         ov.tick()
+        in_code = _in_code(m, bare)
         check = _policy_kind(low, max(0, m.start() - 2000), m.start())
         rec = {}
-        if not release.USING_TRUE_RE.match(text, m.start()):
+        if in_code and not release.USING_TRUE_RE.match(text, m.start()):  # a string's predicate is never read: its row says so
             if closes is None:
                 closes = _paren_closes(bare, ov.tick)  # only when a group needs reading; parens in strings do not count
             if time.monotonic() > ov.deadline:  # one predicate can cost thousands of ticks' work: check the clock before each
@@ -510,10 +528,10 @@ def detect_sql(sf, ov, rel_state):
                 raise release.Deadline()
             if not _sql_predicate_open(bare, m.start(), closes, budget, rec):
                 check = "policy-true-unevaluated"
-        check = _caution(check) if _in_code(m, bare) else "open-rule-in-string"
+        check = _caution(check) if in_code else "open-rule-in-string"
         if release._cap(counter, check):
             nested = check == "policy-true-unevaluated" and rec.get("exhausted")
-            ov.add(check, sf.rel, release.line_of(text, m.start()), NESTED_DETAIL % rec["chars"] if nested else _clause(m), source="sql")
+            ov.add(check, sf.rel, release.line_of(text, m.start()), NESTED_DETAIL % rec["chars"] if nested else SNIPPET_LABELS["using-true" if check != "open-rule-in-string" else "rule-in-string"], source="sql")
     _finditer_rows(WITH_CHECK_TRUE_RE, code, sf, ov, "policy-with-check-true", counter)
     _finditer_rows(release.POLICY_TO_ANON_RE, code, sf, ov, "policy-to-anon", counter)
     _finditer_rows(release.STORAGE_BUCKET_TRUE_RE, code, sf, ov, "storage-bucket-public-sql", counter)
@@ -553,7 +571,7 @@ def detect_sql(sf, ov, rel_state):
         line += text.count("\n", pos, m.start())  # counted forward once per statement, never from the top per name
         pos = m.start()
         parts = m.group(1).split(",")
-        shown = code[m.start():m.end()] == m.group(0)  # a list that reaches into a string or body shows no names
+        in_code = code[m.start():m.end()] == m.group(0)  # a list that reaches into a string or body: IN_STRING_DETAIL
         if len(m.group(1)) >= MAX_DROP_LIST_CHARS or len(parts) > release.MAX_TABLE_MATCHES_PER_FILE:
             ov.gap("rules-not-read-whole", sf.rel, line, "a drop list too long to read whole")
         for part in parts[:release.MAX_TABLE_MATCHES_PER_FILE]:
@@ -564,9 +582,10 @@ def detect_sql(sf, ov, rel_state):
             # order across files decides, and the scanner does not replay migrations
             if name and enabled_at.get(name, -1) < m.start():
                 if release._cap(counter, "table-dropped"):
-                    ov.gap("table-dropped", sf.rel, line, name if shown else IN_STRING_DETAIL)
+                    ov.gap("table-dropped", sf.rel, line, _name("table", in_code))
                 else:
-                    ov.gaps["q3"] += 1  # named five times per file; every one still keeps Q3 off Nothing found
+                    for q in OVERLAY_CHECKS["table-dropped"]:
+                        ov.gaps[q] += 1  # named five times per file; every one still keeps Q3 off Nothing found
     counter_views = {}
     for m in CREATE_VIEW_RE.finditer(text):
         ov.tick()
@@ -575,8 +594,8 @@ def detect_sql(sf, ov, rel_state):
         head = VIEW_AS_RE.split(m.group(3), 1)[0]
         options = " ".join(w.group(1) + ")" for w in VIEW_WITH_RE.finditer(head))
         if name and (m.group(1) or not SAFE_INVOKER_RE.search(options)) and release._cap(counter_views, "public-view"):
-            shown = code[m.start():m.end(2)] == text[m.start():m.end(2)]
-            ov.add("public-view", sf.rel, release.line_of(text, m.start()), name if shown else IN_STRING_DETAIL, source="sql")
+            in_code = code[m.start():m.end(2)] == text[m.start():m.end(2)]
+            ov.add("public-view", sf.rel, release.line_of(text, m.start()), _name("view", in_code), source="sql")
 
 # ------------------------------------------------------------------ Firebase rules
 
@@ -671,27 +690,9 @@ def _strip_outer_parens(expr):
     return expr[j:n - j]
 
 
-class _FirebaseIf(object):
-    """A rule head (group 1) and its condition (group 2), as detect_rules reads them."""
-    __slots__ = ("text", "head", "end2")
-
-    def __init__(self, text, head, end2):
-        self.text, self.head, self.end2 = text, head, end2
-
-    def start(self, g=0):
-        return self.head.end() if g == 2 else self.head.start()
-
-    def end(self, g=0):
-        return self.end2
-
-    def group(self, g=0):
-        if g == 1:
-            return self.head.group(1)
-        return self.text[self.start(g):self.end2]
-
-
 def _firebase_ifs(text, tick=None):
-    """(conditions of at most MAX_FIREBASE_CONDITION characters, count of longer ones): a condition runs from the
+    """([(rule head match, end of its condition)] for conditions of at most MAX_FIREBASE_CONDITION characters,
+    count of longer ones); the condition is text[head.end():end]: a condition runs from the
     rule head to the first terminator after it (`;`, `}`, or a new line that starts another allow or match).
     Terminators are found once; each head finds its own with a bisect."""
     ends = [m.start() for m in FIREBASE_IF_END_RE.finditer(text)]
@@ -704,7 +705,7 @@ def _firebase_ifs(text, tick=None):
         k = bisect.bisect_left(ends, b)
         e = ends[k] if k < len(ends) else None
         if head.start() >= next_if and e is not None and e - b <= MAX_FIREBASE_CONDITION:
-            found.append(_FirebaseIf(text, head, e))
+            found.append((head, e))
             next_if = e
         if head.start() >= next_long and (len(text) if e is None else e) - b > MAX_FIREBASE_CONDITION:
             long_n += 1
@@ -717,41 +718,39 @@ def detect_rules(sf, ov):
     ov.rule_files += 1
     # JSON rules files have no // comments, and a URL inside a string would eat the rest of the line
     text = release._blank_block_comments(sf.text) if sf.base.lower().endswith(".json") else release._strip_slash_comments(sf.text)
-    # snippets come from here: a character shows only when it is outside a string both in the file as written and
-    # with comments blanked (a `/*` in one string and `*/` in a later one would otherwise re-pair the quotes)
-    masked = "".join(c if r == o else "\u2026" for c, r, o in zip(_mask_strings(text, ov.tick), _mask_strings(sf.text, ov.tick), sf.text))
     ifs, long_n = _firebase_ifs(text, ov.tick)
-    for m in ifs:
+    for head, end in ifs:
         ov.tick()
         rec = {}
-        verdict = _firebase_condition(m.group(2), rec)
-        if verdict == "open" and sf.text[m.start(2):m.end(2)] != m.group(2):
+        cond = text[head.end():end]
+        verdict = _firebase_condition(cond, rec)
+        if verdict == "open" and sf.text[head.end():end] != cond:
             verdict = "unevaluated"  # a `/*` or `//` inside the condition (often inside a string) was cut as a comment
         if verdict == "open":
-            check = "open-rule-unconfirmed" if release.FIREBASE_WRITE_RE.search(m.group(1)) else "firebase-rules-public-read"
+            check = "open-rule-unconfirmed" if release.FIREBASE_WRITE_RE.search(head.group(1)) else "firebase-rules-public-read"
         elif verdict == "unevaluated":
             check = "firebase-rules-true-unevaluated"
         else:
             continue
         if release._cap(counter, check):
             nested = verdict == "unevaluated" and rec.get("exhausted")
-            ov.add(check, sf.rel, release.line_of(text, m.start()), NESTED_DETAIL % rec["chars"] if nested else _clause(m, source=masked), source="rules")
+            ov.add(check, sf.rel, release.line_of(text, head.start()), NESTED_DETAIL % rec["chars"] if nested else SNIPPET_LABELS["firebase-if"], source="rules")
     for _ in range(long_n):
         ov.tick()
         ov.gap("rules-not-read-whole", sf.rel, 0, "a condition longer than the scanner reads")
-    for regex, how in ((FIREBASE_TEST_MODE_RE, {"source": masked}), (RTDB_TEST_MODE_RE, {"mask": False})):  # RTDB: fixed shape, no free text
+    for regex, label in ((FIREBASE_TEST_MODE_RE, "firebase-test-mode"), (RTDB_TEST_MODE_RE, "rtdb-test-mode")):
         for m in regex.finditer(text):
             ov.tick()
             if release._cap(counter, "firebase-rules-test-mode"):
-                ov.add("firebase-rules-test-mode", sf.rel, release.line_of(text, m.start()), _clause(m, **how), source="rules")
+                ov.add("firebase-rules-test-mode", sf.rel, release.line_of(text, m.start()), SNIPPET_LABELS[label], source="rules")
     for m in RTDB_WRITE_OPEN_RE.finditer(text):
         ov.tick()
         if release._cap(counter, "open-rule-unconfirmed"):
-            ov.add("open-rule-unconfirmed", sf.rel, release.line_of(text, m.start()), _clause(m, mask=False), source="rules")
+            ov.add("open-rule-unconfirmed", sf.rel, release.line_of(text, m.start()), SNIPPET_LABELS["rtdb-write-true"], source="rules")
     for m in RTDB_READ_OPEN_RE.finditer(text):
         ov.tick()
         if release._cap(counter, "firebase-rules-public-read"):
-            ov.add("firebase-rules-public-read", sf.rel, release.line_of(text, m.start()), _clause(m, mask=False), source="rules")
+            ov.add("firebase-rules-public-read", sf.rel, release.line_of(text, m.start()), SNIPPET_LABELS["rtdb-read-true"], source="rules")
 
 # ------------------------------------------------------------------ .mts / .cts, manifests
 
@@ -798,8 +797,14 @@ def detect_monitoring(sf, ov):
         if lname in release.MONITORING_DEPS:
             continue  # 0.3.2 already named it
         stripped = GO_DOT_MAJOR_RE.sub("", lname)
-        if (lname in MONITORING_DEPS or stripped in MONITORING_DEPS or lname.startswith(MONITORING_PREFIXES)) and release._cap(counter, "monitoring-dependency"):
-            ov.add("monitoring-dependency", sf.rel, 0, name, source="manifest")
+        if lname in MONITORING_DEPS or stripped in MONITORING_DEPS:
+            shown = lname if lname in MONITORING_DEPS else stripped  # the scanner's own list entry
+        elif lname.startswith(MONITORING_PREFIXES):
+            shown = [f for f in MONITORING_PREFIXES if lname.startswith(f)][0] + "\u2026 (name not shown)"  # the rest is the file's text
+        else:
+            continue
+        if release._cap(counter, "monitoring-dependency"):
+            ov.add("monitoring-dependency", sf.rel, 0, shown, source="manifest")
 
 # ------------------------------------------------------------------ never-open agent folders (names only)
 
@@ -1008,12 +1013,12 @@ def overlay_pass(repo, opts, ov, rel_state, result, clock, end):
     for name in sorted(set(ov.tables) - set(rel_state.tables) - rel_state.rls_enabled - ov.rls_enabled):
         if release._cap(counter, "table-without-rls"):
             path, line = ov.tables[name]
-            ov.add("table-without-rls", path, line, name if name in ov.code_tables else IN_STRING_DETAIL, source="sql")
+            ov.add("table-without-rls", path, line, _name("table", name in ov.code_tables), source="sql")
     # text inside a string or comment never turns RLS on: a table 0.3.2 credited from such an enable alone
     for name in sorted(set(rel_state.tables) & rel_state.rls_enabled - ov.rls_enabled):
         if release._cap(counter, "table-without-rls"):
             path, line = rel_state.tables[name]
-            ov.add("table-without-rls", path, line, name if name in ov.code_tables else IN_STRING_DETAIL, source="sql")
+            ov.add("table-without-rls", path, line, _name("table", name in ov.code_tables), source="sql")
     if ov.rule_files == 0 and result["questions"]["q3"]["answer"] == "nothing-found":
         ov.add("no-rule-statements", "", 0, "no SQL file creates a table or policy; no rules file")
 
@@ -1185,7 +1190,6 @@ def _fit(result, plans):
         else:
             q1.answer = q1.base_answer
             q1.ov_rows = []
-            q1.unfinished_row = None
     if over():
         return None  # the caller falls back to 0.3.2's result with Nothing found withheld
     return _assemble(result, plans)

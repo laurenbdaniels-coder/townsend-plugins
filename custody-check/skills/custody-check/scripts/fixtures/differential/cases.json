@@ -2280,6 +2280,372 @@
    "main_partial": false,
    "main_pii": [],
    "name": "hard-linked mts"
+  },
+  {
+   "files": {
+    "firestore.rules": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /x/{id} {\n      allow read: if /* \" */ request.auth.uid == \"p /* q\" || 'r */ s' == \"hunter2-pw jane.doe@example.com\" || true;\n    }\n  }\n}\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "rules mask: a quote in a comment and a comment across two strings"
+  },
+  {
+   "files": {
+    "firestore.rules": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /x/{id} {\n      allow read: if resource.data.p == '/*' /* don't */ || resource.data.pw == 'hunter2!prod' || true;\n    }\n  }\n}\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "rules mask: a comment opener in a string, a quote in a comment"
+  },
+  {
+   "files": {
+    "firestore.rules": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /x/{id} {\n      allow read: if a == '/*' || b == \"*/\" /* ' */ || c == 'hunter2aaa' || true;\n      allow write: if a == \"/*\" || b == '*/' /* \" */ || c == \"hunter2bbb\" || true;\n    }\n  }\n}\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "rules mask: mirrored quotes on two lines"
+  },
+  {
+   "files": {
+    "firestore.rules": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /x/{id} {\n      allow read: if resource.data.k == /* \" */ \"hunter2Pass_word\" || true;\n    }\n  }\n}\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "rules mask: a quote inside a comment only"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/migrations/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\ncreate function f() returns void language plpgsql as $aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa$ begin drop table public.hunter2tbl; create view public.hunter2view as select 1; end $aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa$;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "dollar tag longer than a name"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/migrations/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\ncreate function g() returns void as $a$x$a$$b$ begin drop table public.hunter2_second; end $b$ language plpgsql;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "dollar tag opened right after one closes"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/migrations/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\ncreate table public.x$$b$ (id int);\ncreate function f() returns void as $b$ drop table public.hunter2tbl; $b$;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "dollar signs inside a name before a function body"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/migrations/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\ncreate policy p on public.notes using (pw = x$e'--\\' or pw = 'hunter2prod' /* ' */) to anon;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "a name ending in $e before a string"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/migrations/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\ncreate policy p on public.notes using (/* /* */ ' -- */ pw = 'x' or pw = 'hunter2prod' /* ' */) to anon;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "nested block comment around a string"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/migrations/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\ncreate view \"jane hunter2 view\" as select 1;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "quoted view name"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/migrations/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\ndrop table \"hunter2\";\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "quoted dropped table"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/migrations/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\ncreate view \"hunter2\" as select 1;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "quoted view"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/migrations/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\ndrop table \"Jane Doe,hunter2_ssn\";\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [
+    "ssn"
+   ],
+   "name": "comma inside a quoted dropped name"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/migrations/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\nselect $a$x$a$e'\\' ; drop table hunter2; create view hunter2v as select 1; ';\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "E string right after a dollar quote"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/migrations/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\n/* Don't edit: generated from src/*.sql */\ninsert into log values ('drop table hunter2;');\ninsert into log values ('create view hunter2v as select 1;');\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "block comment that does not nest"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/migrations/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\ncreate function f() returns void as $\u20ac$ drop table hunter2; $\u20ac$ language sql;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "non-ascii dollar tag"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/migrations/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\nselect $1$x$ drop table hunter2; $x$;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "dollar tag after a parameter"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/migrations/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\nselect \"x\ndrop table hunter2; \";\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "quoted name over two lines"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/migrations/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\nselect \u20acE'\\' x ' drop table hunter2; ';\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "E string after a non-ascii name"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/migrations/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\ninsert into t values ('create table hunter2tbl (id int); alter table hunter2tbl enable row level security');\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "table and enable only inside a string"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/migrations/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\ncreate function g() returns void as $a$x$a$$aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa$ begin drop table public.hunter2x; end $aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa$ language plpgsql;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "long dollar tag right after one closes"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/migrations/1.sql": "create table public.\"Hunter2 Secret\" (id int);\nselect 'alter table public.\"Hunter2 Secret\" enable row level security';\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "rls enable only inside a string for a quoted table"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/migrations/1.sql": "create table                              public.hunter2 (id int);\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "nothing-found",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "a table only the overlay reads"
+  },
+  {
+   "files": {
+    "package.json": "{\"dependencies\": {\"react\": \"18\", \"@sentry/hunter2-x jane.doe@example.com\": \"1\"}}\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "nothing-found"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "monitoring family with free text"
+  },
+  {
+   "files": {
+    "requirements.txt": "opentelemetry-hunter2pw==1.0\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "nothing-found"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "monitoring family in requirements"
+  },
+  {
+   "files": {
+    "db/1.sql": "create table public.notes (id int);\nalter table public.notes enable row level security;\ncomment on table public.notes is 'disable                row level security';\ncomment on column public.notes.id is 'doc says using (((((true))))) is bad';\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "no",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "rls words inside a comment string"
   }
  ]
 }
