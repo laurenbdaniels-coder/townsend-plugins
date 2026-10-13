@@ -302,6 +302,36 @@
 **Priority:** P2
 **Depends on:** None
 
+### Regenerate the corpus against 0.3.3: the recipe copies one file
+
+**What:** the "regenerate after each release" recipe (`fixtures/differential/README.md`, `build_cases.py` header) copies one `custody_scan.py` to a temp path; from 0.3.3 that file loads `custody_scan_0_3_2.py` from its own folder, so a lone copy returns `internal:release-missing` on every case. Export the whole `scripts/` folder at the release (`git archive <sha> custody-check/skills/custody-check/scripts | tar -x -C <tmp>`) and point `build_cases.py` at the `custody_scan.py` inside it.
+
+**Why:** the next corpus rebuild (#16/#17 rebase, then 0.3.4) would silently compare against envelopes.
+
+**Context:** ship review of 8adc5ce (2026-10-13), maintainability.
+
+**Effort:** S
+**Priority:** P1
+**Depends on:** None
+
+### Leftovers from the ship review of 8adc5ce (2026-10-13)
+
+**What:** none is worse than 0.3.2; each was deferred under the ship bar.
+(1) Tests a mutation run left unpinned: the `.mts` `code-file-not-read` row for a hard-linked, binary or unreadable file (overlay_walk); a clean finished pass leaving an over-cap 0.3.2 result unchanged (merge); the overlay's own per-file create-table cap gap row; `database.rules.json` keeping `//` inside strings; the Firebase "a comment cut the condition" downgrade (`allow read: if request.path == 'a/*b' || true;` should be `firebase-rules-true-unevaluated`); the 6th+ dropped-table gap count; the RTDB `".read": "true"` row; the lexer's "a quoted name never spans lines" guard; in-string labels for table-dropped and table-without-rls; `_fit` step 5 (possibly dead: check whether a demoted Q1 can ever fit).
+(2) Flaky timing tests under CPU load: `LinearityTests.test_growth_is_linear_not_just_fast`, `test_strip_outer_parens_is_linear_in_depth`, and the cycle-5 unclosed-nest bound; move to same-run ratios or op counts. The `nest_failed` mutant is caught only by a hang.
+(3) False caution: a pg_dump `COPY … FROM stdin;` data row with an apostrophe un-pairs the lexer's quotes for the rest of the file (treat `COPY … FROM stdin;` … `\.` as data).
+(4) Wording: `no-rule-statements` says "no rules file" when 0.3.2 counted a seed `.sql`; a 0.3.2 `scan-summary` row stays beside an overlay `.mts` No; the `_lex_sql` docstring does not describe nested comments, the `nest_failed` fallback or the after-tag retry; `_sql_predicate_open`'s docstring claims `true or …` that `USING_TRUE_RE` never passes it.
+(5) Docs the release audit fixed but the ship deferred (prompt files, so a fix would rerun the review): SKILL.md's flag list should name `--deadline-s N` (the `checks-not-finished` row tells the founder to rerun with `--deadline-s 600`); questions.md's Q9 list of unparsed manifests should also name the `*-requirements` / `*_requirements` forms and `environment.yaml`, which `UNPARSED_MANIFEST_RE` already matches.
+(6) Structure: `SNIPPET_LABELS` mixes check ids and shape names; `_monitoring_shown` in the tests mirrors production logic (assert literals); `all_checks()` is test-only; `_strip_outer_parens` could reuse `_paren_closes`; the four Firebase/RTDB row loops could be one table; overlay monitoring rows deduped away when 0.3.2 has a row for the same manifest.
+
+**Why:** fix PRs stay in scope; every past fix cycle on this branch created new findings.
+
+**Context:** final /review and /ship review of 8adc5ce (2026-10-13), testing / maintainability / simplification / red team / Claude adversarial, and the /ship coverage audit.
+
+**Effort:** M
+**Priority:** P3
+**Depends on:** None
+
 ### False Nos kept from 0.3.2
 
 **What:** 0.3.2 answers No, wrongly, for (1) `disable row level security` or `using (true)` inside a SQL string or comment string (`comment on table … is 'never disable row level security'`), (2) the same words as a quoted name (`create index "disable row level security"`), (3) Firebase `if true && request.auth != null`, (4) a key in a browser folder in a file with a bare `import "server-only"` (in Next.js the build refuses to bundle it; in Vite it does not), and (5) a disable line after an unbalanced nested comment (`/* avatars/* */ … -- old block ended here */`), which Postgres treats as commented out. 0.3.3 keeps every one of these Nos on purpose.
@@ -328,7 +358,7 @@
 **Priority:** P2
 **Depends on:** None
 
-**Completed:** v0.3.3 (2026-09-30)
+**Completed:** v0.3.3 (2026-10-13)
 
 ### Test fixtures use real .env filenames
 

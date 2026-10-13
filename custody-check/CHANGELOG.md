@@ -2,7 +2,7 @@
 
 The footer of every verdict names the version that produced it. Later entries carry a "What changed since the workshop" line so an attendee can tell whether an answer would come out differently today.
 
-## 0.3.3 (2026-09-30)
+## 0.3.3 (2026-10-13)
 
 What changed since the workshop build: fewer ways for "nothing found" to be wrong, and 0.3.2 runs underneath every scan, unchanged, so no answer is less cautious than 0.3.2's.
 
