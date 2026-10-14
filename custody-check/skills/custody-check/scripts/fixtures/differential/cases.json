@@ -1,5 +1,6 @@
 {
- "baseline": "custody-check 0.3.2 (main 12621fd)",
+ "baseline": "custody-check 0.3.3 (main 6890302)",
+ "baseline_sha": "6890302af323bf369250d6675a5f87c6655b24bb",
  "cases": [
   {
    "files": {
@@ -148,7 +149,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -288,7 +289,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -330,7 +331,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -345,7 +346,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -373,7 +374,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -401,7 +402,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -415,7 +416,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -457,7 +458,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -499,7 +500,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -541,7 +542,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -878,7 +879,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -976,7 +977,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -1088,7 +1089,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -1102,7 +1103,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -1115,7 +1116,7 @@
     "src/components/A.tsx": "export const A = () => null;\n"
    },
    "main": {
-    "q1": "nothing-found",
+    "q1": "no",
     "q3": "dont-know",
     "q9": "dont-know"
    },
@@ -1130,7 +1131,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -1144,7 +1145,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -1158,7 +1159,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -1204,7 +1205,7 @@
    "main": {
     "q1": "nothing-found",
     "q3": "dont-know",
-    "q9": "nothing-found"
+    "q9": "dont-know"
    },
    "main_partial": false,
    "main_pii": [],
@@ -1216,7 +1217,7 @@
     "src/components/k.mts": "export const k = \"{KEY}\";\n"
    },
    "main": {
-    "q1": "nothing-found",
+    "q1": "no",
     "q3": "dont-know",
     "q9": "dont-know"
    },
@@ -1230,7 +1231,7 @@
     "src/components/s.mts": "import \"server-only\";\nexport const k = \"{KEY}\";\n"
    },
    "main": {
-    "q1": "nothing-found",
+    "q1": "no",
     "q3": "dont-know",
     "q9": "dont-know"
    },
@@ -1244,7 +1245,7 @@
     "src/components/A.tsx": "export const A = () => null;\n"
    },
    "main": {
-    "q1": "nothing-found",
+    "q1": "dont-know",
     "q3": "dont-know",
     "q9": "dont-know"
    },
@@ -1273,7 +1274,7 @@
    "main": {
     "q1": "nothing-found",
     "q3": "dont-know",
-    "q9": "nothing-found"
+    "q9": "dont-know"
    },
    "main_partial": false,
    "main_pii": [],
@@ -1302,7 +1303,7 @@
    "main": {
     "q1": "nothing-found",
     "q3": "dont-know",
-    "q9": "nothing-found"
+    "q9": "dont-know"
    },
    "main_partial": false,
    "main_pii": [],
@@ -1315,7 +1316,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -1329,7 +1330,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -1385,7 +1386,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -1399,7 +1400,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -1413,7 +1414,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -1427,7 +1428,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -1497,7 +1498,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -1511,7 +1512,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -1525,7 +1526,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -1539,7 +1540,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -1553,7 +1554,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -1596,7 +1597,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -1624,7 +1625,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -1638,7 +1639,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -1652,7 +1653,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -1666,7 +1667,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -1680,7 +1681,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -1722,7 +1723,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -1735,7 +1736,7 @@
     "src/components/A.tsx": "export const A = () => null;\n"
    },
    "main": {
-    "q1": "nothing-found",
+    "q1": "dont-know",
     "q3": "dont-know",
     "q9": "dont-know"
    },
@@ -2256,7 +2257,7 @@
     "src/components/A.tsx": "export const A = () => null;\n"
    },
    "main": {
-    "q1": "nothing-found",
+    "q1": "dont-know",
     "q3": "dont-know",
     "q9": "dont-know"
    },
@@ -2273,7 +2274,7 @@
     "src/b.mts": "src/a.mts"
    },
    "main": {
-    "q1": "nothing-found",
+    "q1": "dont-know",
     "q3": "dont-know",
     "q9": "dont-know"
    },
@@ -2288,7 +2289,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -2302,7 +2303,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -2316,7 +2317,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -2330,7 +2331,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -2344,7 +2345,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -2358,7 +2359,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -2386,7 +2387,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -2400,7 +2401,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -2414,7 +2415,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -2428,7 +2429,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -2442,7 +2443,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -2456,7 +2457,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -2472,7 +2473,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -2486,7 +2487,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -2500,7 +2501,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -2514,7 +2515,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -2528,7 +2529,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -2542,7 +2543,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -2556,7 +2557,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -2570,7 +2571,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -2584,7 +2585,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -2598,7 +2599,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "nothing-found",
+    "q3": "dont-know",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -2613,7 +2614,7 @@
    "main": {
     "q1": "nothing-found",
     "q3": "dont-know",
-    "q9": "nothing-found"
+    "q9": "dont-know"
    },
    "main_partial": false,
    "main_pii": [],
@@ -2627,7 +2628,7 @@
    "main": {
     "q1": "nothing-found",
     "q3": "dont-know",
-    "q9": "nothing-found"
+    "q9": "dont-know"
    },
    "main_partial": false,
    "main_pii": [],

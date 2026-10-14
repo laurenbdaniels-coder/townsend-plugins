@@ -1,14 +1,40 @@
 """Build cases.json for NeverWorseThanMainTests: realistic files plus every repro from review, with the answers
-the released baseline scanner gives on them (Q1, Q3, Q9).
+the released scanner gives on them (Q1, Q3, Q9, partial, Q10 PII fields).
 
-Usage: git show <release>:custody-check/skills/custody-check/scripts/custody_scan.py > /tmp/baseline.py
-       python3 build_cases.py /tmp/baseline.py cases.json
+Usage (from the repo, after each release; the ref is a commit on main, e.g. origin/main or a merge sha):
+       python3 build_cases.py <release-ref> cases.json
 
-Add a case for every input a review finds; regenerate from the new release after each merge."""
-import json, os, shutil, subprocess, sys, tempfile
+The release's whole scripts/ folder is exported with git archive: since 0.3.3 custody_scan.py loads
+custody_scan_0_3_2.py from its own folder, so one copied file only ever answers internal:release-missing.
+Add a case for every input a review finds; never edit cases.json by hand."""
+import io, json, os, shutil, subprocess, sys, tarfile, tempfile
 
-MAIN = sys.argv[1]
-OUT = sys.argv[2]
+SCRIPTS = "custody-check/skills/custody-check/scripts"
+
+
+def extract_scripts(tar_bytes, dest):
+    """Write the regular files under SCRIPTS/ from a tar into dest. Links, devices, absolute names and any
+    name with a .. part are skipped, so no member can write outside dest."""
+    with tarfile.open(fileobj=io.BytesIO(tar_bytes)) as tf:
+        for m in tf.getmembers():
+            rel = m.name[len(SCRIPTS) + 1:] if m.name.startswith(SCRIPTS + "/") else ""
+            parts = rel.split("/")
+            if not m.isfile() or not rel or ".." in parts or "" in parts or os.path.isabs(rel) or "\\" in rel:
+                continue
+            out = os.path.join(dest, *parts)
+            os.makedirs(os.path.dirname(out), exist_ok=True)
+            with open(out, "wb") as fh:
+                fh.write(tf.extractfile(m).read())
+
+
+def export_release(ref, dest, repo_root):
+    """Write the scripts folder as it is at ref into dest (git archive; regular files only, every name checked to
+    stay under dest). Returns (path of its custody_scan.py, full commit sha). Raises CalledProcessError on a bad ref."""
+    git = lambda *a: subprocess.run(("git",) + a, cwd=repo_root, capture_output=True, check=True, timeout=120).stdout
+    sha = git("rev-parse", "--verify", "--quiet", ref + "^{commit}").decode().strip()
+    extract_scripts(git("archive", "--format=tar", sha, SCRIPTS), dest)
+    return os.path.join(dest, "custody_scan.py"), sha
+
 
 A = "src/components/A.tsx"
 BASE = {A: "export const A = () => null;\n"}
@@ -300,7 +326,19 @@ def answers(scanner, c):
     finally:
         shutil.rmtree(tmp)
 
-for c in cases:
-    c["main"], c["main_partial"], c["main_pii"] = answers(MAIN, c)
-json.dump({"baseline": sys.argv[3] if len(sys.argv) > 3 else "unrecorded", "cases": cases}, open(OUT, "w"), indent=1, sort_keys=True)
-print(len(cases), "cases written")
+if __name__ == "__main__":
+    ref, out_path = sys.argv[1], sys.argv[2]
+    root = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=os.path.dirname(os.path.abspath(__file__)),
+                          capture_output=True, text=True, check=True).stdout.strip()
+    tmp = tempfile.mkdtemp()
+    try:
+        scanner, sha = export_release(ref, tmp, root)
+        version = subprocess.run([sys.executable, "-I", scanner, "--version"], capture_output=True, text=True).stdout.strip()
+        for c in cases:
+            c["main"], c["main_partial"], c["main_pii"] = answers(scanner, c)
+    finally:
+        shutil.rmtree(tmp)
+    with open(out_path, "w") as fh:
+        json.dump({"baseline": "custody-check %s (main %s)" % (version, sha[:7]), "baseline_sha": sha, "cases": cases},
+                  fh, indent=1, sort_keys=True)
+    print(len(cases), "cases written")
