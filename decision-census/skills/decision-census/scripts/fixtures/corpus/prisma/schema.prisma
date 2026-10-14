@@ -1,0 +1,6 @@
+model Customer {
+  id           String @id
+  email        String
+  card_number  String?
+  dateOfBirth  DateTime?
+}
