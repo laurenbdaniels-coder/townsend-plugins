@@ -13,13 +13,18 @@ current scanner and **released main** on the same files and fails when:
 
 **The floor is released main** (from 0.3.4 on). The tests export the release's whole `scripts/` folder with
 `git archive` at `git merge-base HEAD origin/main` (every merge to main is a release) and run it in-process beside
-the branch; `CUSTODY_RELEASE_REF=<ref>` pins another ref (a reviewer reproducing "main vs branch" on an older
-release). CI checks out full history (`fetch-depth: 0`) and sets `CUSTODY_REQUIRE_GIT=1`, so a release that cannot
-be exported fails the run. A copy without git history falls back to the answers stored in `cases.json`.
+the branch. On main itself (a CI push to main) that merge-base is HEAD, so the floor is HEAD's first parent, the
+release before it: comparing HEAD with HEAD would pass any regression. `CUSTODY_RELEASE_REF=<ref>` pins another ref
+(a reviewer reproducing "main vs branch" on an older release); it must name a commit strictly before HEAD, and one
+that does not load fails the run. CI checks out full history (`fetch-depth: 0`); the gating Linux job sets
+`CUSTODY_REQUIRE_GIT=1`, so a release that cannot be exported fails it (the advisory Windows job does not set it).
+A copy without git history falls back to the answers stored in `cases.json`.
 
 The base scanner (`custody_scan_0_3_2.py` and the overlay) may be edited when the corpus shows equal-or-more caution.
 Anything less cautious, or a new No, is listed in `ALLOW_SOFTER` / `ALLOW_NEW_NO` with the reason the release was
-wrong (both are empty today). A PR that edits `custody_scan_0_3_2.py` re-freezes it in the same PR: update
+wrong (both are empty today). Once that PR merges, the release gives the answer itself, so the entry goes unused;
+the stale-entry check skips any entry the release's own test file still lists (graduated), and fails only on an
+entry neither the branch nor the release needs. Remove graduated entries when convenient (the regenerate step). A PR that edits `custody_scan_0_3_2.py` re-freezes it in the same PR: update
 `RELEASE_SHA256` (sha256 of the text with `\r\n` read as `\n`) and the frozen-file test. `OverlayContractTests`
 checks, case by case, that 0.3.2's rows, partial flag, stats and other questions survive the overlay unchanged.
 
@@ -29,7 +34,8 @@ is in the repo.
 A case is `{"name", "files"}` plus, optionally:
 
 - a file body `{"repeat": text, "times": n}`, written at run time (a 600 KB file costs a few bytes here);
-- `"args"`: scan keyword arguments (`{"max_files": 2}`), passed to the baseline as CLI flags (`--max-files 2`);
+- `"args"`: scan keyword arguments (`{"max_files": 2}`), passed to `scan()` on both the branch and released main,
+  and as CLI flags (`--max-files 2`) when `build_cases.py` writes the stored audit copy;
 - `"links"`: `{new path: existing path}` hard links.
 
 - **Add a case** to `build_cases.py` for every input a review finds, then regenerate. Never edit `cases.json` by hand.
@@ -42,4 +48,5 @@ A case is `{"name", "files"}` plus, optionally:
   one file: since 0.3.3 `custody_scan.py` loads `custody_scan_0_3_2.py` from its own folder, so a lone copy only
   answers `internal:release-missing`. The label (`custody-check <version> (main <sha>)`) and `baseline_sha` are
   written for you; `test_the_corpus_baseline_is_what_its_release_says` checks the stored answers against that sha.
-  Then remove any `ALLOW_NEW_NO` / `ALLOW_SOFTER` entry the release now gives (the stale-entry check names them).
+  Then remove any `ALLOW_NEW_NO` / `ALLOW_SOFTER` entry the release now gives. The stale-entry check does not name
+  these (they are graduated: the release's own test file lists them), so look for them by hand.
