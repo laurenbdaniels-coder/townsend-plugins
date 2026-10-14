@@ -90,6 +90,8 @@ IDENT = r"[A-Za-z_$][\w$]*"
 DOTTED = r"[A-Za-z_$][\w$.]*"
 # identifier, an arithmetic operator, an operand. "-" never starts "->" or "--"; "/" never starts a comment.
 ARITH_RE = re.compile(r"(" + DOTTED + r")\s*(\*=?|/=?(?![/*])|\+=?(?!\+)|-=?(?![->]))\s*(" + DOTTED + r"|\d[\d_.]*|\()")
+# "shippingCost = weight * 0.5": arithmetic assigned to a money-named target counts even when no operand is money.
+ASSIGN_TARGET_RE = re.compile(r"(" + IDENT + r")\s*(?::[^=]{0,40})?(?<![=!<>])=(?![=>])")
 ASSIGN_CONTEXT_RE = re.compile(r"(?<![=!<>])=(?![=>])|\breturn\b|\(")
 COND_CONTEXT_RE = re.compile(r"\bif\b|&&|\|\||\?|\breturn\b|!\s*[\w$.]|\bwhile\b|\bfilter\b|\bwhere\b|\bunless\b|\bwhen\b")
 STR_CHAR_RE = re.compile(r"[\"'`\\]")
@@ -206,9 +208,11 @@ def has_money(text):
 def _arith_hit(code):
     if not MONEY_RE.search(code):
         return False
+    target = ASSIGN_TARGET_RE.search(code)
+    money_target = target is not None and MONEY_RE.search(target.group(1)) is not None
     for m in ARITH_RE.finditer(code):
         left, op, right = m.group(1), m.group(2), m.group(3)
-        if not (MONEY_RE.search(left) or MONEY_RE.search(right)):
+        if not (money_target and m.start() > target.end()) and not (MONEY_RE.search(left) or MONEY_RE.search(right)):
             continue
         if op[0] in "+-" and not op.endswith("=") and not ASSIGN_CONTEXT_RE.search(code):
             continue  # page copy like "Total price - billed monthly" outside a string has no assignment
