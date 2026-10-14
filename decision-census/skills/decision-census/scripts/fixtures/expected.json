@@ -97,7 +97,7 @@
       "type": "rounding"
     },
     {
-      "path": "src/lib/shipping.ts",
+      "path": "src/lib/handling.ts",
       "line": 3,
       "type": "price"
     }

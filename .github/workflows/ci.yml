@@ -24,13 +24,14 @@ jobs:
           CUSTODY_PERF_BUDGET_S: "60"
           CUSTODY_TIME_SLACK: "3"   # shared runners are loaded; the linearity bounds still catch quadratic paths
         run: python3 -m unittest discover -s custody-check/skills/custody-check/scripts -p '*_test.py' -v
-      - name: IP grep (the giveaway must contain nothing from the paid method)
-        # custody-check-only terms; the repo-wide paid-method words are the Method grep below
+      - name: IP grep (the giveaways must contain nothing from the paid method)
+        # giveaway-only terms (custody-check, decision-census); the repo-wide paid-method words are the Method grep below.
+        # The last three are the consolidation method, which stays paid: decision-census diagnoses, it never teaches the fix.
         run: |
-          # source only: the unit-test step above leaves __pycache__ behind, and a .pyc is not shipped text
+          # source only: the unit-test steps leave __pycache__ behind, and a .pyc is not shipped text
           if grep -rniE --binary-files=without-match --exclude-dir=__pycache__ \
-               "routing table|office-hours|three-pillar|/review|/ship" custody-check/; then
-            echo "paid-method vocabulary found in custody-check/"; exit 1
+               "routing table|office-hours|three-pillar|/review|/ship|map file|plan-before-build|decisions log" custody-check/ decision-census/; then
+            echo "paid-method vocabulary found in a giveaway plugin"; exit 1
           fi
       - name: Method grep (no published file ships the paid method's vocabulary)
         run: |
@@ -46,17 +47,23 @@ jobs:
           if [ $rc -ne 1 ]; then echo "method grep failed (exit $rc)"; exit 1; fi
       - name: Pre-push hook tests
         run: python3 -m unittest discover -s .githooks -p 'test_*.py' -v
-      - name: Version guard (plugin.json must match __version__)
+      - name: Version guard (plugin.json must match __version__ and the marketplace entry)
         run: |
-          v=$(python3 -c "import json;print(json.load(open('custody-check/.claude-plugin/plugin.json'))['version'])")
-          s=$(python3 -c "import re;print(re.search(r'__version__ = \"([^\"]+)\"', open('custody-check/skills/custody-check/scripts/custody_scan.py').read()).group(1))")
-          test "$v" = "$s" || { echo "plugin.json $v != __version__ $s"; exit 1; }
+          check() {
+            v=$(python3 -c "import json;print(json.load(open('$1/.claude-plugin/plugin.json'))['version'])")
+            s=$(python3 -c "import re;print(re.search(r'__version__ = \"([^\"]+)\"', open('$2').read()).group(1))")
+            m=$(python3 -c "import json;print([p['version'] for p in json.load(open('.claude-plugin/marketplace.json'))['plugins'] if p['name']=='$1'][0])")
+            test "$v" = "$s" && test "$v" = "$m" || { echo "$1: plugin.json $v, __version__ $s, marketplace $m"; exit 1; }
+          }
+          check custody-check custody-check/skills/custody-check/scripts/custody_scan.py
+          check decision-census decision-census/skills/decision-census/scripts/census_scan.py
       - name: Plugin validation (best effort; the CLI may not run headless here)
         id: validate
         continue-on-error: true
         run: |
           npm i -g --ignore-scripts @anthropic-ai/claude-code@2.1.273
           claude plugin validate --strict ./custody-check
+          claude plugin validate --strict ./decision-census
           claude plugin validate --strict .
       - name: Validation outcome
         run: |
@@ -77,3 +84,19 @@ jobs:
           CUSTODY_PERF_BUDGET_S: "60"
           CUSTODY_TIME_SLACK: "3"
         run: python -m unittest discover -s custody-check/skills/custody-check/scripts -p "*_test.py"
+
+  decision-census:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the differential test exports origin/main's helper with git archive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+      - name: Helper unit tests and never-worse-than-main differential (python 3.9)
+        env:
+          CENSUS_SLOW: "1"
+          CENSUS_TIME_SLACK: "3"   # shared runners are loaded; the linearity bounds still catch quadratic paths
+        run: python3 -m unittest discover -s decision-census/skills/decision-census/scripts -p '*_test.py' -v
