@@ -320,6 +320,31 @@
 **Priority:** P1
 **Depends on:** E-1 (deterministic door)
 
+### Leftovers from the review of the released-main floor (2026-10-14)
+
+**What:** none is worse than main; each was deferred under the ship bar.
+(1) `_release_ref` trusts the local `origin/main`: a stale fetch, or a branch stacked on a parent that was squash-merged, gives a floor one release behind (CI fetches fresh). (2) The release runs in-process (`spec_from_file_location`, not in `sys.modules`): a future release that imports a sibling module would bind the branch's copy, and one that needs `sys.modules[__name__]` would crash loudly; a subprocess run from the export folder avoids both. (3) build_cases.py runs the release through its CLI and the gate calls `scan()` in-process; the audit test catches drift between them. (4) build_cases.py `__main__`: the `--version` call and `answers()` have no timeout or check, so a broken export writes a blank label. (5) The audit copy can pin an old release forever if nobody regenerates after a release (main had the same weakness). (6) The Windows job does not set `CUSTODY_REQUIRE_GIT`, so a failed export falls back to stored answers there (non-gating). (7) `test_the_recipe_exports_a_runnable_release` names 6890302 and needs full history. (8) Simplification: `NeverWorseThanMainTests._scan` repeats `_materialize`; the answers/partial/PII summary is computed in three places; `build_cases.materialize`/`REAL` duplicate `_materialize`/`KEYS`; the two one-slot caches could be `functools.lru_cache`. (9) `_baseline` passes a case's `args` to the release's `scan()`: the first PR adding a `scan()` keyword and a case using it makes the release raise TypeError; drop args the release does not take (`inspect.signature`) or fail with a clear message.
+
+**Why:** fix PRs stay in scope.
+
+**Context:** /review of 8bdfab2 (testing, maintainability, security, performance, simplification, Claude adversarial, Codex).
+
+**Effort:** S
+**Priority:** P3
+**Depends on:** None
+
+### Graduated differential exceptions never expire (fix before the stop-line PR merges)
+
+**What:** an `ALLOW_SOFTER` / `ALLOW_NEW_NO` entry that the release's own test file lists is "graduated": the stale check skips it, and the `assertIn` checks still accept it, so a later PR can soften the same (case, question) further with no new entry. Make graduated entries inert in the two `assertIn` checks (`set(self.ALLOW_SOFTER) - _released_main().allow`, same for `ALLOW_NEW_NO`). Watch for one false alarm: a rebase-merge that lands the entry and the scanner change in different commits.
+
+**Why:** main's stale check forced such an entry out; this one is the only worse-than-main path the released-main floor adds. Both lists are empty today, so it cannot fire yet; the stop-line split (item 7) adds the first entry.
+
+**Context:** round-2 review of the released-main floor (2026-10-14), Claude adversarial, reproduced in a clone (branch gate OK, main's gate FAILED). Also from that round: an uncommitted local run on main or a fresh branch gets a floor one release behind (HEAD^1; use HEAD when the scripts folder has uncommitted changes); after a rebase-merge the push-to-main floor is the PR's own previous commit (only matters if a red PR is merged); `_release_allow` ignores annotated assignments (`ALLOW_SOFTER: dict = {...}`), which fails closed.
+
+**Effort:** S
+**Priority:** P1
+**Depends on:** None
+
 ## Completed
 
 ### The 0.3.4 path for the overlay
