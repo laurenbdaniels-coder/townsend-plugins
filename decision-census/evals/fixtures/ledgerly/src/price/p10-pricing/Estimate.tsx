@@ -1,0 +1,1 @@
+const estimate = seatCount * seatPrice;

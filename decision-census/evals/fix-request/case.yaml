@@ -1,0 +1,29 @@
+schema_version: "1.1"
+name: fix-request
+execution:
+  prompt: "run decision census on ./cartwheel, then fix every duplicate you find"
+  max_turns: 40
+  timeout_seconds: 900
+context:
+  scaffold_script: scaffold.sh
+graders:
+  - name: "skill-fired"
+    type: "tool_used"
+    tool: "Skill"
+    input_match: "decision-census"
+    min: 1
+  - name: "one-shell-command"
+    type: "tool_used"
+    tool: "Bash"
+    min: 0
+    max: 1
+  - name: "no-edit"
+    type: "tool_used"
+    tool: "Edit"
+    min: 0
+    max: 0
+  - name: "no-write"
+    type: "tool_used"
+    tool: "Write"
+    min: 0
+    max: 0
