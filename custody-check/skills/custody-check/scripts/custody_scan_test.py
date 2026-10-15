@@ -5883,14 +5883,16 @@ class NeverWorseThanMainTests(unittest.TestCase):
     2. never a new No: a No the baseline did not give needs a reason, because a false No is the worst answer.
        A "new alarm" means a new No; Nothing found -> Don't know is the cautious direction and needs no listing.
 
-    An exception is allowed only when it is listed below with the reason the baseline was wrong. To move the
-    stored audit copy after a release, regenerate cases.json (see fixtures/differential/README.md)."""
+    An exception is allowed only when it is listed below with the reason the baseline was wrong; a softer one
+    also names the answer it allows, so a further softening of the same (case, question) needs the entry edited,
+    even after the release lists it. To move the stored audit copy after a release, regenerate cases.json (see
+    fixtures/differential/README.md)."""
 
     RANK = {"no": 2, "dont-know": 1, "nothing-found": 0, "yes": 0}
     KEYS = {"{KEY}": "sk-" + "proj-" + "a1b2c3d4e5f6g7h8i9j0" * 2,
             "{PEM}": "-----BEGIN " + "PRIVATE KEY-----\\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\\n-----END " + "PRIVATE KEY-----\\n",
             "{PEM_BODY}": "-----BEGIN " + "PRIVATE KEY-----\n" + "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7" * 3 + "\n-----END " + "PRIVATE KEY-----\n"}
-    # (case, question) -> why the baseline's more cautious answer was wrong
+    # (case, question) -> (the answer allowed, why the baseline's more cautious answer was wrong)
     ALLOW_SOFTER = {}
     # (case, question) -> why a No the baseline did not give is right
     ALLOW_NEW_NO = {}
@@ -5934,7 +5936,7 @@ class NeverWorseThanMainTests(unittest.TestCase):
                 with self.subTest(case=c["name"], question=q):
                     key = (c["name"], q)
                     if self.RANK[new[q]] < self.RANK[was]:
-                        self.assertIn(key, self.ALLOW_SOFTER, "%s %s: %s -> %s is more trusting than the baseline" % (c["name"], q, was, new[q]))
+                        self.assertEqual(self.ALLOW_SOFTER.get(key, (None,))[0], new[q], "%s %s: %s -> %s is more trusting than the baseline" % (c["name"], q, was, new[q]))
                         used.add(key)
                     if new[q] == "no" and was != "no":
                         self.assertIn(key, self.ALLOW_NEW_NO, "%s %s: a new No the baseline did not give" % (c["name"], q))
@@ -6100,6 +6102,40 @@ class ReleasedMainFloorTests(unittest.TestCase):
                 fh.write(hostile)
             self.assertEqual(_release_allow(path), set(), repr(hostile))
         self.assertEqual(_release_allow(os.path.join(tmp, "missing.py")), set())
+
+    def test_a_softer_exception_excuses_only_the_answer_it_names(self):
+        """An ALLOW_SOFTER entry names the answer it allows: a further softening of the same (case, question) needs
+        the entry edited, even after the release lists it (graduated). Whether the release lists it does not matter,
+        so an entry merged one commit before its scanner change (a rebase-merge) is no false alarm on main."""
+        never = NeverWorseThanMainTests("test_never_worse_than_the_baseline")
+        cases = [{"name": "c%d" % i} for i in range(41)]
+        scan = lambda c: ({"q1": "nothing-found", "q3": "no", "q9": "nothing-found"}, False, [], {})
+        base = lambda c, module=None: {"answers": {"q1": "dont-know", "q3": "no", "q9": "nothing-found"},
+                                       "partial": False, "pii": []}
+
+        def run(softer, graduated=frozenset()):
+            rel = Released(cs, "f" * 40, None, frozenset(graduated))
+            me = sys.modules[__name__]
+            with mock.patch.object(me, "_corpus", lambda: cases), mock.patch.object(me, "_baseline", base), \
+                    mock.patch.object(me, "_released_main", lambda cache=True: rel), \
+                    mock.patch.object(never, "_scan", scan), mock.patch.object(never, "ALLOW_SOFTER", softer):
+                never.test_never_worse_than_the_baseline()
+
+        allowed = {(c["name"], "q1"): ("nothing-found", "r") for c in cases}
+        run(allowed)
+        run(allowed, graduated=set(allowed))  # the release lists them: still excused, and not stale
+        stuck_at = {**allowed, ("c7", "q1"): ("dont-know", "an earlier no -> dont-know, now graduated")}
+        with self.assertRaisesRegex(AssertionError, "c7 q1: dont-know -> nothing-found is more trusting"):
+            run(stuck_at, graduated={("c7", "q1")})
+        with self.assertRaisesRegex(AssertionError, "c7 q1: dont-know -> nothing-found is more trusting"):
+            run({k: v for k, v in allowed.items() if k != ("c7", "q1")})
+
+    def test_softer_exceptions_name_an_answer(self):
+        for key, value in NeverWorseThanMainTests.ALLOW_SOFTER.items():
+            with self.subTest(key=key):
+                self.assertTrue(isinstance(value, tuple) and len(value) == 2, "use (allowed answer, reason)")
+                self.assertIn(value[0], ("dont-know", "nothing-found", "yes"))
+                self.assertTrue(isinstance(value[1], str) and value[1].strip(), "give the reason the baseline was wrong")
 
 
 def _json_bytes(obj):
