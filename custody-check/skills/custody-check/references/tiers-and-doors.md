@@ -43,6 +43,8 @@ The founder ticks the stop-line in the answers block (`stop_line:`). Scanner evi
 
 ### Door rule (applied in this order)
 
+The skill's verdict script (`custody_verdict.py`) applies these steps; when it cannot run, the agent applies them by hand.
+
 1. Stop-line ticked → print **Get a person** above the doors; choose no door.
 2. Q1 = no, Q2 = no, or Q3 = no → **Patch it** (a founder who says the browser calls the database or the AI provider with a privileged key has answered Q1's question).
 3. The scan was partial and Q1 or Q3 is still Don't know → never **Ship it**; the verdict prints the rerun recipe above the doors and the door is **Patch it**.
