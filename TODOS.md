@@ -242,30 +242,6 @@
 **Priority:** P2
 **Depends on:** None
 
-### The 0.3.4 path for the overlay
-
-**What:** Decide, before the next scanner change, how 0.3.4 builds on 0.3.3: either (a) the baseline becomes 0.3.3's full output, the overlay folds into one module, and a fresh frozen copy of 0.3.3 becomes the floor, or (b) overlays stack (0.3.2 frozen, 0.3.3's overlay, then 0.3.4's).
-
-**Why:** PR #24 ships two files on purpose (0.3.2 verbatim plus the overlay) after five review rounds showed that weaving new checks into 0.3.2's state leaks into its answers. Folding without a plan reopens that.
-
-**Context:** maintainer checklist for either option: (1) regenerate the frozen file from the new release tag (`git show <tag>:…/custody_scan.py > custody_scan_<ver>.py`); (2) update `RELEASE_FILE` and `RELEASE_SHA256` (sha256 of the text with CRLF read as LF); (3) regenerate `cases.json` with `build_cases.py` against that release; (4) move `ALLOW_NEW_NO` entries the release now gives out of the list; (5) decide fold vs stack and record it here.
-
-**Effort:** S (decision), M (fold)
-**Priority:** P2
-**Depends on:** PR #24
-
-### Regenerate the differential corpus in CI from the pinned release
-
-**What:** CI computes each case's 0.3.2 answers by running `cs.release` instead of reading the answers checked into `cases.json`.
-
-**Why:** the checked-in answers can drift from the release they claim to be; `cs.release` makes the release importable in CI, so the stored answers become an audit artifact rather than the source of truth.
-
-**Context:** `build_cases.py` already runs any scanner by path; `NeverWorseThanMainTests` would call it in-process. Keep the stored answers as a second check until the CI path has run green for a release.
-
-**Effort:** M
-**Priority:** P3
-**Depends on:** None
-
 ### Names inside never-open agent folders in the output
 
 **What:** decide whether `mcp-config-not-opened` rows should name paths inside never-open folders (`.claude/…/mcp.json`) or only the folder.
@@ -302,18 +278,6 @@
 **Priority:** P2
 **Depends on:** None
 
-### Regenerate the corpus against 0.3.3: the recipe copies one file
-
-**What:** the "regenerate after each release" recipe (`fixtures/differential/README.md`, `build_cases.py` header) copies one `custody_scan.py` to a temp path; from 0.3.3 that file loads `custody_scan_0_3_2.py` from its own folder, so a lone copy returns `internal:release-missing` on every case. Export the whole `scripts/` folder at the release (`git archive <sha> custody-check/skills/custody-check/scripts | tar -x -C <tmp>`) and point `build_cases.py` at the `custody_scan.py` inside it.
-
-**Why:** the next corpus rebuild (#16/#17 rebase, then 0.3.4) would silently compare against envelopes.
-
-**Context:** ship review of 8adc5ce (2026-10-13), maintainability.
-
-**Effort:** S
-**Priority:** P1
-**Depends on:** None
-
 ### Leftovers from the ship review of 8adc5ce (2026-10-13)
 
 **What:** none is worse than 0.3.2; each was deferred under the ship bar.
@@ -344,6 +308,52 @@
 **Priority:** P2
 **Depends on:** None
 
+### Stop-line split: processor-hosted checkout is Gated, not Get a person
+
+**What:** Processor-hosted checkout, Elements or subscriptions (Stripe Checkout, `ui_mode: "embedded_page"`, hosted billing portals) is ordinary Gated work. Only an app that stores or handles card numbers, or holds or moves money between parties (payouts, Connect, escrow), is stop-line. "Real money" alone is too vague to decide it. The founder ticks the stop-line; the agent never ticks it from code or dashboard evidence.
+
+**Why:** a real run (2026-09-30) on an app with embedded Stripe Checkout said Get a person for work that is routine. Decided 2026-09-30.
+
+**Context:** build it inside the deterministic door (E-1, `custody_verdict.py`). It is deliberately more permissive than the release, so the differential test lists the hosted-checkout case (synthetic) with the reason the release was wrong. The talk's close names payments.
+
+**Effort:** M
+**Priority:** P1
+**Depends on:** E-1 (deterministic door)
+
+### Leftovers from the review of the released-main floor (2026-10-14)
+
+**What:** none is worse than main; each was deferred under the ship bar.
+(1) `_release_ref` trusts the local `origin/main`: a stale fetch, or a branch stacked on a parent that was squash-merged, gives a floor one release behind (CI fetches fresh). (2) The release runs in-process (`spec_from_file_location`, not in `sys.modules`): a future release that imports a sibling module would bind the branch's copy, and one that needs `sys.modules[__name__]` would crash loudly; a subprocess run from the export folder avoids both. (3) build_cases.py runs the release through its CLI and the gate calls `scan()` in-process; the audit test catches drift between them. (4) build_cases.py `__main__`: the `--version` call and `answers()` have no timeout or check, so a broken export writes a blank label. (5) The audit copy can pin an old release forever if nobody regenerates after a release (main had the same weakness). (6) The Windows job does not set `CUSTODY_REQUIRE_GIT`, so a failed export falls back to stored answers there (non-gating). (7) `test_the_recipe_exports_a_runnable_release` names 6890302 and needs full history. (8) Simplification: `NeverWorseThanMainTests._scan` repeats `_materialize`; the answers/partial/PII summary is computed in three places; `build_cases.materialize`/`REAL` duplicate `_materialize`/`KEYS`; the two one-slot caches could be `functools.lru_cache`. (9) `_baseline` passes a case's `args` to the release's `scan()`: the first PR adding a `scan()` keyword and a case using it makes the release raise TypeError; drop args the release does not take (`inspect.signature`) or fail with a clear message.
+
+**Why:** fix PRs stay in scope.
+
+**Context:** /review of 8bdfab2 (testing, maintainability, security, performance, simplification, Claude adversarial, Codex).
+
+**Effort:** S
+**Priority:** P3
+**Depends on:** None
+
+### Leftovers from the #27 review (2026-10-15)
+
+**What:** none is worse than main; each was deferred under the ship bar.
+(1) The scanner reports `tags` = 0 when git output is truncated (killed at the cap, rc -9): a real scanner bug, and the source of the `test_git_output_is_bounded_and_truncation_marks_partial` flake.
+(2) `extract_scripts` would accept a `C:x.py` member on Windows (a drive-relative join); reject any `:` in a member name.
+(3) Release export folders are removed by `atexit`, which never runs after SIGKILL or a CI timeout, so they pile up in the temp folder.
+(4) `_git` and `export_release` inherit `GIT_DIR` / `GIT_WORK_TREE` from the caller; pass the file's `GIT_ENV` instead.
+(5) A graduated `ALLOW_NEW_NO` entry still excuses a later return to No on the same (case, question) after some PR softened it away (main does the same; a new answer can only be No, so there is no target to pin).
+(6) `_release_allow` reads only a plain assignment of a literal dict: a release that writes a list as `ALLOW_SOFTER: dict = {...}`, `dict(...)` or a comprehension stops graduating its entries, so they read as stale (fails closed). A self-check that `_release_allow(__file__)` parses this file's own lists would catch it.
+(7) `RANK` puts `yes` and `nothing-found` both at 0, so a move between them is never checked in either direction (main does the same).
+(8) `test_ci_never_skips_the_floor` fails whenever the caller has `CUSTODY_RELEASE_REF` exported, because the variable leaks into the test (reproduced on 8208a40).
+(9) A malformed `ALLOW_SOFTER` value (`""`, `None`, `()`) errors inside the comparison rather than failing with a message; it fails closed, and `test_softer_exceptions_name_an_answer` names the shape.
+
+**Why:** fix PRs stay in scope.
+
+**Context:** /review of the released-main floor (#27) and of the graduated-exceptions fix (testing, maintainability, Claude adversarial, Codex).
+
+**Effort:** S
+**Priority:** P3
+**Depends on:** None
+
 ## decision-census
 
 From the v0.1.0 review (2026-10-15). None met the ship bar; each is a one-line follow-up.
@@ -357,6 +367,66 @@ From the v0.1.0 review (2026-10-15). None met the ship bar; each is a one-line f
 - **Codex install is untested.** The skill looks for `~/.codex/skills/decision-census/scripts/`; try it once before saying it runs in Codex. P3.
 
 ## Completed
+
+### Graduated differential exceptions never expire (fix before the stop-line PR merges)
+
+**What:** an `ALLOW_SOFTER` / `ALLOW_NEW_NO` entry that the release's own test file lists is "graduated": the stale check skips it, and the `assertIn` checks still accept it, so a later PR can soften the same (case, question) further with no new entry. Make graduated entries inert in the two `assertIn` checks (`set(self.ALLOW_SOFTER) - _released_main().allow`, same for `ALLOW_NEW_NO`). Watch for one false alarm: a rebase-merge that lands the entry and the scanner change in different commits.
+
+**Why:** main's stale check forced such an entry out; this one is the only worse-than-main path the released-main floor adds. Both lists are empty today, so it cannot fire yet; the stop-line split (item 7) adds the first entry.
+
+**Context:** round-2 review of the released-main floor (2026-10-14), Claude adversarial, reproduced in a clone (branch gate OK, main's gate FAILED). Also from that round: an uncommitted local run on main or a fresh branch gets a floor one release behind (HEAD^1; use HEAD when the scripts folder has uncommitted changes); after a rebase-merge the push-to-main floor is the PR's own previous commit (only matters if a red PR is merged); `_release_allow` ignores annotated assignments (`ALLOW_SOFTER: dict = {...}`), which fails closed.
+
+**Effort:** S
+**Priority:** P1
+**Depends on:** None
+
+**Completed:** 2026-10-15, differently from the What line above. Subtracting the release's keys failed closed twice in review (a rebase-merge that lands the entry one commit before the scanner change; and a graduated key could never be excused again). Instead each `ALLOW_SOFTER` entry is `(case, question) -> (allowed answer, reason)` and excuses only a move to that exact answer, so a further softening needs the entry edited whether or not the release lists it. Tests: `test_a_softer_exception_excuses_only_the_answer_it_names`, `test_softer_exceptions_name_an_answer`.
+
+### The 0.3.4 path for the overlay
+
+**What:** Decide, before the next scanner change, how 0.3.4 builds on 0.3.3: either (a) the baseline becomes 0.3.3's full output, the overlay folds into one module, and a fresh frozen copy of 0.3.3 becomes the floor, or (b) overlays stack (0.3.2 frozen, 0.3.3's overlay, then 0.3.4's).
+
+**Why:** PR #24 ships two files on purpose (0.3.2 verbatim plus the overlay) after five review rounds showed that weaving new checks into 0.3.2's state leaks into its answers. Folding without a plan reopens that.
+
+**Context:** maintainer checklist for either option: (1) regenerate the frozen file from the new release tag (`git show <tag>:…/custody_scan.py > custody_scan_<ver>.py`); (2) update `RELEASE_FILE` and `RELEASE_SHA256` (sha256 of the text with CRLF read as LF); (3) regenerate `cases.json` with `build_cases.py` against that release; (4) move `ALLOW_NEW_NO` entries the release now gives out of the list; (5) decide fold vs stack and record it here.
+
+**Effort:** S (decision), M (fold)
+**Priority:** P2
+**Depends on:** PR #24
+
+**Decided (2026-10-14):** neither (a) nor (b) as written: the floor becomes **released main**. The differential tests export the release's `scripts/` folder with `git archive` at `git merge-base HEAD origin/main` and run it beside the branch. Base edits are allowed when the corpus shows equal-or-more caution, with listed exceptions (`ALLOW_SOFTER` / `ALLOW_NEW_NO`, each with its reason). The frozen `custody_scan_0_3_2.py` and `RELEASE_SHA256` stay until a PR edits the base; that PR re-freezes them. See `fixtures/differential/README.md`.
+
+**Completed:** 2026-10-14, the released-main floor PR (tests and corpus only; no plugin version)
+
+### Regenerate the corpus against 0.3.3: the recipe copies one file
+
+**What:** the "regenerate after each release" recipe (`fixtures/differential/README.md`, `build_cases.py` header) copies one `custody_scan.py` to a temp path; from 0.3.3 that file loads `custody_scan_0_3_2.py` from its own folder, so a lone copy returns `internal:release-missing` on every case. Export the whole `scripts/` folder at the release (`git archive <sha> custody-check/skills/custody-check/scripts | tar -x -C <tmp>`) and point `build_cases.py` at the `custody_scan.py` inside it.
+
+**Why:** the next corpus rebuild (#16/#17 rebase, then 0.3.4) would silently compare against envelopes.
+
+**Context:** ship review of 8adc5ce (2026-10-13), maintainability.
+
+**Effort:** S
+**Priority:** P1
+**Depends on:** None
+
+**Completed:** 2026-10-14, the released-main floor PR (tests and corpus only; no plugin version)
+
+### Regenerate the differential corpus in CI from the pinned release
+
+**What:** CI computes each case's 0.3.2 answers by running `cs.release` instead of reading the answers checked into `cases.json`.
+
+**Why:** the checked-in answers can drift from the release they claim to be; `cs.release` makes the release importable in CI, so the stored answers become an audit artifact rather than the source of truth.
+
+**Context:** `build_cases.py` already runs any scanner by path; `NeverWorseThanMainTests` would call it in-process. Keep the stored answers as a second check until the CI path has run green for a release.
+
+**Effort:** M
+**Priority:** P3
+**Depends on:** None
+
+Done differently: CI runs released main live on every case (the gate); the stored answers are an audit copy checked against `baseline_sha`.
+
+**Completed:** 2026-10-14, the released-main floor PR (tests and corpus only; no plugin version)
 
 ### Q3 "nothing found" from a lone seed.sql
 
