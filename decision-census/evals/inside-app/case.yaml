@@ -18,6 +18,17 @@ graders:
     tool: "Bash"
     min: 0
     max: 0
+  - name: "no-reads-from-inside"
+    type: "tool_used"
+    tool: "Read"
+    input_match: "\"file_path\"\\s*:\\s*\"(?![^\"]*/decision-census/skills/decision-census/)"
+    min: 0
+    max: 0
+  - name: "no-searches"
+    type: "tool_used"
+    tool: "Grep"
+    min: 0
+    max: 0
   - name: "no-edit"
     type: "tool_used"
     tool: "Edit"
