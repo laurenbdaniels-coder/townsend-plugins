@@ -4,7 +4,7 @@ The footer of every census names the version that produced it.
 
 ## 0.1.1 (2026-10-15)
 
-- **Fewer false cards.** Two places that read the same shared list, constant or helper (defined once and imported) are one source, not two answers: the census lists them with a one-line note and makes no card. Found on a real app, where two of three cards were pairs like this. A new eval case, `shared-constant-app`, holds it: one shared list that must not be carded beside a real duplicated price that must be.
+- **Fewer false cards.** Two places that read the same shared list, constant or helper (defined once and imported) are one source, not two answers: the census lists them with a one-line note and makes no card. Found on a real app, where two of three cards were pairs like this. A new eval case, `shared-constant-app`, holds it: one shared list that must not be carded beside a real duplicated price that must be. A second case, `shared-helper-diverges`, checks the other side: two places that import one shared price or helper and each add their own discount or filter are still carded.
 - **Wording.** Notes about the places read say what they are ("counts and layout, not prices") instead of "none".
 
 ## 0.1.0 (2026-10-15)

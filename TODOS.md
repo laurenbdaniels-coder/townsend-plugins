@@ -365,6 +365,7 @@ From the v0.1.0 review (2026-10-15). None met the ship bar; each is a one-line f
 - **Common shapes still unseen:** multi-line Prisma `where` filters keyed on names other than user/owner/author, `pricing-*` folder heuristics, Rails `before_action` access checks. Add when a real run shows them. P3.
 - **`state.hits` is unbounded.** A contrived tree where every line matches could hold millions of tuples; keep only what `select()` can use plus a count. P3.
 - **"none" in notes about cards.** About 1 seeded run in 9 writes "none of them gets a card" beside the fixed "each was found once, so no card" line (v0.1.1 eval). Not a claim about the app, but rule 5 bans the word; try dropping the note line so the list stands alone. P2.
+- **One-source rule edge cases (v0.1.1 review).** When the shared import sits outside the 31-line window the census cannot name the source file without reading more, so it should treat the places as separate; same-named helpers in different modules or path aliases could look like one source. The `shared-helper-diverges` eval (shared import, divergent logic, must still card) passed 3/3 on both 0.1.0 and 0.1.1. P3.
 - **Codex install is untested.** The skill looks for `~/.codex/skills/decision-census/scripts/`; try it once before saying it runs in Codex. P3.
 
 ## Completed

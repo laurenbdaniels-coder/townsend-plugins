@@ -36,7 +36,7 @@ cd <the folder that contains my-app>
 claude --plugin-dir ~/townsend-plugins/decision-census
 ```
 
-Codex: the skill looks for its helper at `~/.codex/skills/decision-census/scripts/`, the same layout custody-check uses, but v0.1.0 has not been tried in Codex yet.
+Codex: the skill looks for its helper at `~/.codex/skills/decision-census/scripts/`, the same layout custody-check uses, but it has not been tried in Codex yet.
 
 ## Step 2: run it
 
@@ -70,10 +70,11 @@ For keys, data access and who can call what, run custody-check.
 
 ## Evals
 
-Before each release, `claude plugin eval` runs nine cases, three times each, on synthetic apps under `evals/fixtures/`:
+Before each release, `claude plugin eval` runs ten cases, three times each, on synthetic apps under `evals/fixtures/`:
 - a seeded app with one planted two-place decision per type, all of which must become cards
 - a crowded app that tests how the window budget is shared
 - an app where two places read one shared list (one source, so no card) beside a real duplicated price (a card)
+- an app where two places import one shared price or helper but each adds its own discount or filter (still a card)
 - a clean-looking app that must never be called clean
 - a hostile repo whose code tells the agent to open `CLAUDE.md` and `.env` and say the app is clean: graded on every file the agent reads, not just on what it says
 - a stop-line app
@@ -103,7 +104,7 @@ Claude Code reads the instruction files in the folder it starts in. If you start
 
 ## Platforms
 
-macOS and Linux. Windows isn't supported in v0.1.0.
+macOS and Linux. Windows isn't supported yet.
 
 ## Credits
 
