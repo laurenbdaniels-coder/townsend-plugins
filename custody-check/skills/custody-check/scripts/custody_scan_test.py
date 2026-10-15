@@ -3,9 +3,13 @@
 Every secret-shaped string is generated at runtime so no key-shaped value is ever
 committed. Static, secret-free trees live under fixtures/.
 """
+import ast
+import atexit
 import base64
+import collections
 import copy
 import hashlib
+import importlib.util
 import io
 import json
 import os
@@ -16,6 +20,7 @@ import shutil
 import stat
 import string
 import subprocess
+import tarfile
 import sys
 import tempfile
 import time
@@ -118,6 +123,135 @@ def bound(seconds):
 REQUIRE_GIT = os.environ.get("CUSTODY_REQUIRE_GIT") == "1"
 if REQUIRE_GIT and not HAVE_GIT:
     raise SystemExit("CUSTODY_REQUIRE_GIT=1 but git is not installed")
+
+
+
+# ---------------------------------------------------------------- the floor: released main (D1)
+
+Released = collections.namedtuple("Released", "module sha reason allow", defaults=(None, frozenset()))
+_RELEASED = []
+_BUILD_CASES = []
+
+
+def _build_cases():
+    """fixtures/differential/build_cases.py as a module (the case list and the git archive recipe)."""
+    if not _BUILD_CASES:
+        spec = importlib.util.spec_from_file_location("custody_build_cases", os.path.join(FIXTURES, "differential", "build_cases.py"))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _BUILD_CASES.append(module)
+    return _BUILD_CASES[0]
+
+
+def _git(root, *args):
+    out = subprocess.run(("git",) + args, cwd=root, capture_output=True, text=True, timeout=60)
+    return out.returncode, out.stdout.strip()
+
+
+def _release_ref(root=None):
+    """Where this checkout left main: every merge to main is a release. On main itself (a CI push to main) that is
+    HEAD, and HEAD against HEAD passes any regression, so the floor is HEAD's first parent, the previous release.
+    CUSTODY_RELEASE_REF pins another ref; it must name a commit strictly before HEAD, or this raises."""
+    root = root or REPO_ROOT
+    ref = os.environ.get("CUSTODY_RELEASE_REF")
+    if not HAVE_GIT or not os.path.exists(os.path.join(root, ".git")):
+        if ref:
+            raise AssertionError("CUSTODY_RELEASE_REF=%s but this is not a git checkout" % ref)
+        return None
+    head = _git(root, "rev-parse", "HEAD")[1]
+    if ref:
+        rc, sha = _git(root, "rev-parse", "--verify", "--quiet", ref + "^{commit}") if not ref.startswith("-") else (1, "")
+        if rc or sha == head or _git(root, "merge-base", "--is-ancestor", sha, head)[0]:
+            raise AssertionError("CUSTODY_RELEASE_REF=%s is not a commit before HEAD" % ref)
+        return sha
+    for main in ("origin/main", "main"):
+        rc, base = _git(root, "merge-base", "HEAD", main)
+        if rc == 0:
+            if base != head:
+                return base
+            rc, parent = _git(root, "rev-parse", "--verify", "--quiet", "HEAD^1")
+            return parent if rc == 0 else None
+    return None
+
+
+def _release_allow(path):
+    """The (case, question) keys the release's own NeverWorseThanMainTests lists in ALLOW_SOFTER / ALLOW_NEW_NO,
+    read with ast (never run). Anything that is not a plain dict of 2-string tuples is ignored."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            tree = ast.parse(fh.read())
+    except (OSError, ValueError, SyntaxError):
+        return set()
+    keys = set()
+    for cls in tree.body:
+        if not (isinstance(cls, ast.ClassDef) and cls.name == "NeverWorseThanMainTests"):
+            continue
+        for node in cls.body:
+            if not (isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id in ("ALLOW_SOFTER", "ALLOW_NEW_NO") for t in node.targets)):
+                continue
+            try:
+                value = ast.literal_eval(node.value)
+            except (ValueError, SyntaxError, TypeError):
+                continue
+            if isinstance(value, dict):
+                keys.update(k for k in value if isinstance(k, tuple) and len(k) == 2 and all(isinstance(x, str) for x in k))
+    return keys
+
+
+def _stale_exceptions(listed, used, graduated):
+    """Listed exceptions no case needed. One the release itself lists is graduated, not stale: once its PR merged,
+    the release gives that answer, and failing main and every later PR on unchanged code would be a false alarm."""
+    return set(listed) - set(used) - set(graduated)
+
+
+def _load_release_at(ref):
+    """Export the scripts folder at ref and load its custody_scan.py in-process."""
+    if not HAVE_GIT or not os.path.exists(os.path.join(REPO_ROOT, ".git")):
+        return Released(None, None, "no git checkout: the floor falls back to the answers stored in cases.json")
+    if not ref:
+        return Released(None, None, "no main branch to compare against")
+    dest = tempfile.mkdtemp(prefix="custody released ")
+    atexit.register(shutil.rmtree, dest, True)
+    try:
+        scanner, sha = _build_cases().export_release(ref, dest, REPO_ROOT)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
+        return Released(None, None, "cannot export %s: %s" % (ref, e))
+    spec = importlib.util.spec_from_file_location("custody_released_%s" % sha[:12], scanner)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    if getattr(module, "RELEASE_ERROR", None):
+        return Released(None, sha, "the release at %s does not load: %s" % (sha[:7], module.RELEASE_ERROR))
+    return Released(module, sha, None, frozenset(_release_allow(os.path.join(dest, "custody_scan_test.py"))))
+
+
+def _released_main(cache=True):
+    """The released scanner every differential test compares against. Under CUSTODY_REQUIRE_GIT=1 (CI), or with
+    CUSTODY_RELEASE_REF set, a release that cannot be loaded fails the run: never a silent fallback to stored answers."""
+    if cache and _RELEASED:
+        return _RELEASED[0]
+    rel = _load_release_at(_release_ref())
+    if rel.module is None and (REQUIRE_GIT or os.environ.get("CUSTODY_RELEASE_REF")):
+        raise AssertionError("the released-main floor did not load: %s" % rel.reason)
+    if cache:
+        _RELEASED.append(rel)
+    return rel
+
+
+def _baseline(c, module=None):
+    """What released main says on a corpus case: answers, partial, Q10 PII fields. Without git history, the answers
+    cases.json stored when it was built."""
+    module = module or _released_main().module
+    if module is None:
+        return {"answers": c["main"], "partial": c["main_partial"], "pii": c["main_pii"]}
+    tmp = tempfile.mkdtemp(prefix="custody baseline ")
+    try:
+        _materialize(tmp, c)
+        r = module.scan(tmp, **c.get("args", {}))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    q = r["questions"]
+    return {"answers": {k: q[k]["answer"] for k in ("q1", "q3", "q9")}, "partial": r["partial"],
+            "pii": sorted(set(e["snippet"] for e in q["q10"]["evidence"] if e["check"] == "pii-field"))}
 
 
 def evidence_checks(q):
@@ -5741,28 +5875,25 @@ class WallTimeBoundTests(unittest.TestCase):
 
 
 class NeverWorseThanMainTests(unittest.TestCase):
-    """The scanner on this branch against the answers the released baseline gave on the same files
-    (fixtures/differential/cases.json: realistic shapes plus every repro from review). Two rules:
+    """The scanner on this branch against released main, run live on the same files (fixtures/differential/cases.json:
+    realistic shapes plus every repro from review; the release is exported with git archive, see _released_main).
+    The base scanner may be edited when the corpus shows equal-or-more caution. Two rules:
 
     1. never more trusting: an answer may not move toward Nothing found (no > don't know > nothing found);
     2. never a new No: a No the baseline did not give needs a reason, because a false No is the worst answer.
        A "new alarm" means a new No; Nothing found -> Don't know is the cautious direction and needs no listing.
 
     An exception is allowed only when it is listed below with the reason the baseline was wrong. To move the
-    baseline after a release, regenerate cases.json from the released scanner (see fixtures/differential/README.md)."""
+    stored audit copy after a release, regenerate cases.json (see fixtures/differential/README.md)."""
 
     RANK = {"no": 2, "dont-know": 1, "nothing-found": 0, "yes": 0}
     KEYS = {"{KEY}": "sk-" + "proj-" + "a1b2c3d4e5f6g7h8i9j0" * 2,
             "{PEM}": "-----BEGIN " + "PRIVATE KEY-----\\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\\n-----END " + "PRIVATE KEY-----\\n",
             "{PEM_BODY}": "-----BEGIN " + "PRIVATE KEY-----\n" + "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7" * 3 + "\n-----END " + "PRIVATE KEY-----\n"}
     # (case, question) -> why the baseline's more cautious answer was wrong
-    ALLOW_SOFTER = {}  # the overlay can only move answers toward caution
+    ALLOW_SOFTER = {}
     # (case, question) -> why a No the baseline did not give is right
-    ALLOW_NEW_NO = {
-        ("mts client key", "q1"): ".mts is read as code now; a key in a browser folder is a No, as in a .ts file",
-        ("mts server only", "q1"): ".mts is read as code now and follows the release's rule for a .ts file in the same folder",
-        ("cts client key", "q1"): ".cts is read as code now; a key in a browser folder is a No, as in a .ts file",
-    }
+    ALLOW_NEW_NO = {}
 
     def _scan(self, c):
         """Write a case as build_cases.materialize does (generated bodies, hard links) and scan it with its args."""
@@ -5787,39 +5918,36 @@ class NeverWorseThanMainTests(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
-    def _same_partial_and_pii(self, c, partial, pii):
-        """A scan the baseline finished is never partial here, and Q10 names exactly the baseline's PII fields:
-        none lost (a stop-line field decides the tier) and none added (a new stop-line is a new alarm)."""
-        if partial:
-            self.assertTrue(c["main_partial"], "%s: partial where the baseline finished" % c["name"])
-        self.assertEqual(pii, c["main_pii"], "%s: Q10 PII fields differ from the baseline" % c["name"])
-
     def test_never_worse_than_the_baseline(self):
-        with open(os.path.join(SCRIPT_DIR, "fixtures", "differential", "cases.json"), encoding="utf-8") as fh:
-            data = json.load(fh)
-        self.assertGreater(len(data["cases"]), 40, "the corpus must stay broad")
+        """Against released main, run live (fixtures/differential/README.md); stored answers only without git."""
+        cases = _corpus()
+        self.assertGreater(len(cases), 40, "the corpus must stay broad")
         used = set()
-        for c in data["cases"]:
+        for c in cases:
             new, partial, pii, _ = self._scan(c)
+            base = _baseline(c)
             with self.subTest(case=c["name"], question="partial and q10"):
-                self._same_partial_and_pii(c, partial, pii)
-            for q, base in sorted(c["main"].items()):
+                if partial:
+                    self.assertTrue(base["partial"], "%s: partial where the baseline finished" % c["name"])
+                self.assertEqual(pii, base["pii"], "%s: Q10 PII fields differ from the baseline" % c["name"])
+            for q, was in sorted(base["answers"].items()):
                 with self.subTest(case=c["name"], question=q):
                     key = (c["name"], q)
-                    if self.RANK[new[q]] < self.RANK[base]:
-                        self.assertIn(key, self.ALLOW_SOFTER, "%s %s: %s -> %s is more trusting than the baseline" % (c["name"], q, base, new[q]))
+                    if self.RANK[new[q]] < self.RANK[was]:
+                        self.assertIn(key, self.ALLOW_SOFTER, "%s %s: %s -> %s is more trusting than the baseline" % (c["name"], q, was, new[q]))
                         used.add(key)
-                    if new[q] == "no" and base != "no":
+                    if new[q] == "no" and was != "no":
                         self.assertIn(key, self.ALLOW_NEW_NO, "%s %s: a new No the baseline did not give" % (c["name"], q))
                         used.add(key)
-        stale = (set(self.ALLOW_SOFTER) | set(self.ALLOW_NEW_NO)) - used
+        stale = _stale_exceptions(set(self.ALLOW_SOFTER) | set(self.ALLOW_NEW_NO), used, _released_main().allow)
         self.assertEqual(stale, set(), "an allowed exception that no longer happens should be removed")
 
     SENTINELS = ("hunter2",)  # text the corpus hides inside strings, function bodies and quoted names
 
     def test_never_prints_text_the_baseline_did_not(self):
         """A third rule: the branch never shows a sentinel the released scanner did not show on the same files.
-        The release here is the pinned copy (custody_scan_0_3_2.py, byte-identical to the baseline)."""
+        The release is released main; without git history, the frozen 0.3.2 (it shows less, so the rule is stricter)."""
+        release = _released_main().module or cs.release
         cases = [c for c in _corpus() if any(s in json.dumps(c["files"]).lower() for s in self.SENTINELS)]
         self.assertGreaterEqual(len(cases), 10, "control: the review repros carry sentinels")
         for c in cases:
@@ -5827,13 +5955,151 @@ class NeverWorseThanMainTests(unittest.TestCase):
             try:
                 _materialize(tmp, c)
                 new = json.dumps(cs.scan(tmp, **c.get("args", {}))).lower()
-                old = json.dumps(cs.release.scan(tmp, **c.get("args", {}))).lower()
+                old = json.dumps(release.scan(tmp, **c.get("args", {}))).lower()
             finally:
                 shutil.rmtree(tmp, ignore_errors=True)
             for s in self.SENTINELS:
                 with self.subTest(case=c["name"], sentinel=s):
                     if s not in old:
                         self.assertNotIn(s, new)
+
+
+class ReleasedMainFloorTests(unittest.TestCase):
+    """The floor is released main (D1, 2026-10-14): the differential tests export the release's scripts folder
+    with git archive and run it beside the branch, instead of trusting answers stored when the corpus was built."""
+
+    def release(self):
+        rel = _released_main()
+        if rel.module is None:
+            self.skipTest(rel.reason)
+        return rel
+
+    def test_the_recipe_exports_a_runnable_release(self):
+        """0.3.3's scanner loads custody_scan_0_3_2.py from its own folder: one copied file is an envelope."""
+        self.release()  # skips without git history, fails under CUSTODY_REQUIRE_GIT
+        tmp = tempfile.mkdtemp(prefix="custody export ")
+        try:
+            scanner, sha = _build_cases().export_release("6890302", tmp, REPO_ROOT)
+            self.assertTrue(sha.startswith("6890302"))
+            out = subprocess.run([sys.executable, "-I", scanner, "--version"], capture_output=True, text=True, timeout=60)
+            self.assertEqual(out.stdout.strip(), "0.3.3")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_the_floor_is_released_main(self):
+        rel = self.release()
+        plugin = subprocess.run(["git", "show", rel.sha + ":custody-check/.claude-plugin/plugin.json"], cwd=REPO_ROOT,
+                                capture_output=True, text=True, timeout=60)
+        self.assertEqual(rel.module.__version__, json.loads(plugin.stdout)["version"])
+        c = dict([c for c in _corpus() if c["name"] == "mts client key"][0])
+        tmp = tempfile.mkdtemp(prefix="custody floor ")
+        try:
+            _materialize(tmp, c)
+            want = rel.module.scan(tmp)["questions"]["q1"]["answer"]
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+        c["main"] = dict(c["main"], q1="nothing-found" if want != "nothing-found" else "no")  # stored, never read
+        self.assertEqual(_baseline(c)["answers"]["q1"], want, "the baseline is the release run live, not the stored copy")
+
+    def test_a_hostile_archive_writes_nothing_outside_its_folder(self):
+        tmp = tempfile.mkdtemp(prefix="custody tar ")
+        try:
+            buf = io.BytesIO()
+            pre = _build_cases().SCRIPTS + "/"
+            with tarfile.open(fileobj=buf, mode="w") as tf:
+                def add(name, data=b"x", kind=tarfile.REGTYPE, link=""):
+                    info = tarfile.TarInfo(name)
+                    info.type, info.linkname, info.size = kind, link, len(data) if kind == tarfile.REGTYPE else 0
+                    tf.addfile(info, io.BytesIO(data) if kind == tarfile.REGTYPE else None)
+                add(pre + "custody_scan.py", b"ok")
+                add(pre + "../escape.py")
+                add(pre + "a/../../escape2.py")
+                add("/abs/escape3.py")
+                add(pre + "/abs.py")
+                add(pre + "link.py", kind=tarfile.SYMTYPE, link="/etc/passwd")
+                add(pre + "hard.py", kind=tarfile.LNKTYPE, link=pre + "custody_scan.py")
+                add("elsewhere/x.py")
+                add(pre + "a\\..\\..\\escape4.py")
+            dest = os.path.join(tmp, "dest")
+            os.makedirs(dest)
+            _build_cases().extract_scripts(buf.getvalue(), dest)
+            found = sorted(os.path.relpath(os.path.join(d, f), tmp) for d, _, fs in os.walk(tmp) for f in fs)
+            self.assertEqual(found, [os.path.join("dest", "custody_scan.py")])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_ci_never_skips_the_floor(self):
+        """Under CUSTODY_REQUIRE_GIT=1 a missing release is a failure, not a silent fallback to stored answers."""
+        with mock.patch.object(sys.modules[__name__], "_release_ref", return_value="no-such-ref-for-custody"):
+            with mock.patch.object(sys.modules[__name__], "REQUIRE_GIT", True):
+                with self.assertRaises(AssertionError):
+                    _released_main(cache=False)
+            with mock.patch.object(sys.modules[__name__], "REQUIRE_GIT", False):
+                self.assertIsNone(_released_main(cache=False).module)
+
+    def test_without_git_the_floor_is_the_stored_answers(self):
+        c = _corpus()[0]
+        with mock.patch.object(sys.modules[__name__], "_released_main", lambda cache=True: Released(None, None, "no git")):
+            self.assertEqual(_baseline(c), {"answers": c["main"], "partial": c["main_partial"], "pii": c["main_pii"]})
+
+    def git_repo(self):
+        if not HAVE_GIT:
+            self.skipTest("git not installed")
+        root = tempfile.mkdtemp(prefix="custody floor repo ")
+        self.addCleanup(shutil.rmtree, root, True)
+        git = lambda *a: subprocess.run(("git", "-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false") + a,
+                                        cwd=root, capture_output=True, text=True, check=True, timeout=60).stdout.strip()
+        git("init", "-q", "-b", "main")
+        for msg in ("release one", "release two"):
+            git("commit", "-q", "--allow-empty", "-m", msg)
+        return root, git
+
+    def test_on_main_the_floor_is_the_previous_release(self):
+        """A push to main checks out main itself: comparing HEAD with HEAD would pass any regression (review of 8bdfab2)."""
+        root, git = self.git_repo()
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("CUSTODY_RELEASE_REF", None)
+            self.assertEqual(_release_ref(root), git("rev-parse", "HEAD^1"), "on main: the previous release")
+            git("checkout", "-q", "-b", "feature")
+            git("commit", "-q", "--allow-empty", "-m", "a change")
+            self.assertEqual(_release_ref(root), git("rev-parse", "main"), "on a branch: where it left main")
+
+    def test_a_pinned_ref_is_a_strict_ancestor_and_must_load(self):
+        """CUSTODY_RELEASE_REF is a reviewer's explicit choice: a typo or HEAD itself fails, never falls back."""
+        root, git = self.git_repo()
+        for ref in ("HEAD", "no-such-ref-for-custody"):
+            with mock.patch.dict(os.environ, {"CUSTODY_RELEASE_REF": ref}):
+                with self.assertRaises(AssertionError, msg=ref):
+                    _release_ref(root)
+        with mock.patch.dict(os.environ, {"CUSTODY_RELEASE_REF": "HEAD^1"}):
+            self.assertEqual(_release_ref(root), git("rev-parse", "HEAD^1"))
+        with mock.patch.dict(os.environ, {"CUSTODY_RELEASE_REF": "no-such-ref-for-custody"}), \
+                mock.patch.object(sys.modules[__name__], "REQUIRE_GIT", False), \
+                mock.patch.object(sys.modules[__name__], "_release_ref", return_value="no-such-ref-for-custody"):
+            with self.assertRaises(AssertionError):
+                _released_main(cache=False)
+
+    def test_an_exception_the_release_already_lists_is_not_stale(self):
+        """After a PR with a listed exception merges, the release gives that answer itself: the entry is unused
+        but graduated, so main and the next PR stay green; an entry neither lists nor uses still fails."""
+        tmp = tempfile.mkdtemp(prefix="custody allow ")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        path = os.path.join(tmp, "custody_scan_test.py")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("class NeverWorseThanMainTests(object):\n    ALLOW_SOFTER = {('a', 'q1'): 'r'}\n"
+                     "    ALLOW_NEW_NO = {\n        ('b', 'q3'): 'r',\n    }\n")
+        self.assertEqual(_release_allow(path), {("a", "q1"), ("b", "q3")})
+        listed = {("a", "q1"), ("b", "q3"), ("c", "q9")}
+        self.assertEqual(_stale_exceptions(listed, used={("c", "q9")}, graduated=_release_allow(path)), set())
+        self.assertEqual(_stale_exceptions(listed, used=set(), graduated=_release_allow(path)), {("c", "q9")})
+        for hostile in ("", "x = (", "class NeverWorseThanMainTests:\n    ALLOW_NEW_NO = os.environ\n",
+                        "ALLOW_NEW_NO = {('top', 'q1'): 'not in the class'}\n", "\x00\xff", "class NeverWorseThanMainTests:\n    ALLOW_NEW_NO = {1: 2}\n",
+                        "class OtherTests:\n    ALLOW_NEW_NO = {('x', 'q1'): 'r'}\n",
+                        "class NeverWorseThanMainTests:\n    ALLOW_NEW_NO = {(1, 2): 'r', ('x',): 'r'}\n"):
+            with open(path, "w", encoding="utf-8", errors="surrogateescape") as fh:
+                fh.write(hostile)
+            self.assertEqual(_release_allow(path), set(), repr(hostile))
+        self.assertEqual(_release_allow(os.path.join(tmp, "missing.py")), set())
 
 
 def _json_bytes(obj):
@@ -6744,19 +7010,27 @@ class OverlayContractTests(ScanCase):
         self.assertIsNotNone(out, "control: step 5 makes it fit")
         self.assertEqual(out["questions"]["q1"], r["questions"]["q1"])
 
-    def test_the_corpus_baseline_is_what_the_pinned_release_says(self):
+    def test_the_corpus_baseline_is_what_its_release_says(self):
+        """cases.json's stored answers are an audit copy: they must be what the release named in baseline_sha gives."""
+        with open(os.path.join(FIXTURES, "differential", "cases.json"), encoding="utf-8") as fh:
+            sha = json.load(fh)["baseline_sha"]
         names = []
         with open(os.path.join(FIXTURES, "differential", "build_cases.py"), encoding="utf-8") as fh:
             src = fh.read()
         self.assertEqual(src.count("\ncase("), len(_corpus()), "every case() in build_cases.py is in cases.json")
+        rel = _released_main()
+        rel = rel if rel.sha == sha else _load_release_at(sha)
+        if rel.module is None:
+            if REQUIRE_GIT:
+                self.fail(rel.reason)
+            self.skipTest(rel.reason)
         for c in _corpus():
             names.append(c["name"])
             with self.subTest(case=c["name"]):
-                root = tempfile.mkdtemp(prefix="custody baseline ", dir=self.tmp)
-                _materialize(root, c)
-                r = cs.release.scan(root, **c.get("args", {}))
-                self.assertEqual(dict((q, r["questions"][q]["answer"]) for q in self.QS), c["main"])
-                self.assertEqual(r["partial"], c["main_partial"])
+                base = _baseline(c, rel.module)
+                self.assertEqual(base["answers"], c["main"])
+                self.assertEqual(base["partial"], c["main_partial"])
+                self.assertEqual(base["pii"], c["main_pii"])
         self.assertEqual(len(names), len(set(names)))
 
     # ---------------------------------------------------------------- fresh review of d90c4fd (2026-10-12)
