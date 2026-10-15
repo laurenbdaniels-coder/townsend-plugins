@@ -342,6 +342,9 @@
 (4) `_git` and `export_release` inherit `GIT_DIR` / `GIT_WORK_TREE` from the caller; pass the file's `GIT_ENV` instead.
 (5) A graduated `ALLOW_NEW_NO` entry still excuses a later return to No on the same (case, question) after some PR softened it away (main does the same; a new answer can only be No, so there is no target to pin).
 (6) `_release_allow` reads only a plain assignment of a literal dict: a release that writes a list as `ALLOW_SOFTER: dict = {...}`, `dict(...)` or a comprehension stops graduating its entries, so they read as stale (fails closed). A self-check that `_release_allow(__file__)` parses this file's own lists would catch it.
+(7) `RANK` puts `yes` and `nothing-found` both at 0, so a move between them is never checked in either direction (main does the same).
+(8) `test_ci_never_skips_the_floor` fails whenever the caller has `CUSTODY_RELEASE_REF` exported, because the variable leaks into the test (reproduced on 8208a40).
+(9) A malformed `ALLOW_SOFTER` value (`""`, `None`, `()`) errors inside the comparison rather than failing with a message; it fails closed, and `test_softer_exceptions_name_an_answer` names the shape.
 
 **Why:** fix PRs stay in scope.
 
