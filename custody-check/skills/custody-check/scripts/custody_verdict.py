@@ -1,0 +1,388 @@
+#!/usr/bin/env python3
+"""custody-check verdict: the door rule from SKILL.md, applied by a script instead of by the model.
+
+Input: the scanner JSON (it runs custody_scan.py from its own folder, or reads it on stdin for tests) plus the
+founder's answers as fixed tokens. Output: one JSON line with the scan, the door, the Patch list order, the stop-line
+state, per-row render states and the footer's next step. It reads no file of the app itself and changes nothing.
+
+It implements SKILL.md's `## Door rule` as written, in order:
+  1. stop-line ticked (founder, or a Q10 field from the stop-line list) -> Get a person, no door
+  2. Q1, Q2 or Q3 is no -> Patch it
+  3. partial and Q1 or Q3 still Don't know (or a git-index-unread row on Q1) -> Patch it, never Ship it
+  4. two or more of Q4, Q5, Q6, Q9 are no or Don't know -> Patch it
+  5. otherwise -> Ship it
+Nothing found counts as Don't know everywhere. When this script fails, the skill falls back to the prose rule.
+
+Usage (from the folder that contains the app, after the interview):
+  python3 -I custody_verdict.py --repo APP [scanner flags] --answers 'q4=yes q5_data=no stop_line=none' \
+      --expect 'q1=no q2=dont-know ... q11=dont-know partial=no'
+  python3 -I custody_verdict.py --no-scan --answers '...'      (the scanner could not run at all)
+  python3 -I custody_verdict.py --scan-json - --answers '...'  (scanner JSON on stdin; tests)
+--expect holds the first scan's answers; a rescan that differs is an error, so the skill uses the first scan.
+"""
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+
+__version__ = "0.3.4"
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+SCANNER = os.path.join(HERE, "custody_scan.py")
+QUESTIONS_MD = os.path.join(os.path.dirname(HERE), "references", "questions.md")
+
+QS = ["q%d" % i for i in range(1, 12)]
+ANSWERS = ("yes", "no", "dont-know", "nothing-found")
+FOUNDER_VALUES = ("yes", "no", "dont-know")
+ANSWER_KEYS = tuple(QS) + ("q5_code", "q5_data", "stop_line")
+EXPECT_KEYS = tuple("q5_code" if q == "q5" else q for q in QS) + ("partial",)
+STOP_LINE_VALUES = ("none", "payments", "health", "sensitive", "scale")
+# Same list as the scanner's STOPLINE_FIELDS and SKILL.md rule 6 (custody_verdict_test checks both).
+STOPLINE_FIELDS = ("ssn", "social_security", "dob", "date_of_birth", "birthdate", "medical", "diagnosis",
+                   "credit_card", "card_number", "cc_number", "iban", "passport")
+SCAN_KEYS = {"ok", "partial", "version", "files_scanned", "stats", "warnings", "git", "questions"}
+WARNINGS = {"repo-is-cwd", "repo-contains-cwd"}
+SCANNER_BACKED = ("q1", "q3", "q6")  # plus Q5's code half: "Don't know (scanner unavailable)" on the degraded path
+MAX_SCAN_BYTES = 30000
+MAX_OUTPUT_BYTES = 40000
+OUTPUT_KEYS = ("ok", "version", "scanner", "scanner_reason", "scan", "verdict")
+RANK = {"no": 0, "dont-know": 1, "nothing-found": 1, "yes": 2}
+CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+
+
+class UsageError(Exception):
+    pass
+
+
+def unknown(answer):
+    return answer in ("dont-know", "nothing-found")
+
+
+def parse_answers(text):
+    """'q1=yes q5_data=no stop_line=payments,health' -> dict. Raises UsageError on anything outside the vocabulary,
+    so no free text ever reaches the verdict."""
+    out = {}
+    for tok in (text or "").split():
+        key, sep, val = tok.partition("=")
+        if not sep or key not in ANSWER_KEYS + ("q5",):
+            raise UsageError("unknown answer key")
+        if key == "stop_line":
+            vals = val.split(",")
+            if not all(re.fullmatch(r"[a-z][a-z_-]{0,31}", v) for v in vals):
+                raise UsageError("bad stop_line value")
+            val = vals
+        elif val not in FOUNDER_VALUES:
+            raise UsageError("bad answer value")
+        if key in out and out[key] != val:
+            raise UsageError("an answer given twice with different values")
+        out[key] = val
+    if "q5" in out:
+        if "q5_code" in out or "q5_data" in out:
+            raise UsageError("q5 together with q5_code or q5_data")
+        out["q5_code"] = out["q5_data"] = out.pop("q5")
+    return out
+
+
+def parse_expect(text):
+    out = {}
+    for tok in (text or "").split():
+        key, sep, val = tok.partition("=")
+        ok_val = val in ("yes", "no") if key == "partial" else val in ANSWERS
+        if not sep or key not in EXPECT_KEYS or not ok_val or key in out:
+            raise UsageError("bad --expect token")
+        out[key] = val
+    if set(out) != set(EXPECT_KEYS):
+        raise UsageError("--expect needs every question and partial")
+    return out
+
+
+def expect_tokens(scan):
+    """The --expect string for a scan (what the skill writes from the first scan's JSON)."""
+    q = scan["questions"]
+    parts = ["%s=%s" % (k, q["q5"]["code"]["answer"] if k == "q5_code" else q[k]["answer"]) for k in EXPECT_KEYS[:-1]]
+    return " ".join(parts + ["partial=%s" % ("yes" if scan["partial"] else "no")])
+
+
+def known_checks():
+    """Every check name in questions.md's "All check names" appendix (the list SKILL.md accepts output against)."""
+    with open(QUESTIONS_MD, encoding="utf-8") as fh:
+        text = fh.read()
+    section = text.split("## All check names", 1)[1].split("\n## ", 1)[0]
+    names = set()
+    for line in section.splitlines():
+        if line.startswith("- **Q"):
+            names.update(re.findall(r"`([a-z0-9-]+)`", line))
+    return names
+
+
+def _strings(value):
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for k, v in value.items():
+            yield k
+            yield from _strings(v)
+    elif isinstance(value, list):
+        for v in value:
+            yield from _strings(v)
+
+
+def accept_scan(text):
+    """SKILL.md's acceptance rule for the scanner output. Returns (scan, None) or (None, reason)."""
+    if text.endswith("\n"):
+        text = text[:-1]
+    if "\n" in text or not text.startswith("{"):
+        return None, "not one JSON line"
+    if len(text.encode("utf-8")) > MAX_SCAN_BYTES:
+        return None, "over 30000 bytes"
+    try:
+        scan = json.loads(text)
+    except ValueError:
+        return None, "not JSON"
+    if not isinstance(scan, dict):
+        return None, "not an object"
+    if scan.get("ok") is False:
+        return None, "scanner error"
+    if set(scan) != SCAN_KEYS or scan["ok"] is not True:
+        return None, "unexpected top-level keys"
+    if any(CONTROL.search(s) for s in _strings(scan)):
+        return None, "control characters"
+    if not isinstance(scan["partial"], bool) or not isinstance(scan["files_scanned"], int) or scan["files_scanned"] < 1:
+        return None, "nothing was read"
+    if not isinstance(scan["warnings"], list) or not set(scan["warnings"]) <= WARNINGS:
+        return None, "unknown warning"
+    try:
+        checks = known_checks()
+    except (OSError, IndexError):
+        return None, "check list unreadable"
+    qs = scan["questions"]
+    if not isinstance(qs, dict) or not all(q in qs for q in QS):
+        return None, "missing question"
+    for q in QS:
+        parts = [qs[q].get("code"), qs[q].get("data")] if q == "q5" and isinstance(qs[q], dict) else [qs[q]]
+        for part in parts:
+            if not isinstance(part, dict) or part.get("answer") not in ANSWERS or not isinstance(part.get("evidence"), list):
+                return None, "bad answer"
+            for ev in part["evidence"]:
+                if not isinstance(ev, dict) or ev.get("check") not in checks or not isinstance(ev.get("snippet", ""), str):
+                    return None, "unknown check"
+    if not isinstance(scan["stats"], dict):
+        return None, "bad stats"
+    return scan, None
+
+
+def _norm(s):
+    s = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", s)
+    s = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", s)
+    return re.sub(r"[^a-z0-9]+", "_", s.lower())
+
+
+def stopline_terms(snippet):
+    """The stop-line list terms a Q10 snippet names (SKILL.md: "fields such as"): a whole-word match on the snake
+    form (dateOfBirth -> date_of_birth, user_ssn_last4 -> ssn), plus a run-together match for terms of six or more
+    letters (creditcard, birthdate). Returns list terms only, never the app's own text."""
+    n = _norm(snippet)
+    flat = n.replace("_", "")
+    hits = set()
+    for t in STOPLINE_FIELDS:
+        if re.search(r"(?:^|_)%s(?:_|$)" % t, n) or (len(t.replace("_", "")) >= 6 and t.replace("_", "") in flat):
+            hits.add(t)
+    return hits
+
+
+def _confidence(founder):
+    return "high" if founder in ("yes", "no") else "low"
+
+
+def _merge(s_ans, s_conf, founder):
+    """(answer, source, confidence). SKILL.md: a founder answer fills a scanner Don't know or Nothing found and never
+    changes a scanner no; a founder yes on a scanner yes raises it to high. A founder no or Don't know on a scanner yes
+    takes the lower answer (the prose is silent there; this is the cautious reading)."""
+    if s_ans is None:
+        return (founder, "you", _confidence(founder)) if founder else ("dont-know", "none", "low")
+    if s_ans == "no" or founder is None:
+        return s_ans, "scanner", s_conf
+    if unknown(s_ans) or founder != "yes":
+        return founder, "you", _confidence(founder)
+    return "yes", "scanner", "high"
+
+
+def decide(scan, answers, scanner_reason=None):
+    """The verdict. scan is accepted scanner JSON, or None on the degraded path."""
+    degraded = scan is None
+    partial = bool(scan["partial"]) if scan else False
+    qs = scan["questions"] if scan else {}
+    rows = {}
+    for q in QS:
+        if q == "q5":
+            halves = {}
+            for half in ("code", "data"):
+                part = qs.get("q5", {}).get(half) if scan else None
+                halves[half] = dict(zip(("answer", "source", "confidence"),
+                                        _merge(part["answer"] if part else None, part.get("confidence") if part else None,
+                                               answers.get("q5_" + half))))
+            low = min((halves["code"], halves["data"]), key=lambda h: (RANK[h["answer"]], h["answer"] != "dont-know"))
+            rows[q] = dict(low, label=None, code=halves["code"], data=halves["data"])
+            if degraded and unknown(halves["code"]["answer"]) and halves["code"]["source"] == "none":
+                rows[q]["label"] = "scanner-unavailable"
+            continue
+        part = qs.get(q) if scan else None
+        a, src, conf = _merge(part["answer"] if part else None, part.get("confidence") if part else None, answers.get(q))
+        rows[q] = {"answer": a, "source": src, "confidence": conf, "label": None}
+        if degraded and q in SCANNER_BACKED and unknown(a) and src == "none":
+            rows[q]["label"] = "scanner-unavailable"
+
+    git_unread = bool(scan) and any(e.get("check") == "git-index-unread" for e in qs["q1"]["evidence"])
+    if git_unread and rows["q1"]["answer"] != "no":
+        rows["q1"].update(answer="dont-know", source="scanner", confidence="low", label="git-not-read")
+    rerun = partial and (unknown(rows["q1"]["answer"]) or unknown(rows["q3"]["answer"]))
+    if partial:
+        for q in ("q1", "q3"):
+            if unknown(rows[q]["answer"]) and rows[q]["label"] is None:
+                rows[q]["label"] = "scan-incomplete"
+
+    founder_sl = list(answers.get("stop_line", []))
+    fields = set()
+    if scan:
+        for e in qs["q10"]["evidence"]:
+            fields |= stopline_terms(e.get("snippet", ""))
+    ticked = any(v != "none" for v in founder_sl) or bool(fields)
+
+    patch = [q for q in ("q1", "q2", "q3") if rows[q]["answer"] == "no"]
+    patch += [q for q in ("q4", "q5", "q6", "q9") if rows[q]["answer"] == "no" or unknown(rows[q]["answer"])]
+    failing_four = sum(1 for q in ("q4", "q5", "q6", "q9") if rows[q]["answer"] == "no" or unknown(rows[q]["answer"]))
+
+    if ticked:
+        door, step = "get-a-person", "stop-line"
+    elif any(rows[q]["answer"] == "no" for q in ("q1", "q2", "q3")):
+        door, step = "patch-it", "q1-q2-q3-no"
+    elif rerun or git_unread:
+        door, step = "patch-it", "partial-unknown"
+    elif failing_four >= 2:
+        door, step = "patch-it", "two-of-q4-q5-q6-q9"
+    else:
+        door, step = "ship-it", "ship"
+
+    if ticked:
+        footer = "stop-line"
+    elif degraded:
+        footer = "scanner-unavailable"
+    elif partial:
+        footer = "partial"
+    else:
+        footer = "default"
+
+    return {
+        "door": door,
+        "door_step": step,
+        "stop_line": {"ticked": ticked, "founder": founder_sl, "fields": sorted(fields)},
+        "rerun_recipe": {"needed": rerun,
+                         "max_file_bytes": bool(rerun and scan and scan["stats"].get("files_skipped_oversize_relevant"))},
+        "patch_list": patch[:3] if door != "ship-it" else [],
+        "patch_list_total": len(patch) if door != "ship-it" else 0,
+        "offer_shelve": door != "ship-it" and len(patch) > 3,
+        "rows": rows,
+        "dont_know": [q for q in QS if unknown(rows[q]["answer"])],
+        "footer_next_step": footer,
+    }
+
+
+def run_scanner(args):
+    cmd = [sys.executable, "-I", SCANNER, "--repo", args.repo]
+    for flag, val in (("--max-files", args.max_files), ("--max-file-bytes", args.max_file_bytes),
+                      ("--max-total-bytes", args.max_total_bytes), ("--deadline-s", args.deadline_s)):
+        if val is not None:
+            cmd += [flag, str(val)]
+    for d in args.exclude_dir:
+        cmd += ["--exclude-dir", d]
+    for p in args.browser_prefix:
+        cmd += ["--browser-prefix", p]
+    timeout = (args.deadline_s or 120.0) + 60.0
+    out = subprocess.run(cmd, cwd=os.getcwd(), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                         stderr=subprocess.DEVNULL, timeout=timeout)
+    return out.stdout.decode("utf-8", "replace")
+
+
+HINTS = {
+    "usage": "the verdict command was not well formed; use the written door rule",
+    "scan-failed": "the second scan did not run or was not accepted; use the written door rule on the first scan",
+    "scan-changed": "the second scan differed from the first; use the written door rule on the first scan",
+    "scan-rejected": "the scanner JSON was not accepted",
+    "internal": "the verdict script hit a bug; use the written door rule",
+}
+
+
+class _Parser(argparse.ArgumentParser):
+    def error(self, message):
+        raise UsageError(message)
+
+
+def emit(obj):
+    sys.stdout.write(json.dumps(obj, ensure_ascii=True, separators=(",", ":")) + "\n")
+    sys.stdout.flush()
+
+
+def fail(code):
+    emit({"ok": False, "error": code, "hint": HINTS[code]})
+    return 0
+
+
+def main(argv=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
+    try:
+        p = _Parser(prog="custody_verdict.py", add_help=False)
+        mode = p.add_mutually_exclusive_group(required=True)
+        mode.add_argument("--repo")
+        mode.add_argument("--no-scan", action="store_true")
+        mode.add_argument("--scan-json", choices=["-"])
+        p.add_argument("--answers", default="")
+        p.add_argument("--expect")
+        p.add_argument("--max-files", type=int)
+        p.add_argument("--max-file-bytes", type=int)
+        p.add_argument("--max-total-bytes", type=int)
+        p.add_argument("--deadline-s", type=float)
+        p.add_argument("--exclude-dir", action="append", default=[])
+        p.add_argument("--browser-prefix", action="append", default=[])
+        args = p.parse_args(argv)
+        answers = parse_answers(args.answers)
+        expect = None
+        if args.repo is not None:
+            if args.expect is None:
+                raise UsageError("--repo needs --expect")
+            expect = parse_expect(args.expect)
+        elif args.expect is not None:
+            raise UsageError("--expect only goes with --repo")
+    except UsageError:
+        return fail("usage")
+    try:
+        scan = None
+        if args.repo is not None:
+            try:
+                text = run_scanner(args)
+            except (OSError, subprocess.SubprocessError):
+                return fail("scan-failed")
+            scan, _reason = accept_scan(text)
+            if scan is None:
+                return fail("scan-failed")
+            got = parse_expect(expect_tokens(scan))
+            if got != expect:
+                return fail("scan-changed")
+        elif args.scan_json:
+            scan, _reason = accept_scan(sys.stdin.read())
+            if scan is None:
+                return fail("scan-rejected")
+        verdict = decide(scan, answers, scanner_reason=None if scan else "no-scan")
+        out = {"ok": True, "version": __version__, "scanner": "ran" if scan else "unavailable",
+               "scanner_reason": None if scan else "no-scan", "scan": scan, "verdict": verdict}
+        if len(json.dumps(out, ensure_ascii=True, separators=(",", ":"))) > MAX_OUTPUT_BYTES:
+            return fail("internal")
+        emit(out)
+        return 0
+    except Exception:  # noqa: BLE001 - one envelope, never a traceback: the skill falls back to the prose rule
+        return fail("internal")
+
+
+if __name__ == "__main__":
+    sys.exit(main())

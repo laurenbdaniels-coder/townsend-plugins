@@ -78,6 +78,7 @@ custody-check v<version from the scanner JSON> · <files_scanned> files scanned 
 
 Rules for filling it in:
 
+- **Door, Patch list, stop-line, rerun recipe, Don't-know list and the footer's last line** come from the verdict script's JSON when it ran (SKILL.md "Run the verdict"); the rules below are what it applies, and what you apply when it could not run.
 - **Nothing found:** render `nothing-found` as "Nothing found" and put the `nothing-found-*` row's text in the Evidence cell (what was read and checked). It counts as Don't know for the door and the Patch list, and it goes on the Don't-know list with its by-hand test, prefixed "Nothing found in the files; the running app is still the question:".
 - **Partial scan:** when `partial` is true and Q1 or Q3 is Don't know, render the answer as "Don't know (scan incomplete)", never choose Ship it, and print the rerun recipe above the doors.
 - **The rails section:** the founder's answer to "does your app call a model?" decides whether this section appears. The scanner cannot: it misses a plain HTTP call to a provider and it fires on a model name in a comment. Q8 evidence (`ai-sdk-dependency`, `model-env-var`, `model-literal`) is a reason to ask, never the answer, and on a partial scan its absence means nothing. None of A1 to A6 is scanner-answered, so their source is always "(you)". They never change the door; they add rows here and entries to the Don't-know list.

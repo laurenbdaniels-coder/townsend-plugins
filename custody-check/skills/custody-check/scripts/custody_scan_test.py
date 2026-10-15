@@ -6681,7 +6681,7 @@ class OverlayContractTests(ScanCase):
                 for extra in ([], ["--exit-code"]):
                     got, want = run(SCRIPT, args + extra, root), run(RELEASE_SCRIPT, args + extra, root)
                     self.assertEqual(got.returncode, want.returncode)
-                    self.assertEqual(got.stdout.replace('"version":"0.3.3"', '"version":"0.3.2"'), want.stdout)
+                    self.assertEqual(got.stdout.replace('"version":"%s"' % cs.__version__, '"version":"0.3.2"'), want.stdout)
         os.makedirs(os.path.join(self.repo, "inner"))
         with open(os.path.join(self.tmp, "afile"), "w") as fh:
             fh.write("x")

@@ -2,6 +2,17 @@
 
 The footer of every verdict names the version that produced it. Later entries carry a "What changed since the workshop" line so an attendee can tell whether an answer would come out differently today.
 
+## 0.3.4 (2026-10-16)
+
+What changed since the workshop build: the door (Ship it, Patch it, or Get a person) is now chosen by a script that applies the same written rule, so it no longer depends on how the AI reads the rule. No door is more permissive than before.
+
+- **Added.** `custody_verdict.py`, beside the scanner. After your answers are in, the skill runs it once: it scans again with the same flags, checks that the second scan matches the first, merges your answers the way the skill always has (your answer fills a Don't know or Nothing found, and never changes a scanner No), and applies the door rule in its written order: stop-line, then a No on Q1, Q2 or Q3, then a partial scan with Q1 or Q3 still Don't know, then two or more of Q4, Q5, Q6, Q9, otherwise Ship it. It returns the door, the Patch list in order, the stop-line items, the rerun recipe, the Don't-know list and the footer's next step as JSON, and the skill renders from that. Your answers go to it as fixed words (`q4=yes stop_line=none`), never as your notes.
+- **If it can't run** (or its second scan comes out different from the first), the skill says so in one sentence and applies the written rule itself, as in 0.3.3.
+- **One case is stricter.** If you answer no or don't know to a question the scanner said yes to (say, two environments named but you have never used the second), your answer now counts. Before, the written rule only let your answers fill a Don't know.
+- **Stop-line fields** on Q10 are matched as words in any spelling (`dateOfBirth`, `card_number`, `user_ssn`), against the same list as before.
+- **Tested against the written rule.** A test runs the script on 96 realistic scans plus answers, each labelled by hand with the door the written rule gives, and fails on any door more permissive than the label. A stricter door fails unless the test lists it with a reason; one case is listed (a founder no on a scanner yes, above).
+- **Install.** The skill is now three scripts in one folder; the marketplace install and the Codex `cp -R` command copy all three.
+
 ## 0.3.3 (2026-10-13)
 
 What changed since the workshop build: fewer ways for "nothing found" to be wrong, and 0.3.2 runs underneath every scan, unchanged, so no answer is less cautious than 0.3.2's.

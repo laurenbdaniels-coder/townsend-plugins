@@ -1,0 +1,461 @@
+"""Tests for custody_verdict.py: one test per precedence bullet of SKILL.md's door rule, parity with the scanner and
+the answers block, the CLI envelope, and the differential corpus (fixtures/verdict/corpus.json), which holds the door
+SKILL.md's prose rule gives on realistic scans plus answers, labelled by hand. No door may be more permissive than it.
+
+Run from this folder: python3 -m unittest custody_verdict_test
+"""
+import copy
+import io
+import json
+import os
+import re
+import subprocess
+import sys
+import unittest
+from unittest import mock
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+VERDICT = os.path.join(SCRIPT_DIR, "custody_verdict.py")
+FIXTURES = os.path.join(SCRIPT_DIR, "fixtures")
+SKILL_DIR = os.path.dirname(SCRIPT_DIR)
+sys.path.insert(0, SCRIPT_DIR)
+
+import custody_verdict as cv  # noqa: E402
+
+QS = ["q%d" % i for i in range(1, 12)]
+RANK = {"get-a-person": 0, "patch-it": 1, "ship-it": 2}
+
+
+def row(check, snippet="", path=""):
+    return {"path": path, "line": 0, "snippet": snippet, "check": check}
+
+
+def make_scan(partial=False, files_scanned=40, **answers):
+    """A scanner JSON shaped like 0.3.3's. Every question defaults to yes (so the door is Ship it unless a test
+    moves it); pass q1="no" etc. A value may be (answer, [rows]) to set the evidence too."""
+    stats = {k: 0 for k in ("files_skipped_oversize", "files_skipped_oversize_relevant", "files_skipped_binary",
+                            "files_skipped_generated", "files_never_open", "files_skipped_special",
+                            "files_skipped_hardlink", "files_errored", "dirs_unreadable", "dirs_truncated",
+                            "mcp_capped", "git_index_partial", "output_trimmed")}
+    stats.update({"max_files_hit": False, "max_total_bytes_hit": False, "deadline_hit": False,
+                  "config": {"exclude_dirs_added": [], "browser_prefixes_added": []}})
+    qs = {}
+    for q in QS:
+        val = answers.get(q, "yes")
+        ans, ev = val if isinstance(val, tuple) else (val, [row("scan-summary", "40 files scanned, 0 hits")])
+        if q == "q5":
+            data = answers.get("q5_data", "dont-know")
+            qs[q] = {"code": {"answer": ans, "confidence": "med", "evidence": ev},
+                     "data": {"answer": data, "confidence": "low", "evidence": []}}
+        else:
+            qs[q] = {"answer": ans, "confidence": "med", "evidence": ev}
+    return {"ok": True, "partial": partial, "version": "0.3.3", "files_scanned": files_scanned, "stats": stats,
+            "warnings": [], "git": {"commits": 3, "tags": 0, "shallow": False, "tracked_env_files": []}, "questions": qs}
+
+
+def ok_scan(**kw):
+    """All yes, Q5 data answered by the founder: Ship it with no answers block beyond q5_data."""
+    return make_scan(**kw)
+
+
+def decide(scan, answers="", expect=None):
+    return cv.decide(scan, cv.parse_answers(answers))
+
+
+class DoorPrecedenceTests(unittest.TestCase):
+    """One test per bullet of SKILL.md `## Door rule`, in its order."""
+
+    def test_all_yes_is_ship(self):
+        v = decide(ok_scan(), "q5_data=yes")
+        self.assertEqual(v["door"], "ship-it")
+        self.assertEqual(v["door_step"], "ship")
+        self.assertEqual(v["patch_list"], [])
+
+    # 1. stop-line
+    def test_founder_stop_line_is_get_a_person(self):
+        v = decide(ok_scan(), "q5_data=yes stop_line=payments")
+        self.assertEqual(v["door"], "get-a-person")
+        self.assertEqual(v["stop_line"]["founder"], ["payments"])
+        self.assertTrue(v["stop_line"]["ticked"])
+
+    def test_stop_line_none_is_not_ticked(self):
+        v = decide(ok_scan(), "q5_data=yes stop_line=none")
+        self.assertFalse(v["stop_line"]["ticked"])
+        self.assertEqual(v["door"], "ship-it")
+
+    def test_none_with_another_value_is_ticked(self):
+        self.assertEqual(decide(ok_scan(), "q5_data=yes stop_line=none,health")["door"], "get-a-person")
+
+    def test_unknown_stop_line_value_counts_as_ticked(self):
+        self.assertEqual(decide(ok_scan(), "q5_data=yes stop_line=children")["door"], "get-a-person")
+
+    def test_q10_stop_line_field_is_get_a_person(self):
+        for snippet in ("ssn", "dob", "date_of_birth", "dateOfBirth", "birthDate", "card_number", "cardNumber",
+                        "creditCard", "user_ssn_last4", "IBAN", "passport_no", "medical_notes", "diagnosis",
+                        "social_security_number", "cc_number", "credit_card"):
+            scan = ok_scan(q10=("dont-know", [row("pii-field", "email"), row("pii-field", snippet, "prisma/schema.prisma")]))
+            v = decide(scan, "q5_data=yes stop_line=none")
+            self.assertEqual(v["door"], "get-a-person", snippet)
+            self.assertTrue(v["stop_line"]["fields"], snippet)
+
+    def test_q10_ordinary_fields_do_not_tick(self):
+        for snippet in ("email", "phone", "address", "salary", "adobe_id", "doberman", "ibanez"):
+            scan = ok_scan(q10=("dont-know", [row("pii-field", snippet)]))
+            v = decide(scan, "q5_data=yes stop_line=none")
+            self.assertFalse(v["stop_line"]["ticked"], snippet)
+
+    def test_q10_fields_never_echo_app_text(self):
+        scan = ok_scan(q10=("dont-know", [row("pii-field", "hunter2_dateOfBirth")]))
+        v = decide(scan, "q5_data=yes")
+        self.assertEqual(v["stop_line"]["fields"], ["date_of_birth"])
+        self.assertNotIn("hunter2", json.dumps(v))
+
+    def test_stop_line_beats_q1_no(self):
+        self.assertEqual(decide(ok_scan(q1="no"), "q5_data=yes stop_line=scale")["door"], "get-a-person")
+
+    # 2. Q1, Q2 or Q3 no
+    def test_q1_no_is_patch(self):
+        v = decide(ok_scan(q1="no"), "q5_data=yes")
+        self.assertEqual((v["door"], v["door_step"]), ("patch-it", "q1-q2-q3-no"))
+        self.assertEqual(v["patch_list"], ["q1"])
+
+    def test_q2_no_is_patch(self):
+        self.assertEqual(decide(ok_scan(q2="dont-know"), "q5_data=yes q2=no")["door"], "patch-it")
+
+    def test_q3_no_is_patch(self):
+        self.assertEqual(decide(ok_scan(q3="no"), "q5_data=yes")["door"], "patch-it")
+
+    # 3. partial with Q1 or Q3 still Don't know
+    def test_partial_q1_dont_know_is_patch_with_rerun(self):
+        v = decide(ok_scan(partial=True, q1="dont-know"), "q5_data=yes")
+        self.assertEqual((v["door"], v["door_step"]), ("patch-it", "partial-unknown"))
+        self.assertTrue(v["rerun_recipe"]["needed"])
+        self.assertFalse(v["rerun_recipe"]["max_file_bytes"])
+        self.assertEqual(v["rows"]["q1"]["label"], "scan-incomplete")
+
+    def test_partial_q3_dont_know_is_patch(self):
+        v = decide(ok_scan(partial=True, q3="dont-know"), "q5_data=yes")
+        self.assertEqual(v["door"], "patch-it")
+        self.assertEqual(v["rows"]["q3"]["label"], "scan-incomplete")
+
+    def test_rerun_recipe_names_max_file_bytes_when_relevant_files_were_skipped(self):
+        scan = ok_scan(partial=True, q1="dont-know")
+        scan["stats"]["files_skipped_oversize_relevant"] = 2
+        self.assertTrue(decide(scan, "q5_data=yes")["rerun_recipe"]["max_file_bytes"])
+
+    def test_partial_with_founder_answer_to_q1_is_no_longer_dont_know(self):
+        """'still Don't know' is after the answers: SKILL.md lets a founder yes fill a scanner dont-know."""
+        v = decide(ok_scan(partial=True, q1="dont-know"), "q5_data=yes q1=yes")
+        self.assertEqual(v["door"], "ship-it")
+        self.assertFalse(v["rerun_recipe"]["needed"])
+
+    def test_partial_with_q1_and_q3_answered_by_scanner_is_not_this_step(self):
+        self.assertEqual(decide(ok_scan(partial=True), "q5_data=yes")["door"], "ship-it")
+
+    def test_git_index_unread_is_never_ship_even_with_founder_yes(self):
+        scan = ok_scan(partial=True, q1=("dont-know", [row("git-index-unread", "git's file index was not read")]))
+        v = decide(scan, "q5_data=yes q1=yes")
+        self.assertEqual(v["door"], "patch-it")
+        self.assertEqual(v["rows"]["q1"]["answer"], "dont-know")
+        self.assertEqual(v["rows"]["q1"]["label"], "git-not-read")
+
+    def test_git_index_unread_never_ship_when_scan_not_marked_partial(self):
+        scan = ok_scan(q1=("dont-know", [row("git-index-unread", "x")]))
+        self.assertEqual(decide(scan, "q5_data=yes q1=yes")["door"], "patch-it")
+
+    # 4. two or more of Q4, Q5, Q6, Q9
+    def test_two_of_q4_q5_q6_q9_is_patch(self):
+        v = decide(ok_scan(q4="dont-know", q9="no"), "q5_data=yes")
+        self.assertEqual((v["door"], v["door_step"]), ("patch-it", "two-of-q4-q5-q6-q9"))
+        self.assertEqual(v["patch_list"], ["q4", "q9"])
+
+    def test_one_of_q4_q5_q6_q9_is_ship(self):
+        v = decide(ok_scan(q6="no"), "q5_data=yes")
+        self.assertEqual(v["door"], "ship-it")
+        self.assertEqual(v["patch_list"], [])
+
+    def test_q5_data_dont_know_counts(self):
+        """The Q5 data half is Don't know until the founder answers it, so Q5 alone fails."""
+        self.assertEqual(decide(ok_scan(q4="dont-know"))["door"], "patch-it")
+
+    # Nothing found = Don't know everywhere
+    def test_nothing_found_counts_in_partial_step(self):
+        v = decide(ok_scan(partial=True, q3="nothing-found"), "q5_data=yes")
+        self.assertEqual(v["door"], "patch-it")
+        self.assertEqual(v["rows"]["q3"]["label"], "scan-incomplete")
+
+    def test_nothing_found_counts_in_two_of_four(self):
+        self.assertEqual(decide(ok_scan(q9="nothing-found", q4="dont-know"), "q5_data=yes")["door"], "patch-it")
+
+    def test_nothing_found_goes_in_patch_list(self):
+        v = decide(ok_scan(q1="no", q9="nothing-found"), "q5_data=yes")
+        self.assertEqual(v["patch_list"], ["q1", "q9"])
+
+    def test_nothing_found_goes_on_dont_know_list(self):
+        v = decide(ok_scan(q1="nothing-found"), "q5_data=yes")
+        self.assertIn("q1", v["dont_know"])
+
+    # Patch list and Shelve
+    def test_patch_list_order_and_cap(self):
+        v = decide(ok_scan(q1="no", q3="no", q4="no", q6="dont-know", q9="no"), "q5_data=yes")
+        self.assertEqual(v["patch_list"], ["q1", "q3", "q4"])
+        self.assertEqual(v["patch_list_total"], 5)
+        self.assertTrue(v["offer_shelve"])
+
+    def test_three_items_does_not_offer_shelve(self):
+        v = decide(ok_scan(q1="no", q4="no", q9="no"), "q5_data=yes")
+        self.assertEqual(v["patch_list_total"], 3)
+        self.assertFalse(v["offer_shelve"])
+
+    def test_q1_q2_q3_dont_know_is_not_a_patch_item(self):
+        v = decide(ok_scan(q1="dont-know", q4="no", q9="no"), "q5_data=yes")
+        self.assertEqual(v["patch_list"], ["q4", "q9"])
+
+    # Footer next step, first match wins
+    def test_footer_stop_line_first(self):
+        v = cv.decide(None, cv.parse_answers("stop_line=health"), scanner_reason="degraded")
+        self.assertEqual(v["footer_next_step"], "stop-line")
+
+    def test_footer_scanner_unavailable_second(self):
+        v = cv.decide(None, cv.parse_answers("stop_line=none"), scanner_reason="degraded")
+        self.assertEqual(v["footer_next_step"], "scanner-unavailable")
+
+    def test_footer_partial_third(self):
+        self.assertEqual(decide(ok_scan(partial=True), "q5_data=yes")["footer_next_step"], "partial")
+
+    def test_footer_default(self):
+        self.assertEqual(decide(ok_scan(), "q5_data=yes")["footer_next_step"], "default")
+
+
+class AnswerMergeTests(unittest.TestCase):
+    """SKILL.md `## Founder answers` and `## Answer rules`."""
+
+    def test_founder_never_changes_a_scanner_no(self):
+        v = decide(ok_scan(q3="no"), "q5_data=yes q3=yes")
+        self.assertEqual(v["rows"]["q3"]["answer"], "no")
+        self.assertEqual(v["rows"]["q3"]["source"], "scanner")
+        self.assertEqual(v["door"], "patch-it")
+
+    def test_founder_fills_dont_know_and_nothing_found(self):
+        v = decide(ok_scan(q4="dont-know", q9="nothing-found"), "q5_data=yes q4=yes q9=yes")
+        self.assertEqual((v["rows"]["q4"]["answer"], v["rows"]["q4"]["source"], v["rows"]["q4"]["confidence"]), ("yes", "you", "high"))
+        self.assertEqual(v["rows"]["q9"]["answer"], "yes")
+        self.assertEqual(v["door"], "ship-it")
+
+    def test_founder_yes_on_scanner_yes_raises_confidence(self):
+        v = decide(ok_scan(), "q5_data=yes q6=yes")
+        self.assertEqual((v["rows"]["q6"]["answer"], v["rows"]["q6"]["confidence"]), ("yes", "high"))
+
+    def test_founder_no_on_scanner_yes_takes_the_lower(self):
+        """Deliberately stricter than the prose, which is silent here (ALLOW_STRICTER lists it)."""
+        v = decide(ok_scan(), "q5_data=yes q6=no q9=dont-know")
+        self.assertEqual(v["rows"]["q6"]["answer"], "no")
+        self.assertEqual(v["door"], "patch-it")
+
+    def test_q5_is_the_lower_half(self):
+        v = decide(ok_scan(), "q5_data=no")
+        self.assertEqual(v["rows"]["q5"]["answer"], "no")
+        self.assertEqual(v["rows"]["q5"]["code"]["answer"], "yes")
+        self.assertEqual(v["rows"]["q5"]["data"]["answer"], "no")
+
+    def test_q5_fills_both_halves(self):
+        v = decide(ok_scan(q5="dont-know"), "q5=yes")
+        self.assertEqual(v["rows"]["q5"]["answer"], "yes")
+
+    def test_degraded_scanner_questions_start_dont_know(self):
+        v = cv.decide(None, cv.parse_answers("q2=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes stop_line=none"), scanner_reason="degraded")
+        self.assertEqual(v["rows"]["q1"]["answer"], "dont-know")
+        self.assertEqual(v["rows"]["q1"]["label"], "scanner-unavailable")
+        self.assertEqual(v["rows"]["q3"]["label"], "scanner-unavailable")
+        # The prose rule on the degraded path: no partial flag, Q1/Q3 Don't know do not decide, so Ship it.
+        self.assertEqual(v["door"], "ship-it")
+
+    def test_degraded_founder_answers_fill_everything(self):
+        v = cv.decide(None, cv.parse_answers("q1=no stop_line=none"), scanner_reason="degraded")
+        self.assertEqual((v["rows"]["q1"]["answer"], v["rows"]["q1"]["source"]), ("no", "you"))
+        self.assertEqual(v["door"], "patch-it")
+
+
+class ParseTests(unittest.TestCase):
+    def test_tokens(self):
+        a = cv.parse_answers("q1=yes  q5_data=dont-know stop_line=payments,health")
+        self.assertEqual(a["q1"], "yes")
+        self.assertEqual(a["stop_line"], ["payments", "health"])
+
+    def test_bad_tokens_raise(self):
+        for bad in ("q12=yes", "q1=maybe", "q1", "q1=yes q1=no", "q5=yes q5_code=no", "notes=hi", "stop_line=",
+                    "stop_line=pay;rm", "q1=nothing-found"):
+            with self.assertRaises(cv.UsageError, msg=bad):
+                cv.parse_answers(bad)
+
+    def test_repeat_with_same_value_is_fine(self):
+        self.assertEqual(cv.parse_answers("q1=yes q1=yes")["q1"], "yes")
+
+
+class AcceptScanTests(unittest.TestCase):
+    def line(self, scan):
+        return json.dumps(scan, separators=(",", ":")) + "\n"
+
+    def test_good_scan(self):
+        scan, reason = cv.accept_scan(self.line(ok_scan()))
+        self.assertIsNotNone(scan)
+        self.assertIsNone(reason)
+
+    def test_rejections(self):
+        bad = []
+        s = ok_scan(); s["extra"] = 1; bad.append(("keys", self.line(s)))
+        s = ok_scan(); s["questions"]["q1"]["answer"] = "maybe"; bad.append(("answer", self.line(s)))
+        s = ok_scan(); s["questions"]["q1"]["evidence"] = [row("made-up-check")]; bad.append(("check", self.line(s)))
+        s = ok_scan(); s["warnings"] = ["other"]; bad.append(("warning", self.line(s)))
+        s = ok_scan(); s["questions"]["q1"]["evidence"] = [row("scan-summary", "a\x07b")]; bad.append(("control", self.line(s)))
+        s = ok_scan(files_scanned=0); bad.append(("zero files", self.line(s)))
+        bad.append(("two lines", self.line(ok_scan()) + self.line(ok_scan())))
+        bad.append(("not json", "{nope\n"))
+        bad.append(("too big", self.line(ok_scan(q2=("dont-know", [row("api-route-dir", "x" * 31000)])))))
+        bad.append(("envelope", '{"ok":false,"error":"repo-not-found","hint":"h","docs":"d","partial":false}\n'))
+        s = ok_scan(); del s["questions"]["q7"]; bad.append(("missing question", self.line(s)))
+        for name, text in bad:
+            scan, reason = cv.accept_scan(text)
+            self.assertIsNone(scan, name)
+            self.assertTrue(reason, name)
+
+    def test_ignores_unknown_fields_inside(self):
+        s = ok_scan(); s["questions"]["q1"]["new_field"] = 1
+        self.assertIsNotNone(cv.accept_scan(self.line(s))[0])
+
+
+class ParityTests(unittest.TestCase):
+    def test_stop_line_fields_match_scanner(self):
+        import custody_scan as cs
+        self.assertEqual(set(cv.STOPLINE_FIELDS), set(cs.release.STOPLINE_FIELDS))
+
+    def test_stop_line_fields_match_skill_rule_6(self):
+        with open(os.path.join(SKILL_DIR, "SKILL.md"), encoding="utf-8") as fh:
+            rule6 = next(l for l in fh if l.startswith("6. **Stop-line.**"))
+        self.assertEqual(set(re.findall(r"`([a-z_]+)`", rule6)), set(cv.STOPLINE_FIELDS))
+
+    def test_answer_keys_match_the_example_block(self):
+        with open(os.path.join(SKILL_DIR, "assets", "founder-answers-example.md"), encoding="utf-8") as fh:
+            text = fh.read()
+        keys = set(re.findall(r"^(q\d+(?:_code|_data)?|stop_line):", text, re.M))
+        self.assertTrue(keys <= set(cv.ANSWER_KEYS), keys - set(cv.ANSWER_KEYS))
+        values = set(re.search(r"comma-separated from (.*)\.", text).group(1).replace("`", "").replace(" ", "").split(","))
+        self.assertEqual(values, set(cv.STOP_LINE_VALUES))
+
+    def test_check_names_are_read_from_questions_md(self):
+        names = cv.known_checks()
+        for c in ("git-index-unread", "pii-field", "scan-summary", "nothing-found-keys", "checks-not-finished"):
+            self.assertIn(c, names)
+
+
+class CliTests(unittest.TestCase):
+    def run_cli(self, args, stdin=None, cwd=FIXTURES):
+        out = subprocess.run([sys.executable, "-I", VERDICT] + args, input=stdin, cwd=cwd, capture_output=True,
+                             text=True, timeout=300)
+        lines = out.stdout.splitlines()
+        self.assertEqual(len(lines), 1, out.stdout + out.stderr)
+        return json.loads(lines[0])
+
+    def test_end_to_end_on_seeded_app(self):
+        first = json.loads(subprocess.run([sys.executable, "-I", os.path.join(SCRIPT_DIR, "custody_scan.py"), "--repo",
+                                           "seeded-app"], cwd=FIXTURES, capture_output=True, text=True, timeout=300).stdout)
+        out = self.run_cli(["--repo", "seeded-app", "--answers", "stop_line=none", "--expect", cv.expect_tokens(first)])
+        self.assertTrue(out["ok"], out)
+        self.assertEqual(out["scanner"], "ran")
+        self.assertEqual(out["verdict"]["door"], "get-a-person")  # Q10 has ssn and dob
+        self.assertEqual(out["verdict"]["stop_line"]["fields"], ["dob", "ssn"])
+        self.assertEqual(out["scan"]["questions"]["q3"]["answer"], "no")
+        self.assertEqual(sorted(out), sorted(cv.OUTPUT_KEYS))
+        self.assertLessEqual(len(json.dumps(out, separators=(",", ":"))), cv.MAX_OUTPUT_BYTES)
+
+    def test_repo_requires_expect(self):
+        out = self.run_cli(["--repo", "seeded-app", "--answers", "stop_line=none"])
+        self.assertEqual((out["ok"], out["error"]), (False, "usage"))
+
+    def test_a_rescan_that_differs_from_the_first_is_an_error(self):
+        first = json.loads(subprocess.run([sys.executable, "-I", os.path.join(SCRIPT_DIR, "custody_scan.py"), "--repo",
+                                           "seeded-app"], cwd=FIXTURES, capture_output=True, text=True, timeout=300).stdout)
+        first["questions"]["q3"]["answer"] = "nothing-found"
+        out = self.run_cli(["--repo", "seeded-app", "--answers", "stop_line=none", "--expect", cv.expect_tokens(first)])
+        self.assertEqual((out["ok"], out["error"]), (False, "scan-changed"))
+
+    def test_failed_rescan_is_an_error_not_a_degraded_verdict(self):
+        """A rescan that fails must not quietly become the degraded path: the first scan may have had a No."""
+        out = self.run_cli(["--repo", "no-such-app", "--answers", "stop_line=none", "--expect", cv.expect_tokens(make_scan())])
+        self.assertEqual((out["ok"], out["error"]), (False, "scan-failed"))
+
+    def test_no_scan(self):
+        out = self.run_cli(["--no-scan", "--answers", "q1=no stop_line=none"])
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["scanner"], "unavailable")
+        self.assertIsNone(out["scan"])
+        self.assertEqual(out["verdict"]["door"], "patch-it")
+
+    def test_scan_json_on_stdin(self):
+        out = self.run_cli(["--scan-json", "-", "--answers", "q5_data=yes"], stdin=json.dumps(ok_scan()) + "\n")
+        self.assertEqual(out["verdict"]["door"], "ship-it")
+
+    def test_rejected_stdin_scan_is_an_error(self):
+        out = self.run_cli(["--scan-json", "-", "--answers", ""], stdin="{nope\n")
+        self.assertEqual((out["ok"], out["error"]), (False, "scan-rejected"))
+
+    def test_bad_answers_is_usage(self):
+        out = self.run_cli(["--no-scan", "--answers", "q1=maybe"])
+        self.assertEqual((out["ok"], out["error"]), (False, "usage"))
+        self.assertNotIn("maybe", json.dumps(out))  # never echoes answer text
+
+    def test_internal_error_is_an_envelope(self):
+        buf = io.StringIO()
+        with mock.patch.object(cv, "decide", side_effect=RuntimeError("boom")), mock.patch("sys.stdout", buf):
+            cv.main(["--no-scan", "--answers", ""])
+        out = json.loads(buf.getvalue())
+        self.assertEqual((out["ok"], out["error"]), (False, "internal"))
+
+
+class VerdictMatchesProseRuleTests(unittest.TestCase):
+    """The differential for a new judge: main has no script, so the floor is SKILL.md's door rule as written on
+    main, applied by hand to realistic scans plus answers (fixtures/verdict/build_corpus.py, where each label says
+    which prose step decides it). A more permissive door always fails. A stricter door fails unless listed here
+    with the reason the prose was silent or wrong."""
+
+    ALLOW_STRICTER = {
+        # (corpus row id): (door the script may give, reason)
+        "derived: deploy config and two environments | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_data=yes q6=no q9=dont-know": (
+            "patch-it", "the prose lets a founder fill only Don't know; a founder saying no to a scanner yes "
+                        "(q6=no on a Vercel preview hint) is taken, which is the cautious reading of rule 5"),
+    }
+
+    @classmethod
+    def setUpClass(cls):
+        with open(os.path.join(FIXTURES, "verdict", "corpus.json"), encoding="utf-8") as fh:
+            cls.corpus = json.load(fh)
+
+    def test_corpus_is_big_enough(self):
+        self.assertGreaterEqual(len(self.corpus["rows"]), 40)
+        self.assertGreaterEqual(len({r["scan"] for r in self.corpus["rows"]}), 15)
+
+    def test_never_more_permissive_than_the_prose_rule(self):
+        used = set()
+        for r in self.corpus["rows"]:
+            scan = self.corpus["scans"][r["scan"]]
+            v = cv.decide(copy.deepcopy(scan), cv.parse_answers(r["answers"]),
+                          scanner_reason=None if scan is not None else "degraded")
+            got, want = v["door"], r["expected_door"]
+            self.assertLessEqual(RANK[got], RANK[want], "%s: %s is more permissive than the prose rule's %s (%s)"
+                                 % (r["id"], got, want, r["why"]))
+            if got != want:
+                self.assertEqual(self.ALLOW_STRICTER.get(r["id"], (None,))[0], got,
+                                 "%s: %s is stricter than the prose rule's %s and not listed" % (r["id"], got, want))
+                used.add(r["id"])
+            for q in r.get("expected_patch_head", []):
+                self.assertIn(q, v["patch_list"], r["id"])
+        self.assertEqual(set(self.ALLOW_STRICTER) - used, set(), "ALLOW_STRICTER entries no row needs")
+
+    def test_labels_quote_a_prose_step(self):
+        steps = ("stop-line", "Q1, Q2 or Q3", "partial", "Two or more", "Otherwise", "git-index-unread")
+        for r in self.corpus["rows"]:
+            self.assertTrue(any(s in r["why"] for s in steps), r["id"])
+
+
+if __name__ == "__main__":
+    unittest.main()
