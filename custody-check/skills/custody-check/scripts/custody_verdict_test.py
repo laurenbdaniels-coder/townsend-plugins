@@ -473,9 +473,29 @@ class ParityTests(unittest.TestCase):
         self.assertRegex(sentence, r"(?i)no `stop_line` (word|token)")
         rule6 = next(l for l in text.splitlines() if l.startswith("6. **Stop-line.**"))
         self.assertRegex(rule6, r"(?i)card numbers")
-        self.assertRegex(rule6, r"(?i)between people")
+        self.assertRegex(rule6, r"(?i)holds or moves money for other people")
         self.assertRegex(rule6, r"(?i)hosted .*Gated")
         self.assertNotRegex(rule6, r"(?i)real money|payments or card details")
+
+    def test_every_money_mention_ticks_unless_it_is_only_hosted_checkout(self):
+        """Round 1 blockers: "real money", the last four digits, stored balances and trading reached Ship it, where main
+        said Get a person. The mapping now gives every mention of payments, cards or money a word; hosted checkout
+        gets none only when it is all the founder does with money."""
+        _, section = self._run_the_verdict()
+        mapping = section.split("Map what the founder says", 1)[1].split("\n- `<expect>`", 1)[0]
+        self.assertRegex(mapping, r"(?i)last four")
+        self.assertRegex(mapping, r"(?i)balances")
+        self.assertRegex(mapping, r"(?i)wallet")
+        self.assertRegex(mapping, r"(?i)real money")
+        self.assertRegex(mapping, r"(?i)any other mention of payments, cards or money")
+        hosted = next(l for l in mapping.splitlines() if re.search(r"(?i)hosted", l) and "no `stop_line` word" in l)
+        self.assertRegex(hosted, r"(?i)only when")
+        self.assertNotRegex(mapping, r"(?i)real money\W+alone also gets no word")
+
+    def test_privileged_key_rule_is_its_own_line(self):
+        _, section = self._run_the_verdict()
+        line = next(l for l in section.splitlines() if "privileged key" in l)
+        self.assertNotIn("`payments`", line)
 
     def test_legacy_payments_gets_one_question_of_at_most_25_words(self):
         _, section = self._run_the_verdict()
@@ -592,9 +612,15 @@ class VerdictMatchesProseRuleTests(unittest.TestCase):
             cls.corpus = json.load(fh)
 
     def test_only_hosted_checkout_may_be_more_permissive(self):
+        sys.path.insert(0, os.path.join(FIXTURES, "verdict"))
+        try:
+            import build_corpus
+        finally:
+            sys.path.pop(0)
+        rows = {r["id"]: r for r in self.corpus["rows"]}
         for row_id, (door, reason) in self.ALLOW_PERMISSIVE.items():
             self.assertTrue(row_id.endswith("| hosted checkout"), row_id)
-            self.assertIn("stop_line=none", row_id)
+            self.assertEqual(rows[row_id]["answers"], build_corpus.HOSTED_CHECKOUT, row_id)
             self.assertIn(door, RANK)
             self.assertTrue(reason)
 

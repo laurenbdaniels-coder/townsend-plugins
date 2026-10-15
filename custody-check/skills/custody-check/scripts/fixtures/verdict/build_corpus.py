@@ -43,7 +43,7 @@ ALL_YES = "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6
 ONE_OF_FOUR = "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=dont-know"
 TWO_OF_FOUR = "stop_line=none q1=yes q2=yes q3=yes q4=dont-know q5_code=yes q5_data=yes q6=yes q9=no"
 EXAMPLE = ("q1=dont-know q2=yes q3=dont-know q4=no q5_code=yes q5_data=no q6=yes q7=no q8=dont-know q9=no q10=yes "
-           "q11=yes stop_line=payments")  # assets/founder-answers-example.md
+           "q11=yes stop_line=payments")  # the 0.3.4 answers example (stop_line: payments), an old block that still ticks
 HEALTH = "stop_line=health q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes"
 
 # The stop-line split (0.3.5). Each row's answers are the tokens the skill sends under the new mapping; the label is

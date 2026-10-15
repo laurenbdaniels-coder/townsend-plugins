@@ -28,13 +28,13 @@ Three have a training-shaped version for the rare founder who trains or fine-tun
 
 Any of these ticked means: get a person who does this for a living before the next change ships. The tool prints "Get a person" above the doors and chooses no door.
 
-- the app stores or handles card numbers itself
-- the app moves money between people (payouts, Connect, escrow)
+- the app stores or handles card numbers or other card details itself
+- the app holds or moves money for other people (payouts, Connect, escrow, stored balances, wallets)
 - health data
 - other people's sensitive personal data, especially children's
 - real scale, or a contract that needs the app to stay up
 
-Checkout hosted by your payment company (Checkout, Elements, embedded checkout, subscriptions, a billing portal) is not on this list. It is ordinary Gated work: the payments trigger above.
+Checkout hosted by your payment company (Checkout, Elements, embedded checkout, subscriptions, a billing portal) is not on this list when it is all the app does with money. It is ordinary Gated work: the payments trigger above. Any other money handling gets one question, and it is ticked when the answer is unclear.
 
 The founder ticks the stop-line in the answers block (`stop_line:`). Scanner evidence on Q10 that shows fields such as `ssn`, `social_security`, `dob`, `date_of_birth`, `birthdate`, `medical`, `diagnosis`, `credit_card`, `card_number`, `cc_number`, `iban`, or `passport` also raises it.
 
