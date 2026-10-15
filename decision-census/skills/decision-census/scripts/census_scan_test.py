@@ -183,7 +183,11 @@ class PatternTests(TreeCase):
         ("src/a.ts", "db.select().from(docs).where(eq(docs.userId, userId));", "visibility", "strong"),
         ("src/a.ts", "where(\"ownerId\", \"==\", uid)", "visibility", "strong"),
         ("src/a.ts", "Doc.find({ ownerId: req.user.id });", "visibility", "strong"),
-        ("src/a.ts", "      userId: session.user.id,", "visibility", "strong"),
+        ("src/a.ts", "      userId: session.user.id,", None, None),  # only after a `where: {` line (corpus db/projects.ts)
+        ("src/a.ts", "const n = project.owner?.name;", None, None),
+        ("src/a.py", "return img.quantize(colors=64)", None, None),
+        ("src/a.py", "grandtotal = sum(item.rate * item.qty for item in items)", "price", "strong"),
+        ("src/a.ts", "throw new Error(\"Missing WHERE owner_id = 1 in query\");", None, None),
         # review-found shapes
         ("src/a.ts", "  total: cart.subtotal + cart.shippingFee,", "price", "strong"),
         ("src/a.ts", "    order.subtotal + order.shippingCost - order.discountAmount;", "price", "strong"),

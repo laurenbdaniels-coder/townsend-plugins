@@ -80,17 +80,16 @@ DEFAULT_MAX_TOTAL_BYTES = 268435456
 DEFAULT_DEADLINE_S = 90.0  # under the 120 s a host gives one shell command, so a slow scan still prints its partial result
 DEADLINE_LINE_TICK = 32
 SAFE_SEGMENT_RE = re.compile(r"^[A-Za-z0-9._@+()\[\]-]+$")
-TEST_FILE_RE = re.compile(r"[._](?:test|spec)\.[A-Za-z0-9]+$", re.I)  # pricing-test.ts is app code
+TEST_FILE_RE = re.compile(r"[._-](?:test|spec)\.[A-Za-z0-9]+$", re.I)
 TEST_DIRS = {"__tests__", "__mocks__", "tests", "test", "spec", "e2e", "cypress", "playwright"}
 SCHEMA_NAME_RE = re.compile(r"schema|model|types|entities", re.I)
 
-# Money words as whole parts of an identifier: unitPrice, PRO_PRICE, baseFee, subtotal, cents.
-# Whole parts, so feedback is not a fee and chargeback is not a charge.
-MONEY_WORDS = {"price", "prices", "amount", "amounts", "total", "totals", "subtotal", "subtotals", "cost", "costs",
-               "fee", "fees", "tax", "taxes", "discount", "discounts", "cent", "cents", "charge", "charges",
-               "balance", "balances", "payout", "payouts", "refund", "refunds"}
-PRICE_CONST_WORDS = {"price", "prices", "cost", "costs", "fee", "fees", "amount", "amounts", "tax"}
-IDENT_PART_RE = re.compile(r"[A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z]+|[A-Z]+|\d+")
+# Recall first: a money word anywhere in an identifier counts (unitprice, grandtotal, baseFee), because a
+# wrong candidate costs one window and a missed one is never seen. Known non-money words that contain a
+# money word are removed before the match, so feedback is not a fee and syntax is not a tax.
+MONEY_RE = re.compile(r"price|amount|total|cost|fee|tax|discount|cents|charge|balance|payout|refund", re.I)
+PRICE_CONST_RE = re.compile(r"price|cost|fee|amount|tax", re.I)
+NOT_MONEY_RE = re.compile(r"feedback|feed|feel|coffee|toffee|chargeback|syntax|taxonom|taxi|costume|loadbalanc|discharg", re.I)
 # Every identifier pattern starts at an identifier boundary, so a long word costs one try, not one per character.
 IDENT = r"(?<![\w$])[A-Za-z_$][\w$]*"
 IDENT_ANY_RE = re.compile(IDENT)
@@ -116,11 +115,12 @@ PATTERNS = {
         ("owner-compare", "strong", re.compile(r"(?:owner_?id|user_?id|author_?id|created_?by|tenant_?id|org_?id|account_?id)\s*(?:===?|!==?)|(?:===?|!==?)\s*[\w$.]*(?:owner_?id|user_?id|author_?id|created_?by|tenant_?id|org_?id|account_?id)\b", _I), "code"),
         ("owner-filter", "strong", re.compile(r"\.eq\(\s*['\"](?:user_id|owner_id|author_id|tenant_id|org_id|account_id)['\"]|\bwhere\s*:\s*\{\s*(?:userId|ownerId|authorId|tenantId|orgId|user_id|owner_id)\b", _I), "raw"),
         ("row-policy", "strong", re.compile(r"\bcreate\s+policy\b|\bauth\.uid\s*\(\s*\)", _I), "raw"),
-        ("owner-query", "strong", re.compile(r"\bwhere\b[^;]{0,200}?\b(?:owner_id|user_id|author_id|tenant_id|org_id|account_id)\s*=(?!=)", _I), "raw"),
-        ("owner-orm-filter", "strong", re.compile(r"\beq\(\s*[\w$]+\." + OWNER_FIELD + r"\b|\bwhere\(\s*['\"](?:ownerId|userId|authorId|uid|owner_id|user_id|author_id)['\"]\s*,\s*['\"]==|\b(?:find|findOne|findMany|findFirst|findUnique|count|deleteMany|updateMany)\w*\(\s*\{[^}]*\b(?:ownerId|userId|authorId|tenantId|orgId|owner_id|user_id|author_id)\s*:|^\s*(?:ownerId|userId|authorId|tenantId|orgId|owner_id|user_id|author_id)\s*:\s*[\w$.]*\b(?:user|session|auth|uid|req|me|currentUser)\b", _I), "raw"),
+        ("owner-query", "strong", re.compile(r"\b(?:select|update|delete)\b[^;]{0,200}?\bwhere\b[^;]{0,200}?\b(?:owner_id|user_id|author_id|tenant_id|org_id|account_id)\s*=(?!=)", _I), "raw"),
+        ("owner-orm-filter", "strong", re.compile(r"\beq\(\s*[\w$]+\." + OWNER_FIELD + r"\b|\bwhere\(\s*['\"](?:ownerId|userId|authorId|uid|owner_id|user_id|author_id)['\"]\s*,\s*['\"]==|\b(?:find|findOne|findMany|findFirst|findUnique|count|deleteMany|updateMany)\w*\(\s*\{[^}]*\b(?:ownerId|userId|authorId|tenantId|orgId|owner_id|user_id|author_id)\s*:", _I), "raw"),
+        ("owner-where-field", "strong", re.compile(r"^\s*(?:ownerId|userId|authorId|tenantId|orgId|owner_id|user_id|author_id)\s*:\s*[\w$.]*\b(?:user|session|auth|uid|req|me|currentUser)\b", _I), "raw+where"),
         ("access-check", "strong", re.compile(r"\b(?:can_?view|can_?access|can_?read|can_?see|can_?edit|can_?delete|has_?access|has_?permission|is_?allowed|authorize)\w*\s*\(", _I), "code"),
         ("visibility-compare", "strong", re.compile(r"\b(?:is_?public|is_?private|visibility|is_?published)\s*(?:===?|!==?)", _I), "code"),
-        ("admin-check", "strong", re.compile(r"\b(?:is_?admin|is_?super_?admin|is_?superuser|is_?staff|is_?owner|is_?moderator)\b|\.(?:admin|superuser|staff|owner|moderator)\?", _I), "code+cond"),
+        ("admin-check", "strong", re.compile(r"\b(?:is_?admin|is_?super_?admin|is_?superuser|is_?staff|is_?owner|is_?moderator)\b|\.(?:admin|superuser|staff|owner|moderator)\?(?![.\w(\[])", _I), "code+cond"),
         ("admin-name", "weak", re.compile(r"\b(?:is_?admin|is_?super_?admin|is_?superuser|is_?staff|is_?owner|is_?moderator)\b", _I), "code"),
     ],
     "price": [
@@ -145,7 +145,7 @@ PATTERNS = {
         ("money-round", "strong", re.compile(r"\bMath\.(?:round|floor|ceil|trunc)\s*\(|(?<![.\w])round\s*\(", _I), "code+money"),
         ("to-fixed", "strong", re.compile(r"\.toFixed\(\s*2\s*\)"), "code"),
         ("cents-convert", "strong", re.compile(r"[*/]\s*100\b(?!\.)"), "code+money"),
-        ("decimal-round", "strong", re.compile(r"\.quantize\s*\(|\bROUND_HALF_\w+|\bROUND_(?:UP|DOWN|CEILING|FLOOR)\b|\.setScale\s*\(|\bRoundingMode\.\w+"), "code"),
+        ("decimal-round", "strong", re.compile(r"\.quantize\s*\(\s*(?:Decimal|D)\(|\brounding\s*=|\bROUND_HALF_\w+|\bROUND_(?:UP|DOWN|CEILING|FLOOR)\b|\.setScale\s*\(|\bRoundingMode\.\w+"), "code"),
         ("currency-format", "weak", re.compile(r"Intl\.NumberFormat|style\s*:\s*['\"]currency['\"]|toLocaleString\([^)]*currency|format_?currency|number_to_currency", _I), "raw"),
         ("decimal-math", "weak", re.compile(r"\bnew\s+(?:Decimal|Big|BigNumber)\s*\(|\bDinero\s*\(|\bdinero\s*\("), "code"),
     ],
@@ -196,7 +196,7 @@ def blank_strings(line):
         elif ch == quote:
             out.append(line[last:start + 1])
             if quote == "`":
-                out.append(" ".join(TEMPLATE_EXPR_RE.findall(line[start + 1:p])))
+                out.append(" ".join(blank_strings(e) for e in TEMPLATE_EXPR_RE.findall(line[start + 1:p])))
             last = p
             quote = None
     out.append(line[last:])
@@ -233,12 +233,9 @@ def strip_trailing_comment(code, ext):
     return code if i < 0 else code[:i]
 
 
-def is_money(ident, words=MONEY_WORDS):
-    """True when a whole part of the identifier (split on case, _, $ and dots) is a money word."""
-    for part in IDENT_PART_RE.findall(ident):
-        if part.lower() in words:
-            return True
-    return False
+def is_money(ident, words=MONEY_RE):
+    """True when the identifier holds a money word once known non-money words are taken out."""
+    return words.search(NOT_MONEY_RE.sub(" ", ident)) is not None
 
 
 def has_money(text):
@@ -262,7 +259,7 @@ def _arith_hit(code, prose):
     return False
 
 
-def match_type(typ, code, raw, prose=False):
+def match_type(typ, code, raw, prose=False, where_ctx=False):
     """Return (pattern id, strength) for the first pattern of this type that fires, else None."""
     for pid, strength, rx, source in PATTERNS[typ]:
         if source == "arith":
@@ -270,11 +267,13 @@ def match_type(typ, code, raw, prose=False):
         elif source == "money-compare":
             ok = any(is_money(m.group(1)) for m in rx.finditer(code))
         elif source == "price-const":
-            ok = any(is_money(m.group(1), PRICE_CONST_WORDS) for m in rx.finditer(code))
+            ok = any(is_money(m.group(1), PRICE_CONST_RE) for m in rx.finditer(code))
         elif source == "price-const-raw":
-            ok = any(is_money(m.group(1), PRICE_CONST_WORDS) for m in rx.finditer(raw))
+            ok = any(is_money(m.group(1), PRICE_CONST_RE) for m in rx.finditer(raw))
         elif source == "raw":
             ok = rx.search(raw) is not None
+        elif source == "raw+where":
+            ok = where_ctx and rx.search(raw) is not None
         elif source == "code+cond":
             ok = rx.search(code) is not None and COND_CONTEXT_RE.search(code) is not None
         elif source == "code+money":
@@ -286,8 +285,11 @@ def match_type(typ, code, raw, prose=False):
     return None
 
 
-def classify_line(line, ext):
-    """Yield (type, pattern id, strength) for one source line."""
+WHERE_OPEN_RE = re.compile(r"\bwhere\s*:\s*\{\s*$")
+
+
+def classify_line(line, ext, where_ctx=False):
+    """Yield (type, pattern id, strength) for one source line. where_ctx: a recent line opened `where: {`."""
     stripped = line.strip()
     if not stripped:
         return
@@ -303,7 +305,7 @@ def classify_line(line, ext):
     raw = line
     prose = ext in MARKUP_EXTS
     for typ in TYPES:
-        hit = match_type(typ, code, raw, prose)
+        hit = match_type(typ, code, raw, prose, where_ctx)
         if hit:
             yield typ, hit[0], hit[1]
 
@@ -414,6 +416,7 @@ def scan_file(path, parts, ext, state):
     is_schema = ext in SQL_EXTS or ext in SCHEMA_EXTS or SCHEMA_NAME_RE.search(parts[-1]) is not None
     found = []
     hints = []
+    where_open = 0
     for i, line in enumerate(lines, 1):
         if line.endswith("\r"):
             line = line[:-1]
@@ -421,8 +424,9 @@ def scan_file(path, parts, ext, state):
             line = line[:LINE_CLIP_CHARS]
         if (i % DEADLINE_LINE_TICK == 0 or len(line) > 512) and state.over_deadline():
             break
-        for typ, pid, strength in classify_line(line, ext):
+        for typ, pid, strength in classify_line(line, ext, where_open > 0):
             found.append((typ, 0 if strength == "strong" else 1, i, pid))
+        where_open = 3 if WHERE_OPEN_RE.search(line) else max(0, where_open - 1)
         if is_schema:
             seen = set()
             body = comment_body(line.strip(), ext)

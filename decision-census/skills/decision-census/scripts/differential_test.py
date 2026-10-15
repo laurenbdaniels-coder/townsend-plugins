@@ -42,6 +42,10 @@ RECALL_EXCEPTIONS = []
 # A release that widens the vocabulary lists every new hit here (that is the point of the list).
 NEW_ALARM_EXCEPTIONS = []
 
+# Stop-line hints main reported that the branch may drop, with the reason (fewer hints means a missed "Get a person").
+# Format: {"path": "...", "line": N, "field": "...", "reason": "..."}
+HINT_EXCEPTIONS = []
+
 
 def load_expected():
     with open(EXPECTED, encoding="utf-8") as f:
@@ -141,12 +145,16 @@ class DifferentialTests(unittest.TestCase):
             if os.environ.get("CI") and not main_ref_resolves():
                 self.fail("%s cannot be resolved in CI; check out with fetch-depth: 0" % MAIN_REF)
             self.skipTest("main has no decision-census helper; compared against expected.json only")
-        theirs = triples(scan(script, self.repo, "--uncapped"))
+        main_result = scan(script, self.repo, "--uncapped")
+        theirs = triples(main_result)
         mine = triples(self.uncapped)
         lost = sorted(theirs - mine - {(e["path"], e["line"], e["type"]) for e in RECALL_EXCEPTIONS})
         self.assertEqual(lost, [], "main lists these and the branch does not: %r" % lost)
         new = sorted(mine - theirs - {(e["path"], e["line"], e["type"]) for e in NEW_ALARM_EXCEPTIONS})
         self.assertEqual(new, [], "the branch lists these and main does not (add each to NEW_ALARM_EXCEPTIONS with a reason): %r" % new)
+        hints = lambda r: {(h["path"], h["line"], h["field"]) for h in r["stopline_hints"]}
+        lost_hints = sorted(hints(main_result) - hints(self.uncapped) - {(e["path"], e["line"], e["field"]) for e in HINT_EXCEPTIONS})
+        self.assertEqual(lost_hints, [], "main reports these stop-line hints and the branch does not: %r" % lost_hints)
 
 
 if __name__ == "__main__":

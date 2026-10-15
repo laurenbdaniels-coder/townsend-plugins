@@ -197,9 +197,24 @@
       "type": "price"
     },
     {
-      "path": "src/experiments/pricing-test.ts",
-      "line": 1,
+      "path": "api/checkout.py",
+      "line": 2,
       "type": "price"
+    },
+    {
+      "path": "api/checkout.py",
+      "line": 3,
+      "type": "price"
+    },
+    {
+      "path": "api/checkout.py",
+      "line": 5,
+      "type": "price"
+    },
+    {
+      "path": "src/lib/report.ts",
+      "line": 1,
+      "type": "rounding"
     }
   ],
   "negatives": [
@@ -237,6 +252,21 @@
       "path": "supabase/migrations/003_audit.sql",
       "max_listed": 0,
       "why": "no decision; a trailing comment naming dob is not a stored field"
+    },
+    {
+      "path": "src/lib/audit.ts",
+      "max_listed": 0,
+      "why": "an audit log and an error message name owner_id but filter nothing; optional chaining on .owner is not an admin check"
+    },
+    {
+      "path": "tools/images.py",
+      "max_listed": 0,
+      "why": "Pillow's Image.quantize reduces colours, not money"
+    },
+    {
+      "path": "src/cart-test.ts",
+      "max_listed": 0,
+      "why": "a -test file is a test file"
     }
   ],
   "stopline": [

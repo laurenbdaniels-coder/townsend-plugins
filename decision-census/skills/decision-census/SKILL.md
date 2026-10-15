@@ -38,7 +38,7 @@ If the host reports the file missing, run the same command once with the script 
 
 **Accept the output only if** it is one JSON line of at most 30000 bytes with exactly the keys `ok, partial, version, files_read, stats, warnings, partial_reasons, stopline_hints, candidates, totals` (or the failure envelope `ok, error, hint, partial`), every candidate `type` is one of `visibility`, `price`, `paid`, `rounding`, and every `strength` is `strong` or `weak`. If `ok` is false, show the `hint` and take the degraded path. If `files_read` is 0, take the degraded path too, saying the helper found no code files it reads in that folder (point the founder at the folder that holds the source).
 
-**Degraded path:** say in one sentence that the helper could not run and nothing in the app was read. Render the census with Helper: unavailable, "Not found in two places by this run" nowhere (write "Not checked: the helper did not run" in each decision section instead), the fixed sections, and the helper-unavailable footer line. Read no app file.
+**Degraded path:** say in one sentence that the helper could not run (or found no code files it reads) and nothing in the app was read. Render the census with Helper: unavailable, "Not found in two places by this run" nowhere (write "Not checked: the helper did not run" in each decision section instead), the fixed sections, and the helper-unavailable footer line. Read no app file.
 
 ## Step 3: Read windows
 
