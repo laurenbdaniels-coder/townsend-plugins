@@ -2951,7 +2951,7 @@ class RedTeamTests(ScanCase):
     def test_ci_jobs_have_timeouts(self):
         with open(os.path.join(REPO_ROOT, ".github", "workflows", "ci.yml"), encoding="utf-8") as fh:
             ci = fh.read()
-        self.assertEqual(ci.count("timeout-minutes:"), 2)
+        self.assertEqual(ci.count("timeout-minutes:"), ci.count("runs-on:"), "every CI job needs a timeout")
 
     def test_door_rule_counts_a_founder_no_on_q2(self):
         with open(os.path.join(SKILL_DIR, "references", "tiers-and-doors.md"), encoding="utf-8") as fh:
