@@ -3,7 +3,7 @@
   "owner": {
     "name": "Lauren Townsend"
   },
-  "description": "Townsend AI Studio plugins for Claude Code and Cowork: product-flow (stage-by-stage product management), pm-growth-coach (PM self-development), prompt-coach (prompt guardrails and answer verification), and custody-check (the eleven custody questions for AI-built apps, read-only).",
+  "description": "Townsend AI Studio plugins for Claude Code and Cowork: product-flow (stage-by-stage product management), pm-growth-coach (PM self-development), prompt-coach (prompt guardrails and answer verification), custody-check (the eleven custody questions for AI-built apps, read-only), and decision-census (every place found where an AI-built app decides access, prices, paid status and money rounding, read-only).",
   "plugins": [
     {
       "name": "product-flow",
@@ -73,6 +73,24 @@
         "audit",
         "founders",
         "read-only"
+      ]
+    },
+    {
+      "name": "decision-census",
+      "source": "./decision-census",
+      "description": "List every place found where your AI-built app decides who can see a record, what something costs, whether someone has paid, and how money rounds, and flag each decision found in more than one place, with a one-minute check by hand. Read-only; a review, not an audit.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Lauren Townsend"
+      },
+      "category": "productivity",
+      "keywords": [
+        "vibe-coding",
+        "founders",
+        "read-only",
+        "review",
+        "duplication",
+        "decisions"
       ]
     }
   ]

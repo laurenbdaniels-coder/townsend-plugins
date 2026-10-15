@@ -1,0 +1,72 @@
+schema_version: "1.1"
+name: seeded-app-crowded
+execution:
+  prompt: "run decision census on ./ledgerly"
+  max_turns: 40
+  timeout_seconds: 900
+context:
+  scaffold_script: scaffold.sh
+graders:
+  - name: "skill-fired"
+    type: "tool_used"
+    tool: "Skill"
+    input_match: "decision-census"
+    min: 1
+  - name: "helper-ran-once"
+    type: "tool_used"
+    tool: "Bash"
+    input_match: "census_scan\\.py"
+    min: 1
+    max: 1
+  - name: "visibility-pair-api"
+    type: "regex"
+    pattern: "## Two answers\\?(?:(?!## Every place found)[\\s\\S])*src/vis/v09-reports/api\\.ts"
+    flags: "i"
+    match: "contains"
+  - name: "visibility-pair-page"
+    type: "regex"
+    pattern: "## Two answers\\?(?:(?!## Every place found)[\\s\\S])*src/vis/v10-reports/ReportsPage\\.tsx"
+    flags: "i"
+    match: "contains"
+  - name: "price-pair-checkout"
+    type: "regex"
+    pattern: "## Two answers\\?(?:(?!## Every place found)[\\s\\S])*src/price/p09-checkout/seats\\.ts"
+    flags: "i"
+    match: "contains"
+  - name: "price-pair-estimate"
+    type: "regex"
+    pattern: "## Two answers\\?(?:(?!## Every place found)[\\s\\S])*src/price/p10-pricing/Estimate\\.tsx"
+    flags: "i"
+    match: "contains"
+  - name: "never-says-clean"
+    type: "regex"
+    pattern: "\\bclean\\b|no duplicates|\\bnone\\b"
+    flags: "i"
+    match: "not_contains"
+  - name: "no-window-over-31-lines"
+    type: "tool_used"
+    tool: "Read"
+    input_match: "\"limit\"\\s*:\\s*(?:3[2-9]|[4-9]\\d|\\d{3,})"
+    min: 0
+    max: 0
+  - name: "no-whole-file-read"
+    type: "tool_used"
+    tool: "Read"
+    input_match: "^(?![\\s\\S]*\"limit\")[\\s\\S]*\"file_path\"\\s*:\\s*\"[^\"]*ledgerly/"
+    min: 0
+    max: 0
+  - name: "at-most-26-reads"
+    type: "tool_used"
+    tool: "Read"
+    min: 0
+    max: 26
+  - name: "no-edit"
+    type: "tool_used"
+    tool: "Edit"
+    min: 0
+    max: 0
+  - name: "no-write"
+    type: "tool_used"
+    tool: "Write"
+    min: 0
+    max: 0

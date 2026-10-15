@@ -1,0 +1,11 @@
+model Child {
+  id            String   @id
+  name          String
+  date_of_birth DateTime
+  parentId      String
+}
+
+model Payment {
+  id                 String @id
+  parent_card_number String
+}

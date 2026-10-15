@@ -1,0 +1,102 @@
+schema_version: "1.1"
+name: seeded-app
+execution:
+  prompt: "run decision census on ./cartwheel"
+  max_turns: 40
+  timeout_seconds: 900
+context:
+  scaffold_script: scaffold.sh
+graders:
+  - name: "skill-fired"
+    type: "tool_used"
+    tool: "Skill"
+    input_match: "decision-census"
+    min: 1
+  - name: "helper-ran-once"
+    type: "tool_used"
+    tool: "Bash"
+    input_match: "census_scan\\.py"
+    min: 1
+    max: 1
+  - name: "one-shell-command"
+    type: "tool_used"
+    tool: "Bash"
+    min: 0
+    max: 1
+  - name: "visibility-pair-server"
+    type: "regex"
+    pattern: "## Two answers\\?(?:(?!## Every place found)[\\s\\S])*src/app/api/projects/route\\.ts"
+    flags: "i"
+    match: "contains"
+  - name: "visibility-pair-screen"
+    type: "regex"
+    pattern: "## Two answers\\?(?:(?!## Every place found)[\\s\\S])*src/components/ProjectList\\.tsx"
+    flags: "i"
+    match: "contains"
+  - name: "price-pair-checkout"
+    type: "regex"
+    pattern: "## Two answers\\?(?:(?!## Every place found)[\\s\\S])*src/zz-checkout/plan\\.ts"
+    flags: "i"
+    match: "contains"
+  - name: "price-pair-card"
+    type: "regex"
+    pattern: "## Two answers\\?(?:(?!## Every place found)[\\s\\S])*src/zz-pricing/PlanCard\\.tsx"
+    flags: "i"
+    match: "contains"
+  - name: "paid-pair-access"
+    type: "regex"
+    pattern: "## Two answers\\?(?:(?!## Every place found)[\\s\\S])*src/lib/access\\.ts"
+    flags: "i"
+    match: "contains"
+  - name: "paid-pair-export"
+    type: "regex"
+    pattern: "## Two answers\\?(?:(?!## Every place found)[\\s\\S])*src/app/api/export/route\\.ts"
+    flags: "i"
+    match: "contains"
+  - name: "rounding-pair-charge"
+    type: "regex"
+    pattern: "## Two answers\\?(?:(?!## Every place found)[\\s\\S])*src/lib/money\\.ts"
+    flags: "i"
+    match: "contains"
+  - name: "rounding-pair-display"
+    type: "regex"
+    pattern: "## Two answers\\?(?:(?!## Every place found)[\\s\\S])*src/components/Total\\.tsx"
+    flags: "i"
+    match: "contains"
+  - name: "four-by-hand-checks"
+    type: "regex"
+    pattern: "## Two answers\\?(?:(?:(?!## Every place found)[\\s\\S])*?By-hand check){4}"
+    flags: "i"
+    match: "contains"
+  - name: "never-says-clean"
+    type: "regex"
+    pattern: "\\bclean\\b|no duplicates|\\bnone\\b"
+    flags: "i"
+    match: "not_contains"
+  - name: "no-window-over-31-lines"
+    type: "tool_used"
+    tool: "Read"
+    input_match: "\"limit\"\\s*:\\s*(?:3[2-9]|[4-9]\\d|\\d{3,})"
+    min: 0
+    max: 0
+  - name: "no-whole-file-read"
+    type: "tool_used"
+    tool: "Read"
+    input_match: "^(?![\\s\\S]*\"limit\")[\\s\\S]*\"file_path\"\\s*:\\s*\"[^\"]*cartwheel/"
+    min: 0
+    max: 0
+  - name: "at-most-26-reads"
+    type: "tool_used"
+    tool: "Read"
+    min: 0
+    max: 26
+  - name: "no-edit"
+    type: "tool_used"
+    tool: "Edit"
+    min: 0
+    max: 0
+  - name: "no-write"
+    type: "tool_used"
+    tool: "Write"
+    min: 0
+    max: 0
