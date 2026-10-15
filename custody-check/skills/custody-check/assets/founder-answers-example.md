@@ -19,7 +19,7 @@ q11: yes — code is on my laptop; I exported the data once
 stores: emails, names, notes
 users: about 40 people
 next_change: add Stripe subscriptions
-stop_line: payments
+stop_line: none
 ```
 
 Field notes:
@@ -28,5 +28,8 @@ Field notes:
 - `stores:` is free text: what the app keeps about people.
 - `users:` is free text: who uses it and roughly how many.
 - `next_change:` is the change you are about to make; it is what gets tiered.
-- `stop_line:` is comma-separated from `none`, `payments`, `health`, `sensitive`, `scale`.
+- `stop_line:` is comma-separated from `none`, `card-numbers`, `moves-money`, `health`, `sensitive`, `scale`.
+- `card-numbers` means the app stores or handles card numbers itself. `moves-money` means it moves money between people (payouts, Connect, escrow).
+- Checkout hosted by your payment company, like the Stripe subscriptions above, is not a stop-line item. It makes the change Gated.
+- `payments` is the old word. The agent asks one question about it, and it still ticks the stop-line if the answer is unclear.
 - You cannot turn a scanner `no` into a `yes`. Fix the thing, then run the check again.

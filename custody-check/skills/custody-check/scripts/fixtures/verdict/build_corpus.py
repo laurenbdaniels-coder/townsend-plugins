@@ -46,6 +46,15 @@ EXAMPLE = ("q1=dont-know q2=yes q3=dont-know q4=no q5_code=yes q5_data=no q6=yes
            "q11=yes stop_line=payments")  # assets/founder-answers-example.md
 HEALTH = "stop_line=health q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes"
 
+# The stop-line split (0.3.5). Each row's answers are the tokens the skill sends under the new mapping; the label is
+# the door main's written rule gives for the same founder words. Main ticked any "payments", so the hosted-checkout
+# founder (the example block: "add Stripe subscriptions") was Get a person there. That row is the one door listed as
+# more permissive on purpose (custody_verdict_test ALLOW_PERMISSIVE).
+HOSTED_CHECKOUT = EXAMPLE.replace("stop_line=payments", "stop_line=none")
+CARD_NUMBERS = ALL_YES.replace("stop_line=none", "stop_line=card-numbers")
+MOVES_MONEY = ALL_YES.replace("stop_line=none", "stop_line=moves-money")
+LEGACY_PAYMENTS = ALL_YES.replace("stop_line=none", "stop_line=payments")  # an old block; the founder was not asked
+
 SKIPPED_Q1_Q3 = "stop_line=none q2=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes"  # founder left Q1/Q3 alone
 FOUNDER_NO_ON_YES = "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_data=yes q6=no q9=dont-know"
 
@@ -53,8 +62,9 @@ FOUNDER_NO_ON_YES = "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_data=yes q6=n
 LABELS = []
 
 
-def label(scan, answers, door, why):
-    LABELS.append({"id": "%s | %s" % (scan, answers or "no answers"), "scan": scan, "answers": answers,
+def label(scan, answers, door, why, tag=None):
+    row_id = "%s | %s" % (scan, answers or "no answers") + (" | %s" % tag if tag else "")
+    LABELS.append({"id": row_id, "scan": scan, "answers": answers,
                    "expected_door": door, "why": why})
 
 
@@ -80,6 +90,15 @@ for s in ("seeded-app", "pii after a string glob and a comment close", "comma in
           "pii field just under the cap", "firestore test mode just over the cap", "derived: camelCase birth date field"):
     label(s, NONE, "get-a-person", "stop-line: Q10 evidence shows a field from rule 6's list")
     label(s, ALL_YES, "get-a-person", "stop-line: Q10 evidence shows a field from rule 6's list, stop_line none notwithstanding")
+
+# The stop-line split. Card numbers, money between people and an unanswered old "payments" tick, as on main.
+for s in ("fb test mode", "supabase init migration", "rls disabled", "seeded-app", "degraded: scanner unavailable"):
+    label(s, CARD_NUMBERS, "get-a-person", "stop-line ticked by the founder (card numbers in the app)")
+    label(s, MOVES_MONEY, "get-a-person", "stop-line ticked by the founder (money moved between people)")
+    label(s, LEGACY_PAYMENTS, "get-a-person", "stop-line ticked by the founder (payments, the old word, not followed up)")
+    label(s, HOSTED_CHECKOUT, "get-a-person",
+          "stop-line ticked by the founder on main: the founder said payments (hosted checkout: add Stripe subscriptions)",
+          tag="hosted checkout")
 
 # Partial scans, Q1 and Q3 Don't know, no stop-line field.
 for s in ("output over the cap with manifests the release did not read", "opencode.jsonc counts toward max files",

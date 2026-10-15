@@ -2,6 +2,15 @@
 
 The footer of every verdict names the version that produced it. Later entries carry a "What changed since the workshop" line so an attendee can tell whether an answer would come out differently today.
 
+## 0.3.5 (2026-10-16)
+
+What changed since the workshop build: adding checkout hosted by your payment company no longer says Get a person. It is ordinary Gated work. Card numbers in your app, and money moved between people, still mean Get a person.
+
+- **The stop-line split.** Two words replace "payments" on the stop-line: `card-numbers` (your app stores or handles card numbers itself) and `moves-money` (it moves money between people: payouts, Connect, escrow). Checkout hosted by your payment company (Checkout, Elements, embedded checkout, subscriptions, a billing portal) is not a stop-line item. It makes the next change Gated. "Real money" alone is no longer on the list; real scale, or a contract that needs the app to stay up, still is.
+- **The old word still works.** An answers block that says `stop_line: payments` gets one question: does the app store card numbers itself, or move money between people? If the answer is unclear, or you asked not to be asked, `payments` still means Get a person.
+- **Fields in your code still count.** A Q10 field such as `card_number` or `credit_card` still ticks the stop-line, as before.
+- **This is the one door that is more permissive on purpose.** The verdict script's test lists the hosted-checkout founder, with the reason the old rule was wrong. Any other door more permissive than 0.3.4's fails the test. The answers example now shows Stripe subscriptions with `stop_line: none`.
+
 ## 0.3.4 (2026-10-16)
 
 What changed since the workshop build: the door (Ship it, Patch it, or Get a person) is now chosen by a script that applies the same written rule, so it no longer depends on how the AI reads the rule. No door is more permissive than before.
