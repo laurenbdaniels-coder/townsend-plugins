@@ -27,7 +27,7 @@ import re
 import subprocess
 import sys
 
-__version__ = "0.3.4"
+__version__ = "0.3.5"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCANNER = os.path.join(HERE, "custody_scan.py")
@@ -39,7 +39,10 @@ FOUNDER_VALUES = ("yes", "no", "dont-know")
 ANSWER_KEYS = tuple(QS) + ("q5_code", "q5_data", "stop_line")
 EXPECT_KEYS = tuple("q5_code" if q == "q5" else q for q in QS) + ("partial", "q10_fields", "git_unread")
 FIELDS_RE = re.compile(r"^(-|[a-z0-9_-]{1,80}(,[a-z0-9_-]{1,80}){0,63})$")
-STOP_LINE_VALUES = ("none", "payments", "health", "sensitive", "scale")
+# 0.3.5 stop-line split: card numbers in the app and money moved between people replace "payments". The old word is
+# still accepted and still ticks (an old answers block the founder did not clarify stays on the stop-line).
+LEGACY_STOP_LINE_VALUES = ("payments",)
+STOP_LINE_VALUES = ("none", "card-numbers", "moves-money", "health", "sensitive", "scale") + LEGACY_STOP_LINE_VALUES
 # Same list as the scanner's STOPLINE_FIELDS and SKILL.md rule 6 (custody_verdict_test checks both).
 STOPLINE_FIELDS = ("ssn", "social_security", "dob", "date_of_birth", "birthdate", "medical", "diagnosis",
                    "credit_card", "card_number", "cc_number", "iban", "passport")
@@ -62,7 +65,7 @@ def unknown(answer):
 
 
 def parse_answers(text):
-    """'q1=yes q5_data=no stop_line=payments,health' -> dict. Raises UsageError on anything outside the vocabulary,
+    """'q1=yes q5_data=no stop_line=card-numbers,health' -> dict. Raises UsageError on anything outside the vocabulary,
     so no free text ever reaches the verdict."""
     out = {}
     for tok in (text or "").split():
