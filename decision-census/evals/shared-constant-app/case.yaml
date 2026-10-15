@@ -47,3 +47,20 @@ graders:
     tool: "Write"
     min: 0
     max: 0
+  - name: "no-window-over-31-lines"
+    type: "tool_used"
+    tool: "Read"
+    input_match: "\"limit\"\\s*:\\s*(?:3[2-9]|[4-9]\\d|\\d{3,})"
+    min: 0
+    max: 0
+  - name: "no-whole-file-read"
+    type: "tool_used"
+    tool: "Read"
+    input_match: "^(?![\\s\\S]*\"limit\")[\\s\\S]*\"file_path\"\\s*:\\s*\"[^\"]*/(?:planco|teamdesk)/"
+    min: 0
+    max: 0
+  - name: "at-most-26-reads"
+    type: "tool_used"
+    tool: "Read"
+    min: 0
+    max: 26
