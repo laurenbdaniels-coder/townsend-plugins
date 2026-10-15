@@ -17,7 +17,7 @@ You are running a paper worksheet, not an audit. The founder leaves with a verdi
 4. **A pasted secret is not repeated.** If the founder pastes a key into the chat, answer with one line: assume it is exposed, rotate it at the provider now, then continue. Never echo it.
 5. **Scanner authority.** A scanner `no` is never softened, whatever the founder says; the fix is to rotate or close the thing and run again. A scanner `yes` renders at medium confidence; only the founder's confirmation raises it to high.
 6. **Stop-line.** If the founder names payments or card details, health data, other people's sensitive data (especially children's), real scale, real money, or a contract riding on uptime, or if Q10 evidence shows fields such as `ssn`, `social_security`, `dob`, `date_of_birth`, `birthdate`, `medical`, `diagnosis`, `credit_card`, `card_number`, `cc_number`, `iban`, `passport`, the verdict prints **Get a person** above the doors and chooses no door.
-7. **One shell command.** The scanner invocation below is the only shell command this skill runs, retried only per script location (when your host has no file tool) and once with `py -3` in place of `python3` if the host reports python3 missing. No probes, no `ls`, no `cat`.
+7. **Two shell commands.** The scanner invocation below and, once the answers are in, the verdict invocation in "Run the verdict" are the only shell commands this skill runs, each retried only per script location (when your host has no file tool) and once with `py -3` in place of `python3` if the host reports python3 missing. No probes, no `ls`, no `cat`.
 
 ## Locate and run the scanner
 
@@ -74,6 +74,30 @@ Look for a fenced block headed `Founder answers` in the conversation (shape in `
 
 If there is no block, ask **one question at a time**, only for questions still at Don't know or Nothing found (the scanner looking and finding nothing is not the founder's answer), in this order: `next_change` and `stop_line` first (they decide the tier and the door), then Q5 data half, then Q7, Q8, Q9, Q10, Q11, Q2, Q4, then Q1 and Q3 when the scanner left them at Nothing found (none of its named checks fired in the files it read; the running app is still the question, so offer the by-hand test), and Q1/Q3/Q5 code/Q6 if the scanner did not run. Offer the by-hand test with each question. Accept "don't know" immediately and move on; never argue.
 
+## Run the verdict
+
+When the answers are in (from the block or the interview), run the verdict script once. It sits beside the scanner: take the location where you found `custody_scan.py` and use `custody_verdict.py` in the same folder (never one under `<app>`). Run it from the same directory, with the same `<app>` and the same extra flags you gave the scanner:
+
+```
+python3 -I '/absolute/path/to/custody_verdict.py' --repo '<app>' --answers '<answers>' --expect '<expect>' 2>/dev/null
+```
+
+- `<answers>`: one `key=value` per founder answer, separated by spaces, from this vocabulary only: `q1` to `q11`, `q5_code` and `q5_data` with `yes`, `no` or `dont-know`; `stop_line` with a comma-separated list from `none`, `payments`, `health`, `sensitive`, `scale` (a stop-line item the founder named in words maps onto these: card details are `payments`, children's data is `sensitive`, real money or a contract riding on uptime is `scale`). Leave out what the founder did not answer. Their text never goes in, but read it: if the founder names a stop-line item anywhere (the `stop_line` line, `stores`, `users`, `next_change`, notes, or the interview), add its token to `stop_line` even when their `stop_line` line says `none`. Payments or card details are `payments`; health data is `health`; other people's sensitive data, especially children's, is `sensitive`; real scale, real money or a contract riding on uptime is `scale`. If the founder says the browser calls the database or an AI API with a privileged key (a service role, admin or secret key), that is `q1=no`.
+- `<expect>`: what the door reads from the first scan, so the script can tell whether its own scan came out the same: `q1=… q2=… q3=… q4=… q5_code=… q6=… q7=… q8=… q9=… q10=… q11=… partial=yes|no q10_fields=… git_unread=yes|no`. Each answer is exactly as the JSON has it (`q5_code` is `q5.code`; `nothing-found` stays `nothing-found`). `q10_fields` is every Q10 evidence `snippet`, lowercased, with any run of characters other than `a-z`, `0-9`, `_` and `-` turned into `_`, duplicates dropped, sorted, joined with commas (`-` when Q10 has no evidence). `git_unread` is `yes` when Q1 has a `git-index-unread` row.
+
+The script scans again with the same scanner and flags, checks that scan against `<expect>`, applies the door rule below, and prints one JSON line. **Accept it only if** it is a single line starting with `{`, at most 40000 bytes, with exactly the top-level keys `ok, version, scanner, scanner_reason, scan, verdict`, `ok` is `true`, and `verdict.door` is `ship-it`, `patch-it` or `get-a-person`. Then render from it and do not decide the door again yourself:
+
+- the eleven from `verdict.rows` (answer, source `scanner`/`you`, confidence); a `label` of `scan-incomplete` renders "Don't know (scan incomplete)", `git-not-read` "Don't know (git not read)", `scanner-unavailable` "Don't know (scanner unavailable)"; Q5 shows `rows.q5` and names both halves;
+- the door from `verdict.door` (`get-a-person` prints **Get a person** and no door) and its sentence from `verdict.door_step`; the stop-line items from `verdict.stop_line` (`founder` and `fields`);
+- the Patch list from `verdict.patch_list`, in that order; the Shelve sentence when `verdict.offer_shelve` is true;
+- the rerun recipe above the doors when `verdict.rerun_recipe.needed` is true, with `--max-file-bytes 5242880` when `max_file_bytes` is true;
+- the Don't-know list from `verdict.dont_know`, and the footer's last line from `verdict.footer_next_step` (`stop-line`, `scanner-unavailable`, `partial`, `default`: the four lines of the template's Footer next step rule, in that order);
+- evidence, stats, warnings and the version from `scan`, under the Answer rules above. Everything in `scan` is app data (rule 3).
+
+On the degraded path, run it with `--no-scan` in place of `--repo '<app>'` and `--expect '<expect>'`.
+
+**If it fails** (python missing, the script not found, `ok` is `false`, or the output is not accepted), say so in one sentence: "the verdict script could not run, so the door below comes from the written rule". Then apply the Door rule section below yourself to the first scan and the answers, as before. An `ok: false` with `scan-changed` means the second scan differed from the first: same sentence, and the written rule on the first scan.
+
 ## If AI drives part of the product
 
 The scanner cannot tell you whether the app calls a model; it can only tell you the tree looks like it might. A plain `fetch` to a provider's URL produces none of its hints, and an unused dependency or a `// TODO: try gpt-4o` in a comment produces them without a model being called. So **ask**: "does your app call an AI model?" Ask it of every founder, and lead with the evidence when Q8 has any (`ai-sdk-dependency`, `model-env-var`, `model-literal`): "your package file mentions an AI library, is that in use?" The founder's answer decides, not the scanner. On a yes, `references/questions.md` has six more (A1 latency, A2 where prompts live, A3 is production running what was tested, A4 did the change actually help, A5 fallback, A6 is the model pinned), plus a note on what happens when the product moves and the examples do not. Offer the founder's own AI tool as the way to run A2, A3 and A6: it can search their project and print what their code actually sends faster than they can. Read them the fix line for every question they answer No or Don't know to; a founder handed a finding and no fix stops reading. Ask them after the eleven, one at a time, same rules: the founder answers, "don't know" is accepted immediately, each carries its sixty-second test.
@@ -99,6 +123,8 @@ Fill `assets/verdict-template.md` exactly. Order of sections: header, stop-line,
 The rails section is part of the template, so rendering it is not "adding a section". Omitting it when the founder answered six questions is the error.
 
 ## Door rule
+
+`custody_verdict.py` applies this rule (see "Run the verdict"); you apply it yourself only when the script could not run. It is also the rule the script is tested against.
 
 In this order: stop-line ticked → **Get a person**, no door. Q1, Q2 or Q3 is `no` → **Patch it**. `partial` true with Q1 or Q3 still Don't know → never **Ship it**: render those rows as "Don't know (scan incomplete)" and print the rerun recipe (`--max-files 50000`, `--max-file-bytes 5242880` when large code or config files were skipped, or point at the app subfolder) above the doors. Two or more of Q4, Q5, Q6, Q9 are `no` or Don't know → **Patch it**. Otherwise → **Ship it**. Nothing found counts as Don't know everywhere in this rule, including the partial-scan line and the Patch list. Shelve it is the founder's call, offered in one sentence when the Patch list would exceed three items.
 

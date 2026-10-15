@@ -1,0 +1,4523 @@
+{
+ "baseline": "SKILL.md door rule on main 244947e; scans from custody-check 0.3.3",
+ "baseline_sha": "244947eb104f95d9a5c0191592dced130e8daa11",
+ "rows": [
+  {
+   "answers": "",
+   "expected_door": "patch-it",
+   "id": "client key | no answers",
+   "scan": "client key",
+   "why": "Q1, Q2 or Q3 is no (scanner No; nothing ticks the stop-line)"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "patch-it",
+   "id": "client key | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "client key",
+   "why": "Q1, Q2 or Q3 is no: a founder answer never changes a scanner no"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=dont-know",
+   "expected_door": "patch-it",
+   "id": "client key | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=dont-know",
+   "scan": "client key",
+   "why": "Q1, Q2 or Q3 is no"
+  },
+  {
+   "answers": "q1=dont-know q2=yes q3=dont-know q4=no q5_code=yes q5_data=no q6=yes q7=no q8=dont-know q9=no q10=yes q11=yes stop_line=payments",
+   "expected_door": "get-a-person",
+   "id": "client key | q1=dont-know q2=yes q3=dont-know q4=no q5_code=yes q5_data=no q6=yes q7=no q8=dont-know q9=no q10=yes q11=yes stop_line=payments",
+   "scan": "client key",
+   "why": "stop-line ticked by the founder (payments) comes first"
+  },
+  {
+   "answers": "",
+   "expected_door": "patch-it",
+   "id": "cts client key | no answers",
+   "scan": "cts client key",
+   "why": "Q1, Q2 or Q3 is no (scanner No; nothing ticks the stop-line)"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "patch-it",
+   "id": "cts client key | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "cts client key",
+   "why": "Q1, Q2 or Q3 is no: a founder answer never changes a scanner no"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=dont-know",
+   "expected_door": "patch-it",
+   "id": "cts client key | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=dont-know",
+   "scan": "cts client key",
+   "why": "Q1, Q2 or Q3 is no"
+  },
+  {
+   "answers": "q1=dont-know q2=yes q3=dont-know q4=no q5_code=yes q5_data=no q6=yes q7=no q8=dont-know q9=no q10=yes q11=yes stop_line=payments",
+   "expected_door": "get-a-person",
+   "id": "cts client key | q1=dont-know q2=yes q3=dont-know q4=no q5_code=yes q5_data=no q6=yes q7=no q8=dont-know q9=no q10=yes q11=yes stop_line=payments",
+   "scan": "cts client key",
+   "why": "stop-line ticked by the founder (payments) comes first"
+  },
+  {
+   "answers": "",
+   "expected_door": "patch-it",
+   "id": "server only key in components | no answers",
+   "scan": "server only key in components",
+   "why": "Q1, Q2 or Q3 is no (scanner No; nothing ticks the stop-line)"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "patch-it",
+   "id": "server only key in components | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "server only key in components",
+   "why": "Q1, Q2 or Q3 is no: a founder answer never changes a scanner no"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=dont-know",
+   "expected_door": "patch-it",
+   "id": "server only key in components | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=dont-know",
+   "scan": "server only key in components",
+   "why": "Q1, Q2 or Q3 is no"
+  },
+  {
+   "answers": "q1=dont-know q2=yes q3=dont-know q4=no q5_code=yes q5_data=no q6=yes q7=no q8=dont-know q9=no q10=yes q11=yes stop_line=payments",
+   "expected_door": "get-a-person",
+   "id": "server only key in components | q1=dont-know q2=yes q3=dont-know q4=no q5_code=yes q5_data=no q6=yes q7=no q8=dont-know q9=no q10=yes q11=yes stop_line=payments",
+   "scan": "server only key in components",
+   "why": "stop-line ticked by the founder (payments) comes first"
+  },
+  {
+   "answers": "",
+   "expected_door": "patch-it",
+   "id": "vite server-only import | no answers",
+   "scan": "vite server-only import",
+   "why": "Q1, Q2 or Q3 is no (scanner No; nothing ticks the stop-line)"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "patch-it",
+   "id": "vite server-only import | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "vite server-only import",
+   "why": "Q1, Q2 or Q3 is no: a founder answer never changes a scanner no"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=dont-know",
+   "expected_door": "patch-it",
+   "id": "vite server-only import | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=dont-know",
+   "scan": "vite server-only import",
+   "why": "Q1, Q2 or Q3 is no"
+  },
+  {
+   "answers": "q1=dont-know q2=yes q3=dont-know q4=no q5_code=yes q5_data=no q6=yes q7=no q8=dont-know q9=no q10=yes q11=yes stop_line=payments",
+   "expected_door": "get-a-person",
+   "id": "vite server-only import | q1=dont-know q2=yes q3=dont-know q4=no q5_code=yes q5_data=no q6=yes q7=no q8=dont-know q9=no q10=yes q11=yes stop_line=payments",
+   "scan": "vite server-only import",
+   "why": "stop-line ticked by the founder (payments) comes first"
+  },
+  {
+   "answers": "",
+   "expected_door": "patch-it",
+   "id": "rls disabled | no answers",
+   "scan": "rls disabled",
+   "why": "Q1, Q2 or Q3 is no (scanner No; nothing ticks the stop-line)"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "patch-it",
+   "id": "rls disabled | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "rls disabled",
+   "why": "Q1, Q2 or Q3 is no: a founder answer never changes a scanner no"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=dont-know",
+   "expected_door": "patch-it",
+   "id": "rls disabled | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=dont-know",
+   "scan": "rls disabled",
+   "why": "Q1, Q2 or Q3 is no"
+  },
+  {
+   "answers": "q1=dont-know q2=yes q3=dont-know q4=no q5_code=yes q5_data=no q6=yes q7=no q8=dont-know q9=no q10=yes q11=yes stop_line=payments",
+   "expected_door": "get-a-person",
+   "id": "rls disabled | q1=dont-know q2=yes q3=dont-know q4=no q5_code=yes q5_data=no q6=yes q7=no q8=dont-know q9=no q10=yes q11=yes stop_line=payments",
+   "scan": "rls disabled",
+   "why": "stop-line ticked by the founder (payments) comes first"
+  },
+  {
+   "answers": "",
+   "expected_door": "patch-it",
+   "id": "fb if true | no answers",
+   "scan": "fb if true",
+   "why": "Q1, Q2 or Q3 is no (scanner No; nothing ticks the stop-line)"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "patch-it",
+   "id": "fb if true | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "fb if true",
+   "why": "Q1, Q2 or Q3 is no: a founder answer never changes a scanner no"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=dont-know",
+   "expected_door": "patch-it",
+   "id": "fb if true | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=dont-know",
+   "scan": "fb if true",
+   "why": "Q1, Q2 or Q3 is no"
+  },
+  {
+   "answers": "q1=dont-know q2=yes q3=dont-know q4=no q5_code=yes q5_data=no q6=yes q7=no q8=dont-know q9=no q10=yes q11=yes stop_line=payments",
+   "expected_door": "get-a-person",
+   "id": "fb if true | q1=dont-know q2=yes q3=dont-know q4=no q5_code=yes q5_data=no q6=yes q7=no q8=dont-know q9=no q10=yes q11=yes stop_line=payments",
+   "scan": "fb if true",
+   "why": "stop-line ticked by the founder (payments) comes first"
+  },
+  {
+   "answers": "",
+   "expected_door": "patch-it",
+   "id": "rtdb open | no answers",
+   "scan": "rtdb open",
+   "why": "Q1, Q2 or Q3 is no (scanner No; nothing ticks the stop-line)"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "patch-it",
+   "id": "rtdb open | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "rtdb open",
+   "why": "Q1, Q2 or Q3 is no: a founder answer never changes a scanner no"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=dont-know",
+   "expected_door": "patch-it",
+   "id": "rtdb open | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=dont-know",
+   "scan": "rtdb open",
+   "why": "Q1, Q2 or Q3 is no"
+  },
+  {
+   "answers": "q1=dont-know q2=yes q3=dont-know q4=no q5_code=yes q5_data=no q6=yes q7=no q8=dont-know q9=no q10=yes q11=yes stop_line=payments",
+   "expected_door": "get-a-person",
+   "id": "rtdb open | q1=dont-know q2=yes q3=dont-know q4=no q5_code=yes q5_data=no q6=yes q7=no q8=dont-know q9=no q10=yes q11=yes stop_line=payments",
+   "scan": "rtdb open",
+   "why": "stop-line ticked by the founder (payments) comes first"
+  },
+  {
+   "answers": "",
+   "expected_door": "patch-it",
+   "id": "fb test mode | no answers",
+   "scan": "fb test mode",
+   "why": "Two or more of Q4, Q5, Q6, Q9 are Don't know (none answered; Q5 data is Don't know)"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "ship-it",
+   "id": "fb test mode | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "fb test mode",
+   "why": "Otherwise: the founder filled every Don't know / Nothing found with yes, scan complete"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=dont-know",
+   "expected_door": "ship-it",
+   "id": "fb test mode | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=dont-know",
+   "scan": "fb test mode",
+   "why": "Otherwise: only Q9 is Don't know, one of Q4, Q5, Q6, Q9 is not two"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=dont-know q5_code=yes q5_data=yes q6=yes q9=no",
+   "expected_door": "patch-it",
+   "id": "fb test mode | stop_line=none q1=yes q2=yes q3=yes q4=dont-know q5_code=yes q5_data=yes q6=yes q9=no",
+   "scan": "fb test mode",
+   "why": "Two or more of Q4, Q5, Q6, Q9 are no or Don't know (Q4 Don't know, Q9 no)"
+  },
+  {
+   "answers": "stop_line=health q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "get-a-person",
+   "id": "fb test mode | stop_line=health q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "fb test mode",
+   "why": "stop-line ticked by the founder (health)"
+  },
+  {
+   "answers": "",
+   "expected_door": "patch-it",
+   "id": "fb owner only | no answers",
+   "scan": "fb owner only",
+   "why": "Two or more of Q4, Q5, Q6, Q9 are Don't know (none answered; Q5 data is Don't know)"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "ship-it",
+   "id": "fb owner only | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "fb owner only",
+   "why": "Otherwise: the founder filled every Don't know / Nothing found with yes, scan complete"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=dont-know",
+   "expected_door": "ship-it",
+   "id": "fb owner only | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=dont-know",
+   "scan": "fb owner only",
+   "why": "Otherwise: only Q9 is Don't know, one of Q4, Q5, Q6, Q9 is not two"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=dont-know q5_code=yes q5_data=yes q6=yes q9=no",
+   "expected_door": "patch-it",
+   "id": "fb owner only | stop_line=none q1=yes q2=yes q3=yes q4=dont-know q5_code=yes q5_data=yes q6=yes q9=no",
+   "scan": "fb owner only",
+   "why": "Two or more of Q4, Q5, Q6, Q9 are no or Don't know (Q4 Don't know, Q9 no)"
+  },
+  {
+   "answers": "stop_line=health q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "get-a-person",
+   "id": "fb owner only | stop_line=health q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "fb owner only",
+   "why": "stop-line ticked by the founder (health)"
+  },
+  {
+   "answers": "",
+   "expected_door": "patch-it",
+   "id": "table without rls | no answers",
+   "scan": "table without rls",
+   "why": "Two or more of Q4, Q5, Q6, Q9 are Don't know (none answered; Q5 data is Don't know)"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "ship-it",
+   "id": "table without rls | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "table without rls",
+   "why": "Otherwise: the founder filled every Don't know / Nothing found with yes, scan complete"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=dont-know",
+   "expected_door": "ship-it",
+   "id": "table without rls | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=dont-know",
+   "scan": "table without rls",
+   "why": "Otherwise: only Q9 is Don't know, one of Q4, Q5, Q6, Q9 is not two"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=dont-know q5_code=yes q5_data=yes q6=yes q9=no",
+   "expected_door": "patch-it",
+   "id": "table without rls | stop_line=none q1=yes q2=yes q3=yes q4=dont-know q5_code=yes q5_data=yes q6=yes q9=no",
+   "scan": "table without rls",
+   "why": "Two or more of Q4, Q5, Q6, Q9 are no or Don't know (Q4 Don't know, Q9 no)"
+  },
+  {
+   "answers": "stop_line=health q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "get-a-person",
+   "id": "table without rls | stop_line=health q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "table without rls",
+   "why": "stop-line ticked by the founder (health)"
+  },
+  {
+   "answers": "",
+   "expected_door": "patch-it",
+   "id": "seed only | no answers",
+   "scan": "seed only",
+   "why": "Two or more of Q4, Q5, Q6, Q9 are Don't know (none answered; Q5 data is Don't know)"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "ship-it",
+   "id": "seed only | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "seed only",
+   "why": "Otherwise: the founder filled every Don't know / Nothing found with yes, scan complete"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=dont-know",
+   "expected_door": "ship-it",
+   "id": "seed only | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=dont-know",
+   "scan": "seed only",
+   "why": "Otherwise: only Q9 is Don't know, one of Q4, Q5, Q6, Q9 is not two"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=dont-know q5_code=yes q5_data=yes q6=yes q9=no",
+   "expected_door": "patch-it",
+   "id": "seed only | stop_line=none q1=yes q2=yes q3=yes q4=dont-know q5_code=yes q5_data=yes q6=yes q9=no",
+   "scan": "seed only",
+   "why": "Two or more of Q4, Q5, Q6, Q9 are no or Don't know (Q4 Don't know, Q9 no)"
+  },
+  {
+   "answers": "stop_line=health q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "get-a-person",
+   "id": "seed only | stop_line=health q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "seed only",
+   "why": "stop-line ticked by the founder (health)"
+  },
+  {
+   "answers": "",
+   "expected_door": "patch-it",
+   "id": "public view | no answers",
+   "scan": "public view",
+   "why": "Two or more of Q4, Q5, Q6, Q9 are Don't know (none answered; Q5 data is Don't know)"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "ship-it",
+   "id": "public view | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "public view",
+   "why": "Otherwise: the founder filled every Don't know / Nothing found with yes, scan complete"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=dont-know",
+   "expected_door": "ship-it",
+   "id": "public view | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=dont-know",
+   "scan": "public view",
+   "why": "Otherwise: only Q9 is Don't know, one of Q4, Q5, Q6, Q9 is not two"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=dont-know q5_code=yes q5_data=yes q6=yes q9=no",
+   "expected_door": "patch-it",
+   "id": "public view | stop_line=none q1=yes q2=yes q3=yes q4=dont-know q5_code=yes q5_data=yes q6=yes q9=no",
+   "scan": "public view",
+   "why": "Two or more of Q4, Q5, Q6, Q9 are no or Don't know (Q4 Don't know, Q9 no)"
+  },
+  {
+   "answers": "stop_line=health q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "get-a-person",
+   "id": "public view | stop_line=health q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "public view",
+   "why": "stop-line ticked by the founder (health)"
+  },
+  {
+   "answers": "",
+   "expected_door": "patch-it",
+   "id": "supabase init migration | no answers",
+   "scan": "supabase init migration",
+   "why": "Two or more of Q4, Q5, Q6, Q9 are Don't know (none answered; Q5 data is Don't know)"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "ship-it",
+   "id": "supabase init migration | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "supabase init migration",
+   "why": "Otherwise: the founder filled every Don't know / Nothing found with yes, scan complete"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=dont-know",
+   "expected_door": "ship-it",
+   "id": "supabase init migration | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=dont-know",
+   "scan": "supabase init migration",
+   "why": "Otherwise: only Q9 is Don't know, one of Q4, Q5, Q6, Q9 is not two"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=dont-know q5_code=yes q5_data=yes q6=yes q9=no",
+   "expected_door": "patch-it",
+   "id": "supabase init migration | stop_line=none q1=yes q2=yes q3=yes q4=dont-know q5_code=yes q5_data=yes q6=yes q9=no",
+   "scan": "supabase init migration",
+   "why": "Two or more of Q4, Q5, Q6, Q9 are no or Don't know (Q4 Don't know, Q9 no)"
+  },
+  {
+   "answers": "stop_line=health q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "get-a-person",
+   "id": "supabase init migration | stop_line=health q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "supabase init migration",
+   "why": "stop-line ticked by the founder (health)"
+  },
+  {
+   "answers": "",
+   "expected_door": "patch-it",
+   "id": "monitoring family in requirements | no answers",
+   "scan": "monitoring family in requirements",
+   "why": "Two or more of Q4, Q5, Q6, Q9 are Don't know (none answered; Q5 data is Don't know)"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "ship-it",
+   "id": "monitoring family in requirements | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "monitoring family in requirements",
+   "why": "Otherwise: the founder filled every Don't know / Nothing found with yes, scan complete"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=dont-know",
+   "expected_door": "ship-it",
+   "id": "monitoring family in requirements | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=dont-know",
+   "scan": "monitoring family in requirements",
+   "why": "Otherwise: only Q9 is Don't know, one of Q4, Q5, Q6, Q9 is not two"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=dont-know q5_code=yes q5_data=yes q6=yes q9=no",
+   "expected_door": "patch-it",
+   "id": "monitoring family in requirements | stop_line=none q1=yes q2=yes q3=yes q4=dont-know q5_code=yes q5_data=yes q6=yes q9=no",
+   "scan": "monitoring family in requirements",
+   "why": "Two or more of Q4, Q5, Q6, Q9 are no or Don't know (Q4 Don't know, Q9 no)"
+  },
+  {
+   "answers": "stop_line=health q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "get-a-person",
+   "id": "monitoring family in requirements | stop_line=health q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "monitoring family in requirements",
+   "why": "stop-line ticked by the founder (health)"
+  },
+  {
+   "answers": "",
+   "expected_door": "get-a-person",
+   "id": "seeded-app | no answers",
+   "scan": "seeded-app",
+   "why": "stop-line: Q10 evidence shows a field from rule 6's list"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "get-a-person",
+   "id": "seeded-app | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "seeded-app",
+   "why": "stop-line: Q10 evidence shows a field from rule 6's list, stop_line none notwithstanding"
+  },
+  {
+   "answers": "",
+   "expected_door": "get-a-person",
+   "id": "pii after a string glob and a comment close | no answers",
+   "scan": "pii after a string glob and a comment close",
+   "why": "stop-line: Q10 evidence shows a field from rule 6's list"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "get-a-person",
+   "id": "pii after a string glob and a comment close | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "pii after a string glob and a comment close",
+   "why": "stop-line: Q10 evidence shows a field from rule 6's list, stop_line none notwithstanding"
+  },
+  {
+   "answers": "",
+   "expected_door": "get-a-person",
+   "id": "comma inside a quoted dropped name | no answers",
+   "scan": "comma inside a quoted dropped name",
+   "why": "stop-line: Q10 evidence shows a field from rule 6's list"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "get-a-person",
+   "id": "comma inside a quoted dropped name | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "comma inside a quoted dropped name",
+   "why": "stop-line: Q10 evidence shows a field from rule 6's list, stop_line none notwithstanding"
+  },
+  {
+   "answers": "",
+   "expected_door": "get-a-person",
+   "id": "pii field just under the cap | no answers",
+   "scan": "pii field just under the cap",
+   "why": "stop-line: Q10 evidence shows a field from rule 6's list"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "get-a-person",
+   "id": "pii field just under the cap | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "pii field just under the cap",
+   "why": "stop-line: Q10 evidence shows a field from rule 6's list, stop_line none notwithstanding"
+  },
+  {
+   "answers": "",
+   "expected_door": "get-a-person",
+   "id": "firestore test mode just over the cap | no answers",
+   "scan": "firestore test mode just over the cap",
+   "why": "stop-line: Q10 evidence shows a field from rule 6's list"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "get-a-person",
+   "id": "firestore test mode just over the cap | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "firestore test mode just over the cap",
+   "why": "stop-line: Q10 evidence shows a field from rule 6's list, stop_line none notwithstanding"
+  },
+  {
+   "answers": "",
+   "expected_door": "get-a-person",
+   "id": "derived: camelCase birth date field | no answers",
+   "scan": "derived: camelCase birth date field",
+   "why": "stop-line: Q10 evidence shows a field from rule 6's list"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "get-a-person",
+   "id": "derived: camelCase birth date field | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "derived: camelCase birth date field",
+   "why": "stop-line: Q10 evidence shows a field from rule 6's list, stop_line none notwithstanding"
+  },
+  {
+   "answers": "",
+   "expected_door": "patch-it",
+   "id": "output over the cap with manifests the release did not read | no answers",
+   "scan": "output over the cap with manifests the release did not read",
+   "why": "partial with Q1 or Q3 still Don't know: never Ship it, rerun recipe"
+  },
+  {
+   "answers": "stop_line=none q2=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "patch-it",
+   "id": "output over the cap with manifests the release did not read | stop_line=none q2=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "output over the cap with manifests the release did not read",
+   "why": "partial with Q1 or Q3 still Don't know: the founder did not answer them"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "ship-it",
+   "id": "output over the cap with manifests the release did not read | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "output over the cap with manifests the release did not read",
+   "why": "Otherwise: partial, but the founder answered Q1 and Q3, so neither is still Don't know"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=dont-know q5_code=yes q5_data=yes q6=yes q9=no",
+   "expected_door": "patch-it",
+   "id": "output over the cap with manifests the release did not read | stop_line=none q1=yes q2=yes q3=yes q4=dont-know q5_code=yes q5_data=yes q6=yes q9=no",
+   "scan": "output over the cap with manifests the release did not read",
+   "why": "Two or more of Q4, Q5, Q6, Q9 (partial step cleared by the founder's Q1/Q3)"
+  },
+  {
+   "answers": "",
+   "expected_door": "patch-it",
+   "id": "opencode.jsonc counts toward max files | no answers",
+   "scan": "opencode.jsonc counts toward max files",
+   "why": "partial with Q1 or Q3 still Don't know: never Ship it, rerun recipe"
+  },
+  {
+   "answers": "stop_line=none q2=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "patch-it",
+   "id": "opencode.jsonc counts toward max files | stop_line=none q2=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "opencode.jsonc counts toward max files",
+   "why": "partial with Q1 or Q3 still Don't know: the founder did not answer them"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "ship-it",
+   "id": "opencode.jsonc counts toward max files | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "opencode.jsonc counts toward max files",
+   "why": "Otherwise: partial, but the founder answered Q1 and Q3, so neither is still Don't know"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=dont-know q5_code=yes q5_data=yes q6=yes q9=no",
+   "expected_door": "patch-it",
+   "id": "opencode.jsonc counts toward max files | stop_line=none q1=yes q2=yes q3=yes q4=dont-know q5_code=yes q5_data=yes q6=yes q9=no",
+   "scan": "opencode.jsonc counts toward max files",
+   "why": "Two or more of Q4, Q5, Q6, Q9 (partial step cleared by the founder's Q1/Q3)"
+  },
+  {
+   "answers": "",
+   "expected_door": "patch-it",
+   "id": "derived: oversize code file skipped | no answers",
+   "scan": "derived: oversize code file skipped",
+   "why": "partial with Q1 or Q3 still Don't know: never Ship it, rerun recipe"
+  },
+  {
+   "answers": "stop_line=none q2=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "patch-it",
+   "id": "derived: oversize code file skipped | stop_line=none q2=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "derived: oversize code file skipped",
+   "why": "partial with Q1 or Q3 still Don't know: the founder did not answer them"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "ship-it",
+   "id": "derived: oversize code file skipped | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "derived: oversize code file skipped",
+   "why": "Otherwise: partial, but the founder answered Q1 and Q3, so neither is still Don't know"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=dont-know q5_code=yes q5_data=yes q6=yes q9=no",
+   "expected_door": "patch-it",
+   "id": "derived: oversize code file skipped | stop_line=none q1=yes q2=yes q3=yes q4=dont-know q5_code=yes q5_data=yes q6=yes q9=no",
+   "scan": "derived: oversize code file skipped",
+   "why": "Two or more of Q4, Q5, Q6, Q9 (partial step cleared by the founder's Q1/Q3)"
+  },
+  {
+   "answers": "",
+   "expected_door": "patch-it",
+   "id": "derived: git index unread | no answers",
+   "scan": "derived: git index unread",
+   "why": "git-index-unread on Q1: Don't know (git not read), the door is never Ship it"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "patch-it",
+   "id": "derived: git index unread | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "derived: git index unread",
+   "why": "git-index-unread on Q1: Don't know (git not read), the door is never Ship it"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=dont-know",
+   "expected_door": "patch-it",
+   "id": "derived: git index unread | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=dont-know",
+   "scan": "derived: git index unread",
+   "why": "git-index-unread on Q1: Don't know (git not read), the door is never Ship it"
+  },
+  {
+   "answers": "",
+   "expected_door": "patch-it",
+   "id": "degraded: scanner unavailable | no answers",
+   "scan": "degraded: scanner unavailable",
+   "why": "Two or more of Q4, Q5, Q6, Q9 are Don't know (scanner unavailable)"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "ship-it",
+   "id": "degraded: scanner unavailable | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "degraded: scanner unavailable",
+   "why": "Otherwise: the founder answered every question yes"
+  },
+  {
+   "answers": "stop_line=none q2=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "ship-it",
+   "id": "degraded: scanner unavailable | stop_line=none q2=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "degraded: scanner unavailable",
+   "why": "Otherwise: not partial, so Q1/Q3 Don't know do not block; Q4, Q5, Q6, Q9 are yes"
+  },
+  {
+   "answers": "q1=dont-know q2=yes q3=dont-know q4=no q5_code=yes q5_data=no q6=yes q7=no q8=dont-know q9=no q10=yes q11=yes stop_line=payments",
+   "expected_door": "get-a-person",
+   "id": "degraded: scanner unavailable | q1=dont-know q2=yes q3=dont-know q4=no q5_code=yes q5_data=no q6=yes q7=no q8=dont-know q9=no q10=yes q11=yes stop_line=payments",
+   "scan": "degraded: scanner unavailable",
+   "why": "stop-line ticked by the founder (payments)"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "ship-it",
+   "id": "derived: deploy config and two environments | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "derived: deploy config and two environments",
+   "why": "Otherwise: scanner yes on Q5 code and Q6, founder yes elsewhere"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_data=yes q6=no q9=dont-know",
+   "expected_door": "ship-it",
+   "id": "derived: deploy config and two environments | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_data=yes q6=no q9=dont-know",
+   "scan": "derived: deploy config and two environments",
+   "why": "Otherwise: the founder's q6=no does not fill a scanner yes (answers fill only Don't know), so only Q9 fails"
+  }
+ ],
+ "scans": {
+  "client key": {
+   "files_scanned": 2,
+   "git": {
+    "commits": null,
+    "shallow": null,
+    "tags": null,
+    "tracked_env_files": null
+   },
+   "ok": true,
+   "partial": false,
+   "questions": {
+    "q1": {
+     "answer": "no",
+     "confidence": "high",
+     "evidence": [
+      {
+       "check": "client-key-literal",
+       "line": 1,
+       "path": "src/components/k.ts",
+       "snippet": ""
+      }
+     ]
+    },
+    "q10": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q11": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q2": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": [
+      {
+       "check": "client-server-split",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q3": {
+     "answer": "dont-know",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "scan-summary",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q4": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q5": {
+     "code": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": [
+       {
+        "check": "git-not-a-repo",
+        "line": 0,
+        "path": "",
+        "snippet": ""
+       }
+      ]
+     },
+     "data": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": []
+     }
+    },
+    "q6": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q7": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q8": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q9": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    }
+   },
+   "stats": {
+    "config": {
+     "browser_prefixes_added": [],
+     "exclude_dirs_added": []
+    },
+    "deadline_hit": false,
+    "dirs_truncated": 0,
+    "dirs_unreadable": 0,
+    "files_errored": 0,
+    "files_never_open": 0,
+    "files_skipped_binary": 0,
+    "files_skipped_generated": 0,
+    "files_skipped_hardlink": 0,
+    "files_skipped_oversize": 0,
+    "files_skipped_oversize_relevant": 0,
+    "files_skipped_special": 0,
+    "git_index_partial": 0,
+    "max_files_hit": false,
+    "max_total_bytes_hit": false,
+    "mcp_capped": 0,
+    "output_trimmed": 0
+   },
+   "version": "0.3.3",
+   "warnings": []
+  },
+  "comma inside a quoted dropped name": {
+   "files_scanned": 2,
+   "git": {
+    "commits": null,
+    "shallow": null,
+    "tags": null,
+    "tracked_env_files": null
+   },
+   "ok": true,
+   "partial": false,
+   "questions": {
+    "q1": {
+     "answer": "nothing-found",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "nothing-found-keys",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q10": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": [
+      {
+       "check": "pii-field",
+       "line": 3,
+       "path": "supabase/migrations/1.sql",
+       "snippet": "ssn"
+      }
+     ]
+    },
+    "q11": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q2": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": [
+      {
+       "check": "client-server-split",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q3": {
+     "answer": "dont-know",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "table-dropped",
+       "line": 3,
+       "path": "supabase/migrations/1.sql",
+       "snippet": ""
+      }
+     ]
+    },
+    "q4": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q5": {
+     "code": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": [
+       {
+        "check": "git-not-a-repo",
+        "line": 0,
+        "path": "",
+        "snippet": ""
+       },
+       {
+        "check": "migration-path",
+        "line": 0,
+        "path": "supabase/migrations/1.sql",
+        "snippet": ""
+       }
+      ]
+     },
+     "data": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": []
+     }
+    },
+    "q6": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q7": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q8": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q9": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    }
+   },
+   "stats": {
+    "config": {
+     "browser_prefixes_added": [],
+     "exclude_dirs_added": []
+    },
+    "deadline_hit": false,
+    "dirs_truncated": 0,
+    "dirs_unreadable": 0,
+    "files_errored": 0,
+    "files_never_open": 0,
+    "files_skipped_binary": 0,
+    "files_skipped_generated": 0,
+    "files_skipped_hardlink": 0,
+    "files_skipped_oversize": 0,
+    "files_skipped_oversize_relevant": 0,
+    "files_skipped_special": 0,
+    "git_index_partial": 0,
+    "max_files_hit": false,
+    "max_total_bytes_hit": false,
+    "mcp_capped": 0,
+    "output_trimmed": 0
+   },
+   "version": "0.3.3",
+   "warnings": []
+  },
+  "cts client key": {
+   "files_scanned": 2,
+   "git": {
+    "commits": null,
+    "shallow": null,
+    "tags": null,
+    "tracked_env_files": null
+   },
+   "ok": true,
+   "partial": false,
+   "questions": {
+    "q1": {
+     "answer": "no",
+     "confidence": "high",
+     "evidence": [
+      {
+       "check": "client-key-literal",
+       "line": 1,
+       "path": "src/client/k.cts",
+       "snippet": ""
+      }
+     ]
+    },
+    "q10": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q11": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q2": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": [
+      {
+       "check": "client-server-split",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q3": {
+     "answer": "dont-know",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "scan-summary",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q4": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q5": {
+     "code": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": [
+       {
+        "check": "git-not-a-repo",
+        "line": 0,
+        "path": "",
+        "snippet": ""
+       }
+      ]
+     },
+     "data": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": []
+     }
+    },
+    "q6": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q7": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q8": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q9": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    }
+   },
+   "stats": {
+    "config": {
+     "browser_prefixes_added": [],
+     "exclude_dirs_added": []
+    },
+    "deadline_hit": false,
+    "dirs_truncated": 0,
+    "dirs_unreadable": 0,
+    "files_errored": 0,
+    "files_never_open": 0,
+    "files_skipped_binary": 0,
+    "files_skipped_generated": 0,
+    "files_skipped_hardlink": 0,
+    "files_skipped_oversize": 0,
+    "files_skipped_oversize_relevant": 0,
+    "files_skipped_special": 0,
+    "git_index_partial": 0,
+    "max_files_hit": false,
+    "max_total_bytes_hit": false,
+    "mcp_capped": 0,
+    "output_trimmed": 0
+   },
+   "version": "0.3.3",
+   "warnings": []
+  },
+  "degraded: scanner unavailable": null,
+  "derived: camelCase birth date field": {
+   "files_scanned": 2,
+   "git": {
+    "commits": null,
+    "shallow": null,
+    "tags": null,
+    "tracked_env_files": null
+   },
+   "ok": true,
+   "partial": false,
+   "questions": {
+    "q1": {
+     "answer": "nothing-found",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "nothing-found-keys",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q10": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": [
+      {
+       "check": "pii-field",
+       "line": 3,
+       "path": "src/types.ts",
+       "snippet": "dateOfBirth"
+      }
+     ]
+    },
+    "q11": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q2": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": [
+      {
+       "check": "client-server-split",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q3": {
+     "answer": "nothing-found",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "nothing-found-rules",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q4": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q5": {
+     "code": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": [
+       {
+        "check": "git-not-a-repo",
+        "line": 0,
+        "path": "",
+        "snippet": ""
+       },
+       {
+        "check": "migration-path",
+        "line": 0,
+        "path": "supabase/migrations/20240101000000_init.sql",
+        "snippet": ""
+       }
+      ]
+     },
+     "data": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": []
+     }
+    },
+    "q6": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q7": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q8": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q9": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    }
+   },
+   "stats": {
+    "config": {
+     "browser_prefixes_added": [],
+     "exclude_dirs_added": []
+    },
+    "deadline_hit": false,
+    "dirs_truncated": 0,
+    "dirs_unreadable": 0,
+    "files_errored": 0,
+    "files_never_open": 0,
+    "files_skipped_binary": 0,
+    "files_skipped_generated": 0,
+    "files_skipped_hardlink": 0,
+    "files_skipped_oversize": 0,
+    "files_skipped_oversize_relevant": 0,
+    "files_skipped_special": 0,
+    "git_index_partial": 0,
+    "max_files_hit": false,
+    "max_total_bytes_hit": false,
+    "mcp_capped": 0,
+    "output_trimmed": 0
+   },
+   "version": "0.3.3",
+   "warnings": []
+  },
+  "derived: deploy config and two environments": {
+   "files_scanned": 2,
+   "git": {
+    "commits": null,
+    "shallow": null,
+    "tags": null,
+    "tracked_env_files": null
+   },
+   "ok": true,
+   "partial": false,
+   "questions": {
+    "q1": {
+     "answer": "nothing-found",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "nothing-found-keys",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q10": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q11": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q2": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": [
+      {
+       "check": "client-server-split",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q3": {
+     "answer": "nothing-found",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "nothing-found-rules",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q4": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q5": {
+     "code": {
+      "answer": "yes",
+      "confidence": "med",
+      "evidence": [
+       {
+        "check": "deploy-config",
+        "line": 0,
+        "path": "vercel.json",
+        "snippet": ""
+       }
+      ]
+     },
+     "data": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": []
+     }
+    },
+    "q6": {
+     "answer": "yes",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "env-name",
+       "line": 0,
+       "path": ".env.staging",
+       "snippet": ""
+      }
+     ]
+    },
+    "q7": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q8": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q9": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    }
+   },
+   "stats": {
+    "config": {
+     "browser_prefixes_added": [],
+     "exclude_dirs_added": []
+    },
+    "deadline_hit": false,
+    "dirs_truncated": 0,
+    "dirs_unreadable": 0,
+    "files_errored": 0,
+    "files_never_open": 0,
+    "files_skipped_binary": 0,
+    "files_skipped_generated": 0,
+    "files_skipped_hardlink": 0,
+    "files_skipped_oversize": 0,
+    "files_skipped_oversize_relevant": 0,
+    "files_skipped_special": 0,
+    "git_index_partial": 0,
+    "max_files_hit": false,
+    "max_total_bytes_hit": false,
+    "mcp_capped": 0,
+    "output_trimmed": 0
+   },
+   "version": "0.3.3",
+   "warnings": []
+  },
+  "derived: git index unread": {
+   "files_scanned": 2,
+   "git": {
+    "commits": null,
+    "shallow": null,
+    "tags": null,
+    "tracked_env_files": null
+   },
+   "ok": true,
+   "partial": true,
+   "questions": {
+    "q1": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": [
+      {
+       "check": "git-index-unread",
+       "line": 0,
+       "path": "",
+       "snippet": "git's file index was not read, so committed secrets could not be checked"
+      }
+     ]
+    },
+    "q10": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q11": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q2": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": [
+      {
+       "check": "client-server-split",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q3": {
+     "answer": "nothing-found",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "nothing-found-rules",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q4": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q5": {
+     "code": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": [
+       {
+        "check": "git-not-a-repo",
+        "line": 0,
+        "path": "",
+        "snippet": ""
+       },
+       {
+        "check": "migration-path",
+        "line": 0,
+        "path": "supabase/migrations/20240101000000_init.sql",
+        "snippet": ""
+       }
+      ]
+     },
+     "data": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": []
+     }
+    },
+    "q6": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q7": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q8": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q9": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    }
+   },
+   "stats": {
+    "config": {
+     "browser_prefixes_added": [],
+     "exclude_dirs_added": []
+    },
+    "deadline_hit": false,
+    "dirs_truncated": 0,
+    "dirs_unreadable": 0,
+    "files_errored": 0,
+    "files_never_open": 0,
+    "files_skipped_binary": 0,
+    "files_skipped_generated": 0,
+    "files_skipped_hardlink": 0,
+    "files_skipped_oversize": 0,
+    "files_skipped_oversize_relevant": 0,
+    "files_skipped_special": 0,
+    "git_index_partial": 1,
+    "max_files_hit": false,
+    "max_total_bytes_hit": false,
+    "mcp_capped": 0,
+    "output_trimmed": 0
+   },
+   "version": "0.3.3",
+   "warnings": []
+  },
+  "derived: oversize code file skipped": {
+   "files_scanned": 2,
+   "git": {
+    "commits": null,
+    "shallow": null,
+    "tags": null,
+    "tracked_env_files": null
+   },
+   "ok": true,
+   "partial": true,
+   "questions": {
+    "q1": {
+     "answer": "dont-know",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "scan-summary",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q10": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q11": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q2": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": [
+      {
+       "check": "client-server-split",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q3": {
+     "answer": "nothing-found",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "nothing-found-rules",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q4": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q5": {
+     "code": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": [
+       {
+        "check": "git-not-a-repo",
+        "line": 0,
+        "path": "",
+        "snippet": ""
+       },
+       {
+        "check": "migration-path",
+        "line": 0,
+        "path": "supabase/migrations/20240101000000_init.sql",
+        "snippet": ""
+       }
+      ]
+     },
+     "data": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": []
+     }
+    },
+    "q6": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q7": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q8": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q9": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    }
+   },
+   "stats": {
+    "config": {
+     "browser_prefixes_added": [],
+     "exclude_dirs_added": []
+    },
+    "deadline_hit": false,
+    "dirs_truncated": 0,
+    "dirs_unreadable": 0,
+    "files_errored": 0,
+    "files_never_open": 0,
+    "files_skipped_binary": 0,
+    "files_skipped_generated": 0,
+    "files_skipped_hardlink": 0,
+    "files_skipped_oversize": 0,
+    "files_skipped_oversize_relevant": 1,
+    "files_skipped_special": 0,
+    "git_index_partial": 0,
+    "max_files_hit": false,
+    "max_total_bytes_hit": false,
+    "mcp_capped": 0,
+    "output_trimmed": 0
+   },
+   "version": "0.3.3",
+   "warnings": []
+  },
+  "fb if true": {
+   "files_scanned": 2,
+   "git": {
+    "commits": null,
+    "shallow": null,
+    "tags": null,
+    "tracked_env_files": null
+   },
+   "ok": true,
+   "partial": false,
+   "questions": {
+    "q1": {
+     "answer": "nothing-found",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "nothing-found-keys",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q10": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q11": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q2": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": [
+      {
+       "check": "client-server-split",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q3": {
+     "answer": "no",
+     "confidence": "high",
+     "evidence": [
+      {
+       "check": "firebase-rules-open",
+       "line": 4,
+       "path": "firestore.rules",
+       "snippet": ""
+      }
+     ]
+    },
+    "q4": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q5": {
+     "code": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": [
+       {
+        "check": "git-not-a-repo",
+        "line": 0,
+        "path": "",
+        "snippet": ""
+       }
+      ]
+     },
+     "data": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": []
+     }
+    },
+    "q6": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q7": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q8": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q9": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    }
+   },
+   "stats": {
+    "config": {
+     "browser_prefixes_added": [],
+     "exclude_dirs_added": []
+    },
+    "deadline_hit": false,
+    "dirs_truncated": 0,
+    "dirs_unreadable": 0,
+    "files_errored": 0,
+    "files_never_open": 0,
+    "files_skipped_binary": 0,
+    "files_skipped_generated": 0,
+    "files_skipped_hardlink": 0,
+    "files_skipped_oversize": 0,
+    "files_skipped_oversize_relevant": 0,
+    "files_skipped_special": 0,
+    "git_index_partial": 0,
+    "max_files_hit": false,
+    "max_total_bytes_hit": false,
+    "mcp_capped": 0,
+    "output_trimmed": 0
+   },
+   "version": "0.3.3",
+   "warnings": []
+  },
+  "fb owner only": {
+   "files_scanned": 2,
+   "git": {
+    "commits": null,
+    "shallow": null,
+    "tags": null,
+    "tracked_env_files": null
+   },
+   "ok": true,
+   "partial": false,
+   "questions": {
+    "q1": {
+     "answer": "nothing-found",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "nothing-found-keys",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q10": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q11": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q2": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": [
+      {
+       "check": "client-server-split",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q3": {
+     "answer": "nothing-found",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "nothing-found-rules",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q4": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q5": {
+     "code": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": [
+       {
+        "check": "git-not-a-repo",
+        "line": 0,
+        "path": "",
+        "snippet": ""
+       }
+      ]
+     },
+     "data": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": []
+     }
+    },
+    "q6": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q7": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q8": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q9": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    }
+   },
+   "stats": {
+    "config": {
+     "browser_prefixes_added": [],
+     "exclude_dirs_added": []
+    },
+    "deadline_hit": false,
+    "dirs_truncated": 0,
+    "dirs_unreadable": 0,
+    "files_errored": 0,
+    "files_never_open": 0,
+    "files_skipped_binary": 0,
+    "files_skipped_generated": 0,
+    "files_skipped_hardlink": 0,
+    "files_skipped_oversize": 0,
+    "files_skipped_oversize_relevant": 0,
+    "files_skipped_special": 0,
+    "git_index_partial": 0,
+    "max_files_hit": false,
+    "max_total_bytes_hit": false,
+    "mcp_capped": 0,
+    "output_trimmed": 0
+   },
+   "version": "0.3.3",
+   "warnings": []
+  },
+  "fb test mode": {
+   "files_scanned": 2,
+   "git": {
+    "commits": null,
+    "shallow": null,
+    "tags": null,
+    "tracked_env_files": null
+   },
+   "ok": true,
+   "partial": false,
+   "questions": {
+    "q1": {
+     "answer": "nothing-found",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "nothing-found-keys",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q10": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q11": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q2": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": [
+      {
+       "check": "client-server-split",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q3": {
+     "answer": "dont-know",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "firebase-rules-test-mode",
+       "line": 4,
+       "path": "firestore.rules",
+       "snippet": ""
+      }
+     ]
+    },
+    "q4": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q5": {
+     "code": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": [
+       {
+        "check": "git-not-a-repo",
+        "line": 0,
+        "path": "",
+        "snippet": ""
+       }
+      ]
+     },
+     "data": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": []
+     }
+    },
+    "q6": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q7": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q8": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q9": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    }
+   },
+   "stats": {
+    "config": {
+     "browser_prefixes_added": [],
+     "exclude_dirs_added": []
+    },
+    "deadline_hit": false,
+    "dirs_truncated": 0,
+    "dirs_unreadable": 0,
+    "files_errored": 0,
+    "files_never_open": 0,
+    "files_skipped_binary": 0,
+    "files_skipped_generated": 0,
+    "files_skipped_hardlink": 0,
+    "files_skipped_oversize": 0,
+    "files_skipped_oversize_relevant": 0,
+    "files_skipped_special": 0,
+    "git_index_partial": 0,
+    "max_files_hit": false,
+    "max_total_bytes_hit": false,
+    "mcp_capped": 0,
+    "output_trimmed": 0
+   },
+   "version": "0.3.3",
+   "warnings": []
+  },
+  "firestore test mode just over the cap": {
+   "files_scanned": 27,
+   "git": {
+    "commits": null,
+    "shallow": null,
+    "tags": null,
+    "tracked_env_files": null
+   },
+   "ok": true,
+   "partial": true,
+   "questions": {
+    "q1": {
+     "answer": "dont-know",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "scan-summary",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q10": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": [
+      {
+       "check": "pii-field",
+       "line": 2,
+       "path": "m00/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/schema.prisma",
+       "snippet": "email"
+      },
+      {
+       "check": "pii-field",
+       "line": 2,
+       "path": "m01/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/schema.prisma",
+       "snippet": "phone"
+      },
+      {
+       "check": "pii-field",
+       "line": 2,
+       "path": "m02/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/schema.prisma",
+       "snippet": "ssn"
+      },
+      {
+       "check": "pii-field",
+       "line": 2,
+       "path": "m03/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/schema.prisma",
+       "snippet": "dob"
+      },
+      {
+       "check": "pii-field",
+       "line": 2,
+       "path": "m04/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/schema.prisma",
+       "snippet": "address"
+      },
+      {
+       "check": "pii-field",
+       "line": 2,
+       "path": "m05/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/schema.prisma",
+       "snippet": "street"
+      },
+      {
+       "check": "pii-field",
+       "line": 2,
+       "path": "m06/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/schema.prisma",
+       "snippet": "postal_code"
+      },
+      {
+       "check": "pii-field",
+       "line": 2,
+       "path": "m07/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/schema.prisma",
+       "snippet": "passport"
+      },
+      {
+       "check": "pii-field",
+       "line": 2,
+       "path": "m08/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/schema.prisma",
+       "snippet": "iban"
+      },
+      {
+       "check": "pii-field",
+       "line": 2,
+       "path": "m09/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/schema.prisma",
+       "snippet": "medical"
+      },
+      {
+       "check": "pii-field",
+       "line": 2,
+       "path": "m10/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/schema.prisma",
+       "snippet": "diagnosis"
+      }
+     ]
+    },
+    "q11": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q2": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": [
+      {
+       "check": "client-server-split",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q3": {
+     "answer": "dont-know",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "scan-summary",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      },
+      {
+       "check": "firebase-rules-test-mode",
+       "line": 5,
+       "path": "firestore.rules",
+       "snippet": ""
+      }
+     ]
+    },
+    "q4": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": [
+      {
+       "check": "auth-path",
+       "line": 0,
+       "path": "auth/0\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/x.ts",
+       "snippet": ""
+      },
+      {
+       "check": "auth-path",
+       "line": 0,
+       "path": "auth/1\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/x.ts",
+       "snippet": ""
+      }
+     ]
+    },
+    "q5": {
+     "code": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": [
+       {
+        "check": "git-not-a-repo",
+        "line": 0,
+        "path": "",
+        "snippet": ""
+       }
+      ]
+     },
+     "data": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": []
+     }
+    },
+    "q6": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q7": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q8": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q9": {
+     "answer": "dont-know",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "health-route",
+       "line": 0,
+       "path": "h00/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/a/health.ts",
+       "snippet": ""
+      },
+      {
+       "check": "health-route",
+       "line": 0,
+       "path": "h01/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/a/health.ts",
+       "snippet": ""
+      },
+      {
+       "check": "health-route",
+       "line": 0,
+       "path": "h02/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/a/health.ts",
+       "snippet": ""
+      },
+      {
+       "check": "health-route",
+       "line": 0,
+       "path": "h03/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/a/health.ts",
+       "snippet": ""
+      },
+      {
+       "check": "health-route",
+       "line": 0,
+       "path": "h04/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/a/health.ts",
+       "snippet": ""
+      },
+      {
+       "check": "health-route",
+       "line": 0,
+       "path": "h05/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/a/health.ts",
+       "snippet": ""
+      },
+      {
+       "check": "health-route",
+       "line": 0,
+       "path": "h06/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/a/health.ts",
+       "snippet": ""
+      },
+      {
+       "check": "health-route",
+       "line": 0,
+       "path": "h07/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/a/health.ts",
+       "snippet": ""
+      },
+      {
+       "check": "health-route",
+       "line": 0,
+       "path": "h08/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/a/health.ts",
+       "snippet": ""
+      },
+      {
+       "check": "health-route",
+       "line": 0,
+       "path": "h09/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/a/health.ts",
+       "snippet": ""
+      },
+      {
+       "check": "health-route",
+       "line": 0,
+       "path": "h10/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/a/health.ts",
+       "snippet": ""
+      }
+     ]
+    }
+   },
+   "stats": {
+    "config": {
+     "browser_prefixes_added": [],
+     "exclude_dirs_added": []
+    },
+    "deadline_hit": false,
+    "dirs_truncated": 0,
+    "dirs_unreadable": 0,
+    "files_errored": 0,
+    "files_never_open": 0,
+    "files_skipped_binary": 0,
+    "files_skipped_generated": 0,
+    "files_skipped_hardlink": 0,
+    "files_skipped_oversize": 0,
+    "files_skipped_oversize_relevant": 0,
+    "files_skipped_special": 0,
+    "git_index_partial": 0,
+    "max_files_hit": false,
+    "max_total_bytes_hit": false,
+    "mcp_capped": 0,
+    "output_trimmed": 1
+   },
+   "version": "0.3.3",
+   "warnings": []
+  },
+  "monitoring family in requirements": {
+   "files_scanned": 2,
+   "git": {
+    "commits": null,
+    "shallow": null,
+    "tags": null,
+    "tracked_env_files": null
+   },
+   "ok": true,
+   "partial": false,
+   "questions": {
+    "q1": {
+     "answer": "nothing-found",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "nothing-found-keys",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q10": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q11": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q2": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": [
+      {
+       "check": "client-server-split",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q3": {
+     "answer": "dont-know",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "scan-summary",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q4": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q5": {
+     "code": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": [
+       {
+        "check": "git-not-a-repo",
+        "line": 0,
+        "path": "",
+        "snippet": ""
+       }
+      ]
+     },
+     "data": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": []
+     }
+    },
+    "q6": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q7": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q8": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q9": {
+     "answer": "dont-know",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "monitoring-dependency",
+       "line": 0,
+       "path": "requirements.txt",
+       "snippet": ""
+      }
+     ]
+    }
+   },
+   "stats": {
+    "config": {
+     "browser_prefixes_added": [],
+     "exclude_dirs_added": []
+    },
+    "deadline_hit": false,
+    "dirs_truncated": 0,
+    "dirs_unreadable": 0,
+    "files_errored": 0,
+    "files_never_open": 0,
+    "files_skipped_binary": 0,
+    "files_skipped_generated": 0,
+    "files_skipped_hardlink": 0,
+    "files_skipped_oversize": 0,
+    "files_skipped_oversize_relevant": 0,
+    "files_skipped_special": 0,
+    "git_index_partial": 0,
+    "max_files_hit": false,
+    "max_total_bytes_hit": false,
+    "mcp_capped": 0,
+    "output_trimmed": 0
+   },
+   "version": "0.3.3",
+   "warnings": []
+  },
+  "opencode.jsonc counts toward max files": {
+   "files_scanned": 2,
+   "git": {
+    "commits": null,
+    "shallow": null,
+    "tags": null,
+    "tracked_env_files": null
+   },
+   "ok": true,
+   "partial": true,
+   "questions": {
+    "q1": {
+     "answer": "dont-know",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "scan-summary",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      },
+      {
+       "check": "mcp-config-not-opened",
+       "line": 0,
+       "path": "opencode.jsonc",
+       "snippet": ""
+      }
+     ]
+    },
+    "q10": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q11": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q2": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q3": {
+     "answer": "dont-know",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "scan-summary",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q4": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q5": {
+     "code": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": [
+       {
+        "check": "git-not-a-repo",
+        "line": 0,
+        "path": "",
+        "snippet": ""
+       }
+      ]
+     },
+     "data": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": []
+     }
+    },
+    "q6": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q7": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q8": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q9": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    }
+   },
+   "stats": {
+    "config": {
+     "browser_prefixes_added": [],
+     "exclude_dirs_added": []
+    },
+    "deadline_hit": false,
+    "dirs_truncated": 0,
+    "dirs_unreadable": 0,
+    "files_errored": 0,
+    "files_never_open": 0,
+    "files_skipped_binary": 0,
+    "files_skipped_generated": 0,
+    "files_skipped_hardlink": 0,
+    "files_skipped_oversize": 0,
+    "files_skipped_oversize_relevant": 0,
+    "files_skipped_special": 0,
+    "git_index_partial": 0,
+    "max_files_hit": true,
+    "max_total_bytes_hit": false,
+    "mcp_capped": 0,
+    "output_trimmed": 0
+   },
+   "version": "0.3.3",
+   "warnings": []
+  },
+  "output over the cap with manifests the release did not read": {
+   "files_scanned": 31,
+   "git": {
+    "commits": null,
+    "shallow": null,
+    "tags": null,
+    "tracked_env_files": null
+   },
+   "ok": true,
+   "partial": true,
+   "questions": {
+    "q1": {
+     "answer": "dont-know",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "scan-summary",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q10": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": [
+      {
+       "check": "pii-field",
+       "line": 2,
+       "path": "m0/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/schema.p",
+       "snippet": "email"
+      },
+      {
+       "check": "pii-field",
+       "line": 3,
+       "path": "m0/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/schema.p",
+       "snippet": "phone"
+      },
+      {
+       "check": "pii-field",
+       "line": 2,
+       "path": "m1/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/schema.p",
+       "snippet": "email"
+      },
+      {
+       "check": "pii-field",
+       "line": 3,
+       "path": "m1/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/schema.p",
+       "snippet": "phone"
+      },
+      {
+       "check": "pii-field",
+       "line": 2,
+       "path": "m10/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/schema.",
+       "snippet": "email"
+      },
+      {
+       "check": "pii-field",
+       "line": 3,
+       "path": "m10/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/schema.",
+       "snippet": "phone"
+      },
+      {
+       "check": "pii-field",
+       "line": 2,
+       "path": "m11/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/schema.",
+       "snippet": "email"
+      },
+      {
+       "check": "pii-field",
+       "line": 3,
+       "path": "m11/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/schema.",
+       "snippet": "phone"
+      },
+      {
+       "check": "pii-field",
+       "line": 2,
+       "path": "m2/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/schema.p",
+       "snippet": "email"
+      },
+      {
+       "check": "pii-field",
+       "line": 3,
+       "path": "m2/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/schema.p",
+       "snippet": "phone"
+      },
+      {
+       "check": "pii-field",
+       "line": 2,
+       "path": "m3/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/schema.p",
+       "snippet": "email"
+      },
+      {
+       "check": "pii-field",
+       "line": 3,
+       "path": "m3/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/schema.p",
+       "snippet": "phone"
+      }
+     ]
+    },
+    "q11": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q2": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": [
+      {
+       "check": "client-server-split",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q3": {
+     "answer": "dont-know",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "scan-summary",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q4": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q5": {
+     "code": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": [
+       {
+        "check": "git-not-a-repo",
+        "line": 0,
+        "path": "",
+        "snippet": ""
+       },
+       {
+        "check": "migration-path",
+        "line": 0,
+        "path": "supabase/migrations/1.sql",
+        "snippet": ""
+       }
+      ]
+     },
+     "data": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": []
+     }
+    },
+    "q6": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q7": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q8": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q9": {
+     "answer": "dont-know",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "health-route",
+       "line": 0,
+       "path": "z0/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/health.ts",
+       "snippet": ""
+      },
+      {
+       "check": "health-route",
+       "line": 0,
+       "path": "z1/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/health.ts",
+       "snippet": ""
+      },
+      {
+       "check": "health-route",
+       "line": 0,
+       "path": "z10/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/health.ts",
+       "snippet": ""
+      },
+      {
+       "check": "health-route",
+       "line": 0,
+       "path": "z11/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/health.ts",
+       "snippet": ""
+      },
+      {
+       "check": "health-route",
+       "line": 0,
+       "path": "z2/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/health.ts",
+       "snippet": ""
+      },
+      {
+       "check": "health-route",
+       "line": 0,
+       "path": "z3/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/health.ts",
+       "snippet": ""
+      },
+      {
+       "check": "health-route",
+       "line": 0,
+       "path": "z4/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/health.ts",
+       "snippet": ""
+      },
+      {
+       "check": "health-route",
+       "line": 0,
+       "path": "z5/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/health.ts",
+       "snippet": ""
+      },
+      {
+       "check": "health-route",
+       "line": 0,
+       "path": "z6/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/health.ts",
+       "snippet": ""
+      },
+      {
+       "check": "health-route",
+       "line": 0,
+       "path": "z7/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/health.ts",
+       "snippet": ""
+      },
+      {
+       "check": "health-route",
+       "line": 0,
+       "path": "z8/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/health.ts",
+       "snippet": ""
+      },
+      {
+       "check": "manifest-not-parsed",
+       "line": 0,
+       "path": "a0/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/Pipfile",
+       "snippet": ""
+      }
+     ]
+    }
+   },
+   "stats": {
+    "config": {
+     "browser_prefixes_added": [],
+     "exclude_dirs_added": []
+    },
+    "deadline_hit": false,
+    "dirs_truncated": 0,
+    "dirs_unreadable": 0,
+    "files_errored": 0,
+    "files_never_open": 0,
+    "files_skipped_binary": 0,
+    "files_skipped_generated": 0,
+    "files_skipped_hardlink": 0,
+    "files_skipped_oversize": 0,
+    "files_skipped_oversize_relevant": 0,
+    "files_skipped_special": 0,
+    "git_index_partial": 0,
+    "max_files_hit": false,
+    "max_total_bytes_hit": false,
+    "mcp_capped": 0,
+    "output_trimmed": 1
+   },
+   "version": "0.3.3",
+   "warnings": []
+  },
+  "pii after a string glob and a comment close": {
+   "files_scanned": 2,
+   "git": {
+    "commits": null,
+    "shallow": null,
+    "tags": null,
+    "tracked_env_files": null
+   },
+   "ok": true,
+   "partial": false,
+   "questions": {
+    "q1": {
+     "answer": "nothing-found",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "nothing-found-keys",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q10": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": [
+      {
+       "check": "pii-field",
+       "line": 1,
+       "path": "supabase/migrations/1.sql",
+       "snippet": "ssn"
+      },
+      {
+       "check": "pii-field",
+       "line": 1,
+       "path": "supabase/migrations/1.sql",
+       "snippet": "diagnosis"
+      }
+     ]
+    },
+    "q11": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q2": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": [
+      {
+       "check": "client-server-split",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q3": {
+     "answer": "dont-know",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "table-without-rls",
+       "line": 1,
+       "path": "supabase/migrations/1.sql",
+       "snippet": ""
+      }
+     ]
+    },
+    "q4": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q5": {
+     "code": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": [
+       {
+        "check": "git-not-a-repo",
+        "line": 0,
+        "path": "",
+        "snippet": ""
+       },
+       {
+        "check": "migration-path",
+        "line": 0,
+        "path": "supabase/migrations/1.sql",
+        "snippet": ""
+       }
+      ]
+     },
+     "data": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": []
+     }
+    },
+    "q6": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q7": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q8": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q9": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    }
+   },
+   "stats": {
+    "config": {
+     "browser_prefixes_added": [],
+     "exclude_dirs_added": []
+    },
+    "deadline_hit": false,
+    "dirs_truncated": 0,
+    "dirs_unreadable": 0,
+    "files_errored": 0,
+    "files_never_open": 0,
+    "files_skipped_binary": 0,
+    "files_skipped_generated": 0,
+    "files_skipped_hardlink": 0,
+    "files_skipped_oversize": 0,
+    "files_skipped_oversize_relevant": 0,
+    "files_skipped_special": 0,
+    "git_index_partial": 0,
+    "max_files_hit": false,
+    "max_total_bytes_hit": false,
+    "mcp_capped": 0,
+    "output_trimmed": 0
+   },
+   "version": "0.3.3",
+   "warnings": []
+  },
+  "pii field just under the cap": {
+   "files_scanned": 27,
+   "git": {
+    "commits": null,
+    "shallow": null,
+    "tags": null,
+    "tracked_env_files": null
+   },
+   "ok": true,
+   "partial": false,
+   "questions": {
+    "q1": {
+     "answer": "nothing-found",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "nothing-found-keys",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q10": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": [
+      {
+       "check": "pii-field",
+       "line": 3,
+       "path": "supabase/migrations/1.sql",
+       "snippet": "ssn"
+      },
+      {
+       "check": "pii-field",
+       "line": 2,
+       "path": "m00/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/sche",
+       "snippet": "email"
+      },
+      {
+       "check": "pii-field",
+       "line": 2,
+       "path": "m01/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/sche",
+       "snippet": "phone"
+      },
+      {
+       "check": "pii-field",
+       "line": 2,
+       "path": "m02/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/sche",
+       "snippet": "ssn"
+      },
+      {
+       "check": "pii-field",
+       "line": 2,
+       "path": "m03/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/sche",
+       "snippet": "dob"
+      },
+      {
+       "check": "pii-field",
+       "line": 2,
+       "path": "m04/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/sche",
+       "snippet": "address"
+      },
+      {
+       "check": "pii-field",
+       "line": 2,
+       "path": "m05/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/sche",
+       "snippet": "street"
+      },
+      {
+       "check": "pii-field",
+       "line": 2,
+       "path": "m06/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/sche",
+       "snippet": "postal_code"
+      },
+      {
+       "check": "pii-field",
+       "line": 2,
+       "path": "m07/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/sche",
+       "snippet": "passport"
+      },
+      {
+       "check": "pii-field",
+       "line": 2,
+       "path": "m08/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/sche",
+       "snippet": "iban"
+      },
+      {
+       "check": "pii-field",
+       "line": 2,
+       "path": "m09/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/sche",
+       "snippet": "medical"
+      },
+      {
+       "check": "pii-field",
+       "line": 2,
+       "path": "m10/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/sche",
+       "snippet": "diagnosis"
+      }
+     ]
+    },
+    "q11": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q2": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": [
+      {
+       "check": "client-server-split",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q3": {
+     "answer": "nothing-found",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "nothing-found-rules",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q4": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": [
+      {
+       "check": "auth-path",
+       "line": 0,
+       "path": "auth/0\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/x.",
+       "snippet": ""
+      },
+      {
+       "check": "auth-path",
+       "line": 0,
+       "path": "auth/1\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/x.",
+       "snippet": ""
+      },
+      {
+       "check": "auth-path",
+       "line": 0,
+       "path": "auth/2\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/x.",
+       "snippet": ""
+      }
+     ]
+    },
+    "q5": {
+     "code": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": [
+       {
+        "check": "git-not-a-repo",
+        "line": 0,
+        "path": "",
+        "snippet": ""
+       },
+       {
+        "check": "migration-path",
+        "line": 0,
+        "path": "supabase/migrations/1.sql",
+        "snippet": ""
+       }
+      ]
+     },
+     "data": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": []
+     }
+    },
+    "q6": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q7": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q8": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q9": {
+     "answer": "dont-know",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "health-route",
+       "line": 0,
+       "path": "h00/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/a/he",
+       "snippet": ""
+      },
+      {
+       "check": "health-route",
+       "line": 0,
+       "path": "h01/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/a/he",
+       "snippet": ""
+      },
+      {
+       "check": "health-route",
+       "line": 0,
+       "path": "h02/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/a/he",
+       "snippet": ""
+      },
+      {
+       "check": "health-route",
+       "line": 0,
+       "path": "h03/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/a/he",
+       "snippet": ""
+      },
+      {
+       "check": "health-route",
+       "line": 0,
+       "path": "h04/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/a/he",
+       "snippet": ""
+      },
+      {
+       "check": "health-route",
+       "line": 0,
+       "path": "h05/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/a/he",
+       "snippet": ""
+      },
+      {
+       "check": "health-route",
+       "line": 0,
+       "path": "h06/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/a/he",
+       "snippet": ""
+      },
+      {
+       "check": "health-route",
+       "line": 0,
+       "path": "h07/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/a/he",
+       "snippet": ""
+      },
+      {
+       "check": "health-route",
+       "line": 0,
+       "path": "h08/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9/a/he",
+       "snippet": ""
+      },
+      {
+       "check": "health-route",
+       "line": 0,
+       "path": "hz/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/health.ts",
+       "snippet": ""
+      }
+     ]
+    }
+   },
+   "stats": {
+    "config": {
+     "browser_prefixes_added": [],
+     "exclude_dirs_added": []
+    },
+    "deadline_hit": false,
+    "dirs_truncated": 0,
+    "dirs_unreadable": 0,
+    "files_errored": 0,
+    "files_never_open": 0,
+    "files_skipped_binary": 0,
+    "files_skipped_generated": 0,
+    "files_skipped_hardlink": 0,
+    "files_skipped_oversize": 0,
+    "files_skipped_oversize_relevant": 0,
+    "files_skipped_special": 0,
+    "git_index_partial": 0,
+    "max_files_hit": false,
+    "max_total_bytes_hit": false,
+    "mcp_capped": 0,
+    "output_trimmed": 0
+   },
+   "version": "0.3.3",
+   "warnings": []
+  },
+  "public view": {
+   "files_scanned": 2,
+   "git": {
+    "commits": null,
+    "shallow": null,
+    "tags": null,
+    "tracked_env_files": null
+   },
+   "ok": true,
+   "partial": false,
+   "questions": {
+    "q1": {
+     "answer": "nothing-found",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "nothing-found-keys",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q10": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q11": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q2": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": [
+      {
+       "check": "client-server-split",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q3": {
+     "answer": "dont-know",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "public-view",
+       "line": 3,
+       "path": "db/1.sql",
+       "snippet": ""
+      }
+     ]
+    },
+    "q4": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q5": {
+     "code": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": [
+       {
+        "check": "git-not-a-repo",
+        "line": 0,
+        "path": "",
+        "snippet": ""
+       }
+      ]
+     },
+     "data": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": []
+     }
+    },
+    "q6": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q7": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q8": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q9": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    }
+   },
+   "stats": {
+    "config": {
+     "browser_prefixes_added": [],
+     "exclude_dirs_added": []
+    },
+    "deadline_hit": false,
+    "dirs_truncated": 0,
+    "dirs_unreadable": 0,
+    "files_errored": 0,
+    "files_never_open": 0,
+    "files_skipped_binary": 0,
+    "files_skipped_generated": 0,
+    "files_skipped_hardlink": 0,
+    "files_skipped_oversize": 0,
+    "files_skipped_oversize_relevant": 0,
+    "files_skipped_special": 0,
+    "git_index_partial": 0,
+    "max_files_hit": false,
+    "max_total_bytes_hit": false,
+    "mcp_capped": 0,
+    "output_trimmed": 0
+   },
+   "version": "0.3.3",
+   "warnings": []
+  },
+  "rls disabled": {
+   "files_scanned": 2,
+   "git": {
+    "commits": null,
+    "shallow": null,
+    "tags": null,
+    "tracked_env_files": null
+   },
+   "ok": true,
+   "partial": false,
+   "questions": {
+    "q1": {
+     "answer": "nothing-found",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "nothing-found-keys",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q10": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q11": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q2": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": [
+      {
+       "check": "client-server-split",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q3": {
+     "answer": "no",
+     "confidence": "high",
+     "evidence": [
+      {
+       "check": "rls-disabled",
+       "line": 3,
+       "path": "db/1.sql",
+       "snippet": ""
+      }
+     ]
+    },
+    "q4": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q5": {
+     "code": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": [
+       {
+        "check": "git-not-a-repo",
+        "line": 0,
+        "path": "",
+        "snippet": ""
+       }
+      ]
+     },
+     "data": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": []
+     }
+    },
+    "q6": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q7": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q8": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q9": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    }
+   },
+   "stats": {
+    "config": {
+     "browser_prefixes_added": [],
+     "exclude_dirs_added": []
+    },
+    "deadline_hit": false,
+    "dirs_truncated": 0,
+    "dirs_unreadable": 0,
+    "files_errored": 0,
+    "files_never_open": 0,
+    "files_skipped_binary": 0,
+    "files_skipped_generated": 0,
+    "files_skipped_hardlink": 0,
+    "files_skipped_oversize": 0,
+    "files_skipped_oversize_relevant": 0,
+    "files_skipped_special": 0,
+    "git_index_partial": 0,
+    "max_files_hit": false,
+    "max_total_bytes_hit": false,
+    "mcp_capped": 0,
+    "output_trimmed": 0
+   },
+   "version": "0.3.3",
+   "warnings": []
+  },
+  "rtdb open": {
+   "files_scanned": 2,
+   "git": {
+    "commits": null,
+    "shallow": null,
+    "tags": null,
+    "tracked_env_files": null
+   },
+   "ok": true,
+   "partial": false,
+   "questions": {
+    "q1": {
+     "answer": "nothing-found",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "nothing-found-keys",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q10": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q11": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q2": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": [
+      {
+       "check": "client-server-split",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q3": {
+     "answer": "no",
+     "confidence": "high",
+     "evidence": [
+      {
+       "check": "firebase-rules-open",
+       "line": 1,
+       "path": "database.rules.json",
+       "snippet": ""
+      },
+      {
+       "check": "firebase-rules-public-read",
+       "line": 1,
+       "path": "database.rules.json",
+       "snippet": ""
+      }
+     ]
+    },
+    "q4": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q5": {
+     "code": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": [
+       {
+        "check": "git-not-a-repo",
+        "line": 0,
+        "path": "",
+        "snippet": ""
+       }
+      ]
+     },
+     "data": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": []
+     }
+    },
+    "q6": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q7": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q8": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q9": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    }
+   },
+   "stats": {
+    "config": {
+     "browser_prefixes_added": [],
+     "exclude_dirs_added": []
+    },
+    "deadline_hit": false,
+    "dirs_truncated": 0,
+    "dirs_unreadable": 0,
+    "files_errored": 0,
+    "files_never_open": 0,
+    "files_skipped_binary": 0,
+    "files_skipped_generated": 0,
+    "files_skipped_hardlink": 0,
+    "files_skipped_oversize": 0,
+    "files_skipped_oversize_relevant": 0,
+    "files_skipped_special": 0,
+    "git_index_partial": 0,
+    "max_files_hit": false,
+    "max_total_bytes_hit": false,
+    "mcp_capped": 0,
+    "output_trimmed": 0
+   },
+   "version": "0.3.3",
+   "warnings": []
+  },
+  "seed only": {
+   "files_scanned": 2,
+   "git": {
+    "commits": null,
+    "shallow": null,
+    "tags": null,
+    "tracked_env_files": null
+   },
+   "ok": true,
+   "partial": false,
+   "questions": {
+    "q1": {
+     "answer": "nothing-found",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "nothing-found-keys",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q10": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q11": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q2": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": [
+      {
+       "check": "client-server-split",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q3": {
+     "answer": "dont-know",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "no-rule-statements",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q4": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q5": {
+     "code": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": [
+       {
+        "check": "git-not-a-repo",
+        "line": 0,
+        "path": "",
+        "snippet": ""
+       }
+      ]
+     },
+     "data": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": []
+     }
+    },
+    "q6": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q7": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q8": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q9": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    }
+   },
+   "stats": {
+    "config": {
+     "browser_prefixes_added": [],
+     "exclude_dirs_added": []
+    },
+    "deadline_hit": false,
+    "dirs_truncated": 0,
+    "dirs_unreadable": 0,
+    "files_errored": 0,
+    "files_never_open": 0,
+    "files_skipped_binary": 0,
+    "files_skipped_generated": 0,
+    "files_skipped_hardlink": 0,
+    "files_skipped_oversize": 0,
+    "files_skipped_oversize_relevant": 0,
+    "files_skipped_special": 0,
+    "git_index_partial": 0,
+    "max_files_hit": false,
+    "max_total_bytes_hit": false,
+    "mcp_capped": 0,
+    "output_trimmed": 0
+   },
+   "version": "0.3.3",
+   "warnings": []
+  },
+  "seeded-app": {
+   "files_scanned": 11,
+   "git": {
+    "commits": null,
+    "shallow": null,
+    "tags": null,
+    "tracked_env_files": null
+   },
+   "ok": true,
+   "partial": true,
+   "questions": {
+    "q1": {
+     "answer": "dont-know",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "git-index-unread",
+       "line": 0,
+       "path": "",
+       "snippet": "git's file index was not read, so committed secrets could not be checked"
+      }
+     ]
+    },
+    "q10": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": [
+      {
+       "check": "pii-field",
+       "line": 3,
+       "path": "prisma/schema.prisma",
+       "snippet": "email"
+      },
+      {
+       "check": "pii-field",
+       "line": 4,
+       "path": "prisma/schema.prisma",
+       "snippet": "ssn"
+      },
+      {
+       "check": "pii-field",
+       "line": 5,
+       "path": "prisma/schema.prisma",
+       "snippet": "dob"
+      },
+      {
+       "check": "pii-form-input",
+       "line": 1,
+       "path": "public/index.html",
+       "snippet": "email"
+      },
+      {
+       "check": "pii-form-input",
+       "line": 1,
+       "path": "public/index.html",
+       "snippet": "ssn"
+      }
+     ]
+    },
+    "q11": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": [
+      {
+       "check": "builder-readme",
+       "line": 3,
+       "path": "README.md",
+       "snippet": ""
+      },
+      {
+       "check": "builder-dependency",
+       "line": 0,
+       "path": "package.json",
+       "snippet": ""
+      }
+     ]
+    },
+    "q2": {
+     "answer": "dont-know",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "client-server-split",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      },
+      {
+       "check": "api-route-dir",
+       "line": 0,
+       "path": "pages/api/health.ts",
+       "snippet": ""
+      }
+     ]
+    },
+    "q3": {
+     "answer": "no",
+     "confidence": "high",
+     "evidence": [
+      {
+       "check": "rls-disabled",
+       "line": 1,
+       "path": "supabase/migrations/001_init.sql",
+       "snippet": ""
+      },
+      {
+       "check": "policy-select-true",
+       "line": 2,
+       "path": "supabase/migrations/001_init.sql",
+       "snippet": ""
+      }
+     ]
+    },
+    "q4": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": [
+      {
+       "check": "auth-dependency",
+       "line": 0,
+       "path": "package.json",
+       "snippet": ""
+      }
+     ]
+    },
+    "q5": {
+     "code": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": [
+       {
+        "check": "git-config-not-vouched",
+        "line": 0,
+        "path": "",
+        "snippet": ""
+       },
+       {
+        "check": "deploy-config",
+        "line": 0,
+        "path": "vercel.json",
+        "snippet": ""
+       },
+       {
+        "check": "migration-path",
+        "line": 0,
+        "path": "supabase/migrations/001_init.sql",
+        "snippet": ""
+       }
+      ]
+     },
+     "data": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": []
+     }
+    },
+    "q6": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": [
+      {
+       "check": "preview-deploys-default",
+       "line": 0,
+       "path": "vercel.json",
+       "snippet": ""
+      }
+     ]
+    },
+    "q7": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q8": {
+     "answer": "dont-know",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "ai-sdk-dependency",
+       "line": 0,
+       "path": "package.json",
+       "snippet": ""
+      },
+      {
+       "check": "model-literal",
+       "line": 3,
+       "path": "src/components/Config.tsx",
+       "snippet": ""
+      }
+     ]
+    },
+    "q9": {
+     "answer": "dont-know",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "monitoring-dependency",
+       "line": 0,
+       "path": "package.json",
+       "snippet": ""
+      },
+      {
+       "check": "cron-schedule",
+       "line": 1,
+       "path": "vercel.json",
+       "snippet": ""
+      },
+      {
+       "check": "health-route",
+       "line": 0,
+       "path": "pages/api/health.ts",
+       "snippet": ""
+      }
+     ]
+    }
+   },
+   "stats": {
+    "config": {
+     "browser_prefixes_added": [],
+     "exclude_dirs_added": []
+    },
+    "deadline_hit": false,
+    "dirs_truncated": 0,
+    "dirs_unreadable": 0,
+    "files_errored": 0,
+    "files_never_open": 0,
+    "files_skipped_binary": 0,
+    "files_skipped_generated": 0,
+    "files_skipped_hardlink": 0,
+    "files_skipped_oversize": 0,
+    "files_skipped_oversize_relevant": 0,
+    "files_skipped_special": 0,
+    "git_index_partial": 1,
+    "max_files_hit": false,
+    "max_total_bytes_hit": false,
+    "mcp_capped": 0,
+    "output_trimmed": 0
+   },
+   "version": "0.3.3",
+   "warnings": []
+  },
+  "server only key in components": {
+   "files_scanned": 2,
+   "git": {
+    "commits": null,
+    "shallow": null,
+    "tags": null,
+    "tracked_env_files": null
+   },
+   "ok": true,
+   "partial": false,
+   "questions": {
+    "q1": {
+     "answer": "no",
+     "confidence": "high",
+     "evidence": [
+      {
+       "check": "client-key-literal",
+       "line": 2,
+       "path": "src/components/s.ts",
+       "snippet": ""
+      }
+     ]
+    },
+    "q10": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q11": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q2": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": [
+      {
+       "check": "client-server-split",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q3": {
+     "answer": "dont-know",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "scan-summary",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q4": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q5": {
+     "code": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": [
+       {
+        "check": "git-not-a-repo",
+        "line": 0,
+        "path": "",
+        "snippet": ""
+       }
+      ]
+     },
+     "data": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": []
+     }
+    },
+    "q6": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q7": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q8": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q9": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    }
+   },
+   "stats": {
+    "config": {
+     "browser_prefixes_added": [],
+     "exclude_dirs_added": []
+    },
+    "deadline_hit": false,
+    "dirs_truncated": 0,
+    "dirs_unreadable": 0,
+    "files_errored": 0,
+    "files_never_open": 0,
+    "files_skipped_binary": 0,
+    "files_skipped_generated": 0,
+    "files_skipped_hardlink": 0,
+    "files_skipped_oversize": 0,
+    "files_skipped_oversize_relevant": 0,
+    "files_skipped_special": 0,
+    "git_index_partial": 0,
+    "max_files_hit": false,
+    "max_total_bytes_hit": false,
+    "mcp_capped": 0,
+    "output_trimmed": 0
+   },
+   "version": "0.3.3",
+   "warnings": []
+  },
+  "supabase init migration": {
+   "files_scanned": 2,
+   "git": {
+    "commits": null,
+    "shallow": null,
+    "tags": null,
+    "tracked_env_files": null
+   },
+   "ok": true,
+   "partial": false,
+   "questions": {
+    "q1": {
+     "answer": "nothing-found",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "nothing-found-keys",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q10": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q11": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q2": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": [
+      {
+       "check": "client-server-split",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q3": {
+     "answer": "nothing-found",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "nothing-found-rules",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q4": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q5": {
+     "code": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": [
+       {
+        "check": "git-not-a-repo",
+        "line": 0,
+        "path": "",
+        "snippet": ""
+       },
+       {
+        "check": "migration-path",
+        "line": 0,
+        "path": "supabase/migrations/20240101000000_init.sql",
+        "snippet": ""
+       }
+      ]
+     },
+     "data": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": []
+     }
+    },
+    "q6": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q7": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q8": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q9": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    }
+   },
+   "stats": {
+    "config": {
+     "browser_prefixes_added": [],
+     "exclude_dirs_added": []
+    },
+    "deadline_hit": false,
+    "dirs_truncated": 0,
+    "dirs_unreadable": 0,
+    "files_errored": 0,
+    "files_never_open": 0,
+    "files_skipped_binary": 0,
+    "files_skipped_generated": 0,
+    "files_skipped_hardlink": 0,
+    "files_skipped_oversize": 0,
+    "files_skipped_oversize_relevant": 0,
+    "files_skipped_special": 0,
+    "git_index_partial": 0,
+    "max_files_hit": false,
+    "max_total_bytes_hit": false,
+    "mcp_capped": 0,
+    "output_trimmed": 0
+   },
+   "version": "0.3.3",
+   "warnings": []
+  },
+  "table without rls": {
+   "files_scanned": 2,
+   "git": {
+    "commits": null,
+    "shallow": null,
+    "tags": null,
+    "tracked_env_files": null
+   },
+   "ok": true,
+   "partial": false,
+   "questions": {
+    "q1": {
+     "answer": "nothing-found",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "nothing-found-keys",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q10": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q11": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q2": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": [
+      {
+       "check": "client-server-split",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q3": {
+     "answer": "dont-know",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "table-without-rls",
+       "line": 1,
+       "path": "db/1.sql",
+       "snippet": ""
+      }
+     ]
+    },
+    "q4": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q5": {
+     "code": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": [
+       {
+        "check": "git-not-a-repo",
+        "line": 0,
+        "path": "",
+        "snippet": ""
+       }
+      ]
+     },
+     "data": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": []
+     }
+    },
+    "q6": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q7": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q8": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q9": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    }
+   },
+   "stats": {
+    "config": {
+     "browser_prefixes_added": [],
+     "exclude_dirs_added": []
+    },
+    "deadline_hit": false,
+    "dirs_truncated": 0,
+    "dirs_unreadable": 0,
+    "files_errored": 0,
+    "files_never_open": 0,
+    "files_skipped_binary": 0,
+    "files_skipped_generated": 0,
+    "files_skipped_hardlink": 0,
+    "files_skipped_oversize": 0,
+    "files_skipped_oversize_relevant": 0,
+    "files_skipped_special": 0,
+    "git_index_partial": 0,
+    "max_files_hit": false,
+    "max_total_bytes_hit": false,
+    "mcp_capped": 0,
+    "output_trimmed": 0
+   },
+   "version": "0.3.3",
+   "warnings": []
+  },
+  "vite server-only import": {
+   "files_scanned": 3,
+   "git": {
+    "commits": null,
+    "shallow": null,
+    "tags": null,
+    "tracked_env_files": null
+   },
+   "ok": true,
+   "partial": false,
+   "questions": {
+    "q1": {
+     "answer": "no",
+     "confidence": "high",
+     "evidence": [
+      {
+       "check": "client-key-literal",
+       "line": 2,
+       "path": "src/components/Checkout.tsx",
+       "snippet": ""
+      }
+     ]
+    },
+    "q10": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q11": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q2": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": [
+      {
+       "check": "client-server-split",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q3": {
+     "answer": "dont-know",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "scan-summary",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    },
+    "q4": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q5": {
+     "code": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": [
+       {
+        "check": "git-not-a-repo",
+        "line": 0,
+        "path": "",
+        "snippet": ""
+       }
+      ]
+     },
+     "data": {
+      "answer": "dont-know",
+      "confidence": "low",
+      "evidence": []
+     }
+    },
+    "q6": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q7": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q8": {
+     "answer": "dont-know",
+     "confidence": "low",
+     "evidence": []
+    },
+    "q9": {
+     "answer": "nothing-found",
+     "confidence": "med",
+     "evidence": [
+      {
+       "check": "nothing-found-monitoring",
+       "line": 0,
+       "path": "",
+       "snippet": ""
+      }
+     ]
+    }
+   },
+   "stats": {
+    "config": {
+     "browser_prefixes_added": [],
+     "exclude_dirs_added": []
+    },
+    "deadline_hit": false,
+    "dirs_truncated": 0,
+    "dirs_unreadable": 0,
+    "files_errored": 0,
+    "files_never_open": 0,
+    "files_skipped_binary": 0,
+    "files_skipped_generated": 0,
+    "files_skipped_hardlink": 0,
+    "files_skipped_oversize": 0,
+    "files_skipped_oversize_relevant": 0,
+    "files_skipped_special": 0,
+    "git_index_partial": 0,
+    "max_files_hit": false,
+    "max_total_bytes_hit": false,
+    "mcp_capped": 0,
+    "output_trimmed": 0
+   },
+   "version": "0.3.3",
+   "warnings": []
+  }
+ }
+}
