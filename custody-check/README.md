@@ -125,6 +125,6 @@ Because the alternative is asking the agent to look for keys itself, and an agen
 
 ## Credits
 
-Three detection patterns (the browser-exposed prefixes, "verify `.env` is in `.gitignore`", and the `USING (true)` row-security smells) are borrowed from [raroque/vibe-security-skill](https://github.com/raroque/vibe-security-skill), MIT. Everything else is the workshop handout.
+Three detection patterns (the browser-exposed prefixes, "verify `.env` is in `.gitignore`", and the `USING (true)` row-security smells) are borrowed from [raroque/vibe-security-skill](https://github.com/raroque/vibe-security-skill), MIT. The plain-English approach (a little context first, ASD-STE100 Simplified Technical English, one set of words used the same way) comes from Matt Pocock's `/wait-what` skill ([mattpocock/skills](https://github.com/mattpocock/skills), MIT). Everything else is the workshop handout.
 
 MIT licensed. Want a second pair of eyes? Bring your verdict to a Free Assessment, one per company: townsendaistudio.com/assessment?src=custody-check (or write to hello@townsendaistudio.com).

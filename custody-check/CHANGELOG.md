@@ -2,6 +2,15 @@
 
 The footer of every verdict names the version that produced it. Later entries carry a "What changed since the workshop" line so an attendee can tell whether an answer would come out differently today.
 
+## 0.3.6 (2026-10-16)
+
+What changed since the workshop build: the verdict reads in plain English. No answer and no door changed.
+
+- **Plain English.** What you read is written in ASD-STE100 Simplified Technical English, the method of Matt Pocock's `/wait-what` skill (MIT). The verdict opens with one line of context. Each sentence holds one idea and has at most 25 words; each instruction has at most 20. The same small set of words is used every time (door, stop-line, Don't know, Nothing found, by-hand test, scanner, key, tier).
+- **Rewritten to the same rules:** the opening lines, the next-change line ("needs extra checks" in place of "escalation trigger"), the stop-line footer line, the message when you start from inside the app, and every sixty-second by-hand test and fix in the reference.
+- **Nothing that decides changed.** The door rule, the scanners and the verdict script are the same as 0.3.5 (only the version number moved), and a test checks that byte for byte.
+- **Tests:** no fixed sentence you read runs over 25 words, no by-hand step or fix over 20, and the context line comes first.
+
 ## 0.3.5 (2026-10-16)
 
 What changed since the workshop build: payments your payment company runs (checkout, subscriptions, invoices, refunds) no longer say Get a person. It is ordinary Gated work. Card details in your app, and money held or moved for other people, still mean Get a person.

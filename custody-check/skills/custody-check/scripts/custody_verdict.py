@@ -27,7 +27,7 @@ import re
 import subprocess
 import sys
 
-__version__ = "0.3.5"
+__version__ = "0.3.6"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCANNER = os.path.join(HERE, "custody_scan.py")

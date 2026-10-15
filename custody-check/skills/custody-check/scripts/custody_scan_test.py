@@ -4516,11 +4516,15 @@ class FooterBookingTests(unittest.TestCase):
         skill = self._read(SKILL_DIR, "SKILL.md").split("## Footer")[1]
         self.assertIn("Footer next step", skill)
 
-    def test_each_footer_line_is_one_sentence_and_only_stop_line_has_no_link(self):
+    def test_each_footer_line_is_short_and_only_stop_line_has_no_link(self):
         _, lines = self._footer_lines()
         for key, line in lines.items():
             body = line.replace(self.URL, "")
-            self.assertNotRegex(body, r"[.!?]\s+[A-Z]", "one sentence only: " + key)
+            # Plain English (0.3.6): at most two sentences of at most 25 words; still one line and one call to action.
+            parts = [x for x in re.split(r"(?<=[.!?])\s+(?=[A-Z])", body) if x.strip()]
+            self.assertLessEqual(len(parts), 2, "at most two sentences: " + key)
+            for part in parts:
+                self.assertLessEqual(len(part.split()), 25, "at most 25 words a sentence: " + key)
             if key.startswith("stop-line"):
                 self.assertNotIn("townsendaistudio.com/assessment", line, "a stop-line app is never sent to the free step")
                 self.assertIn("written scope", line)
