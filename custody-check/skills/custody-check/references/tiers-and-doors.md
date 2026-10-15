@@ -12,7 +12,7 @@ The tier is a property of the **next change**, not of the app. Blast radius, not
 | **Standard** | a feature, two or more files, or anything with a UI | Define, Audit, Plan, Plan review, Build, Verify, Diff review |
 | **Gated** | touches any escalation trigger below | everything in Standard plus a security review |
 
-**Escalation triggers (any one makes the change Gated):** auth or sessions; user data; payments; secrets; dependencies; deploy; the schema or a migration; webhooks; background jobs; file uploads; security rules; email; AI prompts or tools; the model or provider (including swapping a model version, changing a prompt that is in production, or turning on training of any kind).
+**Escalation triggers (any one makes the change Gated):** auth or sessions; user data; payments, including payments your payment company runs; secrets; dependencies; deploy; the schema or a migration; webhooks; background jobs; file uploads; security rules; email; AI prompts or tools; the model or provider (including swapping a model version, changing a prompt that is in production, or turning on training of any kind).
 
 The nine gates, names only: Define, Audit, Plan, Plan review, Build, Verify, Diff review, Ship, Watch.
 
@@ -28,10 +28,13 @@ Three have a training-shaped version for the rare founder who trains or fine-tun
 
 Any of these ticked means: get a person who does this for a living before the next change ships. The tool prints "Get a person" above the doors and chooses no door.
 
-- payments or card details
+- the app stores or handles card numbers or other card details itself
+- the app holds or moves money for other people (payouts, Connect, escrow, stored balances, wallets)
 - health data
 - other people's sensitive personal data, especially children's
-- real scale, real money, or a contract riding on uptime
+- real scale, or a contract that needs the app to stay up
+
+Payments your payment company runs (checkout, Elements, embedded checkout, subscriptions, invoices, refunds, a billing portal), where it holds the card details and settles the money, are not on this list when that is all the app does with money. It is ordinary Gated work: the payments trigger above. Any other money handling gets one question, and it is ticked when the answer is unclear.
 
 The founder ticks the stop-line in the answers block (`stop_line:`). Scanner evidence on Q10 that shows fields such as `ssn`, `social_security`, `dob`, `date_of_birth`, `birthdate`, `medical`, `diagnosis`, `credit_card`, `card_number`, `cc_number`, `iban`, or `passport` also raises it.
 

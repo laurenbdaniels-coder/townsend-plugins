@@ -1,6 +1,6 @@
 {
- "baseline": "SKILL.md door rule on main 244947e; scans from custody-check 0.3.3",
- "baseline_sha": "244947eb104f95d9a5c0191592dced130e8daa11",
+ "baseline": "SKILL.md door rule on main 3c1387b; scans from custody-check 0.3.4",
+ "baseline_sha": "3c1387ba0ae90559b653f037968854d23806d9d6",
  "rows": [
   {
    "answers": "",
@@ -528,6 +528,181 @@
    "why": "stop-line: Q10 evidence shows a field from rule 6's list, stop_line none notwithstanding"
   },
   {
+   "answers": "stop_line=card-numbers q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "get-a-person",
+   "id": "fb test mode | stop_line=card-numbers q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "fb test mode",
+   "why": "stop-line ticked by the founder (card numbers in the app)"
+  },
+  {
+   "answers": "stop_line=moves-money q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "get-a-person",
+   "id": "fb test mode | stop_line=moves-money q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "fb test mode",
+   "why": "stop-line ticked by the founder (money moved between people)"
+  },
+  {
+   "answers": "stop_line=payments q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "get-a-person",
+   "id": "fb test mode | stop_line=payments q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "fb test mode",
+   "why": "stop-line ticked by the founder (payments, the old word, not followed up)"
+  },
+  {
+   "answers": "q1=dont-know q2=yes q3=dont-know q4=no q5_code=yes q5_data=no q6=yes q7=no q8=dont-know q9=no q10=yes q11=yes stop_line=none",
+   "expected_door": "get-a-person",
+   "id": "fb test mode | q1=dont-know q2=yes q3=dont-know q4=no q5_code=yes q5_data=no q6=yes q7=no q8=dont-know q9=no q10=yes q11=yes stop_line=none | hosted checkout",
+   "scan": "fb test mode",
+   "why": "stop-line ticked by the founder on main: the founder said payments (hosted checkout: add Stripe subscriptions)"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "get-a-person",
+   "id": "fb test mode | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes | processor invoices",
+   "scan": "fb test mode",
+   "why": "stop-line ticked by the founder on main: the founder said payments (invoices and refunds the payment company runs)"
+  },
+  {
+   "answers": "stop_line=card-numbers q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "get-a-person",
+   "id": "supabase init migration | stop_line=card-numbers q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "supabase init migration",
+   "why": "stop-line ticked by the founder (card numbers in the app)"
+  },
+  {
+   "answers": "stop_line=moves-money q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "get-a-person",
+   "id": "supabase init migration | stop_line=moves-money q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "supabase init migration",
+   "why": "stop-line ticked by the founder (money moved between people)"
+  },
+  {
+   "answers": "stop_line=payments q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "get-a-person",
+   "id": "supabase init migration | stop_line=payments q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "supabase init migration",
+   "why": "stop-line ticked by the founder (payments, the old word, not followed up)"
+  },
+  {
+   "answers": "q1=dont-know q2=yes q3=dont-know q4=no q5_code=yes q5_data=no q6=yes q7=no q8=dont-know q9=no q10=yes q11=yes stop_line=none",
+   "expected_door": "get-a-person",
+   "id": "supabase init migration | q1=dont-know q2=yes q3=dont-know q4=no q5_code=yes q5_data=no q6=yes q7=no q8=dont-know q9=no q10=yes q11=yes stop_line=none | hosted checkout",
+   "scan": "supabase init migration",
+   "why": "stop-line ticked by the founder on main: the founder said payments (hosted checkout: add Stripe subscriptions)"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "get-a-person",
+   "id": "supabase init migration | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes | processor invoices",
+   "scan": "supabase init migration",
+   "why": "stop-line ticked by the founder on main: the founder said payments (invoices and refunds the payment company runs)"
+  },
+  {
+   "answers": "stop_line=card-numbers q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "get-a-person",
+   "id": "rls disabled | stop_line=card-numbers q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "rls disabled",
+   "why": "stop-line ticked by the founder (card numbers in the app)"
+  },
+  {
+   "answers": "stop_line=moves-money q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "get-a-person",
+   "id": "rls disabled | stop_line=moves-money q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "rls disabled",
+   "why": "stop-line ticked by the founder (money moved between people)"
+  },
+  {
+   "answers": "stop_line=payments q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "get-a-person",
+   "id": "rls disabled | stop_line=payments q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "rls disabled",
+   "why": "stop-line ticked by the founder (payments, the old word, not followed up)"
+  },
+  {
+   "answers": "q1=dont-know q2=yes q3=dont-know q4=no q5_code=yes q5_data=no q6=yes q7=no q8=dont-know q9=no q10=yes q11=yes stop_line=none",
+   "expected_door": "get-a-person",
+   "id": "rls disabled | q1=dont-know q2=yes q3=dont-know q4=no q5_code=yes q5_data=no q6=yes q7=no q8=dont-know q9=no q10=yes q11=yes stop_line=none | hosted checkout",
+   "scan": "rls disabled",
+   "why": "stop-line ticked by the founder on main: the founder said payments (hosted checkout: add Stripe subscriptions)"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "get-a-person",
+   "id": "rls disabled | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes | processor invoices",
+   "scan": "rls disabled",
+   "why": "stop-line ticked by the founder on main: the founder said payments (invoices and refunds the payment company runs)"
+  },
+  {
+   "answers": "stop_line=card-numbers q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "get-a-person",
+   "id": "seeded-app | stop_line=card-numbers q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "seeded-app",
+   "why": "stop-line ticked by the founder (card numbers in the app)"
+  },
+  {
+   "answers": "stop_line=moves-money q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "get-a-person",
+   "id": "seeded-app | stop_line=moves-money q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "seeded-app",
+   "why": "stop-line ticked by the founder (money moved between people)"
+  },
+  {
+   "answers": "stop_line=payments q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "get-a-person",
+   "id": "seeded-app | stop_line=payments q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "seeded-app",
+   "why": "stop-line ticked by the founder (payments, the old word, not followed up)"
+  },
+  {
+   "answers": "q1=dont-know q2=yes q3=dont-know q4=no q5_code=yes q5_data=no q6=yes q7=no q8=dont-know q9=no q10=yes q11=yes stop_line=none",
+   "expected_door": "get-a-person",
+   "id": "seeded-app | q1=dont-know q2=yes q3=dont-know q4=no q5_code=yes q5_data=no q6=yes q7=no q8=dont-know q9=no q10=yes q11=yes stop_line=none | hosted checkout",
+   "scan": "seeded-app",
+   "why": "stop-line ticked by the founder on main: the founder said payments (hosted checkout: add Stripe subscriptions)"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "get-a-person",
+   "id": "seeded-app | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes | processor invoices",
+   "scan": "seeded-app",
+   "why": "stop-line ticked by the founder on main: the founder said payments (invoices and refunds the payment company runs)"
+  },
+  {
+   "answers": "stop_line=card-numbers q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "get-a-person",
+   "id": "degraded: scanner unavailable | stop_line=card-numbers q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "degraded: scanner unavailable",
+   "why": "stop-line ticked by the founder (card numbers in the app)"
+  },
+  {
+   "answers": "stop_line=moves-money q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "get-a-person",
+   "id": "degraded: scanner unavailable | stop_line=moves-money q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "degraded: scanner unavailable",
+   "why": "stop-line ticked by the founder (money moved between people)"
+  },
+  {
+   "answers": "stop_line=payments q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "get-a-person",
+   "id": "degraded: scanner unavailable | stop_line=payments q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "scan": "degraded: scanner unavailable",
+   "why": "stop-line ticked by the founder (payments, the old word, not followed up)"
+  },
+  {
+   "answers": "q1=dont-know q2=yes q3=dont-know q4=no q5_code=yes q5_data=no q6=yes q7=no q8=dont-know q9=no q10=yes q11=yes stop_line=none",
+   "expected_door": "get-a-person",
+   "id": "degraded: scanner unavailable | q1=dont-know q2=yes q3=dont-know q4=no q5_code=yes q5_data=no q6=yes q7=no q8=dont-know q9=no q10=yes q11=yes stop_line=none | hosted checkout",
+   "scan": "degraded: scanner unavailable",
+   "why": "stop-line ticked by the founder on main: the founder said payments (hosted checkout: add Stripe subscriptions)"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "get-a-person",
+   "id": "degraded: scanner unavailable | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes | processor invoices",
+   "scan": "degraded: scanner unavailable",
+   "why": "stop-line ticked by the founder on main: the founder said payments (invoices and refunds the payment company runs)"
+  },
+  {
    "answers": "",
    "expected_door": "patch-it",
    "id": "output over the cap with manifests the release did not read | no answers",
@@ -800,7 +975,7 @@
     "mcp_capped": 0,
     "output_trimmed": 0
    },
-   "version": "0.3.3",
+   "version": "0.3.4",
    "warnings": []
   },
   "comma inside a quoted dropped name": {
@@ -940,7 +1115,7 @@
     "mcp_capped": 0,
     "output_trimmed": 0
    },
-   "version": "0.3.3",
+   "version": "0.3.4",
    "warnings": []
   },
   "cts client key": {
@@ -1067,7 +1242,7 @@
     "mcp_capped": 0,
     "output_trimmed": 0
    },
-   "version": "0.3.3",
+   "version": "0.3.4",
    "warnings": []
   },
   "degraded: scanner unavailable": null,
@@ -1208,7 +1383,7 @@
     "mcp_capped": 0,
     "output_trimmed": 0
    },
-   "version": "0.3.3",
+   "version": "0.3.4",
    "warnings": []
   },
   "derived: deploy config and two environments": {
@@ -1342,7 +1517,7 @@
     "mcp_capped": 0,
     "output_trimmed": 0
    },
-   "version": "0.3.3",
+   "version": "0.3.4",
    "warnings": []
   },
   "derived: git index unread": {
@@ -1475,7 +1650,7 @@
     "mcp_capped": 0,
     "output_trimmed": 0
    },
-   "version": "0.3.3",
+   "version": "0.3.4",
    "warnings": []
   },
   "derived: oversize code file skipped": {
@@ -1608,7 +1783,7 @@
     "mcp_capped": 0,
     "output_trimmed": 0
    },
-   "version": "0.3.3",
+   "version": "0.3.4",
    "warnings": []
   },
   "fb if true": {
@@ -1735,7 +1910,7 @@
     "mcp_capped": 0,
     "output_trimmed": 0
    },
-   "version": "0.3.3",
+   "version": "0.3.4",
    "warnings": []
   },
   "fb owner only": {
@@ -1862,7 +2037,7 @@
     "mcp_capped": 0,
     "output_trimmed": 0
    },
-   "version": "0.3.3",
+   "version": "0.3.4",
    "warnings": []
   },
   "fb test mode": {
@@ -1989,7 +2164,7 @@
     "mcp_capped": 0,
     "output_trimmed": 0
    },
-   "version": "0.3.3",
+   "version": "0.3.4",
    "warnings": []
   },
   "firestore test mode just over the cap": {
@@ -2269,7 +2444,7 @@
     "mcp_capped": 0,
     "output_trimmed": 1
    },
-   "version": "0.3.3",
+   "version": "0.3.4",
    "warnings": []
   },
   "monitoring family in requirements": {
@@ -2403,7 +2578,7 @@
     "mcp_capped": 0,
     "output_trimmed": 0
    },
-   "version": "0.3.3",
+   "version": "0.3.4",
    "warnings": []
   },
   "opencode.jsonc counts toward max files": {
@@ -2529,7 +2704,7 @@
     "mcp_capped": 0,
     "output_trimmed": 0
    },
-   "version": "0.3.3",
+   "version": "0.3.4",
    "warnings": []
   },
   "output over the cap with manifests the release did not read": {
@@ -2808,7 +2983,7 @@
     "mcp_capped": 0,
     "output_trimmed": 1
    },
-   "version": "0.3.3",
+   "version": "0.3.4",
    "warnings": []
   },
   "pii after a string glob and a comment close": {
@@ -2954,7 +3129,7 @@
     "mcp_capped": 0,
     "output_trimmed": 0
    },
-   "version": "0.3.3",
+   "version": "0.3.4",
    "warnings": []
   },
   "pii field just under the cap": {
@@ -3240,7 +3415,7 @@
     "mcp_capped": 0,
     "output_trimmed": 0
    },
-   "version": "0.3.3",
+   "version": "0.3.4",
    "warnings": []
   },
   "public view": {
@@ -3367,7 +3542,7 @@
     "mcp_capped": 0,
     "output_trimmed": 0
    },
-   "version": "0.3.3",
+   "version": "0.3.4",
    "warnings": []
   },
   "rls disabled": {
@@ -3494,7 +3669,7 @@
     "mcp_capped": 0,
     "output_trimmed": 0
    },
-   "version": "0.3.3",
+   "version": "0.3.4",
    "warnings": []
   },
   "rtdb open": {
@@ -3627,7 +3802,7 @@
     "mcp_capped": 0,
     "output_trimmed": 0
    },
-   "version": "0.3.3",
+   "version": "0.3.4",
    "warnings": []
   },
   "seed only": {
@@ -3754,7 +3929,7 @@
     "mcp_capped": 0,
     "output_trimmed": 0
    },
-   "version": "0.3.3",
+   "version": "0.3.4",
    "warnings": []
   },
   "seeded-app": {
@@ -3995,7 +4170,7 @@
     "mcp_capped": 0,
     "output_trimmed": 0
    },
-   "version": "0.3.3",
+   "version": "0.3.4",
    "warnings": []
   },
   "server only key in components": {
@@ -4122,7 +4297,7 @@
     "mcp_capped": 0,
     "output_trimmed": 0
    },
-   "version": "0.3.3",
+   "version": "0.3.4",
    "warnings": []
   },
   "supabase init migration": {
@@ -4255,7 +4430,7 @@
     "mcp_capped": 0,
     "output_trimmed": 0
    },
-   "version": "0.3.3",
+   "version": "0.3.4",
    "warnings": []
   },
   "table without rls": {
@@ -4382,7 +4557,7 @@
     "mcp_capped": 0,
     "output_trimmed": 0
    },
-   "version": "0.3.3",
+   "version": "0.3.4",
    "warnings": []
   },
   "vite server-only import": {
@@ -4516,7 +4691,7 @@
     "mcp_capped": 0,
     "output_trimmed": 0
    },
-   "version": "0.3.3",
+   "version": "0.3.4",
    "warnings": []
   }
  }

@@ -2,6 +2,15 @@
 
 The footer of every verdict names the version that produced it. Later entries carry a "What changed since the workshop" line so an attendee can tell whether an answer would come out differently today.
 
+## 0.3.5 (2026-10-16)
+
+What changed since the workshop build: payments your payment company runs (checkout, subscriptions, invoices, refunds) no longer say Get a person. It is ordinary Gated work. Card details in your app, and money held or moved for other people, still mean Get a person.
+
+- **The stop-line split.** Two words replace "payments" on the stop-line: `card-numbers` (your app stores or handles card numbers or other card details itself) and `moves-money` (it holds or moves money for other people: payouts, Connect, escrow, stored balances, wallets). Payments your payment company runs (checkout, Elements, embedded checkout, subscriptions, invoices, refunds, a billing portal), where it holds the card details and settles the money, are not a stop-line item when that is all your app does with money. They make the next change Gated.
+- **Anything else about money still ticks unless you say otherwise.** The old word `payments`, "real money", trades, crypto or lending get one question: does the app store card details itself, or hold or move money for other people? A clear no to both, with the payments run by your payment company, means Gated work. If the answer is unclear, or you asked not to be asked, it still means Get a person.
+- **Fields in your code still count.** A Q10 field such as `card_number` or `credit_card` still ticks the stop-line, as before.
+- **This is the one door that is more permissive on purpose.** The verdict script's test lists the founder whose payments the payment company runs, with the reason the old rule was wrong. Any other door more permissive than 0.3.4's fails the test. The answers example now shows Stripe subscriptions with `stop_line: none`.
+
 ## 0.3.4 (2026-10-16)
 
 What changed since the workshop build: the door (Ship it, Patch it, or Get a person) is now chosen by a script that applies the same written rule, so it no longer depends on how the AI reads the rule. No door is more permissive than before.

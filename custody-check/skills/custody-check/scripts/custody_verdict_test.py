@@ -358,6 +358,17 @@ class ParseTests(unittest.TestCase):
             with self.assertRaises(cv.UsageError, msg=bad):
                 cv.parse_answers(bad)
 
+    def test_stop_line_split_words(self):
+        """0.3.5: card numbers and money between people are their own words, and each ticks."""
+        self.assertEqual(cv.parse_answers("stop_line=card-numbers,moves-money")["stop_line"], ["card-numbers", "moves-money"])
+        for word in ("card-numbers", "moves-money", "health", "sensitive", "scale"):
+            self.assertEqual(decide(ok_scan(), "q5_data=yes stop_line=" + word)["door"], "get-a-person", word)
+
+    def test_legacy_payments_still_ticks(self):
+        """An old block's "payments" the founder did not clarify stays on the stop-line, as on main."""
+        self.assertIn("payments", cv.LEGACY_STOP_LINE_VALUES)
+        self.assertEqual(decide(ok_scan(), "q5_data=yes stop_line=payments")["door"], "get-a-person")
+
     def test_repeat_with_same_value_is_fine(self):
         self.assertEqual(cv.parse_answers("q1=yes q1=yes")["q1"], "yes")
 
@@ -425,7 +436,7 @@ class ParityTests(unittest.TestCase):
         keys = set(re.findall(r"^(q\d+(?:_code|_data)?|stop_line):", text, re.M))
         self.assertTrue(keys <= set(cv.ANSWER_KEYS), keys - set(cv.ANSWER_KEYS))
         values = set(re.search(r"comma-separated from (.*)\.", text).group(1).replace("`", "").replace(" ", "").split(","))
-        self.assertEqual(values, set(cv.STOP_LINE_VALUES))
+        self.assertEqual(values, set(cv.STOP_LINE_VALUES) - set(cv.LEGACY_STOP_LINE_VALUES))
 
     def test_version_matches_scanner_and_plugin(self):
         import custody_scan as cs
@@ -444,6 +455,56 @@ class ParityTests(unittest.TestCase):
             self.assertIn(word, section, word)
         self.assertRegex(section, r"(?i)anywhere")
         self.assertRegex(section, r"(?i)children")
+
+    def _run_the_verdict(self):
+        with open(os.path.join(SKILL_DIR, "SKILL.md"), encoding="utf-8") as fh:
+            text = fh.read()
+        return text, text.split("## Run the verdict", 1)[1].split("\n## ", 1)[0]
+
+    def test_skill_lists_the_stop_line_words(self):
+        _, section = self._run_the_verdict()
+        for word in set(cv.STOP_LINE_VALUES):
+            self.assertIn("`%s`" % word, section, word)
+
+    def test_hosted_checkout_maps_to_no_stop_line_word(self):
+        """The stop-line split: checkout hosted by the payment company makes the change Gated, never a stop_line word."""
+        text, section = self._run_the_verdict()
+        sentence = next((x for x in re.split(r"(?<=[.;])\s+", section) if re.search(r"(?i)payment company runs", x)), "")
+        self.assertRegex(sentence, r"(?i)no `stop_line` (word|token)")
+        rule6 = next(l for l in text.splitlines() if l.startswith("6. **Stop-line.**"))
+        self.assertRegex(rule6, r"(?i)card numbers")
+        self.assertRegex(rule6, r"(?i)holds or moves money for other people")
+        self.assertRegex(rule6, r"(?i)payment company runs.*Gated")
+        self.assertNotRegex(rule6, r"(?i)real money|payments or card details")
+
+    def test_every_money_mention_ticks_unless_it_is_only_hosted_checkout(self):
+        """Round 1 blockers: "real money", the last four digits, stored balances and trading reached Ship it, where main
+        said Get a person. The mapping now gives every mention of payments, cards or money a word; hosted checkout
+        gets none only when it is all the founder does with money."""
+        _, section = self._run_the_verdict()
+        mapping = section.split("Map what the founder says", 1)[1].split("\n- `<expect>`", 1)[0]
+        self.assertRegex(mapping, r"(?i)last four")
+        self.assertRegex(mapping, r"(?i)balances")
+        self.assertRegex(mapping, r"(?i)wallet")
+        self.assertRegex(mapping, r"(?i)real money")
+        self.assertRegex(mapping, r"(?i)any other mention of payments, cards or money")
+        hosted = next(l for l in mapping.splitlines() if re.search(r"(?i)payment company runs", l) and "no `stop_line` word" in l)
+        self.assertRegex(hosted, r"(?i)invoices")
+        self.assertRegex(hosted, r"(?i)refunds")
+        self.assertRegex(hosted, r"(?i)only when")
+        self.assertNotRegex(mapping, r"(?i)real money\W+alone also gets no word")
+
+    def test_privileged_key_rule_is_its_own_line(self):
+        _, section = self._run_the_verdict()
+        line = next(l for l in section.splitlines() if "privileged key" in l)
+        self.assertNotIn("`payments`", line)
+
+    def test_legacy_payments_gets_one_question_of_at_most_25_words(self):
+        _, section = self._run_the_verdict()
+        m = re.search(r"`payments`[^\n]*?ask[^\n]*?: \"([^\"]+)\"", section)
+        self.assertTrue(m, "the legacy-payments follow-up question is not in Run the verdict")
+        for sentence in re.split(r"(?<=[.?])\s+", m.group(1)):
+            self.assertLessEqual(len(sentence.split()), 25, sentence)
 
     def test_check_names_are_read_from_questions_md(self):
         names = cv.known_checks()
@@ -536,23 +597,58 @@ class VerdictMatchesProseRuleTests(unittest.TestCase):
             "derived: oversize code file skipped | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
         ), ("patch-it", PARTIAL_FOUNDER_YES)))
 
+    # The one door more permissive than main on purpose (the stop-line split, 0.3.5): checkout hosted by the payment
+    # company is Gated work, not Get a person. (row id): (door the script may give, reason main was wrong).
+    HOSTED = ("main ticked any \"payments\", so payments the payment company runs (hosted checkout, subscriptions, "
+              "invoices, refunds) were Get a person; the split (decided 2026-09-30, widened 2026-10-15) keeps only card "
+              "details in the app and money held or moved for others on the stop-line")
+    ALLOW_PERMISSIVE = {
+        "fb test mode | q1=dont-know q2=yes q3=dont-know q4=no q5_code=yes q5_data=no q6=yes q7=no q8=dont-know q9=no q10=yes q11=yes stop_line=none | hosted checkout": ("patch-it", HOSTED),
+        "supabase init migration | q1=dont-know q2=yes q3=dont-know q4=no q5_code=yes q5_data=no q6=yes q7=no q8=dont-know q9=no q10=yes q11=yes stop_line=none | hosted checkout": ("patch-it", HOSTED),
+        "rls disabled | q1=dont-know q2=yes q3=dont-know q4=no q5_code=yes q5_data=no q6=yes q7=no q8=dont-know q9=no q10=yes q11=yes stop_line=none | hosted checkout": ("patch-it", HOSTED),
+        "degraded: scanner unavailable | q1=dont-know q2=yes q3=dont-know q4=no q5_code=yes q5_data=no q6=yes q7=no q8=dont-know q9=no q10=yes q11=yes stop_line=none | hosted checkout": ("patch-it", HOSTED),
+        # Widened by Lauren 2026-10-15 after review round 2: invoices and refunds the payment company runs.
+        "fb test mode | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes | processor invoices": ("ship-it", HOSTED),
+        "supabase init migration | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes | processor invoices": ("ship-it", HOSTED),
+        "rls disabled | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes | processor invoices": ("patch-it", HOSTED),
+        "degraded: scanner unavailable | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes | processor invoices": ("ship-it", HOSTED),
+    }
+
     @classmethod
     def setUpClass(cls):
         with open(os.path.join(FIXTURES, "verdict", "corpus.json"), encoding="utf-8") as fh:
             cls.corpus = json.load(fh)
+
+    def test_only_hosted_checkout_may_be_more_permissive(self):
+        sys.path.insert(0, os.path.join(FIXTURES, "verdict"))
+        try:
+            import build_corpus
+        finally:
+            sys.path.pop(0)
+        rows = {r["id"]: r for r in self.corpus["rows"]}
+        allowed = {"hosted checkout": build_corpus.HOSTED_CHECKOUT, "processor invoices": build_corpus.PROCESSOR_INVOICES}
+        for row_id, (door, reason) in self.ALLOW_PERMISSIVE.items():
+            tag = row_id.rsplit(" | ", 1)[1]
+            self.assertIn(tag, allowed, row_id)
+            self.assertEqual(rows[row_id]["answers"], allowed[tag], row_id)
+            self.assertIn(door, RANK)
+            self.assertTrue(reason)
 
     def test_corpus_is_big_enough(self):
         self.assertGreaterEqual(len(self.corpus["rows"]), 40)
         self.assertGreaterEqual(len({r["scan"] for r in self.corpus["rows"]}), 15)
 
     def test_never_more_permissive_than_the_prose_rule(self):
-        used = set()
+        used, used_permissive = set(), set()
         for r in self.corpus["rows"]:
             scan = self.corpus["scans"][r["scan"]]
             v = cv.decide(copy.deepcopy(scan), cv.parse_answers(r["answers"]))
             got, want = v["door"], r["expected_door"]
-            self.assertLessEqual(RANK[got], RANK[want], "%s: %s is more permissive than the prose rule's %s (%s)"
-                                 % (r["id"], got, want, r["why"]))
+            if RANK[got] > RANK[want]:
+                self.assertEqual(self.ALLOW_PERMISSIVE.get(r["id"], (None,))[0], got,
+                                 "%s: %s is more permissive than the prose rule's %s (%s)" % (r["id"], got, want, r["why"]))
+                used_permissive.add(r["id"])
+                continue
             if got != want:
                 self.assertEqual(self.ALLOW_STRICTER.get(r["id"], (None,))[0], got,
                                  "%s: %s is stricter than the prose rule's %s and not listed" % (r["id"], got, want))
@@ -560,6 +656,7 @@ class VerdictMatchesProseRuleTests(unittest.TestCase):
             for q in r.get("expected_patch_head", []):
                 self.assertIn(q, v["patch_list"], r["id"])
         self.assertEqual(set(self.ALLOW_STRICTER) - used, set(), "ALLOW_STRICTER entries no row needs")
+        self.assertEqual(set(self.ALLOW_PERMISSIVE) - used_permissive, set(), "ALLOW_PERMISSIVE entries no row needs")
 
     def test_labels_quote_a_prose_step(self):
         steps = ("stop-line", "Q1, Q2 or Q3", "partial", "Two or more", "Otherwise", "git-index-unread")

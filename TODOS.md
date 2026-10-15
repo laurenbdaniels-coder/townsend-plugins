@@ -370,6 +370,21 @@
 **Priority:** P3
 **Depends on:** None
 
+### Leftovers from the stop-line split review (0.3.5, 2026-10-15)
+
+**What:** none is more permissive than main outside the listed processor-run payments case; each was deferred under the ship bar.
+(1) The processor-invoices corpus rows use the generic all-yes tokens, so the guard test checks tags and tokens but cannot check the founder facts behind them (card details held by the payment company, money settled by it). That mapping lives in SKILL.md prose; an eval case with those founder words would pin it.
+(2) A real run rendered the old-`payments` verdict as `## Door: **Get a person**` instead of the template's "**Get a person** and no door" heading (render variance, door correct).
+(3) The stop-line footer line is still one 30-word sentence (a test requires one sentence); split it in the plain-English pass and update that test.
+
+**Why:** fix PRs stay in scope.
+
+**Context:** /review of feature/custody-stopline-split (Claude adversarial, Codex rounds 1 and 2, Codex on the widened exception).
+
+**Effort:** S
+**Priority:** P3
+**Depends on:** None
+
 ## decision-census
 
 From the v0.1.0 review (2026-10-15). None met the ship bar; each is a one-line follow-up.
