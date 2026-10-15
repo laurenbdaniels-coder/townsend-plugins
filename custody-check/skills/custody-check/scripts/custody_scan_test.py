@@ -4527,6 +4527,8 @@ class FooterBookingTests(unittest.TestCase):
                 self.assertLessEqual(len(part.split()), 25, "at most 25 words a sentence: " + key)
             if key.startswith("stop-line"):
                 self.assertNotIn("townsendaistudio.com/assessment", line, "a stop-line app is never sent to the free step")
+                self.assertNotRegex(line, r"(?i)https?://|\b[\w-]+\.(com|org|io|ai|net|app)\b|book|free assessment",
+                                    "no link and no booking of any kind on the stop-line line")
                 self.assertIn("written scope", line)
             else:
                 self.assertEqual(line.count(self.URL), 1, key)

@@ -36,6 +36,7 @@ Write every sentence the founder reads in ASD-STE100 Simplified Technical Englis
   - **key**: a secret that lets someone use a paid or private service.
   - **tier**: Light, Standard or Gated, for the next change.
   - **a change that needs extra checks**: what this skill's references call an escalation trigger.
+- Text you are told to copy exactly (the footer line, a scanner `hint`, scanner strings and check names) stays as written. These rules apply to everything else.
 - Gloss a technical word the first time you use it. Say "row level security (the database rule that says who can read each row)" once, then "row level security". Check names stay inside the Evidence code spans.
 
 ## Locate and run the scanner

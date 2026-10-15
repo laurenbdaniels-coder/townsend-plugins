@@ -30,7 +30,7 @@ How 0.3.3 reads on top of 0.3.2: 0.3.2's scanner runs first, unchanged (its file
 - Scanner checks: `rls-disabled`, `policy-using-true`, `firebase-rules-open` (No); `open-rule-in-string`, `open-rule-unconfirmed`, `policy-true-unevaluated`, `firebase-rules-test-mode`, `firebase-rules-true-unevaluated`, `public-view` (evidence, above); `policy-select-true` (a `for select using (true)` policy is public read by design, like a public Firebase read: evidence, the by-hand test decides), `policy-with-check-true`, `policy-to-anon`, `firebase-rules-public-read`, `storage-bucket-public` (evidence).
 - **By hand (three tests, 60 s each):**
   1. **Logged out:** in a private window, open one record's URL or API endpoint directly. It should refuse.
-  2. **Wrong user:** log in as user B. Request a record that belongs to user A by changing its id in the URL. It should refuse. The screen hiding it does not count. The API must refuse.
+  2. **Wrong user:** log in as user B. Request a record that belongs to user A by changing its id in the URL or the request. It should refuse. The screen hiding it does not count. The API must refuse.
   3. **Right user:** log in as user A and check that the same request works.
   Then the **file test:** open the URL of one uploaded file in the private window. If it opens, your files are public.
   This skill never collects your URL. You run these yourself.
@@ -40,7 +40,7 @@ How 0.3.3 reads on top of 0.3.2: 0.3.2's scanner runs first, unchanged (its file
 - **Yes** only from you: every write, delete, admin action, and payment action checks a role or ownership on the server, not just a session.
 - **No** only from you: any logged-in user can perform an action meant for owners or admins.
 - Scanner evidence: `auth-path`, `auth-dependency` show that auth code exists; they never change the answer.
-- **By hand (60 s):** Pick one action only an admin or owner should do. Log in as an ordinary user. Copy that action's request from the network tab and send it again, changing only the session. It should refuse.
+- **By hand (60 s):** Pick one action only an admin or owner should do. Do it as the owner, and copy its request from the network tab. Log in as an ordinary user. Send the same request again, changing only the session. It should refuse.
 
 ## Q5. Can I get the code back in five minutes, and the data back from a restored backup? (Before build)
 
@@ -132,7 +132,7 @@ The prompt you tried in the playground is not the prompt your code sends. Your c
 - **Yes** only from you: you have seen the exact final text and settings one real request sent, and it matches what you evaluated.
 - **No** only from you: you tuned it in a playground, shipped something your code assembles, and have never compared the two.
 - Scanner hints: `model-literal` shows which model names appear in the code. Two different model names in two places is worth a look.
-- **By hand (60 s):** Ask your AI tool to "print in full the exact text and settings you send the model for one request." Read it next to what you tested. People are usually surprised.
+- **By hand (60 s):** Ask your AI tool to "print the exact text and settings you send the model for one request." It must be in full, not summarised. Read it next to what you tested. People are usually surprised.
 - **The fix:** Whatever differs, make the tested version the shipped one. If you cannot tell them apart, that is the finding.
 - *If you also train a model, this one has a name: training and serving skew. Without training, it is the same shape with a smaller blast radius, because only the input differs and the fix is a diff rather than a retrain.*
 

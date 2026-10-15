@@ -19,7 +19,7 @@ import custody_scan_test as cst
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 SKILL_DIR = os.path.dirname(SCRIPT_DIR)
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(SKILL_DIR)))
-LONG = re.compile(r"(?:[^\s.!?:|\n]+[ \t]+){25,}[^\s.!?:|\n]+")  # decision-census's grader: 26+ words, no break
+LONG = re.compile(r"(?:[^\s.!?|\n]+[ \t]+){25,}[^\s.!?|\n]+")  # 26+ words with no . ! ? or | between them
 
 
 def read(*parts):
@@ -35,7 +35,7 @@ def plain(text):
 
 
 def sentences(text):
-    return [s for s in re.split(r"(?<=[.!?])\s+|(?<=[.!?]\")\s+|\n+|;\s+", plain(text)) if s.strip()]
+    return [s for s in re.split(r"(?<=[.!?])\s+|(?<=[.!?]\")\s+|\n+", plain(text)) if s.strip()]
 
 
 def words(sentence):
@@ -111,6 +111,26 @@ class FounderTextTests(unittest.TestCase):
         self.assertRegex(head, r"(?i)this check reads your app's files")
         self.assertRegex(head, r"(?i)\bdoor\b")
 
+    def test_the_rules_catch_long_text(self):
+        """Round 1: a semicolon or a colon is not a sentence break, so neither can hide a long sentence."""
+        long_steps = ("Run the command in the app folder; check every line it prints carefully; and if a file looks odd, "
+                      "open it and read it slowly.")
+        self.assertGreater(max(words(s) for s in sentences(long_steps)), 20)
+        self.assertRegex(plain("These are not failures: each of them is simply a question that you have not yet answered: "
+                               "about the app, its data, its users and its money, and nothing more."), LONG)
+
+    def test_by_hand_tests_keep_their_steps(self):
+        """Round 1: the rewrite must not drop a way to run a test."""
+        q = read("references", "questions.md")
+        self.assertRegex(q, r"in the URL or the request")
+        q4 = q.split("## Q4.", 1)[1].split("## Q5.", 1)[0]
+        self.assertLess(q4.index("copy"), q4.index("ordinary user"), "copy the request as the owner first")
+        self.assertIn("not summarised", q)
+
+    def test_copy_exactly_text_is_exempt(self):
+        section = read("SKILL.md").split("## Plain English", 1)[1].split("\n## ", 1)[0]
+        self.assertRegex(section, r"(?i)copy exactly.*stays as written")
+
     def test_skill_has_the_plain_english_rules(self):
         skill = read("SKILL.md")
         self.assertTrue("## Plain English" in skill, "SKILL.md has no Plain English section")
@@ -141,16 +161,23 @@ class DoorDoesNotMoveTests(unittest.TestCase):
             return fh.read()
 
     @staticmethod
-    def door_rule(text):
-        return text.split("## Door rule", 1)[1].split("\n## ", 1)[0]
+    def section(text, name):
+        return text.split("## " + name + "\n", 1)[1].split("\n## ", 1)[0]
+
+    DECIDING = ("Rules", "Answer rules", "Founder answers", "Run the verdict", "Tier the next change", "Door rule",
+                "Five, if you'll only do five")
 
     @staticmethod
     def no_version(text):
         return re.sub(r'^__version__ = "[^"]+"$', "", text, flags=re.M)
 
-    def test_door_rule_is_byte_identical(self):
+    def test_every_section_that_decides_is_byte_identical(self):
         p = "custody-check/skills/custody-check/SKILL.md"
-        self.assertEqual(self.door_rule(self.current(p)), self.door_rule(self.released(p)))
+        cur, rel = self.current(p), self.released(p)
+        for name in self.DECIDING:
+            self.assertEqual(self.section(cur, name), self.section(rel, name), name)
+        doors = "custody-check/skills/custody-check/references/tiers-and-doors.md"
+        self.assertEqual(self.current(doors), self.released(doors))
 
     def test_scanners_and_verdict_script_are_unchanged(self):
         base = "custody-check/skills/custody-check/scripts/"
