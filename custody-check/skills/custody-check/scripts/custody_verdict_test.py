@@ -143,11 +143,27 @@ class DoorPrecedenceTests(unittest.TestCase):
         scan["stats"]["files_skipped_oversize_relevant"] = 2
         self.assertTrue(decide(scan, "q5_data=yes")["rerun_recipe"]["max_file_bytes"])
 
-    def test_partial_with_founder_answer_to_q1_is_no_longer_dont_know(self):
-        """'still Don't know' is after the answers: SKILL.md lets a founder yes fill a scanner dont-know."""
-        v = decide(ok_scan(partial=True, q1="dont-know"), "q5_data=yes q1=yes")
-        self.assertEqual(v["door"], "ship-it")
-        self.assertFalse(v["rerun_recipe"]["needed"])
+    def test_partial_founder_yes_cannot_settle_q1_or_q3(self):
+        """Stricter than the 'still Don't know' reading (decided 10/15, listed in ALLOW_STRICTER): on a partial
+        scan the founder's yes cannot stand in for files the scanner never read."""
+        for q in ("q1", "q3"):
+            for gap in ("dont-know", "nothing-found"):
+                v = decide(ok_scan(partial=True, **{q: gap}), "q5_data=yes %s=yes" % q)
+                self.assertEqual((v["door"], v["door_step"]), ("patch-it", "partial-unknown"), (q, gap))
+                self.assertTrue(v["rerun_recipe"]["needed"])
+                self.assertEqual((v["rows"][q]["answer"], v["rows"][q]["label"]), (gap, "scan-incomplete"))
+
+    def test_partial_founder_no_on_q1_still_counts(self):
+        v = decide(ok_scan(partial=True, q1="dont-know"), "q5_data=yes q1=no")
+        self.assertEqual((v["door"], v["door_step"]), ("patch-it", "q1-q2-q3-no"))
+
+    def test_not_partial_founder_yes_fills_q1(self):
+        self.assertEqual(decide(ok_scan(q1="dont-know"), "q5_data=yes q1=yes")["door"], "ship-it")
+
+    def test_partial_patch_it_with_empty_patch_list_still_has_the_rerun_recipe(self):
+        v = decide(ok_scan(partial=True, q1="dont-know"), "q5_data=yes")
+        self.assertEqual((v["door"], v["patch_list"]), ("patch-it", []))
+        self.assertTrue(v["rerun_recipe"]["needed"])
 
     def test_partial_with_q1_and_q3_answered_by_scanner_is_not_this_step(self):
         self.assertEqual(decide(ok_scan(partial=True), "q5_data=yes")["door"], "ship-it")
@@ -161,7 +177,8 @@ class DoorPrecedenceTests(unittest.TestCase):
 
     def test_git_index_unread_never_ship_when_scan_not_marked_partial(self):
         scan = ok_scan(q1=("dont-know", [row("git-index-unread", "x")]))
-        self.assertEqual(decide(scan, "q5_data=yes q1=yes")["door"], "patch-it")
+        v = decide(scan, "q5_data=yes q1=yes")
+        self.assertEqual((v["door"], v["door_step"]), ("patch-it", "git-not-read"))
 
     # 4. two or more of Q4, Q5, Q6, Q9
     def test_two_of_q4_q5_q6_q9_is_patch(self):
@@ -213,11 +230,11 @@ class DoorPrecedenceTests(unittest.TestCase):
 
     # Footer next step, first match wins
     def test_footer_stop_line_first(self):
-        v = cv.decide(None, cv.parse_answers("stop_line=health"), scanner_reason="degraded")
+        v = cv.decide(None, cv.parse_answers("stop_line=health"))
         self.assertEqual(v["footer_next_step"], "stop-line")
 
     def test_footer_scanner_unavailable_second(self):
-        v = cv.decide(None, cv.parse_answers("stop_line=none"), scanner_reason="degraded")
+        v = cv.decide(None, cv.parse_answers("stop_line=none"))
         self.assertEqual(v["footer_next_step"], "scanner-unavailable")
 
     def test_footer_partial_third(self):
@@ -263,7 +280,7 @@ class AnswerMergeTests(unittest.TestCase):
         self.assertEqual(v["rows"]["q5"]["answer"], "yes")
 
     def test_degraded_scanner_questions_start_dont_know(self):
-        v = cv.decide(None, cv.parse_answers("q2=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes stop_line=none"), scanner_reason="degraded")
+        v = cv.decide(None, cv.parse_answers("q2=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes stop_line=none"))
         self.assertEqual(v["rows"]["q1"]["answer"], "dont-know")
         self.assertEqual(v["rows"]["q1"]["label"], "scanner-unavailable")
         self.assertEqual(v["rows"]["q3"]["label"], "scanner-unavailable")
@@ -271,9 +288,62 @@ class AnswerMergeTests(unittest.TestCase):
         self.assertEqual(v["door"], "ship-it")
 
     def test_degraded_founder_answers_fill_everything(self):
-        v = cv.decide(None, cv.parse_answers("q1=no stop_line=none"), scanner_reason="degraded")
+        v = cv.decide(None, cv.parse_answers("q1=no stop_line=none"))
         self.assertEqual((v["rows"]["q1"]["answer"], v["rows"]["q1"]["source"]), ("no", "you"))
         self.assertEqual(v["door"], "patch-it")
+
+
+class ExpectTests(unittest.TestCase):
+    """--expect pins what the door reads from the first scan: every answer, partial, the Q10 field names and the
+    git-index-unread row. A rescan that differs in any of them is scan-changed, so the skill uses the first scan."""
+
+    def run_main(self, first, second, answers="stop_line=none q1=yes q2=yes q3=yes q4=yes q5=yes q6=yes q9=yes"):
+        buf = io.StringIO()
+        with mock.patch.object(cv, "run_scanner", return_value=json.dumps(second) + "\n"), mock.patch("sys.stdout", buf):
+            cv.main(["--repo", "app", "--answers", answers, "--expect", cv.expect_tokens(first)])
+        return json.loads(buf.getvalue())
+
+    def test_rescan_that_loses_a_q10_field_is_scan_changed(self):
+        """Codex round 1: the first scan shows ssn, a deadline-limited rescan does not; main's prose says Get a person."""
+        first = ok_scan(q10=("dont-know", [row("pii-field", "ssn")]))
+        second = ok_scan(q10=("dont-know", []))
+        out = self.run_main(first, second)
+        self.assertEqual((out["ok"], out["error"]), (False, "scan-changed"))
+
+    def test_rescan_that_swaps_a_q10_field_is_scan_changed(self):
+        first = ok_scan(q10=("dont-know", [row("pii-field", "email"), row("pii-field", "dob")]))
+        second = ok_scan(q10=("dont-know", [row("pii-field", "email"), row("pii-field", "phone")]))
+        self.assertEqual(self.run_main(first, second)["error"], "scan-changed")
+
+    def test_rescan_that_loses_git_index_unread_is_scan_changed(self):
+        first = ok_scan(q1=("dont-know", [row("git-index-unread", "x")]))
+        second = ok_scan(q1=("dont-know", [row("scan-summary", "x")]))
+        self.assertEqual(self.run_main(first, second)["error"], "scan-changed")
+
+    def test_same_rescan_gives_a_verdict(self):
+        first = ok_scan(q10=("dont-know", [row("pii-field", "dateOfBirth"), row("pii-field", "email"),
+                                           row("pii-form-input", "email")]))
+        out = self.run_main(first, copy.deepcopy(first))
+        self.assertTrue(out["ok"], out)
+        self.assertEqual(out["verdict"]["door"], "get-a-person")
+
+    def test_expect_tokens_format(self):
+        scan = ok_scan(q1=("dont-know", [row("git-index-unread", "x")]),
+                       q10=("dont-know", [row("pii-field", "Email"), row("pii-field", "dob"), row("pii-field", "email")]))
+        toks = cv.expect_tokens(scan).split()
+        self.assertIn("q10_fields=dob,email", toks)
+        self.assertIn("git_unread=yes", toks)
+        self.assertIn("q10_fields=-", cv.expect_tokens(ok_scan(q10=("nothing-found", []))).split())
+        self.assertIn("git_unread=no", cv.expect_tokens(ok_scan()).split())
+
+    def test_bad_expect_tokens(self):
+        good = cv.expect_tokens(ok_scan(q10=("nothing-found", [])))
+        cv.parse_expect(good)
+        for bad in (good.replace("q10_fields=-", "q10_fields=a;b"), good.replace("q10_fields=-", "q10_fields="),
+                    good.replace("git_unread=no", "git_unread=maybe"), good.replace(" git_unread=no", ""),
+                    good.replace(" q10_fields=-", "")):
+            with self.assertRaises(cv.UsageError, msg=bad):
+                cv.parse_expect(bad)
 
 
 class ParseTests(unittest.TestCase):
@@ -319,6 +389,21 @@ class AcceptScanTests(unittest.TestCase):
             self.assertIsNone(scan, name)
             self.assertTrue(reason, name)
 
+    def test_every_corpus_scan_is_accepted(self):
+        with open(os.path.join(FIXTURES, "verdict", "corpus.json"), encoding="utf-8") as fh:
+            scans = json.load(fh)["scans"]
+        for name, scan in scans.items():
+            if scan is not None:
+                self.assertIsNotNone(cv.accept_scan(self.line(scan))[0], name)
+
+    def test_size_reason_names_the_limit(self):
+        _, reason = cv.accept_scan(self.line(ok_scan(q2=("dont-know", [row("api-route-dir", "x" * 31000)]))))
+        self.assertIn(str(cv.MAX_SCAN_BYTES), reason)
+
+    def test_every_error_hint_points_at_the_written_rule(self):
+        for code, hint in cv.HINTS.items():
+            self.assertIn("written door rule", hint, code)
+
     def test_ignores_unknown_fields_inside(self):
         s = ok_scan(); s["questions"]["q1"]["new_field"] = 1
         self.assertIsNotNone(cv.accept_scan(self.line(s))[0])
@@ -341,6 +426,24 @@ class ParityTests(unittest.TestCase):
         self.assertTrue(keys <= set(cv.ANSWER_KEYS), keys - set(cv.ANSWER_KEYS))
         values = set(re.search(r"comma-separated from (.*)\.", text).group(1).replace("`", "").replace(" ", "").split(","))
         self.assertEqual(values, set(cv.STOP_LINE_VALUES))
+
+    def test_version_matches_scanner_and_plugin(self):
+        import custody_scan as cs
+        with open(os.path.join(os.path.dirname(os.path.dirname(SKILL_DIR)), ".claude-plugin", "plugin.json"),
+                  encoding="utf-8") as fh:
+            plugin = json.load(fh)["version"]
+        self.assertEqual({cv.__version__, cs.__version__, plugin}, {plugin})
+
+    def test_skill_maps_stop_line_words_into_tokens(self):
+        """Round 1 blocker: free text never reaches the script, so SKILL.md must turn any stop-line item the founder
+        names anywhere (notes, stores, users, next_change, the interview) into stop_line tokens."""
+        with open(os.path.join(SKILL_DIR, "SKILL.md"), encoding="utf-8") as fh:
+            text = fh.read()
+        section = text.split("## Run the verdict", 1)[1].split("\n## ", 1)[0]
+        for word in ("notes", "stores", "users", "next_change", "interview", "stop_line"):
+            self.assertIn(word, section, word)
+        self.assertRegex(section, r"(?i)anywhere")
+        self.assertRegex(section, r"(?i)children")
 
     def test_check_names_are_read_from_questions_md(self):
         names = cv.known_checks()
@@ -424,6 +527,14 @@ class VerdictMatchesProseRuleTests(unittest.TestCase):
             "patch-it", "the prose lets a founder fill only Don't know; a founder saying no to a scanner yes "
                         "(q6=no on a Vercel preview hint) is taken, which is the cautious reading of rule 5"),
     }
+    PARTIAL_FOUNDER_YES = ("the prose's 'still Don't know' can be read as after the founder's answers; decided "
+                           "10/15 that on a partial scan a founder yes cannot stand in for files the scanner never "
+                           "read, so Q1/Q3 left open by the scan keep the door at Patch it with the rerun recipe")
+    ALLOW_STRICTER.update(dict.fromkeys((
+            "output over the cap with manifests the release did not read | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+            "opencode.jsonc counts toward max files | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+            "derived: oversize code file skipped | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+        ), ("patch-it", PARTIAL_FOUNDER_YES)))
 
     @classmethod
     def setUpClass(cls):
@@ -438,8 +549,7 @@ class VerdictMatchesProseRuleTests(unittest.TestCase):
         used = set()
         for r in self.corpus["rows"]:
             scan = self.corpus["scans"][r["scan"]]
-            v = cv.decide(copy.deepcopy(scan), cv.parse_answers(r["answers"]),
-                          scanner_reason=None if scan is not None else "degraded")
+            v = cv.decide(copy.deepcopy(scan), cv.parse_answers(r["answers"]))
             got, want = v["door"], r["expected_door"]
             self.assertLessEqual(RANK[got], RANK[want], "%s: %s is more permissive than the prose rule's %s (%s)"
                                  % (r["id"], got, want, r["why"]))

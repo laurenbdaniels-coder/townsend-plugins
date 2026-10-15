@@ -37,7 +37,8 @@ QS = ["q%d" % i for i in range(1, 12)]
 ANSWERS = ("yes", "no", "dont-know", "nothing-found")
 FOUNDER_VALUES = ("yes", "no", "dont-know")
 ANSWER_KEYS = tuple(QS) + ("q5_code", "q5_data", "stop_line")
-EXPECT_KEYS = tuple("q5_code" if q == "q5" else q for q in QS) + ("partial",)
+EXPECT_KEYS = tuple("q5_code" if q == "q5" else q for q in QS) + ("partial", "q10_fields", "git_unread")
+FIELDS_RE = re.compile(r"^(-|[a-z0-9_-]{1,80}(,[a-z0-9_-]{1,80}){0,63})$")
 STOP_LINE_VALUES = ("none", "payments", "health", "sensitive", "scale")
 # Same list as the scanner's STOPLINE_FIELDS and SKILL.md rule 6 (custody_verdict_test checks both).
 STOPLINE_FIELDS = ("ssn", "social_security", "dob", "date_of_birth", "birthdate", "medical", "diagnosis",
@@ -89,20 +90,31 @@ def parse_expect(text):
     out = {}
     for tok in (text or "").split():
         key, sep, val = tok.partition("=")
-        ok_val = val in ("yes", "no") if key == "partial" else val in ANSWERS
+        if key in ("partial", "git_unread"):
+            ok_val = val in ("yes", "no")
+        elif key == "q10_fields":
+            ok_val = bool(FIELDS_RE.match(val))
+        else:
+            ok_val = val in ANSWERS
         if not sep or key not in EXPECT_KEYS or not ok_val or key in out:
             raise UsageError("bad --expect token")
         out[key] = val
     if set(out) != set(EXPECT_KEYS):
-        raise UsageError("--expect needs every question and partial")
+        raise UsageError("--expect needs every key")
     return out
 
 
 def expect_tokens(scan):
-    """The --expect string for a scan (what the skill writes from the first scan's JSON)."""
+    """The --expect string for a scan (what the skill writes from the first scan's JSON): every answer, partial, the
+    Q10 snippets lowercased (any other character run becomes `_`), deduplicated and sorted (`-` when there are none), and whether Q1 has a git-index-unread
+    row. These are everything the door reads from the scan, so an equal rescan gives the first scan's door."""
     q = scan["questions"]
-    parts = ["%s=%s" % (k, q["q5"]["code"]["answer"] if k == "q5_code" else q[k]["answer"]) for k in EXPECT_KEYS[:-1]]
-    return " ".join(parts + ["partial=%s" % ("yes" if scan["partial"] else "no")])
+    parts = ["%s=%s" % (k, q["q5"]["code"]["answer"] if k == "q5_code" else q[k]["answer"]) for k in EXPECT_KEYS[:-3]]
+    fields = sorted({re.sub(r"[^a-z0-9_-]+", "_", e.get("snippet", "").lower())[:80] or "_" for e in q["q10"]["evidence"]})
+    git_unread = any(e.get("check") == "git-index-unread" for e in q["q1"]["evidence"])
+    return " ".join(parts + ["partial=%s" % ("yes" if scan["partial"] else "no"),
+                             "q10_fields=%s" % (",".join(fields) or "-"),
+                             "git_unread=%s" % ("yes" if git_unread else "no")])
 
 
 def known_checks():
@@ -136,7 +148,7 @@ def accept_scan(text):
     if "\n" in text or not text.startswith("{"):
         return None, "not one JSON line"
     if len(text.encode("utf-8")) > MAX_SCAN_BYTES:
-        return None, "over 30000 bytes"
+        return None, "over %d bytes" % MAX_SCAN_BYTES
     try:
         scan = json.loads(text)
     except ValueError:
@@ -209,7 +221,7 @@ def _merge(s_ans, s_conf, founder):
     return "yes", "scanner", "high"
 
 
-def decide(scan, answers, scanner_reason=None):
+def decide(scan, answers):
     """The verdict. scan is accepted scanner JSON, or None on the degraded path."""
     degraded = scan is None
     partial = bool(scan["partial"]) if scan else False
@@ -229,7 +241,10 @@ def decide(scan, answers, scanner_reason=None):
                 rows[q]["label"] = "scanner-unavailable"
             continue
         part = qs.get(q) if scan else None
-        a, src, conf = _merge(part["answer"] if part else None, part.get("confidence") if part else None, answers.get(q))
+        founder = answers.get(q)
+        if partial and q in ("q1", "q3") and unknown(part["answer"]) and founder != "no":
+            founder = None  # decided 10/15: a founder yes cannot stand in for files a partial scan never read
+        a, src, conf = _merge(part["answer"] if part else None, part.get("confidence") if part else None, founder)
         rows[q] = {"answer": a, "source": src, "confidence": conf, "label": None}
         if degraded and q in SCANNER_BACKED and unknown(a) and src == "none":
             rows[q]["label"] = "scanner-unavailable"
@@ -258,8 +273,10 @@ def decide(scan, answers, scanner_reason=None):
         door, step = "get-a-person", "stop-line"
     elif any(rows[q]["answer"] == "no" for q in ("q1", "q2", "q3")):
         door, step = "patch-it", "q1-q2-q3-no"
-    elif rerun or git_unread:
+    elif rerun:
         door, step = "patch-it", "partial-unknown"
+    elif git_unread:
+        door, step = "patch-it", "git-not-read"
     elif failing_four >= 2:
         door, step = "patch-it", "two-of-q4-q5-q6-q9"
     else:
@@ -309,7 +326,7 @@ HINTS = {
     "usage": "the verdict command was not well formed; use the written door rule",
     "scan-failed": "the second scan did not run or was not accepted; use the written door rule on the first scan",
     "scan-changed": "the second scan differed from the first; use the written door rule on the first scan",
-    "scan-rejected": "the scanner JSON was not accepted",
+    "scan-rejected": "the scanner JSON was not accepted; use the written door rule",
     "internal": "the verdict script hit a bug; use the written door rule",
 }
 
@@ -373,7 +390,7 @@ def main(argv=None):
             scan, _reason = accept_scan(sys.stdin.read())
             if scan is None:
                 return fail("scan-rejected")
-        verdict = decide(scan, answers, scanner_reason=None if scan else "no-scan")
+        verdict = decide(scan, answers)
         out = {"ok": True, "version": __version__, "scanner": "ran" if scan else "unavailable",
                "scanner_reason": None if scan else "no-scan", "scan": scan, "verdict": verdict}
         if len(json.dumps(out, ensure_ascii=True, separators=(",", ":"))) > MAX_OUTPUT_BYTES:
