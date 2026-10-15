@@ -364,6 +364,7 @@ From the v0.1.0 review (2026-10-15). None met the ship bar; each is a one-line f
 - **Python f-string interpolation is blanked.** `f"{price * qty}"` hides the arithmetic inside `{}` (JS template literals are handled). P3.
 - **Common shapes still unseen:** multi-line Prisma `where` filters keyed on names other than user/owner/author, `pricing-*` folder heuristics, Rails `before_action` access checks. Add when a real run shows them. P3.
 - **`state.hits` is unbounded.** A contrived tree where every line matches could hold millions of tuples; keep only what `select()` can use plus a count. P3.
+- **"none" in notes about cards.** About 1 seeded run in 9 writes "none of them gets a card" beside the fixed "each was found once, so no card" line (v0.1.1 eval). Not a claim about the app, but rule 5 bans the word; try dropping the note line so the list stands alone. P2.
 - **Codex install is untested.** The skill looks for `~/.codex/skills/decision-census/scripts/`; try it once before saying it runs in Codex. P3.
 
 ## Completed
