@@ -340,11 +340,12 @@
 (2) `extract_scripts` would accept a `C:x.py` member on Windows (a drive-relative join); reject any `:` in a member name.
 (3) Release export folders are removed by `atexit`, which never runs after SIGKILL or a CI timeout, so they pile up in the temp folder.
 (4) `_git` and `export_release` inherit `GIT_DIR` / `GIT_WORK_TREE` from the caller; pass the file's `GIT_ENV` instead.
-(5) The repo allows rebase merges. A rebase-merge that lands an `ALLOW_SOFTER` / `ALLOW_NEW_NO` entry one commit before the scanner change makes the push-to-main floor (HEAD^1) a release that already lists the entry, so the graduated-exceptions check raises a false alarm on main. Fails closed; squash or merge-commit merges avoid it. Either turn off rebase merges for the repo or land each entry in the same commit as its scanner change.
+(5) A graduated `ALLOW_NEW_NO` entry still excuses a later return to No on the same (case, question) after some PR softened it away (main does the same; a new answer can only be No, so there is no target to pin).
+(6) `_release_allow` reads only a plain assignment of a literal dict: a release that writes a list as `ALLOW_SOFTER: dict = {...}`, `dict(...)` or a comprehension stops graduating its entries, so they read as stale (fails closed). A self-check that `_release_allow(__file__)` parses this file's own lists would catch it.
 
 **Why:** fix PRs stay in scope.
 
-**Context:** /review of the released-main floor (#27) and the graduated-exceptions fix.
+**Context:** /review of the released-main floor (#27) and of the graduated-exceptions fix (testing, maintainability, Claude adversarial, Codex).
 
 **Effort:** S
 **Priority:** P3
@@ -364,7 +365,7 @@
 **Priority:** P1
 **Depends on:** None
 
-**Completed:** 2026-10-15. Each list graduates only its own keys (`Released.by_list`): a key the release lists in `ALLOW_NEW_NO` still excuses a softening listed in `ALLOW_SOFTER`, and the reverse. Test: `test_an_exception_the_release_already_lists_excuses_nothing`.
+**Completed:** 2026-10-15, differently from the What line above. Subtracting the release's keys failed closed twice in review (a rebase-merge that lands the entry one commit before the scanner change; and a graduated key could never be excused again). Instead each `ALLOW_SOFTER` entry is `(case, question) -> (allowed answer, reason)` and excuses only a move to that exact answer, so a further softening needs the entry edited whether or not the release lists it. Tests: `test_a_softer_exception_excuses_only_the_answer_it_names`, `test_softer_exceptions_name_an_answer`.
 
 ### The 0.3.4 path for the overlay
 

@@ -3,7 +3,8 @@
 `cases.json` holds realistic files and every input a review has found. `NeverWorseThanMainTests` runs the
 current scanner and **released main** on the same files and fails when:
 
-- an answer (Q1, Q3, Q9) becomes more trusting (toward Nothing found), unless the case is in `ALLOW_SOFTER`;
+- an answer (Q1, Q3, Q9) becomes more trusting (toward Nothing found), unless `ALLOW_SOFTER` lists the case with
+  that exact answer and the reason the baseline was wrong;
 - a new No appears, unless the case is in `ALLOW_NEW_NO` with the reason the baseline was wrong. A "new alarm"
   means a new No: Nothing found -> Don't know is the cautious direction and needs no listing;
 - the scan is partial where the baseline finished;
@@ -22,7 +23,9 @@ A copy without git history falls back to the answers stored in `cases.json`.
 
 The base scanner (`custody_scan_0_3_2.py` and the overlay) may be edited when the corpus shows equal-or-more caution.
 Anything less cautious, or a new No, is listed in `ALLOW_SOFTER` / `ALLOW_NEW_NO` with the reason the release was
-wrong (both are empty today). Once that PR merges, the release gives the answer itself, so the entry goes unused;
+wrong (both are empty today). An `ALLOW_SOFTER` entry is `(case, question): (allowed answer, reason)` and excuses
+only a move to that answer: softening the same case further later needs the entry edited, whether or not the
+release lists it. Once that PR merges, the release gives the answer itself, so the entry goes unused;
 the stale-entry check skips any entry the release's own test file still lists (graduated), and fails only on an
 entry neither the branch nor the release needs. Remove graduated entries when convenient (the regenerate step). A PR that edits `custody_scan_0_3_2.py` re-freezes it in the same PR: update
 `RELEASE_SHA256` (sha256 of the text with `\r\n` read as `\n`) and the frozen-file test. `OverlayContractTests`
