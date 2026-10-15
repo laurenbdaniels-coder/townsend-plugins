@@ -128,7 +128,7 @@ if REQUIRE_GIT and not HAVE_GIT:
 
 # ---------------------------------------------------------------- the floor: released main (D1)
 
-Released = collections.namedtuple("Released", "module sha reason allow", defaults=(None, frozenset()))
+Released = collections.namedtuple("Released", "module sha reason allow by_list", defaults=(None, frozenset(), {}))
 _RELEASED = []
 _BUILD_CASES = []
 
@@ -174,8 +174,8 @@ def _release_ref(root=None):
     return None
 
 
-def _release_allow(path):
-    """The (case, question) keys the release's own NeverWorseThanMainTests lists in ALLOW_SOFTER / ALLOW_NEW_NO,
+def _release_allow(path, names=("ALLOW_SOFTER", "ALLOW_NEW_NO")):
+    """The (case, question) keys the release's own NeverWorseThanMainTests lists in the named lists (default both),
     read with ast (never run). Anything that is not a plain dict of 2-string tuples is ignored."""
     try:
         with open(path, encoding="utf-8") as fh:
@@ -187,7 +187,7 @@ def _release_allow(path):
         if not (isinstance(cls, ast.ClassDef) and cls.name == "NeverWorseThanMainTests"):
             continue
         for node in cls.body:
-            if not (isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id in ("ALLOW_SOFTER", "ALLOW_NEW_NO") for t in node.targets)):
+            if not (isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id in names for t in node.targets)):
                 continue
             try:
                 value = ast.literal_eval(node.value)
@@ -196,6 +196,12 @@ def _release_allow(path):
             if isinstance(value, dict):
                 keys.update(k for k in value if isinstance(k, tuple) and len(k) == 2 and all(isinstance(x, str) for x in k))
     return keys
+
+
+def _release_lists(path):
+    """Released.allow (every key the release lists) and Released.by_list (each list's own keys)."""
+    by_list = {name: frozenset(_release_allow(path, (name,))) for name in ("ALLOW_SOFTER", "ALLOW_NEW_NO")}
+    return frozenset(_release_allow(path)), by_list
 
 
 def _stale_exceptions(listed, used, graduated):
@@ -221,7 +227,7 @@ def _load_release_at(ref):
     spec.loader.exec_module(module)
     if getattr(module, "RELEASE_ERROR", None):
         return Released(None, sha, "the release at %s does not load: %s" % (sha[:7], module.RELEASE_ERROR))
-    return Released(module, sha, None, frozenset(_release_allow(os.path.join(dest, "custody_scan_test.py"))))
+    return Released(module, sha, None, *_release_lists(os.path.join(dest, "custody_scan_test.py")))
 
 
 def _released_main(cache=True):
@@ -5923,6 +5929,10 @@ class NeverWorseThanMainTests(unittest.TestCase):
         cases = _corpus()
         self.assertGreater(len(cases), 40, "the corpus must stay broad")
         used = set()
+        # a graduated entry (the release lists it too) excuses nothing: the release's answer already includes it
+        graduated = _released_main().by_list
+        softer = set(self.ALLOW_SOFTER) - graduated.get("ALLOW_SOFTER", frozenset())
+        new_no = set(self.ALLOW_NEW_NO) - graduated.get("ALLOW_NEW_NO", frozenset())
         for c in cases:
             new, partial, pii, _ = self._scan(c)
             base = _baseline(c)
@@ -5934,10 +5944,10 @@ class NeverWorseThanMainTests(unittest.TestCase):
                 with self.subTest(case=c["name"], question=q):
                     key = (c["name"], q)
                     if self.RANK[new[q]] < self.RANK[was]:
-                        self.assertIn(key, self.ALLOW_SOFTER, "%s %s: %s -> %s is more trusting than the baseline" % (c["name"], q, was, new[q]))
+                        self.assertIn(key, softer, "%s %s: %s -> %s is more trusting than the baseline" % (c["name"], q, was, new[q]))
                         used.add(key)
                     if new[q] == "no" and was != "no":
-                        self.assertIn(key, self.ALLOW_NEW_NO, "%s %s: a new No the baseline did not give" % (c["name"], q))
+                        self.assertIn(key, new_no, "%s %s: a new No the baseline did not give" % (c["name"], q))
                         used.add(key)
         stale = _stale_exceptions(set(self.ALLOW_SOFTER) | set(self.ALLOW_NEW_NO), used, _released_main().allow)
         self.assertEqual(stale, set(), "an allowed exception that no longer happens should be removed")
@@ -6089,6 +6099,8 @@ class ReleasedMainFloorTests(unittest.TestCase):
             fh.write("class NeverWorseThanMainTests(object):\n    ALLOW_SOFTER = {('a', 'q1'): 'r'}\n"
                      "    ALLOW_NEW_NO = {\n        ('b', 'q3'): 'r',\n    }\n")
         self.assertEqual(_release_allow(path), {("a", "q1"), ("b", "q3")})
+        self.assertEqual(_release_lists(path), (frozenset({("a", "q1"), ("b", "q3")}),
+                                                {"ALLOW_SOFTER": {("a", "q1")}, "ALLOW_NEW_NO": {("b", "q3")}}))
         listed = {("a", "q1"), ("b", "q3"), ("c", "q9")}
         self.assertEqual(_stale_exceptions(listed, used={("c", "q9")}, graduated=_release_allow(path)), set())
         self.assertEqual(_stale_exceptions(listed, used=set(), graduated=_release_allow(path)), {("c", "q9")})
@@ -6100,6 +6112,34 @@ class ReleasedMainFloorTests(unittest.TestCase):
                 fh.write(hostile)
             self.assertEqual(_release_allow(path), set(), repr(hostile))
         self.assertEqual(_release_allow(os.path.join(tmp, "missing.py")), set())
+
+    def test_an_exception_the_release_already_lists_excuses_nothing(self):
+        """A graduated entry stays listed (it is not stale), but the release's answer already includes it, so it
+        can't excuse a further softening or a further new No. Each list graduates only its own keys."""
+        never = NeverWorseThanMainTests("test_never_worse_than_the_baseline")
+        cases = [{"name": "c%d" % i} for i in range(41)]
+        scan = lambda c: ({"q1": "nothing-found", "q3": "no", "q9": "nothing-found"}, False, [], {})
+        base = lambda c, module=None: {"answers": {"q1": "dont-know", "q3": "dont-know", "q9": "nothing-found"},
+                                       "partial": False, "pii": []}
+        softer = {(c["name"], "q1"): "r" for c in cases}
+        new_no = {(c["name"], "q3"): "r" for c in cases}
+
+        def run(released_softer, released_new_no):
+            rel = Released(cs, "f" * 40, None, frozenset(released_softer) | frozenset(released_new_no),
+                           {"ALLOW_SOFTER": frozenset(released_softer), "ALLOW_NEW_NO": frozenset(released_new_no)})
+            me = sys.modules[__name__]
+            with mock.patch.object(me, "_corpus", lambda: cases), mock.patch.object(me, "_baseline", base), \
+                    mock.patch.object(me, "_released_main", lambda cache=True: rel), \
+                    mock.patch.object(never, "_scan", scan), mock.patch.object(never, "ALLOW_SOFTER", softer), \
+                    mock.patch.object(never, "ALLOW_NEW_NO", new_no):
+                never.test_never_worse_than_the_baseline()
+
+        run(set(), set())  # control: listed and not graduated, so excused
+        run(set(), set(softer))  # a release ALLOW_NEW_NO key does not graduate the same key in ALLOW_SOFTER
+        with self.assertRaisesRegex(AssertionError, "more trusting"):
+            run({("c7", "q1")}, set())
+        with self.assertRaisesRegex(AssertionError, "a new No"):
+            run(set(), {("c7", "q3")})
 
 
 def _json_bytes(obj):

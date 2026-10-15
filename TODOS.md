@@ -333,6 +333,25 @@
 **Priority:** P3
 **Depends on:** None
 
+### Leftovers from the #27 review (2026-10-15)
+
+**What:** none is worse than main; each was deferred under the ship bar.
+(1) The scanner reports `tags` = 0 when git output is truncated (killed at the cap, rc -9): a real scanner bug, and the source of the `test_git_output_is_bounded_and_truncation_marks_partial` flake.
+(2) `extract_scripts` would accept a `C:x.py` member on Windows (a drive-relative join); reject any `:` in a member name.
+(3) Release export folders are removed by `atexit`, which never runs after SIGKILL or a CI timeout, so they pile up in the temp folder.
+(4) `_git` and `export_release` inherit `GIT_DIR` / `GIT_WORK_TREE` from the caller; pass the file's `GIT_ENV` instead.
+(5) The repo allows rebase merges. A rebase-merge that lands an `ALLOW_SOFTER` / `ALLOW_NEW_NO` entry one commit before the scanner change makes the push-to-main floor (HEAD^1) a release that already lists the entry, so the graduated-exceptions check raises a false alarm on main. Fails closed; squash or merge-commit merges avoid it. Either turn off rebase merges for the repo or land each entry in the same commit as its scanner change.
+
+**Why:** fix PRs stay in scope.
+
+**Context:** /review of the released-main floor (#27) and the graduated-exceptions fix.
+
+**Effort:** S
+**Priority:** P3
+**Depends on:** None
+
+## Completed
+
 ### Graduated differential exceptions never expire (fix before the stop-line PR merges)
 
 **What:** an `ALLOW_SOFTER` / `ALLOW_NEW_NO` entry that the release's own test file lists is "graduated": the stale check skips it, and the `assertIn` checks still accept it, so a later PR can soften the same (case, question) further with no new entry. Make graduated entries inert in the two `assertIn` checks (`set(self.ALLOW_SOFTER) - _released_main().allow`, same for `ALLOW_NEW_NO`). Watch for one false alarm: a rebase-merge that lands the entry and the scanner change in different commits.
@@ -345,7 +364,7 @@
 **Priority:** P1
 **Depends on:** None
 
-## Completed
+**Completed:** 2026-10-15. Each list graduates only its own keys (`Released.by_list`): a key the release lists in `ALLOW_NEW_NO` still excuses a softening listed in `ALLOW_SOFTER`, and the reverse. Test: `test_an_exception_the_release_already_lists_excuses_nothing`.
 
 ### The 0.3.4 path for the overlay
 
