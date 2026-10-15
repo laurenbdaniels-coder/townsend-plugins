@@ -354,6 +354,22 @@
 **Priority:** P3
 **Depends on:** None
 
+### Leftovers from the verdict-script review (0.3.4, 2026-10-15)
+
+**What:** none is more permissive than main's written rule; each was deferred under the ship bar.
+(1) `q10_fields` in `--expect` lowercases snippets, so two Q10 rows that differ only in case (`userDob` vs `userdob`) compare equal although only the first ticks the stop-line; the scanner emits the same snippet for the same file, so a rescan cannot produce this, only hand-made JSON can.
+(2) The verdict output echoes the whole scan (up to 30000 bytes) next to the verdict; with the 40000-byte cap a full scan plus a long verdict can exceed it and fall back to the written rule (safe, but avoidable: the skill already holds the first scan).
+(3) An unknown `stop_line` token ticks the stop-line (cautious) but is reported back as given; report it as `other` so a typo is never echoed.
+(4) Free-text stop-line items reach the script only through the model's mapping into `stop_line` tokens (owner's choice, 10/15: mapping only, no override). An eval case with a stop-line item named only in notes would catch a model that skips the mapping.
+
+**Why:** fix PRs stay in scope.
+
+**Context:** /review of feature/custody-verdict (testing, maintainability, simplification, security, Claude adversarial, Codex rounds 1 and 2).
+
+**Effort:** S
+**Priority:** P3
+**Depends on:** None
+
 ## decision-census
 
 From the v0.1.0 review (2026-10-15). None met the ship bar; each is a one-line follow-up.
