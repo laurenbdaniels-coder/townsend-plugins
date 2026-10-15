@@ -2,6 +2,13 @@
 
 The footer of every census names the version that produced it.
 
+## 0.2.0 (2026-10-15)
+
+- **A short analysis, not an inventory.** The report is now a few lines: how many decisions are made in two places, one block per decision (the two places, a one-minute check), at most two "worth a look" lines, what was not checked, and the next step. The per-place lists and long fixed sections are gone. A typical report is under 30 lines.
+- **It searches your code.** Starting from the helper's places, the agent searches and reads the app (read-only, at most 120 lines at a time, at most 40 searches and reads) to see where each rule or value is defined and whether two places share one source. It used to read only 31 lines around each place. Instruction files, `.env` files, lockfiles and build folders are still never opened.
+- **Cards mean own copies.** A decision is reported when two places each hold their own copy of the rule or value, whether or not they differ today; the check finds out.
+- **Evals** retargeted to the new report: a length limit, no long sections, the "not checked" line, and safety checks for the wider reading (never open instruction or `.env` files, at most one shell command, at most 40 reads and 40 searches). Two fixtures were made unambiguous.
+
 ## 0.1.2 (2026-10-15)
 
 - **Plain English.** The census is written in ASD-STE100 Simplified Technical English, applied the way Matt Pocock's `/wait-what` skill (MIT) does: a short line of context first, one idea per sentence, at most 25 words a sentence (20 for an instruction), active voice, and the same small set of words every time (place, decision, card, one source, found, read). Long lists became bulleted lists. Checks by hand are short steps.
