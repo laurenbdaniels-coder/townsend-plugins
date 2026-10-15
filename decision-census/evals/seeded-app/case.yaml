@@ -100,3 +100,13 @@ graders:
     tool: "Write"
     min: 0
     max: 0
+  - name: "plain-english-sentences-25-words-max"
+    type: "regex"
+    pattern: "(?:[^\\s.!?:|\\n]+[ \\t]+){25,}[^\\s.!?:|\\n]+"
+    flags: ""
+    match: "not_contains"
+  - name: "context-line-up-top"
+    type: "regex"
+    pattern: "# Decision census[\\s\\S]{0,600}?A card means two places make the same decision"
+    flags: "i"
+    match: "contains"
