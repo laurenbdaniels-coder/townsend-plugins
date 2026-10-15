@@ -54,6 +54,9 @@ HOSTED_CHECKOUT = EXAMPLE.replace("stop_line=payments", "stop_line=none")
 CARD_NUMBERS = ALL_YES.replace("stop_line=none", "stop_line=card-numbers")
 MOVES_MONEY = ALL_YES.replace("stop_line=none", "stop_line=moves-money")
 LEGACY_PAYMENTS = ALL_YES.replace("stop_line=none", "stop_line=payments")  # an old block; the founder was not asked
+# Widened 2026-10-15 (review round 2): invoices and refunds the payment company runs are processor-handled too. The
+# founder said a clear no to card details and to money held for others, so the skill sends stop_line=none.
+PROCESSOR_INVOICES = ALL_YES
 
 SKIPPED_Q1_Q3 = "stop_line=none q2=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes"  # founder left Q1/Q3 alone
 FOUNDER_NO_ON_YES = "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_data=yes q6=no q9=dont-know"
@@ -99,6 +102,9 @@ for s in ("fb test mode", "supabase init migration", "rls disabled", "seeded-app
     label(s, HOSTED_CHECKOUT, "get-a-person",
           "stop-line ticked by the founder on main: the founder said payments (hosted checkout: add Stripe subscriptions)",
           tag="hosted checkout")
+    label(s, PROCESSOR_INVOICES, "get-a-person",
+          "stop-line ticked by the founder on main: the founder said payments (invoices and refunds the payment company runs)",
+          tag="processor invoices")
 
 # Partial scans, Q1 and Q3 Don't know, no stop-line field.
 for s in ("output over the cap with manifests the release did not read", "opencode.jsonc counts toward max files",

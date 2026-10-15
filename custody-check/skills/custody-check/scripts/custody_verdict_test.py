@@ -469,12 +469,12 @@ class ParityTests(unittest.TestCase):
     def test_hosted_checkout_maps_to_no_stop_line_word(self):
         """The stop-line split: checkout hosted by the payment company makes the change Gated, never a stop_line word."""
         text, section = self._run_the_verdict()
-        sentence = next((x for x in re.split(r"(?<=[.;])\s+", section) if re.search(r"(?i)hosted", x)), "")
+        sentence = next((x for x in re.split(r"(?<=[.;])\s+", section) if re.search(r"(?i)payment company runs", x)), "")
         self.assertRegex(sentence, r"(?i)no `stop_line` (word|token)")
         rule6 = next(l for l in text.splitlines() if l.startswith("6. **Stop-line.**"))
         self.assertRegex(rule6, r"(?i)card numbers")
         self.assertRegex(rule6, r"(?i)holds or moves money for other people")
-        self.assertRegex(rule6, r"(?i)hosted .*Gated")
+        self.assertRegex(rule6, r"(?i)payment company runs.*Gated")
         self.assertNotRegex(rule6, r"(?i)real money|payments or card details")
 
     def test_every_money_mention_ticks_unless_it_is_only_hosted_checkout(self):
@@ -488,7 +488,9 @@ class ParityTests(unittest.TestCase):
         self.assertRegex(mapping, r"(?i)wallet")
         self.assertRegex(mapping, r"(?i)real money")
         self.assertRegex(mapping, r"(?i)any other mention of payments, cards or money")
-        hosted = next(l for l in mapping.splitlines() if re.search(r"(?i)hosted", l) and "no `stop_line` word" in l)
+        hosted = next(l for l in mapping.splitlines() if re.search(r"(?i)payment company runs", l) and "no `stop_line` word" in l)
+        self.assertRegex(hosted, r"(?i)invoices")
+        self.assertRegex(hosted, r"(?i)refunds")
         self.assertRegex(hosted, r"(?i)only when")
         self.assertNotRegex(mapping, r"(?i)real money\W+alone also gets no word")
 
@@ -597,13 +599,19 @@ class VerdictMatchesProseRuleTests(unittest.TestCase):
 
     # The one door more permissive than main on purpose (the stop-line split, 0.3.5): checkout hosted by the payment
     # company is Gated work, not Get a person. (row id): (door the script may give, reason main was wrong).
-    HOSTED = ("main ticked any \"payments\", so adding hosted Stripe subscriptions was Get a person; the split "
-              "(decided 2026-09-30) keeps only card numbers in the app and money moved between people on the stop-line")
+    HOSTED = ("main ticked any \"payments\", so payments the payment company runs (hosted checkout, subscriptions, "
+              "invoices, refunds) were Get a person; the split (decided 2026-09-30, widened 2026-10-15) keeps only card "
+              "details in the app and money held or moved for others on the stop-line")
     ALLOW_PERMISSIVE = {
         "fb test mode | q1=dont-know q2=yes q3=dont-know q4=no q5_code=yes q5_data=no q6=yes q7=no q8=dont-know q9=no q10=yes q11=yes stop_line=none | hosted checkout": ("patch-it", HOSTED),
         "supabase init migration | q1=dont-know q2=yes q3=dont-know q4=no q5_code=yes q5_data=no q6=yes q7=no q8=dont-know q9=no q10=yes q11=yes stop_line=none | hosted checkout": ("patch-it", HOSTED),
         "rls disabled | q1=dont-know q2=yes q3=dont-know q4=no q5_code=yes q5_data=no q6=yes q7=no q8=dont-know q9=no q10=yes q11=yes stop_line=none | hosted checkout": ("patch-it", HOSTED),
         "degraded: scanner unavailable | q1=dont-know q2=yes q3=dont-know q4=no q5_code=yes q5_data=no q6=yes q7=no q8=dont-know q9=no q10=yes q11=yes stop_line=none | hosted checkout": ("patch-it", HOSTED),
+        # Widened by Lauren 2026-10-15 after review round 2: invoices and refunds the payment company runs.
+        "fb test mode | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes | processor invoices": ("ship-it", HOSTED),
+        "supabase init migration | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes | processor invoices": ("ship-it", HOSTED),
+        "rls disabled | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes | processor invoices": ("patch-it", HOSTED),
+        "degraded: scanner unavailable | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes | processor invoices": ("ship-it", HOSTED),
     }
 
     @classmethod
@@ -618,9 +626,11 @@ class VerdictMatchesProseRuleTests(unittest.TestCase):
         finally:
             sys.path.pop(0)
         rows = {r["id"]: r for r in self.corpus["rows"]}
+        allowed = {"hosted checkout": build_corpus.HOSTED_CHECKOUT, "processor invoices": build_corpus.PROCESSOR_INVOICES}
         for row_id, (door, reason) in self.ALLOW_PERMISSIVE.items():
-            self.assertTrue(row_id.endswith("| hosted checkout"), row_id)
-            self.assertEqual(rows[row_id]["answers"], build_corpus.HOSTED_CHECKOUT, row_id)
+            tag = row_id.rsplit(" | ", 1)[1]
+            self.assertIn(tag, allowed, row_id)
+            self.assertEqual(rows[row_id]["answers"], allowed[tag], row_id)
             self.assertIn(door, RANK)
             self.assertTrue(reason)
 

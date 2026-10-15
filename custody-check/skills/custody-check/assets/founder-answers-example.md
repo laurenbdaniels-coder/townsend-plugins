@@ -30,6 +30,6 @@ Field notes:
 - `next_change:` is the change you are about to make; it is what gets tiered.
 - `stop_line:` is comma-separated from `none`, `card-numbers`, `moves-money`, `health`, `sensitive`, `scale`.
 - `card-numbers` means the app stores or handles card numbers or other card details itself. `moves-money` means it holds or moves money for other people (payouts, Connect, escrow, stored balances, wallets).
-- Checkout hosted by your payment company, like the Stripe subscriptions above, is not a stop-line item when it is all the app does with money. It makes the change Gated.
+- Payments your payment company runs, like the Stripe subscriptions above (or its invoices and refunds), are not a stop-line item when that is all the app does with money. They make the change Gated.
 - `payments` is the old word. The agent asks one question about it, or about any other money handling, and it still ticks the stop-line if the answer is unclear.
 - You cannot turn a scanner `no` into a `yes`. Fix the thing, then run the check again.

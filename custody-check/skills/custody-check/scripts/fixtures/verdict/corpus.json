@@ -556,6 +556,13 @@
    "why": "stop-line ticked by the founder on main: the founder said payments (hosted checkout: add Stripe subscriptions)"
   },
   {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "get-a-person",
+   "id": "fb test mode | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes | processor invoices",
+   "scan": "fb test mode",
+   "why": "stop-line ticked by the founder on main: the founder said payments (invoices and refunds the payment company runs)"
+  },
+  {
    "answers": "stop_line=card-numbers q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
    "expected_door": "get-a-person",
    "id": "supabase init migration | stop_line=card-numbers q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
@@ -582,6 +589,13 @@
    "id": "supabase init migration | q1=dont-know q2=yes q3=dont-know q4=no q5_code=yes q5_data=no q6=yes q7=no q8=dont-know q9=no q10=yes q11=yes stop_line=none | hosted checkout",
    "scan": "supabase init migration",
    "why": "stop-line ticked by the founder on main: the founder said payments (hosted checkout: add Stripe subscriptions)"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "get-a-person",
+   "id": "supabase init migration | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes | processor invoices",
+   "scan": "supabase init migration",
+   "why": "stop-line ticked by the founder on main: the founder said payments (invoices and refunds the payment company runs)"
   },
   {
    "answers": "stop_line=card-numbers q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
@@ -612,6 +626,13 @@
    "why": "stop-line ticked by the founder on main: the founder said payments (hosted checkout: add Stripe subscriptions)"
   },
   {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "get-a-person",
+   "id": "rls disabled | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes | processor invoices",
+   "scan": "rls disabled",
+   "why": "stop-line ticked by the founder on main: the founder said payments (invoices and refunds the payment company runs)"
+  },
+  {
    "answers": "stop_line=card-numbers q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
    "expected_door": "get-a-person",
    "id": "seeded-app | stop_line=card-numbers q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
@@ -640,6 +661,13 @@
    "why": "stop-line ticked by the founder on main: the founder said payments (hosted checkout: add Stripe subscriptions)"
   },
   {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "get-a-person",
+   "id": "seeded-app | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes | processor invoices",
+   "scan": "seeded-app",
+   "why": "stop-line ticked by the founder on main: the founder said payments (invoices and refunds the payment company runs)"
+  },
+  {
    "answers": "stop_line=card-numbers q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
    "expected_door": "get-a-person",
    "id": "degraded: scanner unavailable | stop_line=card-numbers q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
@@ -666,6 +694,13 @@
    "id": "degraded: scanner unavailable | q1=dont-know q2=yes q3=dont-know q4=no q5_code=yes q5_data=no q6=yes q7=no q8=dont-know q9=no q10=yes q11=yes stop_line=none | hosted checkout",
    "scan": "degraded: scanner unavailable",
    "why": "stop-line ticked by the founder on main: the founder said payments (hosted checkout: add Stripe subscriptions)"
+  },
+  {
+   "answers": "stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes",
+   "expected_door": "get-a-person",
+   "id": "degraded: scanner unavailable | stop_line=none q1=yes q2=yes q3=yes q4=yes q5_code=yes q5_data=yes q6=yes q9=yes | processor invoices",
+   "scan": "degraded: scanner unavailable",
+   "why": "stop-line ticked by the founder on main: the founder said payments (invoices and refunds the payment company runs)"
   },
   {
    "answers": "",
