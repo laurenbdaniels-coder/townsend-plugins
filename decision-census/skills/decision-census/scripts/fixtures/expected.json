@@ -100,6 +100,106 @@
       "path": "src/lib/handling.ts",
       "line": 3,
       "type": "price"
+    },
+    {
+      "path": "src/lib/totals.ts",
+      "line": 3,
+      "type": "price"
+    },
+    {
+      "path": "src/lib/totals.ts",
+      "line": 7,
+      "type": "price"
+    },
+    {
+      "path": "src/lib/totals.ts",
+      "line": 8,
+      "type": "price"
+    },
+    {
+      "path": "src/lib/totals.ts",
+      "line": 12,
+      "type": "price"
+    },
+    {
+      "path": "src/components/Checkout.tsx",
+      "line": 2,
+      "type": "price"
+    },
+    {
+      "path": "src/components/Checkout.tsx",
+      "line": 2,
+      "type": "rounding"
+    },
+    {
+      "path": "src/components/Checkout.tsx",
+      "line": 3,
+      "type": "price"
+    },
+    {
+      "path": "src/db/projects.ts",
+      "line": 2,
+      "type": "visibility"
+    },
+    {
+      "path": "src/db/projects.ts",
+      "line": 4,
+      "type": "visibility"
+    },
+    {
+      "path": "src/db/projects.ts",
+      "line": 8,
+      "type": "visibility"
+    },
+    {
+      "path": "src/db/projects.ts",
+      "line": 11,
+      "type": "visibility"
+    },
+    {
+      "path": "src/db/projects.ts",
+      "line": 12,
+      "type": "visibility"
+    },
+    {
+      "path": "supabase/migrations/002_reports.sql",
+      "line": 2,
+      "type": "visibility"
+    },
+    {
+      "path": "src/lib/invoices.ts",
+      "line": 2,
+      "type": "paid"
+    },
+    {
+      "path": "src/config/prices.ts",
+      "line": 1,
+      "type": "price"
+    },
+    {
+      "path": "api/money.py",
+      "line": 3,
+      "type": "price"
+    },
+    {
+      "path": "api/money.py",
+      "line": 7,
+      "type": "rounding"
+    },
+    {
+      "path": "app/models/policy.rb",
+      "line": 3,
+      "type": "visibility"
+    },
+    {
+      "path": "src/lib/plan.mts",
+      "line": 1,
+      "type": "price"
+    },
+    {
+      "path": "src/experiments/pricing-test.ts",
+      "line": 1,
+      "type": "price"
     }
   ],
   "negatives": [
@@ -127,6 +227,16 @@
       "path": "src/lib/pricing.test.ts",
       "max_listed": 0,
       "why": "a test file; the app's decisions live in src, not in its tests"
+    },
+    {
+      "path": "src/lib/feedback.ts",
+      "max_listed": 0,
+      "why": "feedback and chargeback are not fees or charges; a URL path and comment prose are not arithmetic"
+    },
+    {
+      "path": "supabase/migrations/003_audit.sql",
+      "max_listed": 0,
+      "why": "no decision; a trailing comment naming dob is not a stored field"
     }
   ],
   "stopline": [
@@ -139,6 +249,16 @@
       "path": "prisma/schema.prisma",
       "line": 5,
       "field": "date_of_birth"
+    },
+    {
+      "path": "prisma/schema.prisma",
+      "line": 6,
+      "field": "birth_date"
+    },
+    {
+      "path": "prisma/schema.prisma",
+      "line": 7,
+      "field": "birthday"
     }
   ]
 }

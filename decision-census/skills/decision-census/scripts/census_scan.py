@@ -12,7 +12,6 @@ __version__ = "0.1.0"
 
 import sys
 
-_DOCS = "README.md#when-it-goes-wrong"
 HINTS = {
     "usage": "Pass the app folder with --repo. Run from the folder that contains your app: python3 census_scan.py --repo my-app",
     "repo-not-found": "The --repo folder was not found. Run from the folder that contains your app and pass its name.",
@@ -46,7 +45,7 @@ import stat
 import time
 
 
-# ------------------------------------------------- walk rules (copied from custody-check 0.3.2)
+# ------------------------------------- walk rules (copied from custody-check 0.3.2, plus 0.3.3's .mts/.cts)
 
 EXCLUDED_DIRS = {".git", "node_modules", "dist", "build", ".next", ".nuxt", "out", "vendor", "venv", ".venv", "__pycache__", "coverage"}
 NEVER_OPEN_DIRS = {".claude", ".codex", ".agents", ".windsurf", ".clinerules", ".gemini", ".kiro", ".roo", ".trae", ".augment", ".amazonq", ".junie", ".continue", ".aider", ".opencode"}
@@ -55,11 +54,12 @@ NEVER_OPEN_FILE_RE = re.compile(r"^(?:claude|agents?|gemini|conventions|copilot-
 NEVER_OPEN_FILES = {".cursorrules", ".windsurfrules", ".clinerules", ".rules", "opencode.json", ".roomodes"}
 SKIP_BASENAMES = {"package-lock.json", "yarn.lock", "pnpm-lock.yaml", "bun.lockb", "poetry.lock", "cargo.lock", "composer.lock", "gemfile.lock"}
 SKIP_EXT_SUFFIXES = (".map", ".min.js", ".min.css", ".bundle.js")
-CODE_EXTS = {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".vue", ".svelte", ".astro", ".py", ".rb", ".go", ".java", ".kt", ".php", ".cs", ".swift", ".dart"}
+CODE_EXTS = {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".mts", ".cts", ".vue", ".svelte", ".astro", ".py", ".rb", ".go", ".java", ".kt", ".php", ".cs", ".swift", ".dart"}
 SQL_EXTS = {".sql", ".psql", ".pgsql", ".ddl"}
 SCHEMA_EXTS = {".prisma", ".graphql", ".gql"}
 SCAN_EXTS = CODE_EXTS | SQL_EXTS | SCHEMA_EXTS
-STOPLINE_FIELDS = {"ssn", "social_security", "dob", "date_of_birth", "birthdate", "medical", "diagnosis", "credit_card", "card_number", "cc_number", "iban", "passport"}
+MARKUP_EXTS = {".jsx", ".tsx", ".vue", ".svelte", ".astro"}  # page copy sits outside strings here
+STOPLINE_FIELDS = {"ssn", "social_security", "dob", "date_of_birth", "birthdate", "birth_date", "birthday", "medical", "diagnosis", "credit_card", "card_number", "cc_number", "iban", "passport"}
 MAX_PATH_CHARS = 200
 LINE_CLIP_CHARS = 2048
 BINARY_SNIFF_BYTES = 8192
@@ -77,27 +77,38 @@ MAX_OUTPUT_BYTES = 30000
 DEFAULT_MAX_FILES = 20000
 DEFAULT_MAX_FILE_BYTES = 524288
 DEFAULT_MAX_TOTAL_BYTES = 268435456
-DEFAULT_DEADLINE_S = 120.0
+DEFAULT_DEADLINE_S = 90.0  # under the 120 s a host gives one shell command, so a slow scan still prints its partial result
+DEADLINE_LINE_TICK = 32
 SAFE_SEGMENT_RE = re.compile(r"^[A-Za-z0-9._@+()\[\]-]+$")
-TEST_FILE_RE = re.compile(r"[._-](?:test|spec)\.[A-Za-z0-9]+$", re.I)
+TEST_FILE_RE = re.compile(r"[._](?:test|spec)\.[A-Za-z0-9]+$", re.I)  # pricing-test.ts is app code
 TEST_DIRS = {"__tests__", "__mocks__", "tests", "test", "spec", "e2e", "cypress", "playwright"}
 SCHEMA_NAME_RE = re.compile(r"schema|model|types|entities", re.I)
 
-# Money words inside an identifier (unitPrice, PRO_PRICE, baseFee, subtotal, cents).
-MONEY_RE = re.compile(r"price|amount|total|cost|fee|tax|discount|cents|charge|balance|payout|refund", re.I)
-PRICE_CONST_IDENT_RE = re.compile(r"price|cost|fee|amount|tax", re.I)
-IDENT = r"[A-Za-z_$][\w$]*"
-DOTTED = r"[A-Za-z_$][\w$.]*"
+# Money words as whole parts of an identifier: unitPrice, PRO_PRICE, baseFee, subtotal, cents.
+# Whole parts, so feedback is not a fee and chargeback is not a charge.
+MONEY_WORDS = {"price", "prices", "amount", "amounts", "total", "totals", "subtotal", "subtotals", "cost", "costs",
+               "fee", "fees", "tax", "taxes", "discount", "discounts", "cent", "cents", "charge", "charges",
+               "balance", "balances", "payout", "payouts", "refund", "refunds"}
+PRICE_CONST_WORDS = {"price", "prices", "cost", "costs", "fee", "fees", "amount", "amounts", "tax"}
+IDENT_PART_RE = re.compile(r"[A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z]+|[A-Z]+|\d+")
+# Every identifier pattern starts at an identifier boundary, so a long word costs one try, not one per character.
+IDENT = r"(?<![\w$])[A-Za-z_$][\w$]*"
+IDENT_ANY_RE = re.compile(IDENT)
+DOTTED = r"(?<![\w$])[A-Za-z_$][\w$.]*"
 # identifier, an arithmetic operator, an operand. "-" never starts "->" or "--"; "/" never starts a comment.
 ARITH_RE = re.compile(r"(" + DOTTED + r")\s*(\*=?|/=?(?![/*])|\+=?(?!\+)|-=?(?![->]))\s*(" + DOTTED + r"|\d[\d_.]*|\()")
 # "shippingCost = weight * 0.5": arithmetic assigned to a money-named target counts even when no operand is money.
 ASSIGN_TARGET_RE = re.compile(r"(" + IDENT + r")\s*(?::[^=]{0,40})?(?<![=!<>])=(?![=>])")
 ASSIGN_CONTEXT_RE = re.compile(r"(?<![=!<>])=(?![=>])|\breturn\b|\(")
+OWNER_FIELD = r"(?:owner_?id|user_?id|author_?id|created_?by|tenant_?id|org_?id|account_?id)"
 COND_CONTEXT_RE = re.compile(r"\bif\b|&&|\|\||\?|\breturn\b|!\s*[\w$.]|\bwhile\b|\bfilter\b|\bwhere\b|\bunless\b|\bwhen\b")
 STR_CHAR_RE = re.compile(r"[\"'`\\]")
+TEMPLATE_EXPR_RE = re.compile(r"\$\{[^{}]*\}")
+STRING_PREFIXES = {"f", "r", "b", "u", "rb", "br", "fr", "rf"}
 
-# (pattern id, strength, compiled regex, source) where source is "code" (strings blanked) or "raw".
-# A *_MONEY suffix in the id list below means the line must also hold a money word.
+# (pattern id, strength, compiled regex, source). Sources: "code" (strings blanked, trailing comment cut),
+# "raw" (the line as written), "code+cond" (also in a condition), "code+money" (also a money-named identifier),
+# and the named checks in match_type.
 _I = re.I
 PATTERNS = {
     "visibility": [
@@ -105,9 +116,11 @@ PATTERNS = {
         ("owner-compare", "strong", re.compile(r"(?:owner_?id|user_?id|author_?id|created_?by|tenant_?id|org_?id|account_?id)\s*(?:===?|!==?)|(?:===?|!==?)\s*[\w$.]*(?:owner_?id|user_?id|author_?id|created_?by|tenant_?id|org_?id|account_?id)\b", _I), "code"),
         ("owner-filter", "strong", re.compile(r"\.eq\(\s*['\"](?:user_id|owner_id|author_id|tenant_id|org_id|account_id)['\"]|\bwhere\s*:\s*\{\s*(?:userId|ownerId|authorId|tenantId|orgId|user_id|owner_id)\b", _I), "raw"),
         ("row-policy", "strong", re.compile(r"\bcreate\s+policy\b|\bauth\.uid\s*\(\s*\)", _I), "raw"),
+        ("owner-query", "strong", re.compile(r"\bwhere\b[^;]{0,200}?\b(?:owner_id|user_id|author_id|tenant_id|org_id|account_id)\s*=(?!=)", _I), "raw"),
+        ("owner-orm-filter", "strong", re.compile(r"\beq\(\s*[\w$]+\." + OWNER_FIELD + r"\b|\bwhere\(\s*['\"](?:ownerId|userId|authorId|uid|owner_id|user_id|author_id)['\"]\s*,\s*['\"]==|\b(?:find|findOne|findMany|findFirst|findUnique|count|deleteMany|updateMany)\w*\(\s*\{[^}]*\b(?:ownerId|userId|authorId|tenantId|orgId|owner_id|user_id|author_id)\s*:|^\s*(?:ownerId|userId|authorId|tenantId|orgId|owner_id|user_id|author_id)\s*:\s*[\w$.]*\b(?:user|session|auth|uid|req|me|currentUser)\b", _I), "raw"),
         ("access-check", "strong", re.compile(r"\b(?:can_?view|can_?access|can_?read|can_?see|can_?edit|can_?delete|has_?access|has_?permission|is_?allowed|authorize)\w*\s*\(", _I), "code"),
         ("visibility-compare", "strong", re.compile(r"\b(?:is_?public|is_?private|visibility|is_?published)\s*(?:===?|!==?)", _I), "code"),
-        ("admin-check", "strong", re.compile(r"\b(?:is_?admin|is_?super_?admin|is_?superuser|is_?staff|is_?owner|is_?moderator)\b", _I), "code+cond"),
+        ("admin-check", "strong", re.compile(r"\b(?:is_?admin|is_?super_?admin|is_?superuser|is_?staff|is_?owner|is_?moderator)\b|\.(?:admin|superuser|staff|owner|moderator)\?", _I), "code+cond"),
         ("admin-name", "weak", re.compile(r"\b(?:is_?admin|is_?super_?admin|is_?superuser|is_?staff|is_?owner|is_?moderator)\b", _I), "code"),
     ],
     "price": [
@@ -115,12 +128,15 @@ PATTERNS = {
         ("price-compare", "strong", re.compile(r"(" + IDENT + r")\s*(?:[<>]=?)\s*\d"), "money-compare"),
         ("discount-rule", "strong", re.compile(r"\b\w*(?:discount|coupon|percent_?off)\w*\s*(?:[<>]=?|===?|!==?)", _I), "code"),
         ("price-constant", "weak", re.compile(r"(" + IDENT + r")\s*[:=](?!=)\s*-?\d[\d_.]*\b"), "price-const"),
+        ("price-table", "weak", re.compile(r"(" + IDENT + r")\s*(?::[^=]{0,40})?(?<![=!<>])=(?![=>])\s*\{[^}]*\b\w+\s*:\s*\d"), "price-const"),
+        ("price-decimal", "weak", re.compile(r"(" + IDENT + r")\s*(?::[^=]{0,40})?(?<![=!<>])=(?![=>])\s*(?:new\s+)?(?:Decimal|BigDecimal|Money|Big|BigNumber)\(\s*['\"]?-?\d"), "price-const-raw"),
         ("billing-price-id", "weak", re.compile(r"\b(?:unit_amount|price_id|priceId|price_data|stripePriceId|stripe_price_id)\b"), "code"),
     ],
     "paid": [
         ("payment-event", "strong", re.compile(r"['\"](?:checkout\.session\.(?:completed|async_payment_succeeded)|invoice\.(?:paid|payment_succeeded|payment_failed)|customer\.subscription\.(?:created|updated|deleted)|payment_intent\.succeeded|charge\.succeeded)['\"]"), "raw"),
         ("status-compare", "strong", re.compile(r"status\w*\s*(?:===?|!==?)\s*['\"](?:active|trialing|paid|past_due|canceled|cancelled|unpaid|incomplete|succeeded)['\"]|['\"](?:active|trialing|paid|past_due|canceled|cancelled|unpaid|succeeded)['\"]\s*(?:===?|!==?)\s*[\w$.]*status\b", _I), "raw"),
         ("subscription-status", "strong", re.compile(r"\b(?:subscription|sub|stripe_?subscription)\w*\??\.status\b|\b(?:subscription_?status|payment_?status|billing_?status)\b", _I), "code"),
+        ("paid-flag-compare", "strong", re.compile(r"\.(?:paid|is_?paid|has_?paid)\s*(?:===?|!==?)\s*(?:true|false)\b|\bif\s*\(?\s*!?\s*[\w$]+(?:\.[\w$]+)*\.(?:paid|is_?paid)\b", _I), "code"),
         ("plan-compare", "strong", re.compile(r"\b(?:plan|tier|plan_?id|subscription_?tier)\w*\s*(?:===?|!==?)\s*['\"]|['\"][\w-]+['\"]\s*(?:===?|!==?)\s*[\w$.]*\b(?:plan|tier)\b", _I), "raw"),
         ("paid-check", "strong", re.compile(r"\b(?:is_?paid|has_?paid|is_?subscribed|is_?pro|is_?premium|is_?paying|has_?subscription|has_?active_?subscription|has_?paid_?plan)\b", _I), "code+cond"),
         ("paid-name", "weak", re.compile(r"\b(?:is_?paid|has_?paid|is_?subscribed|is_?pro|is_?premium|is_?paying|has_?subscription|has_?active_?subscription|has_?paid_?plan)\b", _I), "code"),
@@ -129,15 +145,17 @@ PATTERNS = {
         ("money-round", "strong", re.compile(r"\bMath\.(?:round|floor|ceil|trunc)\s*\(|(?<![.\w])round\s*\(", _I), "code+money"),
         ("to-fixed", "strong", re.compile(r"\.toFixed\(\s*2\s*\)"), "code"),
         ("cents-convert", "strong", re.compile(r"[*/]\s*100\b(?!\.)"), "code+money"),
+        ("decimal-round", "strong", re.compile(r"\.quantize\s*\(|\bROUND_HALF_\w+|\bROUND_(?:UP|DOWN|CEILING|FLOOR)\b|\.setScale\s*\(|\bRoundingMode\.\w+"), "code"),
         ("currency-format", "weak", re.compile(r"Intl\.NumberFormat|style\s*:\s*['\"]currency['\"]|toLocaleString\([^)]*currency|format_?currency|number_to_currency", _I), "raw"),
         ("decimal-math", "weak", re.compile(r"\bnew\s+(?:Decimal|Big|BigNumber)\s*\(|\bDinero\s*\(|\bdinero\s*\("), "code"),
     ],
 }
-STOPLINE_RE = re.compile(r"(?<![a-z0-9])(ssn|social_security|dob|date_of_birth|birthdate|medical|diagnosis|credit_card|card_number|cc_number|iban|passport)(?![a-z0-9])", re.I)
+STOPLINE_RE = re.compile(r"(?<![a-z0-9])(ssn|social_security|dob|date_of_birth|birthdate|birth_date|birthday|medical|diagnosis|credit_card|card_number|cc_number|iban|passport)(?![a-z0-9])", re.I)
 CAMEL_SPLIT_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 
 WARNINGS = ("stopline-hints-capped",)
-PARTIAL_REASONS = ("max_files_hit", "max_total_bytes_hit", "deadline_hit", "files_errored", "files_skipped_oversize", "dirs_unreadable", "dirs_truncated", "output_trimmed")
+PARTIAL_REASONS = ("max_files_hit", "max_total_bytes_hit", "deadline_hit", "files_errored", "files_skipped_oversize",
+                   "files_skipped_special", "dirs_unreadable", "dirs_truncated", "output_trimmed")
 ERROR_CODES = tuple(HINTS)
 PATTERN_IDS = tuple(p[0] for t in TYPES for p in PATTERNS[t]) + tuple(t + "-comment" for t in TYPES)
 VOCABULARY = frozenset(TYPES + STRENGTHS + PATTERN_IDS + tuple(STOPLINE_FIELDS) + WARNINGS + PARTIAL_REASONS
@@ -150,6 +168,8 @@ def blank_strings(line):
     """Empty the inside of quoted strings on one line, in one linear pass.
 
     Only quote and backslash positions are visited, so a line of unbalanced quotes stays linear.
+    A quote right after a letter or digit is an apostrophe (You'll, that's), not a string, except a
+    one- or two-letter string prefix (f"", rb''). Code inside a template literal's ${...} is kept.
     An unclosed quote leaves the rest of the line as it is.
     """
     if "'" not in line and '"' not in line and "`" not in line:
@@ -165,17 +185,32 @@ def blank_strings(line):
             continue
         ch = line[p]
         if quote is None:
-            if ch != "\\":
-                quote = ch
-                start = p
+            if ch == "\\":
+                continue
+            if p > 0 and (line[p - 1].isalnum() or line[p - 1] == "_") and not _string_prefix(line, p):
+                continue
+            quote = ch
+            start = p
         elif ch == "\\":
             skip_to = p + 2
         elif ch == quote:
             out.append(line[last:start + 1])
+            if quote == "`":
+                out.append(" ".join(TEMPLATE_EXPR_RE.findall(line[start + 1:p])))
             last = p
             quote = None
     out.append(line[last:])
     return "".join(out)
+
+
+def _string_prefix(line, p):
+    """True when the letters before a quote are a string prefix such as f, r, b, rb, fr."""
+    i = p
+    while i > 0 and line[i - 1].isalpha() and p - i < 2:
+        i -= 1
+    if i > 0 and (line[i - 1].isalnum() or line[i - 1] == "_"):
+        return False
+    return line[i:p].lower() in STRING_PREFIXES
 
 
 def comment_body(stripped, ext):
@@ -198,37 +233,46 @@ def strip_trailing_comment(code, ext):
     return code if i < 0 else code[:i]
 
 
-def has_money(text):
-    for ident in re.findall(IDENT, text):
-        if MONEY_RE.search(ident):
+def is_money(ident, words=MONEY_WORDS):
+    """True when a whole part of the identifier (split on case, _, $ and dots) is a money word."""
+    for part in IDENT_PART_RE.findall(ident):
+        if part.lower() in words:
             return True
     return False
 
 
-def _arith_hit(code):
-    if not MONEY_RE.search(code):
+def has_money(text):
+    return any(is_money(m.group(0)) for m in IDENT_ANY_RE.finditer(text))
+
+
+def _arith_hit(code, prose):
+    """Arithmetic on money. prose is True for markup and comments, where words sit outside strings:
+    there a + or - needs an assignment, return or call on the line, and so does any operator in a comment."""
+    if not has_money(code):
         return False
     target = ASSIGN_TARGET_RE.search(code)
-    money_target = target is not None and MONEY_RE.search(target.group(1)) is not None
+    money_target = target is not None and is_money(target.group(1))
     for m in ARITH_RE.finditer(code):
         left, op, right = m.group(1), m.group(2), m.group(3)
-        if not (money_target and m.start() > target.end()) and not (MONEY_RE.search(left) or MONEY_RE.search(right)):
+        if not (money_target and m.start() > target.end()) and not (is_money(left) or is_money(right)):
             continue
-        if op[0] in "+-" and not op.endswith("=") and not ASSIGN_CONTEXT_RE.search(code):
-            continue  # page copy like "Total price - billed monthly" outside a string has no assignment
+        if prose and op[0] in "+-" and not op.endswith("=") and not ASSIGN_CONTEXT_RE.search(code):
+            continue  # page copy like "Total price - billed monthly" written outside a string
         return True
     return False
 
 
-def match_type(typ, code, raw):
+def match_type(typ, code, raw, prose=False):
     """Return (pattern id, strength) for the first pattern of this type that fires, else None."""
     for pid, strength, rx, source in PATTERNS[typ]:
         if source == "arith":
-            ok = _arith_hit(code)
+            ok = _arith_hit(code, prose)
         elif source == "money-compare":
-            ok = any(MONEY_RE.search(m.group(1)) for m in rx.finditer(code))
+            ok = any(is_money(m.group(1)) for m in rx.finditer(code))
         elif source == "price-const":
-            ok = any(PRICE_CONST_IDENT_RE.search(m.group(1)) for m in rx.finditer(code))
+            ok = any(is_money(m.group(1), PRICE_CONST_WORDS) for m in rx.finditer(code))
+        elif source == "price-const-raw":
+            ok = any(is_money(m.group(1), PRICE_CONST_WORDS) for m in rx.finditer(raw))
         elif source == "raw":
             ok = rx.search(raw) is not None
         elif source == "code+cond":
@@ -249,14 +293,17 @@ def classify_line(line, ext):
         return
     body = comment_body(stripped, ext)
     if body is not None:
+        if not ASSIGN_CONTEXT_RE.search(body):
+            return  # prose ("the cost/timing aggregates"), not a decider left in a comment
         for typ in TYPES:
-            if match_type(typ, body, body):
+            if match_type(typ, body, body, prose=True):
                 yield typ, typ + "-comment", "weak"
         return
     code = strip_trailing_comment(blank_strings(line), ext)
     raw = line
+    prose = ext in MARKUP_EXTS
     for typ in TYPES:
-        hit = match_type(typ, code, raw)
+        hit = match_type(typ, code, raw, prose)
         if hit:
             yield typ, hit[0], hit[1]
 
@@ -302,12 +349,15 @@ def safe_rel(parts):
 def count_never_open(path, state):
     """Count files under a never-open folder by name only; nothing inside is opened."""
     stack = [path]
-    while stack and state.stats["files_never_open"] < MAX_NEVER_OPEN_COUNT:
+    seen = 0
+    while stack and seen < MAX_NEVER_OPEN_COUNT and not state.over_deadline():
         d = stack.pop()
+        seen += 1
         try:
             with os.scandir(d) as it:
                 for e in it:
                     try:
+                        seen += 1
                         if e.is_dir(follow_symlinks=False):
                             stack.append(e.path)
                         else:
@@ -318,7 +368,7 @@ def count_never_open(path, state):
             continue
 
 
-def read_file(path, size_hint, state):
+def read_file(path, state):
     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
     fd = os.open(path, flags)
     try:
@@ -345,9 +395,10 @@ def read_file(path, size_hint, state):
 
 def scan_file(path, parts, ext, state):
     rel = safe_rel(parts)
-    data, why = read_file(path, 0, state)
+    data, why = read_file(path, state)
     if why == "special":
         state.stats["files_skipped_special"] += 1
+        state.reason("files_skipped_special")
         return
     if why == "oversize":
         state.stats["files_skipped_oversize"] += 1
@@ -364,18 +415,18 @@ def scan_file(path, parts, ext, state):
     found = []
     hints = []
     for i, line in enumerate(lines, 1):
-        if i % 256 == 0 and state.over_deadline():
-            break
         if line.endswith("\r"):
             line = line[:-1]
         if len(line) > LINE_CLIP_CHARS:
             line = line[:LINE_CLIP_CHARS]
+        if (i % DEADLINE_LINE_TICK == 0 or len(line) > 512) and state.over_deadline():
+            break
         for typ, pid, strength in classify_line(line, ext):
             found.append((typ, 0 if strength == "strong" else 1, i, pid))
         if is_schema:
             seen = set()
             body = comment_body(line.strip(), ext)
-            src = line if body is None else ""
+            src = strip_trailing_comment(line, ext) if body is None else ""
             for m in STOPLINE_RE.finditer(CAMEL_SPLIT_RE.sub("_", src)):
                 field = m.group(1).lower()
                 if field in STOPLINE_FIELDS and field not in seen:
@@ -446,6 +497,7 @@ def walk(repo, state):
                 continue
             if is_link:
                 state.stats["files_skipped_special"] += 1
+                state.reason("files_skipped_special")
                 continue
             if lower in SKIP_BASENAMES or lower.endswith(SKIP_EXT_SUFFIXES):
                 state.stats["files_skipped_generated"] += 1
@@ -611,8 +663,6 @@ def main(argv=None):
     except UsageError:
         emit(envelope("usage"))
         return 0
-    except SystemExit:
-        raise
     except Exception:  # last resort: never a traceback, never a path, never a message
         try:
             emit(envelope("internal"))

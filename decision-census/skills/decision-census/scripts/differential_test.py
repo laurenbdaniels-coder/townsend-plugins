@@ -4,11 +4,13 @@ Three gates, all on fixtures/corpus (python 3.9, unittest only):
 1. Never-miss: every seeded decider in expected.json is listed, capped and uncapped.
 2. Noise, absolute: each negative file lists at most its max_listed (0 by default), unless
    EXCEPTIONS names it with the reason. This applies from the first release on.
-3. Main vs branch (once origin/main ships decision-census): the branch lists every
-   (path, line, type) main lists in the corpus, and no more than main in negative files.
+3. Main vs branch (once origin/main ships decision-census), uncapped: the branch lists every
+   (path, line, type) main lists anywhere in the corpus, and nothing main does not list, unless
+   RECALL_EXCEPTIONS or NEW_ALARM_EXCEPTIONS names that exact triple with the reason main was wrong.
 
 Every input a review finds is added to the corpus and to expected.json.
 """
+import collections
 import json
 import os
 import shutil
@@ -22,7 +24,8 @@ SCRIPT = os.path.join(SCRIPT_DIR, "census_scan.py")
 FIXTURES = os.path.join(SCRIPT_DIR, "fixtures")
 CORPUS = os.path.join(FIXTURES, "corpus")
 EXPECTED = os.path.join(FIXTURES, "expected.json")
-PLUGIN_DIR = os.path.dirname(os.path.dirname(SCRIPT_DIR))
+# scripts -> decision-census (skill) -> skills -> decision-census (plugin) -> repo root
+PLUGIN_DIR = os.path.dirname(os.path.dirname(os.path.dirname(SCRIPT_DIR)))
 REPO_ROOT = os.path.dirname(PLUGIN_DIR)
 MAIN_REF = os.environ.get("CENSUS_MAIN_REF", "origin/main")
 MAIN_SCRIPT_PATH = "decision-census/skills/decision-census/scripts/census_scan.py"
@@ -31,8 +34,13 @@ MAIN_SCRIPT_PATH = "decision-census/skills/decision-census/scripts/census_scan.p
 # Format: {"path": "src/...", "max_listed": N, "reason": "..."}
 EXCEPTIONS = []
 
-# Seeded deciders main listed that the branch may stop listing, each with the reason main was wrong.
+# Triples main listed that the branch may stop listing, each with the reason main was wrong.
+# Format: {"path": "...", "line": N, "type": "...", "reason": "..."}
 RECALL_EXCEPTIONS = []
+
+# Triples the branch lists that main did not, each with the reason main was wrong to miss them.
+# A release that widens the vocabulary lists every new hit here (that is the point of the list).
+NEW_ALARM_EXCEPTIONS = []
 
 
 def load_expected():
@@ -58,10 +66,16 @@ def triples(result):
 
 
 def per_file(result):
-    counts = {}
-    for c in result["candidates"]:
-        counts[c["path"]] = counts.get(c["path"], 0) + 1
-    return counts
+    return collections.Counter(c["path"] for c in result["candidates"])
+
+
+def main_ref_resolves():
+    try:
+        subprocess.run(["git", "-C", REPO_ROOT, "rev-parse", "--verify", MAIN_REF],
+                       check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        return True
+    except (subprocess.CalledProcessError, OSError):
+        return False
 
 
 def main_script(tmp):
@@ -120,24 +134,19 @@ class DifferentialTests(unittest.TestCase):
     def test_never_worse_than_main(self):
         """protects=no later version lists fewer seeded deciders, or more noise, than the released one (AC5);
         fails_when=main lists a corpus decider the branch misses, or the branch lists more in a negative file;
-        no_claim=skipped with a printed reason while origin/main has no decision-census helper."""
+        no_claim=skipped (visibly) while origin/main has no decision-census helper; fails in CI when origin/main
+        cannot be resolved once this branch ships the helper, so a shallow checkout never passes silently."""
         script = main_script(self.tmp)
         if script is None:
-            print("\nmain has no decision-census helper; compared against expected.json only")
-            return
-        main_capped = scan(script, self.repo)
-        main_uncapped = scan(script, self.repo, "--uncapped")
-        excused = {(e["path"], e["line"], e["type"]) for e in RECALL_EXCEPTIONS}
-        seeded_paths = {s["path"] for s in self.expected["seeded"]}
-        for label, mine, theirs in (("capped", self.capped, main_capped), ("uncapped", self.uncapped, main_uncapped)):
-            lost = sorted(t for t in triples(theirs) - triples(mine) if t[0] in seeded_paths and t not in excused)
-            self.assertEqual(lost, [], "%s: main lists these and the branch does not: %r" % (label, lost))
-        allowed = {e["path"] for e in EXCEPTIONS}
-        mine_counts, main_counts = per_file(self.uncapped), per_file(main_uncapped)
-        for neg in self.expected["negatives"]:
-            if neg["path"] in allowed:
-                continue
-            self.assertLessEqual(mine_counts.get(neg["path"], 0), main_counts.get(neg["path"], 0), neg["path"])
+            if os.environ.get("CI") and not main_ref_resolves():
+                self.fail("%s cannot be resolved in CI; check out with fetch-depth: 0" % MAIN_REF)
+            self.skipTest("main has no decision-census helper; compared against expected.json only")
+        theirs = triples(scan(script, self.repo, "--uncapped"))
+        mine = triples(self.uncapped)
+        lost = sorted(theirs - mine - {(e["path"], e["line"], e["type"]) for e in RECALL_EXCEPTIONS})
+        self.assertEqual(lost, [], "main lists these and the branch does not: %r" % lost)
+        new = sorted(mine - theirs - {(e["path"], e["line"], e["type"]) for e in NEW_ALARM_EXCEPTIONS})
+        self.assertEqual(new, [], "the branch lists these and main does not (add each to NEW_ALARM_EXCEPTIONS with a reason): %r" % new)
 
 
 if __name__ == "__main__":
