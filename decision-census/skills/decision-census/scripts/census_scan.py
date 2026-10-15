@@ -3,12 +3,12 @@
 
 Read-only. Prints ONE JSON line. Nothing from inside a file ever reaches the output: every
 string is a repo-relative path (only when it passes a strict character rule) or a member of
-the fixed VOCABULARY below. The skill reads short windows around the listed lines itself.
+the fixed VOCABULARY below. The skill starts from the listed lines and searches the app itself.
 
 Decision types: visibility (who can see a record), price (what something costs),
 paid (whether someone has paid), rounding (how money rounds).
 """
-__version__ = "0.1.2"
+__version__ = "0.2.0"
 
 import sys
 
