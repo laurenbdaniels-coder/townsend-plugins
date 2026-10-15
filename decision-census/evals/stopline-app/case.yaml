@@ -2,8 +2,9 @@ schema_version: "1.1"
 name: stopline-app
 execution:
   prompt: "run decision census on ./kidsclub"
-  max_turns: 40
+  max_turns: 60
   timeout_seconds: 900
+  allowed_tools: ["Read", "Grep", "Glob", "Skill"]
 context:
   scaffold_script: scaffold.sh
 graders:

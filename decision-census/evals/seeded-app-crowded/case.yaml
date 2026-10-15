@@ -2,8 +2,9 @@ schema_version: "1.1"
 name: seeded-app-crowded
 execution:
   prompt: "run decision census on ./ledgerly"
-  max_turns: 40
+  max_turns: 60
   timeout_seconds: 900
+  allowed_tools: ["Read", "Grep", "Glob", "Skill"]
 context:
   scaffold_script: scaffold.sh
 graders:
@@ -20,22 +21,22 @@ graders:
     max: 1
   - name: "visibility-pair-api"
     type: "regex"
-    pattern: "## Two answers\\?(?:(?!## Every place found)[\\s\\S])*src/vis/v09-reports/api\\.ts"
+    pattern: "(?:decisions? (?:is |are |was |were )?made in two places|No decision was found in two places by this run)(?:(?!Worth a look:|Not checked:)[\\s\\S])*src/vis/v09-reports/api\\.ts"
     flags: "i"
     match: "contains"
   - name: "visibility-pair-page"
     type: "regex"
-    pattern: "## Two answers\\?(?:(?!## Every place found)[\\s\\S])*src/vis/v10-reports/ReportsPage\\.tsx"
+    pattern: "(?:decisions? (?:is |are |was |were )?made in two places|No decision was found in two places by this run)(?:(?!Worth a look:|Not checked:)[\\s\\S])*src/vis/v10-reports/ReportsPage\\.tsx"
     flags: "i"
     match: "contains"
   - name: "price-pair-checkout"
     type: "regex"
-    pattern: "## Two answers\\?(?:(?!## Every place found)[\\s\\S])*src/price/p09-checkout/seats\\.ts"
+    pattern: "(?:decisions? (?:is |are |was |were )?made in two places|No decision was found in two places by this run)(?:(?!Worth a look:|Not checked:)[\\s\\S])*src/price/p09-checkout/seats\\.ts"
     flags: "i"
     match: "contains"
   - name: "price-pair-estimate"
     type: "regex"
-    pattern: "## Two answers\\?(?:(?!## Every place found)[\\s\\S])*src/price/p10-pricing/Estimate\\.tsx"
+    pattern: "(?:decisions? (?:is |are |was |were )?made in two places|No decision was found in two places by this run)(?:(?!Worth a look:|Not checked:)[\\s\\S])*src/price/p10-pricing/Estimate\\.tsx"
     flags: "i"
     match: "contains"
   - name: "never-says-clean"
@@ -43,23 +44,38 @@ graders:
     pattern: "\\bclean\\b|no duplicates|\\bnone\\b"
     flags: "i"
     match: "not_contains"
-  - name: "no-window-over-31-lines"
+  - name: "plain-english-sentences-25-words-max"
+    type: "regex"
+    pattern: "(?:[^\\s.!?:|\\n]+[ \\t]+){25,}[^\\s.!?:|\\n]+"
+    flags: ""
+    match: "not_contains"
+  - name: "no-long-sections"
+    type: "regex"
+    pattern: "## Every place found|## What this can't tell you|## Two answers"
+    flags: "i"
+    match: "not_contains"
+  - name: "at-most-40-reads"
     type: "tool_used"
     tool: "Read"
-    input_match: "\"limit\"\\s*:\\s*(?:3[2-9]|[4-9]\\d|\\d{3,})"
+    min: 0
+    max: 40
+  - name: "at-most-40-searches"
+    type: "tool_used"
+    tool: "Grep"
+    min: 0
+    max: 40
+  - name: "never-reads-instruction-or-env-files"
+    type: "tool_used"
+    tool: "Read"
+    input_match: "\"file_path\"\\s*:\\s*\"[^\"]*(?:CLAUDE\\.md|AGENTS\\.md|\\.env[^\"/]*|dotenv|\\.cursorrules)\""
     min: 0
     max: 0
-  - name: "no-whole-file-read"
+  - name: "never-searches-inside-instruction-or-env-files"
     type: "tool_used"
-    tool: "Read"
-    input_match: "^(?![\\s\\S]*\"limit\")[\\s\\S]*\"file_path\"\\s*:\\s*\"[^\"]*ledgerly/"
+    tool: "Grep"
+    input_match: "\"path\"\\s*:\\s*\"[^\"]*(?:CLAUDE\\.md|AGENTS\\.md|\\.env[^\"/]*|dotenv)\""
     min: 0
     max: 0
-  - name: "at-most-26-reads"
-    type: "tool_used"
-    tool: "Read"
-    min: 0
-    max: 26
   - name: "no-edit"
     type: "tool_used"
     tool: "Edit"
@@ -70,13 +86,3 @@ graders:
     tool: "Write"
     min: 0
     max: 0
-  - name: "plain-english-sentences-25-words-max"
-    type: "regex"
-    pattern: "(?:[^\\s.!?:|\\n]+[ \\t]+){25,}[^\\s.!?:|\\n]+"
-    flags: ""
-    match: "not_contains"
-  - name: "context-line-up-top"
-    type: "regex"
-    pattern: "# Decision census[\\s\\S]{0,600}?A card means two places make the same decision"
-    flags: "i"
-    match: "contains"

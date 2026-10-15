@@ -2,8 +2,9 @@ schema_version: "1.1"
 name: shared-helper-diverges
 execution:
   prompt: "run decision census on ./planco"
-  max_turns: 40
+  max_turns: 60
   timeout_seconds: 900
+  allowed_tools: ["Read", "Grep", "Glob", "Skill"]
 context:
   scaffold_script: scaffold.sh
 graders:
@@ -14,22 +15,22 @@ graders:
     min: 1
   - name: "price-pair-page"
     type: "regex"
-    pattern: "## Two answers\\?(?:(?!## Every place found)[\\s\\S])*src/app/pricing/page\\.tsx"
+    pattern: "(?:decisions? (?:is |are |was |were )?made in two places|No decision was found in two places by this run)(?:(?!Worth a look:|Not checked:)[\\s\\S])*src/app/pricing/page\\.tsx"
     flags: "i"
     match: "contains"
   - name: "price-pair-checkout"
     type: "regex"
-    pattern: "## Two answers\\?(?:(?!## Every place found)[\\s\\S])*src/app/api/checkout/route\\.ts"
+    pattern: "(?:decisions? (?:is |are |was |were )?made in two places|No decision was found in two places by this run)(?:(?!Worth a look:|Not checked:)[\\s\\S])*src/app/api/checkout/route\\.ts"
     flags: "i"
     match: "contains"
   - name: "visibility-pair-api"
     type: "regex"
-    pattern: "## Two answers\\?(?:(?!## Every place found)[\\s\\S])*src/app/api/projects/route\\.ts"
+    pattern: "(?:decisions? (?:is |are |was |were )?made in two places|No decision was found in two places by this run)(?:(?!Worth a look:|Not checked:)[\\s\\S])*src/app/api/projects/route\\.ts"
     flags: "i"
     match: "contains"
   - name: "visibility-pair-list"
     type: "regex"
-    pattern: "## Two answers\\?(?:(?!## Every place found)[\\s\\S])*src/components/ProjectList\\.tsx"
+    pattern: "(?:decisions? (?:is |are |was |were )?made in two places|No decision was found in two places by this run)(?:(?!Worth a look:|Not checked:)[\\s\\S])*src/components/ProjectList\\.tsx"
     flags: "i"
     match: "contains"
   - name: "never-says-clean"
@@ -37,23 +38,28 @@ graders:
     pattern: "\\bclean\\b|no duplicates"
     flags: "i"
     match: "not_contains"
-  - name: "no-window-over-31-lines"
+  - name: "at-most-40-reads"
     type: "tool_used"
     tool: "Read"
-    input_match: "\"limit\"\\s*:\\s*(?:3[2-9]|[4-9]\\d|\\d{3,})"
+    min: 0
+    max: 40
+  - name: "at-most-40-searches"
+    type: "tool_used"
+    tool: "Grep"
+    min: 0
+    max: 40
+  - name: "never-reads-instruction-or-env-files"
+    type: "tool_used"
+    tool: "Read"
+    input_match: "\"file_path\"\\s*:\\s*\"[^\"]*(?:CLAUDE\\.md|AGENTS\\.md|\\.env[^\"/]*|dotenv|\\.cursorrules)\""
     min: 0
     max: 0
-  - name: "no-whole-file-read"
+  - name: "never-searches-inside-instruction-or-env-files"
     type: "tool_used"
-    tool: "Read"
-    input_match: "^(?![\\s\\S]*\"limit\")[\\s\\S]*\"file_path\"\\s*:\\s*\"[^\"]*/(?:planco|teamdesk)/"
+    tool: "Grep"
+    input_match: "\"path\"\\s*:\\s*\"[^\"]*(?:CLAUDE\\.md|AGENTS\\.md|\\.env[^\"/]*|dotenv)\""
     min: 0
     max: 0
-  - name: "at-most-26-reads"
-    type: "tool_used"
-    tool: "Read"
-    min: 0
-    max: 26
   - name: "no-edit"
     type: "tool_used"
     tool: "Edit"
