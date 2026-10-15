@@ -2,7 +2,7 @@
 
 The footer of every census names the version that produced it.
 
-## 0.1.0 (2026-10-20)
+## 0.1.0 (2026-10-15)
 
 First release.
 
