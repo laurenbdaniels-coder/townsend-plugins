@@ -4,7 +4,7 @@ The footer of every census names the version that produced it.
 
 ## 0.1.2 (2026-10-15)
 
-- **Plain English.** The census is written in ASD-STE100 Simplified Technical English, the method of Matt Pocock's `/wait-what` skill (MIT): a short line of context first, one idea per sentence, at most 25 words a sentence (20 for an instruction), active voice, and the same small set of words every time (place, decision, card, one source, found, read). Long lists became bulleted lists. Checks by hand are short steps.
+- **Plain English.** The census is written in ASD-STE100 Simplified Technical English, applied the way Matt Pocock's `/wait-what` skill (MIT) does: a short line of context first, one idea per sentence, at most 25 words a sentence (20 for an instruction), active voice, and the same small set of words every time (place, decision, card, one source, found, read). Long lists became bulleted lists. Checks by hand are short steps.
 - **Fixed text rewritten to the same rules:** what the census can't tell you, the stop-line question and footer, and the one prompt.
 - **Evals:** two new graders on the seeded, crowded and clean-looking cases. No sentence may run over 25 words, and the context line must come first.
 

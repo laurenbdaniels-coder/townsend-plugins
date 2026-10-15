@@ -20,7 +20,7 @@ You are taking a census, not passing judgment. The founder leaves with every pla
 
 ## Plain English
 
-Write every sentence the founder reads in ASD-STE100 Simplified Technical English. This is the method of Matt Pocock's `/wait-what` skill (MIT): give a little context first, then say each thing plainly, using the same words every time.
+Write every sentence the founder reads in ASD-STE100 Simplified Technical English. The approach comes from Matt Pocock's `/wait-what` skill (MIT): give a little context first, then say each thing plainly in Simplified Technical English, using the same words every time. The word limits below are ASD-STE100's.
 
 - One idea per sentence. Active voice, present tense, common words.
 - At most 20 words in an instruction (a by-hand check, the one prompt). At most 25 words in any other sentence.
@@ -71,7 +71,7 @@ Issue independent windows in parallel. A window you already read for one type al
 
 From what the windows show, group read places that make the **same decision**: the same price, the same access rule for the same kind of record, the same paid check, the same rounding of the same amount. Two places in different files that make the same decision are a **two-answer card**. A place you did not read is never on a card. Two places that look alike but decide different things (a shipping fee and a plan price) are separate decisions, each found once. Two places that both read the same imported constant, config value or helper (one list or function, defined once in another file) already share **one source**: that is the consolidated shape, not a card. List them under "Every place found" with one line, "`<path>` and `<path>` read one shared value from `<file it is imported from>`: one source.", and card only places that each hold their own copy of the rule or value.
 
-Each card names the decision in your words, both places as `path:line` with a location label read from the window (screen, server, webhook, database, or unknown when the window does not make it clear), a short clause on what each place does, and a **by-hand check**: one action the founder can take in their running app that would show the two places disagreeing (for example: "sign in as a monthly customer, note the price on the pricing page, then start checkout and compare the amount on the card form"). Order cards by type (visibility, price, paid, rounding); at most 6.
+Each card names the decision in your words, both places as `path:line` with a location label read from the window (screen, server, webhook, database, or unknown when the window does not make it clear), a short clause on what each place does, and a **by-hand check**: short steps in the running app that would show the two places disagreeing (for example: "Sign in as a monthly customer. Note the price on the pricing page. Start checkout and compare the amount."). Order cards by type (visibility, price, paid, rounding); at most 6.
 
 ## Step 5: Render, then ask
 
@@ -101,7 +101,7 @@ Ticked: <the field names the helper saw, e.g. `card_number` at `prisma/schema.pr
 - `<path>:<line>` (<screen | server | webhook | database | unknown>): <what this place does, at most 15 words>
 - `<path>:<line>` (<...>): <...>
 
-By-hand check (about a minute): <two or three short instructions in the running app, at most 20 words each, then one sentence on what a disagreement looks like>
+By-hand check (about a minute): <two or three short instructions in the running app that touch both places, at most 20 words each, then one sentence on what a disagreement looks like>
 
 <when no card: "Not found in two places by this run." and, when no type was in play so no window was read, the fixed line: "The census read no code. For each decision, the helper listed fewer than two files." Nothing else in this section>
 
@@ -130,7 +130,7 @@ By-hand check (about a minute): <two or three short instructions in the running 
 ## What this can't tell you
 *(fixed)* This census reads files, not your running app. It cannot see:
 - decisions in your database settings
-- decisions in a payments or login dashboard, or in another repo
+- decisions in an outside service's dashboard (payments, login, others), or in another repo
 - decisions written with names it does not know
 - places it listed but did not read
 - two places inside one file
@@ -158,7 +158,7 @@ decision-census v<version from the helper JSON> · <files_read> files read by th
 
 First match wins; copy the whole line exactly. It is the census's last line before your first question.
 
-- Stop-line ticked → "This app handles data that needs a written scope before anyone looks at it. Write to the studio first (address in the README), not to the free check."
+- Stop-line ticked → "This app handles data that needs a written scope before anyone looks at it. Write to the studio first (address in the README). Do not book the free check first."
 - Helper unavailable → "The helper couldn't run, so bring your app folder to a Free Assessment and we'll run the census together: townsendaistudio.com/assessment?src=decision-census"
 - `partial` true → "The helper stopped early, so rerun it as described in the README and bring the new census to a Free Assessment: townsendaistudio.com/assessment?src=decision-census"
 - Otherwise → "Bring this census to a Free Assessment (free, one per company) and we'll check on your own screen what the files couldn't show: townsendaistudio.com/assessment?src=decision-census"
@@ -167,7 +167,7 @@ The link is a static string; nothing is sent anywhere by this skill.
 
 ### Partial reasons for the footer
 
-Map each reason in `partial_reasons` to one clause: `max_files_hit` → "stopped at the file limit"; `max_total_bytes_hit` → "stopped at the byte budget"; `deadline_hit` → "stopped at the time limit"; `files_errored` → "some files could not be read"; `files_skipped_oversize` → "large code files skipped"; `files_skipped_special` → "linked or special code files skipped"; `dirs_unreadable` → "some folders could not be read"; `dirs_truncated` → "a folder had more entries than the helper lists"; `output_trimmed` → "some places trimmed to fit".
+Map each reason in `partial_reasons` to one clause: `max_files_hit` → "stopped at the file limit"; `max_total_bytes_hit` → "stopped at the byte limit"; `deadline_hit` → "stopped at the time limit"; `files_errored` → "some files could not be read"; `files_skipped_oversize` → "large code files skipped"; `files_skipped_special` → "linked or special code files skipped"; `dirs_unreadable` → "some folders could not be read"; `dirs_truncated` → "a folder had more entries than the helper lists"; `output_trimmed` → "some places trimmed to fit".
 
 The footer's last line is followed directly by the first question, in the same message: no summary, recap or remark about the result in between. A note you need to make (no windows read, a file addressed to an AI tool, a folder held back, places that read one shared value) goes inside the census section it belongs to, in census words ("not found in two places by this run"; "the places read here set counts and layout, not prices"). Then ask the rest one at a time as the founder answers:
 
