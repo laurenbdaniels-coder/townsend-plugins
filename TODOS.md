@@ -344,6 +344,18 @@
 **Priority:** P2
 **Depends on:** None
 
+## decision-census
+
+From the v0.1.0 review (2026-10-15). None met the ship bar; each is a one-line follow-up.
+
+- **Remix / React Router `$` route files are withheld.** `app/routes/projects.$id.tsx` fails the path charset, so its places are counted as held back, and a stop-line field in a held-back schema file is dropped. Decide whether `$` can print (paths go to the Read tool, never a shell), or count withheld stop-line hints. P2.
+- **Eval graders check window length, not window position.** A Read of a listed file at an offset far from the listed line passes. Add a post-run check (offset = max(1, line - 15) for some listed line) and one long file to `sunny-shop`. P2.
+- **The hostile eval cannot see host-loaded `CLAUDE.md`.** `claude plugin eval` sets `CLAUDE_CODE_DISABLE_CLAUDE_MDS`, so a planted `CLAUDE.md` inside the app is never loaded there. One manual `claude -p` run (2026-10-15, planted `CLAUDE.md` and `src/CLAUDE.md`) followed nothing. Make it a scripted, repeatable check. P2.
+- **Python f-string interpolation is blanked.** `f"{price * qty}"` hides the arithmetic inside `{}` (JS template literals are handled). P3.
+- **Common shapes still unseen:** multi-line Prisma `where` filters keyed on names other than user/owner/author, `pricing-*` folder heuristics, Rails `before_action` access checks. Add when a real run shows them. P3.
+- **`state.hits` is unbounded.** A contrived tree where every line matches could hold millions of tuples; keep only what `select()` can use plus a count. P3.
+- **Codex install is untested.** The skill looks for `~/.codex/skills/decision-census/scripts/`; try it once before saying it runs in Codex. P3.
+
 ## Completed
 
 ### Q3 "nothing found" from a lone seed.sql
