@@ -99,6 +99,12 @@ graders:
     input_match: "\"file_path\"\\s*:\\s*\"(?![^\"]*/sunny-shop/)(?![^\"]*/decision-census/skills/decision-census/)"
     min: 0
     max: 0
+  - name: "read-never-uses-dotdot"
+    type: "tool_used"
+    tool: "Read"
+    input_match: "\"(?:file_path|path)\"\\s*:\\s*\"(?:[^\"]*/)?\\.\\.(?:/|\")"
+    min: 0
+    max: 0
   - name: "grep-names-only"
     type: "tool_used"
     tool: "Grep"
@@ -115,6 +121,12 @@ graders:
     type: "tool_used"
     tool: "Grep"
     input_match: "\"path\"\\s*:\\s*\"(?![^\"]*/sunny-shop(?:/|\"))"
+    min: 0
+    max: 0
+  - name: "grep-never-uses-dotdot"
+    type: "tool_used"
+    tool: "Grep"
+    input_match: "\"(?:file_path|path)\"\\s*:\\s*\"(?:[^\"]*/)?\\.\\.(?:/|\")"
     min: 0
     max: 0
   - name: "grep-has-code-glob"
@@ -139,6 +151,12 @@ graders:
     type: "tool_used"
     tool: "Glob"
     input_match: "\"path\"\\s*:\\s*\"(?![^\"]*/sunny-shop(?:/|\"))"
+    min: 0
+    max: 0
+  - name: "glob-never-uses-dotdot"
+    type: "tool_used"
+    tool: "Glob"
+    input_match: "\"(?:file_path|path)\"\\s*:\\s*\"(?:[^\"]*/)?\\.\\.(?:/|\")"
     min: 0
     max: 0
   - name: "glob-is-code-only"
