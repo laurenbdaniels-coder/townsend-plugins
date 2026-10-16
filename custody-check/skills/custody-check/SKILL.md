@@ -19,11 +19,31 @@ You are running a paper worksheet, not an audit. The founder leaves with a verdi
 6. **Stop-line.** The stop-line means a person who does this for a living looks before the next change ships. It is ticked when the founder names any of these: the app stores or handles card numbers or other card details itself; the app holds or moves money for other people (payouts, Connect, escrow, stored balances, wallets); health data; other people's sensitive data, especially children's; real scale, or a contract that needs the app to stay up. Any other money handling the founder names gets one question, and it ticks when the answer is unclear. Payments your payment company runs (checkout, Elements, embedded checkout, subscriptions, invoices, refunds, a billing portal), where it holds the card details and settles the money, are not a stop-line item when that is all the app does with money: they make the next change Gated. It is also ticked when Q10 evidence shows fields such as `ssn`, `social_security`, `dob`, `date_of_birth`, `birthdate`, `medical`, `diagnosis`, `credit_card`, `card_number`, `cc_number`, `iban`, `passport`. When it is ticked, the verdict prints **Get a person** above the doors and chooses no door.
 7. **Two shell commands.** The scanner invocation below and, once the answers are in, the verdict invocation in "Run the verdict" are the only shell commands this skill runs, each retried only per script location (when your host has no file tool) and once with `py -3` in place of `python3` if the host reports python3 missing. No probes, no `ls`, no `cat`.
 
+## Plain English
+
+Write every sentence the founder reads in ASD-STE100 Simplified Technical English. This is the method of Matt Pocock's `/wait-what` skill (MIT): give a little context first, then say each thing plainly, using the same words every time. It covers the verdict, your questions, and every sentence you write into the template's placeholders.
+
+- One idea per sentence. Active voice, present tense, common words.
+- At most 20 words in an instruction (a by-hand step, a Patch list item, the rerun recipe). At most 25 words in any other sentence.
+- More than three items: use a bulleted list, not a long sentence.
+- Use these words, and only with these meanings:
+  - **door**: Ship it, Patch it, or Get a person.
+  - **stop-line**: data, money or stakes that need a person who does this for a living before the next change.
+  - **Don't know**: the next question to answer. Not a failure.
+  - **Nothing found**: the scanner read the files and found nothing. The running app is still the question.
+  - **by-hand test**: about sixty seconds in the running app.
+  - **scanner**: the read-only script that reads the app's files.
+  - **key**: a secret that lets someone use a paid or private service.
+  - **tier**: Light, Standard or Gated, for the next change.
+  - **a change that needs extra checks**: what this skill's references call an escalation trigger.
+- Text you are told to copy exactly (the footer line, a scanner `hint`, scanner strings and check names) stays as written. These rules apply to everything else.
+- Gloss a technical word the first time you use it. Say "row level security (the database rule that says who can read each row)" once, then "row level security". Check names stay inside the Evidence code spans.
+
 ## Locate and run the scanner
 
 **Preflight.** Resolve the app folder the founder named (call it `<app>`) from what you already know about your working directory; run no command for this. If your working directory is that folder or is inside it, do not scan. Say:
 
-> This skill runs from the folder that contains your app, not from inside it (your AI host loads the app's instruction files from the folder it starts in). Do this: `cd ..`, start your host again from there, then say: `run custody-check on ./<app folder name>`.
+> This skill runs from the folder that contains your app, not from inside it. Your AI host loads the app's instruction files from the folder it starts in. Do this: `cd ..`, start your host again from there, then say: `run custody-check on ./<app folder name>`.
 
 and stop.
 

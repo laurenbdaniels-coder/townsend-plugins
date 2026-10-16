@@ -13,14 +13,14 @@ How 0.3.3 reads on top of 0.3.2: 0.3.2's scanner runs first, unchanged (its file
 - **Nothing found** when the scan was complete, at least one code, config or env file was read, nothing that could hold a key was skipped (a large or binary-looking file, an unreadable or linked file or folder, a minified bundle or source map, a folder you excluded, a value too long to judge, an MCP config inside an agent folder the scanner never opens, a `.mts`/`.cts` file it could not read (`code-file-not-read`), a compressed file such as `app.js.zst` or `key.pem.zst` (`compressed-file-not-read`)), and no Q1 check fired, including the git index (or, outside git, no env file on disk). `.mts` and `.cts` files are read for keys the way a `.ts` file in the same folder is (`route.mts` is server code like `route.ts`), so a key in browser-side `.mts` is a No; an app whose only code is `.mts` stays Don't know, as in 0.3.2. "No key" means none of the named key formats and secret-named values the checks below know about, not every secret shape there is. An MCP config inside a never-opened agent folder (any file or folder with `mcp` in its name there except notes (`*.md`, `*.mdc`, `*.markdown`) and mcp-named folders of instructions under `skills/`, `rules/`, `instructions/`, `prompts/`, `agents/` or `commands/` (a `.json`, `.yaml`, `.toml` or `.env` file inside one is still a row), plus `.kiro/settings/mcp.json`, `.gemini/settings.json`, `.continue/config.json` or `config.yaml`, `.codex/config.toml`, `.amazonq/cli-agents`), and `opencode.json` or an `.aider*.yml`, is never opened either (`opencode.jsonc` is read as text, its MCP servers not checked), but it could hold a token, so it keeps Q1 at Don't know with an `mcp-config-not-opened` row naming it. The `nothing-found-keys` row says how many files were read, and how many agent instruction files the scanner deliberately did not open. Build folders are never read. A `build`, `dist` or `out` folder keeps Q1 at Don't know with a `build-output-unread` row, because people also keep source under those names and a key baked into a build is still a key; `.next`, `.nuxt` and a `vendor` folder below the root count the same way, since they hold the bundle the browser downloads or app code. It does not see the deployed site, which is why the by-hand test still applies.
 - **Don't know** otherwise. Public-by-design values (Supabase anon key, `pk_live_`, `pk_test_`, `sb_publishable_`, Firebase web `apiKey`) are listed as evidence, never as a No.
 - Scanner checks: `browser-prefix-*`, `client-*`, `tracked-env-file`, `mcp-token` (No); `tracked-env-file-nonprod` (a committed `.env.test`, `.env.development`, `.env.ci` or an encrypted `.env.vault`/`.env.enc` is evidence, not a No: scaffolds commit those on purpose), `placeholder-key-literal`, `test-path-key-literal` (never change the answer); `client-test-mode-key` (a Stripe `sk_test_`/`rk_test_` key in client code: it can't move real money, so it's evidence, but move it server-side before you switch to live); `mcp-config-not-opened` (an MCP config inside an agent folder the scanner never opens: evidence, and it keeps Q1 off Nothing found); `private-key-block` (a private key outside client code, for example a service-account JSON, a server env file, or a key file such as `id_rsa` or `private.key`: evidence, and it keeps Q1 off Nothing found).
-- **By hand (60 s):** open your deployed site, open the browser's developer tools, search the loaded sources and the network responses for `sk-`, `sk_live_`, `service_role`, `AKIA`, `ghp_`, `PRIVATE KEY`. Then run `git ls-files | grep -i env`. Anything found: rotate that key now, then move it server-side.
+- **By hand (60 s):** Open your deployed site and its developer tools. Search the loaded sources and network responses for `sk-`, `sk_live_`, `service_role`, `AKIA`, `ghp_` and `PRIVATE KEY`. Then run `git ls-files | grep -i env`. Found anything? Rotate that key now, then move it server-side.
 
 ## Q2. Client or server? Anything the browser can see, a stranger can see. (Plan)
 
 - **Yes** only from you: you can point at the line that separates what runs in the browser from what runs on your server, and every privileged call is on the server side of it.
 - **No** only from you: the browser calls the database, the AI provider, or a third-party API directly with a privileged key.
 - Scanner hints: `client-server-split` counts the code files the scanner classified as browser code, server code, or unclear (a count with almost nothing on the server is worth saying out loud); `api-route-dir`, `framework-config` show that a server side exists. None of them proves what crosses the line.
-- **By hand (60 s):** list the three most sensitive things your app does (charge, write to the database, call the model). For each, say out loud whether the browser or your server makes that call. If you cannot say, the answer is Don't know.
+- **By hand (60 s):** List the three most sensitive things your app does: charge, write to the database, call the model. For each, say out loud whether the browser or your server makes that call. If you cannot say, the answer is Don't know.
 
 ## Q3. Who can read this: logged out, the wrong user, the right user? Files too. (Audit)
 
@@ -28,19 +28,19 @@ How 0.3.3 reads on top of 0.3.2: 0.3.2's scanner runs first, unchanged (its file
 - **Yes** only from you, after the boundary test below passes for the API, the database, and file storage.
 - **Nothing found** when the scan was complete, at least one security-rules file or SQL file that defines access was read (a table, a policy, row level security or a storage bucket; a seed file of inserts does not count), none was skipped, every public table a migration creates also has row level security turned on in some migration, no public table is dropped without this file turning RLS back on afterwards (the scanner does not replay migration order), and none of the checks below fired (`nothing-found-rules`). Text inside a SQL string (`'…'` over any number of lines, `E'…'`, or a `$$…$$` function body) never turns RLS on. Every Q3 No comes from 0.3.2's own checks, which run first and unchanged; the checks below only add evidence. `disable row level security` or `using (true)` inside a string (comment text inside a string included) or a quoted name is `open-rule-in-string` evidence, and a drop, view or table named inside a string or function body still counts, its row saying "named inside a string or function body" instead of the name (an `execute '…'` may run it); a commented-out rule is not read at all. A rule the scanner reads as open in a shape 0.3.2 did not check (`using ((((((true))))))`, a top-level `|| true` in Firebase, `".write": "true"`, `disable` with long whitespace) is `open-rule-unconfirmed` evidence: it keeps Q3 off Nothing found, and the by-hand test decides. Beyond that, a `using (…)` clause that begins with `true` inside any number of parentheses is read whole, strings and quoted names left out, with the same `or`/`and` rule as a Firebase condition (SQL `||` joins text and is not `or`); a clause where `true` comes later (`using (auth.uid() = id or true)`) is not read: `(true) or …` and `true` at any depth are open; `true` inside anything else (`using (((((true))) and x))`) is `policy-true-unevaluated` evidence. A `DO $$ … $$` block runs, so its statements count, and a `drop table` counts wherever it appears, function bodies included. Comments, strings and quoted identifiers are read in one pass, as Postgres reads them (block comments nest, a `$tag$` may be any length), so `'a -- b'` is a string and `"o'brien_idx"` is a name; the rows these checks add show fixed text with the file and line, never the rule's text or a table or view name they found themselves (`a table (name not shown)`, `a view (name not shown)`; 0.3.2's own rows keep their names), and a nest of block comments that never closes is read as 0.3.2 reads it; a quote or name that never closes, a Firebase condition longer than the scanner reads, or more statements than it reads keeps Q3 off Nothing found (`rules-not-read-whole`). A public table dropped without the same file turning RLS back on afterwards is a `table-dropped` row, and SQL files that create no table or policy (a seed file of inserts) with no rules file is a `no-rule-statements` row. A table 0.3.2 credited from an `enable row level security` that sits only inside a string or a function body is still a `table-without-rls` row. A public view unless its `with (…)` clause turns `security_invoker` on (`= on`/`true`; `= off` or `false` is the default and counts as off; a column named `security_invoker` is not an option), or any materialized view, is `public-view` evidence: it runs as its owner and skips the table's RLS. Every Firebase `if true` 0.3.2 called a No is still one. Beyond that, a condition is open when it is `true` alone or `true` joined by `||` at the top level (`if true || request.auth != null`, or the same inside fully parenthesised groups at any depth); `true` inside any other condition (`true && …`, `!(… || true)`, `x == (… || true)`, or anything behind a top-level `? :`) is `firebase-rules-true-unevaluated` evidence, because the scanner did not work it out; an open condition is `open-rule-unconfirmed` evidence (see above). Text inside a rules string is not an operand: `x == "true"` is not evidence and `tag in ["a||true"]` is not open. Firebase's generated test mode (`allow read, write: if request.time < …`, the same written the other way round, or `".read": "now < …"` in the Realtime Database) is `firebase-rules-test-mode` evidence: the whole database is open until that date. A table with no `enable row level security` is `table-without-rls` evidence: on Supabase that is the most common open table, and on a server-only database it is expected, so the by-hand test decides. With no such file in the app, the scanner had nothing to look at and the answer stays Don't know: your access rules live in a dashboard it cannot read.
 - Scanner checks: `rls-disabled`, `policy-using-true`, `firebase-rules-open` (No); `open-rule-in-string`, `open-rule-unconfirmed`, `policy-true-unevaluated`, `firebase-rules-test-mode`, `firebase-rules-true-unevaluated`, `public-view` (evidence, above); `policy-select-true` (a `for select using (true)` policy is public read by design, like a public Firebase read: evidence, the by-hand test decides), `policy-with-check-true`, `policy-to-anon`, `firebase-rules-public-read`, `storage-bucket-public` (evidence).
-- **By hand (the boundary triad, 3 × 60 s):**
-  1. **Logged out:** in a private window, request one record's URL or API endpoint directly. It should refuse.
-  2. **Wrong user:** log in as user B and request a record that belongs to user A, by changing the id in the URL or the request. It should refuse. The UI hiding it does not count; the API must refuse.
-  3. **Right user:** log in as user A and confirm the same request works.
-  Then the **file-URL test:** take the URL of one uploaded file and open it in the private window. If it opens, files are public.
-  This skill never collects your URL; you run these yourself.
+- **By hand (three tests, 60 s each):**
+  1. **Logged out:** in a private window, open one record's URL or API endpoint directly. It should refuse.
+  2. **Wrong user:** log in as user B. Request a record that belongs to user A by changing its id in the URL or the request. It should refuse. The screen hiding it does not count. The API must refuse.
+  3. **Right user:** log in as user A and check that the same request works.
+  Then the **file test:** open the URL of one uploaded file in the private window. If it opens, your files are public.
+  This skill never collects your URL. You run these yourself.
 
 ## Q4. Who is allowed to do this? Logged in is not allowed. (Plan)
 
 - **Yes** only from you: every write, delete, admin action, and payment action checks a role or ownership on the server, not just a session.
 - **No** only from you: any logged-in user can perform an action meant for owners or admins.
 - Scanner evidence: `auth-path`, `auth-dependency` show that auth code exists; they never change the answer.
-- **By hand (60 s):** pick one admin or owner-only action. As an ordinary logged-in user, replay its request (copy it from the network tab, change nothing but the session). It should refuse.
+- **By hand (60 s):** Pick one action only an admin or owner should do. Do it as the owner, and copy its request from the network tab. Log in as an ordinary user. Send the same request again, changing only the session. It should refuse.
 
 ## Q5. Can I get the code back in five minutes, and the data back from a restored backup? (Before build)
 
@@ -52,7 +52,7 @@ Two halves, scored separately; the verdict shows the lower one.
   - `git-timeout`: git did not answer in time; try again.
   - `git-subdir`: the app lives inside a larger repository; the history counts belong to the whole repository.
 - **Data half.** Always Don't know until you answer `q5_data`: **yes** only if you have restored a backup into a non-live database and read a record from it; **no** if there is no backup; Don't know otherwise.
-- **By hand (60 s + a rehearsal):** open your host's deployments page and find the previous build's "redeploy" or "promote" button. For data, open your database provider's backups page and check the newest backup's date. A deploy rollback does not undo a migration, a payment, or an email.
+- **By hand (60 s, then a rehearsal):** Open your host's deployments page. Find the previous build's "redeploy" or "promote" button. For data, open your database provider's backups page and check the newest backup's date. Rolling back a deploy does not undo a migration, a payment or an email.
 
 ## Q6. Is there a copy that isn't the live one? (Ship)
 
@@ -60,20 +60,20 @@ Two halves, scored separately; the verdict shows the lower one.
 - **Yes (high)** from you: a non-live copy exists that you deploy to first.
 - **No** only from you: every change goes straight to the live site.
 - Scanner check: `env-name`. Evidence: `preview-deploys-default` means a `vercel.json` or `netlify.toml` sits at the root, and those hosts build a preview of each branch unless you turned it off. That is a copy that exists; it is not one you have opened.
-- **By hand (60 s):** open your host's dashboard. Is there a second URL, a preview deployment, or a staging project? Have you ever opened it?
+- **By hand (60 s):** Open your host's dashboard. Is there a second URL, a preview deployment or a staging project? Have you ever opened it?
 
 ## Q7. What changed that I didn't ask for? Read the diff, not the summary. (Diff review)
 
 - Never answered by the scanner. **Yes** only from you: on your last change you read the diff line by line and found nothing you did not ask for. **No**: you shipped the summary without reading the diff.
 - Scanner evidence: `review-workflow` is a review bot on pull requests (a workflow named for review, `anthropics/claude-code-action`, `coderabbitai/…`, `reviewdog/…`, or a `.coderabbit.yaml`). It shows a habit of looking at diffs; it is not you reading one.
-- **By hand (60 s):** run `git diff HEAD~1 --stat`, then open the two files you least expected to see in the list.
+- **By hand (60 s):** Run `git diff HEAD~1 --stat`. Then open the two files you least expected to see in the list.
 
 ## Q8. What does one user cost me? A number or "I don't know". (Watch)
 
 - **Yes** only from you, with a number: cost per user or per action, and a cap that stops spending.
 - **No** only from you: no cap, and the bill is a surprise.
 - Scanner hints: `ai-sdk-dependency`, `model-env-var`, `model-literal`, `spend-cap-word` show that a model is called and whether cap-shaped words appear; they never change the answer.
-- **By hand (60 s):** open your AI provider's billing page and your host's usage page. Write down last month's total and divide by your user count. Then find the spend cap setting and set one.
+- **By hand (60 s):** Open your AI provider's billing page and your host's usage page. Write down last month's total and divide it by your user count. Then find the spend cap setting and set one.
 
 ## Q9. How would I find out it's broken? One real alert to a named person. (Watch)
 
@@ -81,14 +81,14 @@ Two halves, scored separately; the verdict shows the lower one.
 - **No** only from you: you would find out from a user.
 - Scanner hints: `monitoring-dependency`, `sentry-config`, `health-route`, `cron-schedule` show that monitoring code exists; the alert is the question. A `monitoring-dependency` row matched by vendor family shows the family (`@sentry/… (name not shown)`), not the package name. `manifest-not-parsed` (evidence) names a manifest the scanner could not read for them.
 - **Nothing found** when the scan was complete, at least one dependency was read, no manifest was skipped, none of the manifests the scanner knows it cannot parse is present (`Pipfile`, other `requirements*.txt` and `*.in` files, `setup.py`, `setup.cfg`, `environment.yml`, `Cargo.toml`, `composer.json`, `pom.xml`, `build.gradle(.kts)`, `pubspec.yaml`, `*.gemspec`, `*.csproj`, `mix.exs`, `deno.json(c)`, `import_map.json`, and any `.txt` or `.in` file in a `requirements/` folder: each is a `manifest-not-parsed` row unless it sits under `src/` or a test folder; a manifest shape not on that list is not seen at all), and none of those fired (`nothing-found-monitoring`, which says how many dependencies were read). Monitoring can still live outside the code (an uptime service, your host's own alerts), so it is never a No.
-- **By hand (60 s):** break something on purpose in the non-live copy (rename an environment variable). Did anyone get a message? Put it back.
+- **By hand (60 s):** Break something on purpose in the copy that isn't live: rename an environment variable. Did anyone get a message? Put it back.
 
 ## Q10. What am I storing, and could I explain it out loud? (Define)
 
 - **Yes** only from you: you can list every kind of personal data you store and why, in one breath.
 - **No** only from you: you found fields you cannot explain.
 - Scanner evidence: `pii-field`, `pii-form-input` list field names that look personal (email, phone, address, date of birth, government id, card). A field named `ssn`, `dob`, `medical`, `card_number`, or similar also raises the **stop-line**: get a person who does this for a living.
-- **By hand (60 s):** open your schema or your database's table view and read the column names aloud to someone. Every hesitation is a Don't know.
+- **By hand (60 s):** Open your schema or your database's table view. Read the column names aloud to someone. Every hesitation is a Don't know.
 
 ## Q11. Can I export code and data and leave, and what did the platform default to? (Define)
 
@@ -112,8 +112,8 @@ Past a few seconds a user assumes it is broken and refreshes. Unless the server 
 - **Yes** only from you: you can say the number ("four seconds") and what the app does when it is exceeded (a timeout, a cached answer, a smaller model, or a waiting state that tells the user what is happening).
 - **No** only from you: there is no timeout, so a stuck call to the provider leaves the user staring at a spinner.
 - Scanner hints: `spend-cap-word` picks up `maxDuration` and its relatives; it shows a limit exists somewhere, never that it is the right one.
-- **By hand (60 s):** use the slowest real path in your app and count out loud. Then turn your wifi off mid-request and watch what a user would see.
-- **The fix:** if it spins forever, set a timeout and show a message when it trips. One line and one sentence of copy.
+- **By hand (60 s):** Use the slowest real path in your app and count out loud. Then turn your wifi off mid-request. Watch what a user would see.
+- **The fix:** If it spins forever, set a timeout and show a message when it trips. That is one line of code and one sentence of text.
 
 ## A2. Where do your prompts live? (Diff review)
 
@@ -122,8 +122,8 @@ The same instruction pasted into three files and edited in place is the AI versi
 - **Yes** only from you: prompts live in one place, in version control.
 - **No** only from you: the same instruction is copy-pasted in more than one place, or prompts are edited live in a dashboard and nothing ties the version to the answer it produced.
 - Scanner hints: none that are decisive. A prompt is just a string, and the scanner will not read your app's instruction files by design.
-- **By hand (60 s):** copy one distinctive sentence out of your main prompt and ask your AI tool: "find every place in this project that contains this sentence." More than one hit is your answer. No project it can search is also your answer.
-- **The fix:** move the instruction to one file and import it everywhere else. Then, when you can, log which prompt version produced each answer, which is what makes "why did it say that?" answerable at all. Doing it is a change to a prompt that is in production, which is an escalation trigger: tier that change Gated and run its gates, the same as any other.
+- **By hand (60 s):** Copy one unusual sentence from your main prompt. Ask your AI tool to "find every place in this project that contains this sentence." More than one hit is your answer. If your tool has no project to search, that is your answer too.
+- **The fix:** Move the instruction to one file and import it everywhere else. When you can, log which prompt version produced each answer. That is what lets you answer "why did it say that?" This fix changes a prompt in production, so it is a change that needs extra checks. Tier it Gated and run its gates.
 
 ## A3. Is production running what you actually tested? (Verify)
 
@@ -132,8 +132,8 @@ The prompt you tried in the playground is not the prompt your code sends. Your c
 - **Yes** only from you: you have seen the exact final text and settings one real request sent, and it matches what you evaluated.
 - **No** only from you: you tuned it in a playground, shipped something your code assembles, and have never compared the two.
 - Scanner hints: `model-literal` shows which model names appear in the code. Two different model names in two places is worth a look.
-- **By hand (60 s):** ask your AI tool: "show me the exact final text and settings you send to the model for one request, printed in full, not summarised." Read it next to what you tested. People are usually surprised.
-- **The fix:** whatever differs, make the tested version the shipped one. If you cannot tell them apart, that is the finding.
+- **By hand (60 s):** Ask your AI tool to "print the exact text and settings you send the model for one request." It must be in full, not summarised. Read it next to what you tested. People are usually surprised.
+- **The fix:** Whatever differs, make the tested version the shipped one. If you cannot tell them apart, that is the finding.
 - *If you also train a model, this one has a name: training and serving skew. Without training, it is the same shape with a smaller blast radius, because only the input differs and the fix is a diff rather than a retrain.*
 
 ## A4. Did that change actually make it better? (Verify)
@@ -143,8 +143,8 @@ The prompt you tried in the playground is not the prompt your code sends. Your c
 - **Yes** only from you: a set of real inputs with a note on what a good answer looks like, run before and after a change, with a count you write down, and some of them you never edit the prompt against.
 - **No** only from you: changes ship on a read-through of one or two outputs, or every example you have is one you tuned until it passed.
 - Scanner hints: none, and there cannot be any. Whether you judged a change on examples you did not tune against is a fact about how you worked, not about your files.
-- **By hand (60 s):** open a document. Paste five real things users have typed into your app, and next to each, one line on what a good answer looks like. Next time you change the prompt, paste those five back in by hand and count how many still look right. Four out of five is your number. Keep two you never tune against.
-- **The fix:** the document is the fix. Five examples in a doc beats nothing, and you can write it in the session.
+- **By hand (60 s):** Open a document. Paste five real things users typed into your app. Next to each, write one line on what a good answer looks like. Next time you change the prompt, paste those five back in and count how many still look right. Four out of five is your number. Keep two you never tune against.
+- **The fix:** The document is the fix. Five examples in a document beat nothing, and you can write them now.
 - *Two honest caveats to say out loud. Five or ten examples is a smoke alarm, not a measurement: one flipped answer moves the number a long way, so it catches a disaster and nothing smaller. And because the model is not deterministic, running each example once measures the dice as well as the change.*
 - *If you also train a model, the trained version of this is called overfitting the validation set. Their term "data leakage" means something narrower: information that will not be there at answer time getting into the input. You can have that too, and the common shape is an eval whose retrieved context already contains the answer.*
 
@@ -155,8 +155,8 @@ It will be wrong. The question is only whether the wrongness has somewhere to go
 - **Yes** only from you: there is a defined path (a retry with a delay, a cached or default answer, a human to escalate to, or an honest error that says what to do next), and you have seen it happen.
 - **No** only from you: the failure path is a spinner, a blank screen, or a made-up answer presented as fact.
 - Scanner hints: none. A fallback is behaviour, not a file.
-- **By hand (60 s):** no non-live copy? Turn your wifi off mid-request, which is a provider being down and costs you nothing. If you do have a non-live copy, put a wrong API key in it and use your own app as a user. Whatever you see is your fallback.
-- **The fix:** whatever you saw, replace it with a sentence that tells the user what happened and what to do next. That is the smallest honest fallback and it takes minutes.
+- **By hand (60 s):** No copy that isn't live? Turn your wifi off mid-request. That acts like a provider being down, and it costs nothing. If you have a copy that isn't live, put a wrong API key in it. Then use your app as a user. Whatever you see is your fallback.
+- **The fix:** Replace whatever you saw with a sentence that tells the user what happened and what to do next. That is the smallest honest fallback, and it takes minutes.
 - *A bad key tests "down", and only its fastest form. The two you will actually meet are a rate limit or an overloaded provider, which needs a retry with a delay, and a call that times out halfway. "Wrong" no key can fake: write a confidently wrong answer into the response by hand and see where it goes.*
 
 ## A6. Is your model pinned, and is the provider about to move you? (Watch)
@@ -166,8 +166,8 @@ You changed nothing and the answers changed anyway. If the model name in your co
 - **Yes** only from you: the model name names a specific version, you re-run the examples from A4 when you change it, and you know when that version is scheduled to go away.
 - **No** only from you: the name has no version in it and nothing re-runs when the answers move.
 - Scanner hints: `model-literal` shows which model names appear in the code; a name without a date or version is worth a look.
-- **By hand (60 s):** find the model name in your code. No date or version means you are on today's. Better still, read the `model` field the provider sends back on one real response, which names what actually served rather than what you asked for.
-- **The fix:** pin the version. It is a one-line edit, and then subscribe to your provider's deprecation notices. Swapping a model version is an escalation trigger, so tier that one-line edit Gated and run its gates; "small diff" is exactly how this one gets shipped unwatched.
+- **By hand (60 s):** Find the model name in your code. No date or version means you are on today's model. Better: read the `model` field the provider sends back on one real response. It names the model that actually answered, not the one you asked for.
+- **The fix:** Pin the version. It is a one-line edit. Then subscribe to your provider's notices about retiring models. Swapping a model version is a change that needs extra checks. Tier that edit Gated and run its gates. "Small diff" is exactly how this one ships unwatched.
 - *A pin is a dated lease, not a freeze. Versions are retired on a schedule, so pinning buys you notice and a planned re-run rather than permanence. Pinning is straightforward on Anthropic and OpenAI, where dated names are the normal shape; on some other providers the stable names roll forward and you cannot pin the same way.*
 
 ## When your product moves and your examples do not

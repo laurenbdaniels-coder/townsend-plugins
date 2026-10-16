@@ -385,6 +385,21 @@
 **Priority:** P3
 **Depends on:** None
 
+### Leftovers from the plain-English review (0.3.6, 2026-10-15)
+
+**What:** none changes a door or an answer; each was deferred under the ship bar.
+(1) The tests check the fixed text only. The sentences the agent writes into the template (the door sentence, Patch list items, the Don't-know lines) are measured by real runs, not by a test; an eval grader with the 25-word regex, like decision-census's, would pin them.
+(2) The next-change line now says "This change needs extra checks: …" where it said "Trigger: …". Check that the workshop deck and handout do not quote the old wording.
+(3) The references (`questions.md` outside the By hand and The fix lines, `tiers-and-doors.md`) still say "escalation trigger"; the Plain English section maps it, so the founder never reads it raw.
+
+**Why:** fix PRs stay in scope.
+
+**Context:** /review of fix/custody-check-plain-english (Claude adversarial, Codex rounds 1 and 2, two delta checks on the structural fixes).
+
+**Effort:** S
+**Priority:** P3
+**Depends on:** None
+
 ## decision-census
 
 From the v0.1.0 review (2026-10-15). None met the ship bar; each is a one-line follow-up.

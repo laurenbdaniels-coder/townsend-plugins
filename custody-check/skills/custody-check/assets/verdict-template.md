@@ -7,13 +7,15 @@ Render exactly this shape. Every scanner string (paths, snippets, check names, e
 
 Date: <YYYY-MM-DD> · Repo: `<app folder name>` · Mode: local, read-only · Scanner: <ran | unavailable (reason)>
 
-<N> answers are "Don't know" or "Nothing found". Those are not failures; they are the next questions to answer, and each one below comes with its sixty-second test.
+This check reads your app's files and your answers. It ends with one door: Ship it, Patch it, or Get a person.
+
+<N> answers are "Don't know" or "Nothing found". These are not failures. Each one is a next question, with a sixty-second by-hand test below.
 
 ## Stop-line
 <"Not ticked." | "Ticked: <items>. Get a person who does this for a living before the next change ships.">
 
 ## Next change: <what the founder named> → **<Light | Standard | Gated>**
-<"No escalation trigger named." | "Trigger: <the trigger that fired>."> Gates to run: <list>.
+<"Nothing in this change needs extra checks." | "This change needs extra checks: <the trigger that fired>."> Gates to run: <list>.
 
 ## Door: **<Ship it | Patch it>**   (or: **Get a person** and no door)
 <one sentence with the rule that decided it>
@@ -89,7 +91,7 @@ Rules for filling it in:
 - **not partial, footer only:** `files_skipped_oversize` minus `files_skipped_oversize_relevant` → "<n> large files (images, media, data) skipped; none of them could hold a key or an access rule"; `files_skipped_generated` → "<n> generated files (lockfiles, bundles) not scanned"; `files_skipped_special` → "<n> links or special files skipped".
 - **Non-default flags** in `stats.config` are printed after the footer's file count.
 - **Footer next step** (first match wins; copy the whole line exactly, it is the verdict's last line):
-  - stop-line ticked → "This app handles data or money that needs a written scope before anyone looks at it, so write to the studio first (address in the README) rather than booking a free check."
+  - stop-line ticked → "This app handles data or money that needs a written scope first, so write to the studio (address in the README)."
   - scanner unavailable (the degraded path) → "The scanner couldn't run, so bring your app folder to a Free Assessment and we'll run it together: townsendaistudio.com/assessment?src=custody-check"
   - `partial` is true → "The scan stopped early, so rerun it with the recipe above and bring the new verdict to a Free Assessment: townsendaistudio.com/assessment?src=custody-check"
   - otherwise → "Bring this verdict to a Free Assessment (free, one per company) and we'll test on your own screen what the files couldn't show: townsendaistudio.com/assessment?src=custody-check"
