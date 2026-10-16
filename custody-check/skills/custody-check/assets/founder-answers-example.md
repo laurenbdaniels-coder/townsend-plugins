@@ -1,6 +1,6 @@
 # Founder answers block
 
-Paste a block like this in the chat (or in a file the agent can read) to answer the questions the scanner cannot. Any line you leave out is asked one at a time. Values are `yes`, `no`, or `dont-know`, then an optional dash and a note.
+Paste a block like this in the chat (or in a file the agent can read) to answer the questions the scanner and your code cannot. Any line you leave out is asked one at a time, unless your code already answered it. Values are `yes`, `no`, or `dont-know`, then an optional dash and a note.
 
 ```
 Founder answers
@@ -32,4 +32,4 @@ Field notes:
 - `card-numbers` means the app stores or handles card numbers or other card details itself. `moves-money` means it holds or moves money for other people (payouts, Connect, escrow, stored balances, wallets).
 - Payments your payment company runs, like the Stripe subscriptions above (or its invoices and refunds), are not a stop-line item when that is all the app does with money. They make the change Gated.
 - `payments` is the old word. The agent asks one question about it, or about any other money handling, and it still ticks the stop-line if the answer is unclear.
-- You cannot turn a scanner `no` into a `yes`. Fix the thing, then run the check again.
+- You cannot turn a scanner `no`, or a `no` from your code, into a `yes`. Fix the thing, then run the check again.

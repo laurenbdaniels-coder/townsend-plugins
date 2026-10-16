@@ -36,7 +36,7 @@ Any of these ticked means: get a person who does this for a living before the ne
 
 Payments your payment company runs (checkout, Elements, embedded checkout, subscriptions, invoices, refunds, a billing portal), where it holds the card details and settles the money, are not on this list when that is all the app does with money. It is ordinary Gated work: the payments trigger above. Any other money handling gets one question, and it is ticked when the answer is unclear.
 
-The founder ticks the stop-line in the answers block (`stop_line:`). Scanner evidence on Q10 that shows fields such as `ssn`, `social_security`, `dob`, `date_of_birth`, `birthdate`, `medical`, `diagnosis`, `credit_card`, `card_number`, `cc_number`, `iban`, or `passport` also raises it.
+The founder ticks the stop-line in the answers block (`stop_line:`). Scanner evidence on Q10 that shows fields such as `ssn`, `social_security`, `dob`, `date_of_birth`, `birthdate`, `medical`, `diagnosis`, `credit_card`, `card_number`, `cc_number`, `iban`, or `passport` also raises it. The agent's read of your code raises it too, when the code shows one of the first four items above.
 
 ## Three doors
 
