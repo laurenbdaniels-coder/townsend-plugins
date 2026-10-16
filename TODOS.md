@@ -449,6 +449,36 @@ Review findings on the shared grader pack (S-032 review, 2026-10-16) that did no
 - **The re-scoring claim is not a test.** The comment says Python `re` reproduces all 2,612 recorded verdicts; nothing checks it, and flags other than `i` are ignored. P3.
 - **Credits link in an installed copy.** decision-census/README.md links `../free-plugin-standard/STANDARD.md`, which is dead when only the plugin folder is installed. P3.
 
+### ALLOWED entries turn main red on merge
+
+**What:** The never-worse differential fails on any ALLOWED entry that excuses nothing. When the PR that adds entries merges, main gets the same graders, so every entry goes stale and main's CI fails until a follow-up drops them. #39 left 23; the spell-it-out PR emptied the list.
+
+**Why:** Each PR that adds an exception turns main red at merge. Fix the class, not each case.
+
+**Context:** Count an entry as consumed, not stale, when main and the branch fail the report with the same checks; fail only when the branch no longer fails it. Risk: entries then never expire, so an old excuse could re-arm if a later main stops failing that report. Mutate the guard before trusting it.
+
+**Effort:** S
+**Priority:** P1
+
+## spell-it-out
+
+### Leftovers from the 0.1.0 review (2026-10-16)
+
+**What:** Findings from the first review that missed the ship bar.
+- A short form for low-stakes stops. "Any technical word" makes a routine "run the tests first?" get the full brief, and four batched questions get four briefs. Consider three lines (the ask, my pick, TL;DR) when the change is small and easy to undo, and one brief for a batch.
+- Evals: one technical-stop case and one near-miss plain question (a newsletter subject line), following the decision-census `case.yaml` layout. `claude plugin eval` turns off CLAUDE.md, so they test the skill without the standing rule.
+- CI: add `spell-it-out/` to the IP grep paths. Add a version check that compares every plugin's `plugin.json` with its marketplace entry, not only the plugins with a python `__version__`. The validate step runs with `continue-on-error`, and one failing line skips the lines after it; give each plugin its own line or step. Main has the same gaps for prompt-coach, product-flow and pm-growth-coach.
+- The intro's list of parts repeats the numbered list and leaves out "Not sure?" and TL;DR. Cut it, or make the numbered list the only one.
+- The README example repeats the SKILL.md example word for word; they can drift.
+- In a test run the TL;DR came out as two sentences ("Test on a copy first: … I say yes; …"). The content was right. Watch for it in the evals.
+
+**Why:** Each one is verbosity, a CI gap main already has, or style, not a way the plugin makes a session worse than main.
+
+**Context:** Review record for PR "spell-it-out 0.1.0". Reviewers: testing, maintainability and simplification specialists, a Claude adversarial pass and Codex. The six findings that met the bar were fixed in the PR.
+
+**Effort:** S
+**Priority:** P3
+
 ## Completed
 
 ### Graduated differential exceptions never expire (fix before the stop-line PR merges)
