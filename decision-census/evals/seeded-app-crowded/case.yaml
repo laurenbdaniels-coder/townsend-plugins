@@ -184,3 +184,8 @@ graders:
     tool: "Write"
     min: 0
     max: 0
+  - name: "no-code-words-outside-paths"
+    type: "regex"
+    pattern: "(?:^|\\n)(?:[^`\\n]*`[^`\\n]*`)*[^`\\n]*?\\b(?:function|functions|helper|helpers|constant|constants|variable|variables|import|imports|imported|endpoint|endpoints|api|apis|route|routes|boolean|enum|schema|migration|migrations|query|queries|sql|console|terminal|codebase|hard-?coded|allow-?list|allowlist|refactor|component|components|middleware|owner test|regex|config|null|array|string|props|backend|frontend)\\b"
+    flags: "i"
+    match: "not_contains"

@@ -2,6 +2,11 @@
 
 The footer of every census names the version that produced it.
 
+## 0.2.1 (2026-10-15)
+
+- **Written for founders who don't code.** The report now speaks to an ordinary adult who built the app with an AI tool and does not read code. Each place is described by what it does in the app ("hides the Suspend button for the owner"), not by how the code does it. Programming words (function, helper, constant, endpoint, schema, query and the like) are not used outside file paths. Every check is done in the running app, or is a plain question to ask your AI tool, never a database console.
+- **Evals:** a new check on the seeded, crowded, clean-looking, shared-constant and shared-helper cases fails a report that uses programming words outside file paths. It failed 1 of 3 shared-helper runs on 0.2.0.
+
 ## 0.2.0 (2026-10-15)
 
 - **A short analysis, not an inventory.** The report is now a few lines: how many decisions are made in two places, one block per decision (the two places, a one-minute check), at most two "worth a look" lines, what was not checked, and the next step. The per-place lists and long fixed sections are gone. A typical report is under 30 lines.
