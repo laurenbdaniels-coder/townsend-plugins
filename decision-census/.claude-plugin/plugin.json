@@ -1,0 +1,14 @@
+{
+  "name": "decision-census",
+  "version": "0.3.3",
+  "description": "Decision Census is now Build Decisions. This pointer tells you how to install build-decisions and remove this plugin. It runs nothing.",
+  "author": {
+    "name": "Lauren Townsend"
+  },
+  "license": "MIT",
+  "keywords": [
+    "vibe-coding",
+    "founders",
+    "renamed"
+  ]
+}

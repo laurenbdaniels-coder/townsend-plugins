@@ -63,6 +63,7 @@
     "free-plugin-standard/**": [
       "free-plugin-standard/sync_graders_test.py"
     ],
-    ".github/workflows/ci.yml": []
+    ".github/workflows/ci.yml": [],
+    "decision-census/**": []
   }
 }
