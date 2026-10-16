@@ -89,6 +89,23 @@ jobs:
           CUSTODY_TIME_SLACK: "3"
         run: python -m unittest discover -s custody-check/skills/custody-check/scripts -p "*_test.py"
 
+  free-plugin-standard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the never-worse differential reads origin/main's case.yaml files
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+      - name: PyYAML for the differential (it parses case.yaml)
+        run: python3 -m pip install pyyaml==6.0.2
+      - name: Every free plugin's eval cases carry the shared graders, up to date
+        run: python3 free-plugin-standard/sync_graders.py --check
+      - name: Sync tests and never-worse-than-main differential on the saved reports
+        run: python3 -m unittest discover -s free-plugin-standard -p '*_test.py' -v
+
   decision-census:
     runs-on: ubuntu-latest
     timeout-minutes: 15

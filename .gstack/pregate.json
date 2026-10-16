@@ -22,13 +22,47 @@
       "custody-check/skills/custody-check/scripts/custody_verdict_test.py",
       "custody-check/skills/custody-check/scripts/plain_english_test.py"
     ],
-    "custody-check/.claude-plugin/plugin.json": ["custody-check/skills/custody-check/scripts/custody_scan_test.py"],
-    ".claude-plugin/marketplace.json": ["custody-check/skills/custody-check/scripts/custody_scan_test.py"],
-    "README.md": ["custody-check/skills/custody-check/scripts/custody_scan_test.py"],
-    "custody-check/CHANGELOG.md": ["custody-check/skills/custody-check/scripts/custody_scan_test.py"],
+    "custody-check/.claude-plugin/plugin.json": [
+      "custody-check/skills/custody-check/scripts/custody_scan_test.py"
+    ],
+    ".claude-plugin/marketplace.json": [
+      "custody-check/skills/custody-check/scripts/custody_scan_test.py",
+      "decision-census/skills/decision-census/scripts/census_scan_test.py",
+      "decision-census/skills/decision-census/scripts/differential_test.py"
+    ],
+    "README.md": [
+      "custody-check/skills/custody-check/scripts/custody_scan_test.py",
+      "decision-census/skills/decision-census/scripts/census_scan_test.py",
+      "decision-census/skills/decision-census/scripts/differential_test.py"
+    ],
+    "custody-check/CHANGELOG.md": [
+      "custody-check/skills/custody-check/scripts/custody_scan_test.py"
+    ],
     "custody-check/evals/**": [],
     "custody-check/README.md": [],
     "TODOS.md": [],
-    ".gstack/pregate.json": []
+    ".gstack/pregate.json": [],
+    "decision-census/skills/decision-census/scripts/*.py": [
+      "decision-census/skills/decision-census/scripts/census_scan_test.py",
+      "decision-census/skills/decision-census/scripts/differential_test.py"
+    ],
+    "decision-census/skills/decision-census/scripts/fixtures/**": [
+      "decision-census/skills/decision-census/scripts/census_scan_test.py",
+      "decision-census/skills/decision-census/scripts/differential_test.py"
+    ],
+    "decision-census/.claude-plugin/plugin.json": [
+      "decision-census/skills/decision-census/scripts/census_scan_test.py",
+      "decision-census/skills/decision-census/scripts/differential_test.py"
+    ],
+    "decision-census/skills/decision-census/SKILL.md": [],
+    "decision-census/README.md": [],
+    "decision-census/CHANGELOG.md": [],
+    "decision-census/evals/**": [
+      "free-plugin-standard/sync_graders_test.py"
+    ],
+    "free-plugin-standard/**": [
+      "free-plugin-standard/sync_graders_test.py"
+    ],
+    ".github/workflows/ci.yml": []
   }
 }
