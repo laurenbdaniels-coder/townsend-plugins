@@ -186,33 +186,10 @@ def corpora():
     plugins = json.load(open(os.path.join(HERE, 'pack.json')))['plugins']
     return {p: os.path.join(HERE, 'corpus', '%s-reports.jsonl' % p) for p in sorted(plugins)}
 
-# (plugin, case, sha256 of report text[:12]) -> reason main was wrong. Every entry is a report from
-# a release before the standard (0.3.1): main never graded these lines in these cases. None is a 0.3.1 report.
-ALLOWED = {
-    ('decision-census', 'fix-request', '3215465e80ef'): '0.1.x predates the report shape: no count, why, out-of-sync or check-it lines, and code words. Main never graded the shape in this case.',  # 0.1.0
-    ('decision-census', 'fix-request', '382b29c0804e'): '0.1.x predates the report shape: no count, why, out-of-sync or check-it lines, and code words. Main never graded the shape in this case.',  # 0.1.0
-    ('decision-census', 'fix-request', '08bc24989a71'): '0.1.x predates the report shape: no count, why, out-of-sync or check-it lines, and code words. Main never graded the shape in this case.',  # 0.1.0
-    ('decision-census', 'fix-request', '1dc21e397b1b'): '0.1.x predates the report shape: no count, why, out-of-sync or check-it lines, and code words. Main never graded the shape in this case.',  # 0.1.0
-    ('decision-census', 'fix-request', '8febab23097c'): '0.1.x predates the report shape: no count, why, out-of-sync or check-it lines, and code words. Main never graded the shape in this case.',  # 0.1.0
-    ('decision-census', 'fix-request', 'dcba0a915af8'): 'same as 0.1.0: pre-standard report shape, ungraded in this case on main.',  # 0.1.1
-    ('decision-census', 'fix-request', '54909bf2fcb6'): 'same as 0.1.0: pre-standard report shape, ungraded in this case on main.',  # 0.1.1
-    ('decision-census', 'fix-request', '3043b45bf8a6'): 'same as 0.1.0: pre-standard report shape, ungraded in this case on main.',  # 0.1.1
-    ('decision-census', 'fix-request', '4a35677c0251'): 'same as 0.1.0: pre-standard report shape, ungraded in this case on main.',  # 0.1.1
-    ('decision-census', 'fix-request', '6364b0c3dff1'): 'same as 0.1.0: pre-standard report shape, ungraded in this case on main.',  # 0.1.1
-    ('decision-census', 'fix-request', '5ee71a00ce5f'): 'same as 0.1.0: pre-standard report shape, ungraded in this case on main.',  # 0.1.2
-    ('decision-census', 'fix-request', 'e84cb1b3b775'): 'same as 0.1.0: pre-standard report shape, ungraded in this case on main.',  # 0.1.2
-    ('decision-census', 'stopline-app', 'bd2e7bb93421'): 'the stop-line text uses code words ("schema", "config", "route"); main had no code-words grader in this case.',  # 0.1.2
-    ('decision-census', 'stopline-app', '8b7b55e00e9a'): 'the stop-line text uses code words ("schema", "config", "route"); main had no code-words grader in this case.',  # 0.1.2
-    ('decision-census', 'stopline-app', 'daf7885b0daf'): 'the stop-line text uses code words ("schema", "config", "route"); main had no code-words grader in this case.',  # 0.1.2
-    ('decision-census', 'stopline-app', 'fe884935fb50'): 'the stop-line text uses code words ("schema", "config", "route"); main had no code-words grader in this case.',  # 0.1.2
-    ('decision-census', 'stopline-app', '414592b1a78e'): 'the stop-line text uses code words ("schema", "config", "route"); main had no code-words grader in this case.',  # 0.2.0
-    ('decision-census', 'stopline-app', 'fcc0cc02ff40'): 'the stop-line text uses code words ("schema", "config", "route"); main had no code-words grader in this case.',  # 0.2.0
-    ('decision-census', 'stopline-app', '4cdbe5d2920b'): 'the stop-line text uses code words ("schema", "config", "route"); main had no code-words grader in this case.',  # 0.2.0
-    ('decision-census', 'stopline-app', '85d4d41bc2d1'): 'the stop-line text uses code words ("schema", "config", "route"); main had no code-words grader in this case.',  # 0.2.0
-    ('decision-census', 'stopline-app', '4610bfb777dd'): 'the stop-line text uses code words ("schema", "config", "route"); main had no code-words grader in this case.',  # 0.2.0
-    ('decision-census', 'stopline-app', '4543da4931b0'): 'the stop-line text uses code words ("schema", "config", "route"); main had no code-words grader in this case.',  # 0.2.0
-    ('decision-census', 'stopline-app', 'acea6336a74f'): '0.3.0 gave a fix prompt, the gap 0.3.1 closed; main had no fix-prompt grader in this case.',  # 0.3.0
-}
+# (plugin, case, sha256 of report text[:12]) -> reason main was wrong. Empty: the 23 entries that
+# excused pre-standard reports were consumed when the standard merged (#39), because main now
+# carries the same graders. A PR that adds entries drops them in a follow-up once it merges.
+ALLOWED = {}
 
 
 def _git(*args):
