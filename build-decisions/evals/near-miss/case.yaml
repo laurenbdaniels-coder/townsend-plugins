@@ -9,6 +9,6 @@ graders:
   - name: "census-does-not-fire"
     type: "tool_used"
     tool: "Skill"
-    input_match: "decision-census"
+    input_match: "build-decisions"
     min: 0
     max: 0

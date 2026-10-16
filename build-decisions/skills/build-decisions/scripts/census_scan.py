@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""decision-census helper: lists candidate places where an app decides four things.
+"""build-decisions helper: lists candidate places where an app decides four things.
 
 Read-only. Prints ONE JSON line. Nothing from inside a file ever reaches the output: every
 string is a repo-relative path (only when it passes a strict character rule) or a member of
@@ -8,7 +8,7 @@ the fixed VOCABULARY below. The skill starts from the listed lines and searches 
 Decision types: visibility (who can see a record), price (what something costs),
 paid (whether someone has paid), rounding (how money rounds).
 """
-__version__ = "0.3.2"
+__version__ = "0.4.0"
 
 import sys
 

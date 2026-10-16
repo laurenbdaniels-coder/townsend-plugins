@@ -1,7 +1,7 @@
 schema_version: "1.1"
 name: shared-helper-diverges
 execution:
-  prompt: "run decision census on ./planco"
+  prompt: "run build decisions on ./planco"
   max_turns: 60
   timeout_seconds: 900
   allowed_tools: ["Read", "Grep", "Glob", "Skill"]
@@ -11,7 +11,7 @@ graders:
   - name: "skill-fired"
     type: "tool_used"
     tool: "Skill"
-    input_match: "decision-census"
+    input_match: "build-decisions"
     min: 1
   - name: "price-pair-page"
     type: "regex"
@@ -73,7 +73,7 @@ graders:
   - name: "read-stays-in-app"
     type: "tool_used"
     tool: "Read"
-    input_match: "\"file_path\"\\s*:\\s*\"(?![^\"]*/planco/)(?![^\"]*/decision-census/skills/decision-census/)"
+    input_match: "\"file_path\"\\s*:\\s*\"(?![^\"]*/planco/)(?![^\"]*/build-decisions/skills/build-decisions/)"
     min: 0
     max: 0
   - name: "read-never-uses-dotdot"

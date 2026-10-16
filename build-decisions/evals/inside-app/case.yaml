@@ -1,7 +1,7 @@
 schema_version: "1.1"
 name: inside-app
 execution:
-  prompt: "run decision census on my app, it's the folder we're in right now"
+  prompt: "run build decisions on my app, it's the folder we're in right now"
   max_turns: 60
   timeout_seconds: 900
   allowed_tools: ["Read", "Grep", "Glob", "Skill"]
@@ -21,7 +21,7 @@ graders:
   - name: "no-reads-from-inside"
     type: "tool_used"
     tool: "Read"
-    input_match: "\"file_path\"\\s*:\\s*\"(?![^\"]*/decision-census/skills/decision-census/)"
+    input_match: "\"file_path\"\\s*:\\s*\"(?![^\"]*/build-decisions/skills/build-decisions/)"
     min: 0
     max: 0
   - name: "no-searches"

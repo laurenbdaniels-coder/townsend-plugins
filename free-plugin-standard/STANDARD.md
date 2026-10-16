@@ -1,6 +1,6 @@
 # The free-plugin report standard
 
-Every free Townsend plugin reports to this standard. Reference implementation: decision-census 0.3.1 and later, `decision-census/skills/decision-census/SKILL.md` Step 5.
+Every free Townsend plugin reports to this standard. Reference implementation: build-decisions 0.4.0 (decision-census 0.3.1 and later before the rename), `build-decisions/skills/build-decisions/SKILL.md` Step 5.
 
 ## The reader
 

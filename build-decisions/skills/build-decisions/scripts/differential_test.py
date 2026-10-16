@@ -4,7 +4,8 @@ Three gates, all on fixtures/corpus (python 3.9, unittest only):
 1. Never-miss: every seeded decider in expected.json is listed, capped and uncapped.
 2. Noise, absolute: each negative file lists at most its max_listed (0 by default), unless
    EXCEPTIONS names it with the reason. This applies from the first release on.
-3. Main vs branch (once origin/main ships decision-census), uncapped: the branch lists every
+3. Main vs branch, uncapped (main's helper is found at the build-decisions path or the older
+   decision-census path; in CI, finding neither fails the run): the branch lists every
    (path, line, type) main lists anywhere in the corpus, and nothing main does not list, unless
    RECALL_EXCEPTIONS or NEW_ALARM_EXCEPTIONS names that exact triple with the reason main was wrong.
 
@@ -24,11 +25,17 @@ SCRIPT = os.path.join(SCRIPT_DIR, "census_scan.py")
 FIXTURES = os.path.join(SCRIPT_DIR, "fixtures")
 CORPUS = os.path.join(FIXTURES, "corpus")
 EXPECTED = os.path.join(FIXTURES, "expected.json")
-# scripts -> decision-census (skill) -> skills -> decision-census (plugin) -> repo root
+# scripts -> build-decisions (skill) -> skills -> build-decisions (plugin) -> repo root
 PLUGIN_DIR = os.path.dirname(os.path.dirname(os.path.dirname(SCRIPT_DIR)))
 REPO_ROOT = os.path.dirname(PLUGIN_DIR)
+EVAL_FIXTURES = os.path.join(PLUGIN_DIR, "evals", "fixtures")
 MAIN_REF = os.environ.get("CENSUS_MAIN_REF", "origin/main")
-MAIN_SCRIPT_PATH = "decision-census/skills/decision-census/scripts/census_scan.py"
+# Where main keeps the helper, newest name first. 0.4.0 renamed the plugin; until it merges, main has
+# only the old path. Neither found: the comparison skips visibly, and fails under CI.
+MAIN_SCRIPT_PATHS = (
+    "build-decisions/skills/build-decisions/scripts/census_scan.py",
+    "decision-census/skills/decision-census/scripts/census_scan.py",
+)
 
 # Negative files that may list more than max_listed, each with the reason the expectation was wrong.
 # Format: {"path": "src/...", "max_listed": N, "reason": "..."}
@@ -45,6 +52,10 @@ NEW_ALARM_EXCEPTIONS = []
 # Stop-line hints main reported that the branch may drop, with the reason (fewer hints means a missed "Get a person").
 # Format: {"path": "...", "line": N, "field": "...", "reason": "..."}
 HINT_EXCEPTIONS = []
+
+
+def dumps(obj):
+    return json.dumps(obj, separators=(",", ":"))  # key order kept: the line must match, not just its contents
 
 
 def load_expected():
@@ -82,24 +93,30 @@ def main_ref_resolves():
         return False
 
 
-def main_script(tmp):
-    """Export main's helper with git archive. Returns its path, or None when main has none."""
+def main_script(tmp, ref=MAIN_REF, root=REPO_ROOT):
+    """Export main's whole scripts folder with git archive, from the first MAIN_SCRIPT_PATHS entry main
+    has. Returns the helper's path, or None when main has neither."""
     try:
-        subprocess.run(["git", "-C", REPO_ROOT, "rev-parse", "--verify", MAIN_REF],
+        subprocess.run(["git", "-C", root, "rev-parse", "--verify", ref],
                        check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        listing = subprocess.run(["git", "-C", REPO_ROOT, "ls-tree", "--name-only", MAIN_REF, MAIN_SCRIPT_PATH],
-                                 check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE).stdout.decode().strip()
     except (subprocess.CalledProcessError, OSError):
         return None
-    if not listing:
-        return None
-    archive = os.path.join(tmp, "main.tar")
-    subprocess.run(["git", "-C", REPO_ROOT, "archive", "-o", archive, MAIN_REF, "decision-census/skills/decision-census/scripts/"],
-                   check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    out = os.path.join(tmp, "main")
-    os.makedirs(out)
-    subprocess.run(["tar", "-xf", archive, "-C", out], check=True)
-    return os.path.join(out, MAIN_SCRIPT_PATH)
+    for rel in MAIN_SCRIPT_PATHS:
+        try:
+            listing = subprocess.run(["git", "-C", root, "ls-tree", "--name-only", ref, rel], check=True,
+                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE).stdout.decode().strip()
+        except (subprocess.CalledProcessError, OSError):
+            return None
+        if not listing:
+            continue
+        archive = os.path.join(tmp, "main.tar")
+        subprocess.run(["git", "-C", root, "archive", "-o", archive, ref, os.path.dirname(rel) + "/"],
+                       check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        out = os.path.join(tmp, "main")
+        os.makedirs(out)
+        subprocess.run(["tar", "-xf", archive, "-C", out], check=True)
+        return os.path.join(out, rel)
+    return None
 
 
 class DifferentialTests(unittest.TestCase):
@@ -138,13 +155,16 @@ class DifferentialTests(unittest.TestCase):
     def test_never_worse_than_main(self):
         """protects=no later version lists fewer seeded deciders, or more noise, than the released one (AC5);
         fails_when=main lists a corpus decider the branch misses, or the branch lists more in a negative file;
-        no_claim=skipped (visibly) while origin/main has no decision-census helper; fails in CI when origin/main
-        cannot be resolved once this branch ships the helper, so a shallow checkout never passes silently."""
+        no_claim=skipped (visibly) outside CI when main's helper is not found; in CI, an unresolved main or a
+        main with the helper at neither path fails, so a shallow checkout or a rename never passes silently."""
         script = main_script(self.tmp)
         if script is None:
-            if os.environ.get("CI") and not main_ref_resolves():
-                self.fail("%s cannot be resolved in CI; check out with fetch-depth: 0" % MAIN_REF)
-            self.skipTest("main has no decision-census helper; compared against expected.json only")
+            if os.environ.get("CI"):
+                if not main_ref_resolves():
+                    self.fail("%s cannot be resolved in CI; check out with fetch-depth: 0" % MAIN_REF)
+                self.fail("main helper not found at %s" % ", ".join(MAIN_SCRIPT_PATHS))
+            print("SKIPPED: main helper not found at %s" % ", ".join(MAIN_SCRIPT_PATHS))
+            self.skipTest("main helper not found at %s" % ", ".join(MAIN_SCRIPT_PATHS))
         main_result = scan(script, self.repo, "--uncapped")
         theirs = triples(main_result)
         mine = triples(self.uncapped)
@@ -152,9 +172,61 @@ class DifferentialTests(unittest.TestCase):
         self.assertEqual(lost, [], "main lists these and the branch does not: %r" % lost)
         new = sorted(mine - theirs - {(e["path"], e["line"], e["type"]) for e in NEW_ALARM_EXCEPTIONS})
         self.assertEqual(new, [], "the branch lists these and main does not (add each to NEW_ALARM_EXCEPTIONS with a reason): %r" % new)
+        # The census line itself never changes with the new sections: same keys, candidates, order, totals,
+        # hints and partial reasons as main, capped, on the corpus and every eval fixture app.
+        apps = [self.repo] + sorted(os.path.join(EVAL_FIXTURES, d) for d in os.listdir(EVAL_FIXTURES)
+                                    if os.path.isdir(os.path.join(EVAL_FIXTURES, d)))
+        for app in apps:
+            theirs_line, mine_line = scan(script, app), scan(SCRIPT, app)
+            theirs_line.pop("version"), mine_line.pop("version")
+            self.assertEqual(dumps(mine_line), dumps(theirs_line), "census line differs from main on %s" % os.path.basename(app))
         hints = lambda r: {(h["path"], h["line"], h["field"]) for h in r["stopline_hints"]}
         lost_hints = sorted(hints(main_result) - hints(self.uncapped) - {(e["path"], e["line"], e["field"]) for e in HINT_EXCEPTIONS})
         self.assertEqual(lost_hints, [], "main reports these stop-line hints and the branch does not: %r" % lost_hints)
+
+
+class MainScriptTests(unittest.TestCase):
+    """main_script() finds main's helper under either name, and says so when it finds neither."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="census-main-")
+        self.root = os.path.join(self.tmp, "repo")
+        os.makedirs(self.root)
+        git = lambda *a: subprocess.run(["git", "-C", self.root] + list(a), check=True,
+                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        git("init", "-q")
+        git("config", "user.email", "t@example.com")
+        git("config", "user.name", "t")
+        self.git = git
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def commit(self, rel):
+        path = os.path.join(self.root, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            f.write("print('main')\n")
+        with open(os.path.join(os.path.dirname(path), "sibling.py"), "w") as f:
+            f.write("X = 1\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "m")
+        return self.git("rev-parse", "HEAD").stdout.decode().strip()
+
+    def test_new_path(self):
+        ref = self.commit(MAIN_SCRIPT_PATHS[0])
+        got = main_script(self.tmp, ref=ref, root=self.root)
+        self.assertTrue(got.endswith(MAIN_SCRIPT_PATHS[0]) and os.path.isfile(got))
+        self.assertTrue(os.path.isfile(os.path.join(os.path.dirname(got), "sibling.py")), "the whole scripts folder comes along")
+
+    def test_old_path(self):
+        ref = self.commit(MAIN_SCRIPT_PATHS[1])
+        got = main_script(self.tmp, ref=ref, root=self.root)
+        self.assertTrue(got.endswith(MAIN_SCRIPT_PATHS[1]) and os.path.isfile(got))
+
+    def test_neither_path(self):
+        ref = self.commit("other/thing.py")
+        self.assertIsNone(main_script(self.tmp, ref=ref, root=self.root))
 
 
 if __name__ == "__main__":

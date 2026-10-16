@@ -182,36 +182,49 @@ class SyncTest(unittest.TestCase):
 # runner recorded (scored on the last message).
 # ---------------------------------------------------------------------------
 
+# A renamed plugin: branch folder -> the folder main keeps it in, until the rename merges. Main's case
+# files are read from the old folder, so the comparison runs instead of finding nothing to compare.
+RENAMED = {'build-decisions': 'decision-census'}
+
+# The saved reports were printed under the old name. The branch's graders score each one as the
+# renamed plugin prints it: only the name changes (title, footer, booking tag), nothing else, so no
+# grader is loosened to accept the old name. Main's graders score the saved text as it is.
+RENAMED_TEXT = {'build-decisions': (('# Decision census', '# Build decisions'),
+                                    ('decision-census v', 'build-decisions v'),
+                                    ('src=decision-census', 'src=build-decisions'))}
+
+
+def as_renamed(plugin, check):
+    """Main's check under the branch's name, so a check that only follows the rename is the same check."""
+    pattern = check[0]
+    for old, new in RENAMED_TEXT.get(plugin, ()):
+        pattern = pattern.replace(old, new)
+    pattern = pattern.replace('decision-census', 'build-decisions') if plugin in RENAMED else pattern
+    return (pattern,) + tuple(check[1:])
+
+
+def as_branch_prints(plugin, text):
+    for old, new in RENAMED_TEXT.get(plugin, ()):
+        text = text.replace(old, new)
+    return text
+
+
+def main_folder(plugin, base):
+    """The folder main keeps this plugin's evals in: its own name once merged, else the old one."""
+    if _git('cat-file', '-e', '%s:%s/evals' % (base, plugin)).returncode == 0:
+        return plugin
+    return RENAMED.get(plugin, plugin)
+
+
 def corpora():
     plugins = json.load(open(os.path.join(HERE, 'pack.json')))['plugins']
     return {p: os.path.join(HERE, 'corpus', '%s-reports.jsonl' % p) for p in sorted(plugins)}
 
-# (plugin, case, sha256 of report text[:12]) -> reason main was wrong. Every entry is a report from
-# a release before the standard (0.3.1): main never graded these lines in these cases. None is a 0.3.1 report.
+# (plugin, case, sha256 of report text[:12]) -> reason main was wrong. A new alarm on a saved report
+# needs an entry here; an entry that no longer excuses anything fails the test.
 ALLOWED = {
-    ('decision-census', 'fix-request', '3215465e80ef'): '0.1.x predates the report shape: no count, why, out-of-sync or check-it lines, and code words. Main never graded the shape in this case.',  # 0.1.0
-    ('decision-census', 'fix-request', '382b29c0804e'): '0.1.x predates the report shape: no count, why, out-of-sync or check-it lines, and code words. Main never graded the shape in this case.',  # 0.1.0
-    ('decision-census', 'fix-request', '08bc24989a71'): '0.1.x predates the report shape: no count, why, out-of-sync or check-it lines, and code words. Main never graded the shape in this case.',  # 0.1.0
-    ('decision-census', 'fix-request', '1dc21e397b1b'): '0.1.x predates the report shape: no count, why, out-of-sync or check-it lines, and code words. Main never graded the shape in this case.',  # 0.1.0
-    ('decision-census', 'fix-request', '8febab23097c'): '0.1.x predates the report shape: no count, why, out-of-sync or check-it lines, and code words. Main never graded the shape in this case.',  # 0.1.0
-    ('decision-census', 'fix-request', 'dcba0a915af8'): 'same as 0.1.0: pre-standard report shape, ungraded in this case on main.',  # 0.1.1
-    ('decision-census', 'fix-request', '54909bf2fcb6'): 'same as 0.1.0: pre-standard report shape, ungraded in this case on main.',  # 0.1.1
-    ('decision-census', 'fix-request', '3043b45bf8a6'): 'same as 0.1.0: pre-standard report shape, ungraded in this case on main.',  # 0.1.1
-    ('decision-census', 'fix-request', '4a35677c0251'): 'same as 0.1.0: pre-standard report shape, ungraded in this case on main.',  # 0.1.1
-    ('decision-census', 'fix-request', '6364b0c3dff1'): 'same as 0.1.0: pre-standard report shape, ungraded in this case on main.',  # 0.1.1
-    ('decision-census', 'fix-request', '5ee71a00ce5f'): 'same as 0.1.0: pre-standard report shape, ungraded in this case on main.',  # 0.1.2
-    ('decision-census', 'fix-request', 'e84cb1b3b775'): 'same as 0.1.0: pre-standard report shape, ungraded in this case on main.',  # 0.1.2
-    ('decision-census', 'stopline-app', 'bd2e7bb93421'): 'the stop-line text uses code words ("schema", "config", "route"); main had no code-words grader in this case.',  # 0.1.2
-    ('decision-census', 'stopline-app', '8b7b55e00e9a'): 'the stop-line text uses code words ("schema", "config", "route"); main had no code-words grader in this case.',  # 0.1.2
-    ('decision-census', 'stopline-app', 'daf7885b0daf'): 'the stop-line text uses code words ("schema", "config", "route"); main had no code-words grader in this case.',  # 0.1.2
-    ('decision-census', 'stopline-app', 'fe884935fb50'): 'the stop-line text uses code words ("schema", "config", "route"); main had no code-words grader in this case.',  # 0.1.2
-    ('decision-census', 'stopline-app', '414592b1a78e'): 'the stop-line text uses code words ("schema", "config", "route"); main had no code-words grader in this case.',  # 0.2.0
-    ('decision-census', 'stopline-app', 'fcc0cc02ff40'): 'the stop-line text uses code words ("schema", "config", "route"); main had no code-words grader in this case.',  # 0.2.0
-    ('decision-census', 'stopline-app', '4cdbe5d2920b'): 'the stop-line text uses code words ("schema", "config", "route"); main had no code-words grader in this case.',  # 0.2.0
-    ('decision-census', 'stopline-app', '85d4d41bc2d1'): 'the stop-line text uses code words ("schema", "config", "route"); main had no code-words grader in this case.',  # 0.2.0
-    ('decision-census', 'stopline-app', '4610bfb777dd'): 'the stop-line text uses code words ("schema", "config", "route"); main had no code-words grader in this case.',  # 0.2.0
-    ('decision-census', 'stopline-app', '4543da4931b0'): 'the stop-line text uses code words ("schema", "config", "route"); main had no code-words grader in this case.',  # 0.2.0
-    ('decision-census', 'stopline-app', 'acea6336a74f'): '0.3.0 gave a fix prompt, the gap 0.3.1 closed; main had no fix-prompt grader in this case.',  # 0.3.0
+    # Empty since #39 merged: main itself now grades these lines, so its 23 pre-standard reports fail on
+    # main and on the branch alike, and an entry for them would excuse nothing.
 }
 
 
@@ -264,15 +277,16 @@ class NeverWorseThanMainTest(unittest.TestCase):
         used = set()
         for plugin, corpus in corpora().items():
             reports = [json.loads(l) for l in open(corpus)]
-            main_cases = _git('ls-tree', '-d', '--name-only', '%s:%s/evals' % (self.base, plugin))
+            on_main = main_folder(plugin, self.base)
+            main_cases = _git('ls-tree', '-d', '--name-only', '%s:%s/evals' % (self.base, on_main))
             for case in main_cases.stdout.split():
-                if _git('cat-file', '-e', '%s:%s/evals/%s/case.yaml' % (self.base, plugin, case)).returncode:
+                if _git('cat-file', '-e', '%s:%s/evals/%s/case.yaml' % (self.base, on_main, case)).returncode:
                     continue
                 if not os.path.exists(os.path.join(ROOT, plugin, 'evals', case, 'case.yaml')):
                     problems.append('%s/%s: case on main is missing on the branch' % (plugin, case))
             for case in sorted({r['case'] for r in reports}):
                 rel = '%s/evals/%s/case.yaml' % (plugin, case)
-                old = _git('show', '%s:%s' % (self.base, rel))
+                old = _git('show', '%s:%s/evals/%s/case.yaml' % (self.base, on_main, case))
                 new_path = os.path.join(ROOT, rel)
                 if old.returncode != 0:
                     continue  # a case new on the branch has no baseline
@@ -284,8 +298,8 @@ class NeverWorseThanMainTest(unittest.TestCase):
                     compared += 1
                     text = r['text']
                     key = (plugin, case, hashlib.sha256(text.encode()).hexdigest()[:12])
-                    main_failing = {c for c in main_checks if _fails(c, text)}
-                    branch_failing = {c for c in branch_checks if _fails(c, text)}
+                    main_failing = {as_renamed(plugin, c) for c in main_checks if _fails(c, text)}
+                    branch_failing = {c for c in branch_checks if _fails(c, as_branch_prints(plugin, text))}
                     lost = main_failing - branch_failing
                     if lost:
                         problems.append('%s more permissive on %s %s: %s' % (
