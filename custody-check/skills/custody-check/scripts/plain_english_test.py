@@ -163,11 +163,14 @@ class DoorDoesNotMoveTests(unittest.TestCase):
     @staticmethod
     def outside_the_rewrite(text):
         """SKILL.md minus the two parts this PR rewrites: the new `## Plain English` section and the preflight message
-        (the `> ` lines). Everything else, every section that decides, must match the release byte for byte."""
+        (its one `> ` line, found by its opening words). Everything else, every section that decides and any other
+        `> ` line, must match the release byte for byte."""
         if "## Plain English\n" in text:
             head, rest = text.split("## Plain English\n", 1)
             text = head + "## " + rest.split("\n## ", 1)[1]
-        return "\n".join(l for l in text.splitlines() if not l.startswith("> "))
+        preflight = [l for l in text.splitlines() if l.startswith("> This skill runs from the folder that contains your app")]
+        assert len(preflight) == 1, "expected exactly one preflight message line, found %d" % len(preflight)
+        return text.replace(preflight[0], "> PREFLIGHT", 1)
 
     @staticmethod
     def no_version(text):
