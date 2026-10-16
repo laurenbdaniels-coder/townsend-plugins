@@ -10,6 +10,8 @@
 - A repeated `--read` flag keeps only the last value (argparse); `--answers` on main has the same weakness. Reject a repeated flag in both.
 - One bad `--read` token (`q1=yes`, `stop_line=scale`) fails the whole verdict call, so the skill falls back to the prose rule. Consider dropping only the bad token and flagging it.
 - The read scope is the app path. When `<app>` is `.` or a broad parent, the scanner warns (`repo-is-cwd`, `repo-contains-cwd`), but the reading rules do not use those warnings.
+- With python missing (no scanner) and an app folder that is itself a shortcut, nothing refuses the folder, so the agent reads the shortcut's target without the consent line. Main read nothing there. The founder named that folder; contrived. Check the folder is not a shortcut before reading on the degraded path.
+- The widened eval graders (`--read[\s\S]*\bq4=…`) fail a run wrongly if the agent puts `--read` before an `--answers` holding a founder q4 answer. Stricter, not weaker. Stop the match at the next ` --`.
 - `DoorDoesNotMoveTests` (plain_english_test.py) now skips outside 0.3.6, which Lauren kept on 2026-10-16. Delete it once a later release supersedes 0.3.6's wording.
 
 **Why:** Each one is a weakness main shares, or a decided trade-off, rather than a door kinder than main.
