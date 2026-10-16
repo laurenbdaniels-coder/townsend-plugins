@@ -1,0 +1,3 @@
+# Environment variable names only. seed.py writes .env at scaffold time with a generated fake value for each.
+NEXT_PUBLIC_SUPABASE_URL url
+SUPABASE_SERVICE_ROLE_KEY service-jwt

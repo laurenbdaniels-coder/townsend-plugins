@@ -5,6 +5,8 @@
 - `dotenv*` files become `.env*` (fixtures commit env files under a plain name, as scripts/fixtures does).
 - `{{SK}}` and `{{SERVICE_JWT}}` become fresh random key-shaped values, so no key is ever committed. Graders check
   the report never prints a whole key: they match the shape, not the value.
+- A `seed-env` file (one `NAME kind` per line, kind `url` or `service-jwt`) becomes `.env` with generated values, so
+  the fixture commits names only.
 """
 import base64, json, os, secrets, shutil, string, sys
 
@@ -30,8 +32,23 @@ VALUES = {
 }
 
 
+ENV_KINDS = {"url": "https://abcdefgh.supabase.co", "service-jwt": VALUES["{{SERVICE_JWT}}"]}
+
+
+def write_env(dest):
+    spec = os.path.join(dest, "seed-env")
+    if not os.path.exists(spec):
+        return
+    with open(spec, encoding="utf-8") as fh:
+        pairs = [ln.split() for ln in fh if ln.strip() and not ln.startswith("#")]
+    with open(os.path.join(dest, ".env"), "w", encoding="utf-8") as fh:
+        fh.writelines("%s=%s\n" % (name, ENV_KINDS[kind]) for name, kind in pairs)
+    os.remove(spec)
+
+
 def main(src, dest):
     shutil.copytree(src, dest)
+    write_env(dest)
     for root, _dirs, files in os.walk(dest):
         for name in files:
             path = os.path.join(root, name)
