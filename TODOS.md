@@ -416,7 +416,7 @@
 **Priority:** P3
 **Depends on:** None
 
-## decision-census
+## build-decisions (decision-census until 0.4.0)
 
 From the v0.1.0 review (2026-10-15). None met the ship bar; each is a one-line follow-up.
 
@@ -433,7 +433,7 @@ From the v0.1.0 review (2026-10-15). None met the ship bar; each is a one-line f
 - **v0.2.1 review follow-ups (P3).** (1) The no-code-words grader and the SKILL list would flag an app's own on-screen names ("Import button", "API keys page", "Admin console"); allow a name the founder sees on screen. (2) Align the grader with the SKILL list: plurals (strings, arrays, enums, schemas, configs, booleans) and bare "test". (3) In a real run on 0.2.1 the agent used Grep content mode twice despite rule 2, then opened the report with a jargon note about it; the evals grade names-only and passed 30/30, so this is real-run variance main also has. Consider a plain fixed line for a broken search rule.
 - **v0.3.0 review follow-ups (P3).** (1) shared-constant-app's not-carded check could false-fail if an "Also worth a look" line were written as a bullet ending in the shared file's path (never seen). (2) "one of these rules" in the fixed "Why this matters" line reads oddly when there is 1 rule. (3) "Your app has N rules" sounds more final than "this run found N" (main had the same). (4) The "To fix" prompt names one rule; consider a prompt per rule. (5) "Put the rule in one place" could lead an AI tool to drop a server-side access check; "show me the plan first" softens it.
 - **v0.3.1 review follow-ups (P3).** (1) Add a check that every quoted AI-tool prompt ends "Change nothing." (rule 8). (2) A fix-request check for the refusal itself ("does not fix"); the assessment check passes on the template line alone. (3) If the founder says yes to the stop-line question after the report, the "Before you change" line above still has the booking link (main has the same). (4) The closing prompt after the four signs still uses a `<the rule>` placeholder in the skill text.
-- **Codex install is untested.** The skill looks for `~/.codex/skills/decision-census/scripts/`; try it once before saying it runs in Codex. P3.
+- **Codex install is untested.** The skill looks for `~/.codex/skills/build-decisions/scripts/`; try it once before saying it runs in Codex. P3.
 
 ## free-plugin-standard
 
@@ -443,11 +443,11 @@ Review findings on the shared grader pack (S-032 review, 2026-10-16) that did no
 - **Compare `tool_used` graders too.** The differential scores only regex graders, so loosening `no-edit`, `no-write` or the read limits is invisible to it. Main had no gate at all. P3.
 - **`--check` reads text, not YAML.** It confirms the block ends the file, not that it sits inside `graders:`. Parse the case with YAML in CI. P3.
 - **`always` vs `issues` is chosen by hand.** stopline-app carries `always` only because it finds an issue in 4 of 6 runs; nothing checks the choice. P3.
-- **IP grep skips `free-plugin-standard/`.** The giveaway-only terms are checked in custody-check/ and decision-census/ only; add the new folder before the corpus grows. P3.
+- **IP grep skips `free-plugin-standard/`.** The giveaway-only terms are checked in custody-check/, build-decisions/ and the decision-census pointer only; add the new folder before the corpus grows. P3.
 - **`_parse` failure paths untested.** A repeated group, a start marker with no end line, and an end line before the start can be deleted from `sync_graders.py` with the suite still green; the end-line checks also overlap and the docstring says 5-tuple. P3.
 - **`render()` assumes regex graders.** A non-regex grader in pack.json crashes with KeyError instead of a clear error. P3.
 - **The re-scoring claim is not a test.** The comment says Python `re` reproduces all 2,612 recorded verdicts; nothing checks it, and flags other than `i` are ignored. P3.
-- **Credits link in an installed copy.** decision-census/README.md links `../free-plugin-standard/STANDARD.md`, which is dead when only the plugin folder is installed. P3.
+- **Credits link in an installed copy.** build-decisions/README.md links `../free-plugin-standard/STANDARD.md`, which is dead when only the plugin folder is installed. P3.
 
 ## Completed
 

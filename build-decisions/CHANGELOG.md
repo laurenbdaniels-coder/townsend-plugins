@@ -1,6 +1,14 @@
 # Changelog
 
-The footer of every census names the version that produced it.
+The footer of every report names the version that produced it. Up to 0.3.2 this plugin was called decision-census.
+
+## 0.4.0 (2026-10-16)
+
+- **Renamed: Build Decisions.** The plugin id is now `build-decisions`; say "run build decisions on ./my-app". `decision-census` 0.3.3 stays in the marketplace as a pointer that prints how to switch and runs nothing. Existing installs need the three commands in the README.
+- **How your app is built.** The report adds one or two plain sentences after "Why this matters": whether the app's screens read and save data straight to the database, whether it runs some of its own code on a server, and whether there are signs of a second app that uses the same data. Then one sentence on the risk, never a fix. With nothing found, it says it could not tell. A rule found inside the second app says so in its place line.
+- **A second helper call,** `census_scan.py --section architecture`, with its own walk, limits and failure line. The census call and its output are unchanged; CI checks that line byte for byte against the released one.
+- **"Not checked" names what this version does not check yet:** payments, screens that write prices or paid status, sign-in checks on server code, and library versions.
+- **Evals:** two new cases (a web app with a linked phone app; an app with no sign of how it is built), and three checks on every report case: the "How your app is built" line, no internal id, and the new "Not checked" line. The free-plugin standard's never-worse test now reads main's cases from the old folder name while the rename is in flight.
 
 ## 0.3.2 (2026-10-16)
 

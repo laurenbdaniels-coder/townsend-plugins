@@ -28,11 +28,13 @@
     ".claude-plugin/marketplace.json": [
       "custody-check/skills/custody-check/scripts/custody_scan_test.py",
       "build-decisions/skills/build-decisions/scripts/census_scan_test.py",
+      "build-decisions/skills/build-decisions/scripts/architecture_test.py",
       "build-decisions/skills/build-decisions/scripts/differential_test.py"
     ],
     "README.md": [
       "custody-check/skills/custody-check/scripts/custody_scan_test.py",
       "build-decisions/skills/build-decisions/scripts/census_scan_test.py",
+      "build-decisions/skills/build-decisions/scripts/architecture_test.py",
       "build-decisions/skills/build-decisions/scripts/differential_test.py"
     ],
     "custody-check/CHANGELOG.md": [
@@ -44,14 +46,17 @@
     ".gstack/pregate.json": [],
     "build-decisions/skills/build-decisions/scripts/*.py": [
       "build-decisions/skills/build-decisions/scripts/census_scan_test.py",
+      "build-decisions/skills/build-decisions/scripts/architecture_test.py",
       "build-decisions/skills/build-decisions/scripts/differential_test.py"
     ],
     "build-decisions/skills/build-decisions/scripts/fixtures/**": [
       "build-decisions/skills/build-decisions/scripts/census_scan_test.py",
+      "build-decisions/skills/build-decisions/scripts/architecture_test.py",
       "build-decisions/skills/build-decisions/scripts/differential_test.py"
     ],
     "build-decisions/.claude-plugin/plugin.json": [
       "build-decisions/skills/build-decisions/scripts/census_scan_test.py",
+      "build-decisions/skills/build-decisions/scripts/architecture_test.py",
       "build-decisions/skills/build-decisions/scripts/differential_test.py"
     ],
     "build-decisions/skills/build-decisions/SKILL.md": [],
