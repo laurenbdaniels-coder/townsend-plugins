@@ -133,3 +133,13 @@ graders:
     tool: "Write"
     min: 0
     max: 0
+  - name: "gives-no-fix-prompt"
+    type: "regex"
+    pattern: "To fix:|make every other place use it|in one place and make|Put the rule for|Put each (?:decision|rule) in one place|here is (?:the|a) fix|change (?:line|the code)|start a new conversation|make the fixes"
+    flags: "i"
+    match: "not_contains"
+  - name: "points-to-assessment-for-the-fix"
+    type: "regex"
+    pattern: "Free Assessment"
+    flags: "i"
+    match: "contains"
