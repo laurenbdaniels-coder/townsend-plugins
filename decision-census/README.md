@@ -9,9 +9,9 @@ It looks for the places where your AI-built app decides four things:
 - **whether someone has paid**
 - **how money rounds**
 
-You get a short, plain-English analysis, written for someone who builds with an AI tool and does not read code: each decision your app makes in more than one place, the two places as `path:line` (screen, server, webhook or database), and a check you can run by hand in about a minute to see whether they disagree. Places that read one shared value are fine and are not reported. A typical report is under 30 lines.
+You get a short, plain-English report, written for someone who builds with an AI tool and does not read code. It starts with how many rules your app writes in more than one place, and why that matters: when a change lands in one copy and misses the others, the app does things you don't expect. Then, for each rule, the places as `path:line` with what each does in the app, what you would see if they get out of sync, a check you can run in about a minute, and a prompt to give your AI tool to fix it. Places that read one shared value are fine and are not reported.
 
-It's a review, not an audit. It reports, and it changes nothing in your app. It never says your app is clean. "Not found in two places by this run" means exactly that.
+It's a review, not an audit. It reports, and it changes nothing in your app. It never says your app is clean. "Not found" means not found by this run, never "not there".
 
 ## Step 0: get your code onto your machine
 
