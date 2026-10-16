@@ -1,0 +1,34 @@
+{
+  "runner": "set -e; for f in {files}; do d=$(dirname \"$f\"); m=$(basename \"$f\" .py); (cd \"$d\" && python3 -m unittest \"$m\"); done",
+  "dependencies": {
+    "custody-check/skills/custody-check/scripts/*.py": [
+      "custody-check/skills/custody-check/scripts/custody_scan_test.py",
+      "custody-check/skills/custody-check/scripts/custody_verdict_test.py",
+      "custody-check/skills/custody-check/scripts/plain_english_test.py"
+    ],
+    "custody-check/skills/custody-check/scripts/fixtures/**": [
+      "custody-check/skills/custody-check/scripts/custody_scan_test.py",
+      "custody-check/skills/custody-check/scripts/custody_verdict_test.py"
+    ],
+    "custody-check/skills/custody-check/SKILL.md": [
+      "custody-check/skills/custody-check/scripts/custody_verdict_test.py",
+      "custody-check/skills/custody-check/scripts/plain_english_test.py"
+    ],
+    "custody-check/skills/custody-check/references/**": [
+      "custody-check/skills/custody-check/scripts/custody_verdict_test.py",
+      "custody-check/skills/custody-check/scripts/plain_english_test.py"
+    ],
+    "custody-check/skills/custody-check/assets/**": [
+      "custody-check/skills/custody-check/scripts/custody_verdict_test.py",
+      "custody-check/skills/custody-check/scripts/plain_english_test.py"
+    ],
+    "custody-check/.claude-plugin/plugin.json": ["custody-check/skills/custody-check/scripts/custody_scan_test.py"],
+    ".claude-plugin/marketplace.json": ["custody-check/skills/custody-check/scripts/custody_scan_test.py"],
+    "README.md": ["custody-check/skills/custody-check/scripts/custody_scan_test.py"],
+    "custody-check/CHANGELOG.md": ["custody-check/skills/custody-check/scripts/custody_scan_test.py"],
+    "custody-check/evals/**": [],
+    "custody-check/README.md": [],
+    "TODOS.md": [],
+    ".gstack/pregate.json": []
+  }
+}

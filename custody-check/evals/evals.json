@@ -5,7 +5,7 @@
     {
       "id": 1,
       "prompt": "run custody-check on ./inkling-app",
-      "expected": "custody-check fires. Preflight passes (cwd is the parent). Runs the scanner once with python3 -I and the absolute script path, accepts the single JSON line, asks next_change and stop_line first, then the remaining Don't-know questions one at a time, renders the verdict template with the footer carrying the version from the JSON. Never opens a file in the app.",
+      "expected": "custody-check fires. Preflight passes (cwd is the parent). Runs the scanner once with python3 -I and the absolute script path, accepts the single JSON line, asks next_change and stop_line first, then the remaining Don't-know questions one at a time, renders the verdict template with the footer carrying the version from the JSON. From 0.4.0 it reads code files inside the app before asking (Grep file names only, Read at most 120 lines, at most 40 calls) and never opens .env, instruction, lock or build files; the new behaviour cases are in evals/*/case.yaml.",
       "verified": "2026-09-17 PASS via `claude -p --permission-mode plan` from ~/git-projects on inkling-app: skill fired, scanner ran once, output accepted, verdict rendered with the JSON version in the footer, zero files written."
     },
     {
