@@ -40,7 +40,7 @@ For quick local testing without installing: `claude --plugin-dir /path/to/townse
 
 ## Free plugins
 
-A free plugin diagnoses and never prescribes the fix. New free plugins follow [the free-plugin report standard](free-plugin-standard/STANDARD.md), and their evals carry its shared graders. decision-census is the reference implementation.
+A free plugin that checks an app diagnoses and never prescribes the fix. New free plugins that check an app follow [the free-plugin report standard](free-plugin-standard/STANDARD.md), and their evals carry its shared graders. decision-census is the reference implementation.
 
 ## Updating
 

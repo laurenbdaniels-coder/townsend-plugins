@@ -1,6 +1,6 @@
 # The free-plugin report standard
 
-Every free Townsend plugin reports to this standard. Reference implementation: decision-census 0.3.1 and later, `decision-census/skills/decision-census/SKILL.md` Step 5.
+Every free Townsend plugin that checks an app reports to this standard (spell-it-out, which only changes how Claude asks questions, is outside it). Reference implementation: decision-census 0.3.1 and later, `decision-census/skills/decision-census/SKILL.md` Step 5.
 
 ## The reader
 
