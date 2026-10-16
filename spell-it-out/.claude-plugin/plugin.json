@@ -1,0 +1,16 @@
+{
+  "name": "spell-it-out",
+  "version": "0.1.0",
+  "description": "When Claude stops to ask you a technical yes/no or choice, it spells it out first: the ask, where things stand, what each answer changes, whether you can undo it, its pick, the safe answer if you're not sure, and a one-line TL;DR. For people who build with AI but don't read code.",
+  "author": {
+    "name": "Lauren Townsend"
+  },
+  "license": "MIT",
+  "keywords": [
+    "plain-english",
+    "vibe-coding",
+    "founders",
+    "decisions",
+    "approvals"
+  ]
+}
