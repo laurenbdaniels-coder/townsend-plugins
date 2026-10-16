@@ -161,21 +161,21 @@ class DoorDoesNotMoveTests(unittest.TestCase):
             return fh.read()
 
     @staticmethod
-    def section(text, name):
-        return text.split("## " + name + "\n", 1)[1].split("\n## ", 1)[0]
-
-    DECIDING = ("Rules", "Answer rules", "Founder answers", "Run the verdict", "Tier the next change", "Door rule",
-                "Five, if you'll only do five")
+    def outside_the_rewrite(text):
+        """SKILL.md minus the two parts this PR rewrites: the new `## Plain English` section and the preflight message
+        (the `> ` lines). Everything else, every section that decides, must match the release byte for byte."""
+        if "## Plain English\n" in text:
+            head, rest = text.split("## Plain English\n", 1)
+            text = head + "## " + rest.split("\n## ", 1)[1]
+        return "\n".join(l for l in text.splitlines() if not l.startswith("> "))
 
     @staticmethod
     def no_version(text):
         return re.sub(r'^__version__ = "[^"]+"$', "", text, flags=re.M)
 
-    def test_every_section_that_decides_is_byte_identical(self):
+    def test_skill_md_outside_the_rewrite_is_byte_identical(self):
         p = "custody-check/skills/custody-check/SKILL.md"
-        cur, rel = self.current(p), self.released(p)
-        for name in self.DECIDING:
-            self.assertEqual(self.section(cur, name), self.section(rel, name), name)
+        self.assertEqual(self.outside_the_rewrite(self.current(p)), self.outside_the_rewrite(self.released(p)))
         doors = "custody-check/skills/custody-check/references/tiers-and-doors.md"
         self.assertEqual(self.current(doors), self.released(doors))
 

@@ -91,7 +91,7 @@ Rules for filling it in:
 - **not partial, footer only:** `files_skipped_oversize` minus `files_skipped_oversize_relevant` → "<n> large files (images, media, data) skipped; none of them could hold a key or an access rule"; `files_skipped_generated` → "<n> generated files (lockfiles, bundles) not scanned"; `files_skipped_special` → "<n> links or special files skipped".
 - **Non-default flags** in `stats.config` are printed after the footer's file count.
 - **Footer next step** (first match wins; copy the whole line exactly, it is the verdict's last line):
-  - stop-line ticked → "This app handles data or money that needs a written scope before anyone looks at it. Write to the studio first (address in the README), not to the free check."
+  - stop-line ticked → "This app handles data or money that needs a written scope first, so write to the studio (address in the README)."
   - scanner unavailable (the degraded path) → "The scanner couldn't run, so bring your app folder to a Free Assessment and we'll run it together: townsendaistudio.com/assessment?src=custody-check"
   - `partial` is true → "The scan stopped early, so rerun it with the recipe above and bring the new verdict to a Free Assessment: townsendaistudio.com/assessment?src=custody-check"
   - otherwise → "Bring this verdict to a Free Assessment (free, one per company) and we'll test on your own screen what the files couldn't show: townsendaistudio.com/assessment?src=custody-check"
