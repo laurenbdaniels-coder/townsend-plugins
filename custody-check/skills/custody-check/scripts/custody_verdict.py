@@ -11,7 +11,7 @@ words that only add. Any no wins over a yes from any source; a read yes fills on
 never beats a founder no; a read answer is medium confidence.
 
 It implements SKILL.md's `## Door rule` as written, in order:
-  1. stop-line ticked (founder, or a Q10 field from the stop-line list) -> Get a person, no door
+  1. stop-line ticked (founder, a stop_line word read from the code, or a Q10 field from the stop-line list) -> Get a person, no door
   2. Q1, Q2 or Q3 is no -> Patch it
   3. partial and Q1 or Q3 still Don't know (or a git-index-unread row on Q1) -> Patch it, never Ship it
   4. two or more of Q4, Q5, Q6, Q9 are no or Don't know -> Patch it
@@ -263,7 +263,7 @@ def _apply_read(row, read):
 
 def decide(scan, answers, read=None):
     """The verdict. scan is accepted scanner JSON, or None on the degraded path. read is parse_read's dict, or None
-    when the agent passed no --read (then the verdict is exactly 0.3.5's)."""
+    when the agent passed no --read (then the verdict is exactly the released 0.3.6 verdict)."""
     degraded = scan is None
     partial = bool(scan["partial"]) if scan else False
     qs = scan["questions"] if scan else {}

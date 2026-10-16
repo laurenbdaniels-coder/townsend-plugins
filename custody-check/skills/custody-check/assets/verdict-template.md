@@ -7,7 +7,7 @@ Render exactly this shape. Every scanner string (paths, snippets, check names, e
 
 Date: <YYYY-MM-DD> · Repo: `<app folder name>` · Mode: local, read-only · Scanner: <ran | unavailable (reason)>
 
-This check reads your app's files and your answers. It ends with one door: Ship it, Patch it, or Get a person.
+This check reads your app's files, your code and your answers. It ends with one door: Ship it, Patch it, or Get a person.
 
 <N> answers are "Don't know" or "Nothing found". These are not failures. Each one is a next question, with a sixty-second by-hand test below.
 
