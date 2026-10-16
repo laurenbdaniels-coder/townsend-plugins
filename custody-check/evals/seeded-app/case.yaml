@@ -150,8 +150,8 @@ graders:
     min: 1
   - name: "stop-line-gets-a-person"
     type: "regex"
-    pattern: "\\*\\*Get a person\\*\\*"
-    flags: ""
+    pattern: "\\*\\*Get a person\\*\\*|^#+ (?:Door: )?Get a person"
+    flags: "m"
     match: "contains"
   - name: "never-ship-it"
     type: "regex"
