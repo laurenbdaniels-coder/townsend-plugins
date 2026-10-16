@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 """custody-check verdict: the door rule from SKILL.md, applied by a script instead of by the model.
 
-Input: the scanner JSON (it runs custody_scan.py from its own folder, or reads it on stdin for tests) plus the
-founder's answers as fixed tokens. Output: one JSON line with the scan, the door, the Patch list order, the stop-line
-state, per-row render states and the footer's next step. It reads no file of the app itself and changes nothing.
+Input: the scanner JSON (it runs custody_scan.py from its own folder, or reads it on stdin for tests), the
+founder's answers as fixed tokens, and (0.4.0) what the agent read in the app's code, as fixed tokens too. Output: one
+JSON line with the scan, the door, the Patch list order, the stop-line state, per-row render states and the footer's
+next step. The script itself reads no file of the app (only the scanner does) and changes nothing.
+
+Read answers (--read) are a third source with a small vocabulary: no on Q1-Q4, yes only on Q2 and Q4, and stop-line
+words that only add. Any no wins over a yes from any source; a read yes fills only an answer that is still unknown and
+never beats a founder no; a read answer is medium confidence.
 
 It implements SKILL.md's `## Door rule` as written, in order:
   1. stop-line ticked (founder, or a Q10 field from the stop-line list) -> Get a person, no door
@@ -14,8 +19,8 @@ It implements SKILL.md's `## Door rule` as written, in order:
 Nothing found counts as Don't know everywhere. When this script fails, the skill falls back to the prose rule.
 
 Usage (from the folder that contains the app, after the interview):
-  python3 -I custody_verdict.py --repo APP [scanner flags] --answers 'q4=yes q5_data=no stop_line=none' \
-      --expect 'q1=no q2=dont-know ... q11=dont-know partial=no'
+  python3 -I custody_verdict.py --repo APP [scanner flags] --answers 'q5_data=no stop_line=none' \
+      --read 'q2=yes q4=no' --expect 'q1=no q2=dont-know ... q11=dont-know partial=no'
   python3 -I custody_verdict.py --no-scan --answers '...'      (the scanner could not run at all)
   python3 -I custody_verdict.py --scan-json - --answers '...'  (scanner JSON on stdin; tests)
 --expect holds the first scan's answers; a rescan that differs is an error, so the skill uses the first scan.
@@ -27,7 +32,7 @@ import re
 import subprocess
 import sys
 
-__version__ = "0.3.6"
+__version__ = "0.4.0"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCANNER = os.path.join(HERE, "custody_scan.py")
@@ -43,6 +48,11 @@ FIELDS_RE = re.compile(r"^(-|[a-z0-9_-]{1,80}(,[a-z0-9_-]{1,80}){0,63})$")
 # still accepted and still ticks (an old answers block the founder did not clarify stays on the stop-line).
 LEGACY_STOP_LINE_VALUES = ("payments",)
 STOP_LINE_VALUES = ("none", "card-numbers", "moves-money", "health", "sensitive", "scale") + LEGACY_STOP_LINE_VALUES
+# What reading the code can show (SKILL.md "Read the code"): a key or open rule in code is a no, never proof of a yes
+# for Q1/Q3; Q2 and Q4 can be read either way. Stop-line words from the code only add; reading never unticks.
+READ_VALUES = {"q1": ("no", "dont-know"), "q2": ("yes", "no", "dont-know"), "q3": ("no", "dont-know"),
+               "q4": ("yes", "no", "dont-know")}
+READ_STOP_LINE_VALUES = ("card-numbers", "moves-money", "health", "sensitive")
 # Same list as the scanner's STOPLINE_FIELDS and SKILL.md rule 6 (custody_verdict_test checks both).
 STOPLINE_FIELDS = ("ssn", "social_security", "dob", "date_of_birth", "birthdate", "medical", "diagnosis",
                    "credit_card", "card_number", "cc_number", "iban", "passport")
@@ -86,6 +96,25 @@ def parse_answers(text):
         if "q5_code" in out or "q5_data" in out:
             raise UsageError("q5 together with q5_code or q5_data")
         out["q5_code"] = out["q5_data"] = out.pop("q5")
+    return out
+
+
+def parse_read(text):
+    """'q2=yes q4=no stop_line=health' -> dict, from READ_VALUES and READ_STOP_LINE_VALUES only."""
+    out = {}
+    for tok in (text or "").split():
+        key, sep, val = tok.partition("=")
+        if not sep or key not in tuple(READ_VALUES) + ("stop_line",):
+            raise UsageError("unknown read key")
+        if key == "stop_line":
+            val = val.split(",")
+            if not all(v in READ_STOP_LINE_VALUES for v in val):
+                raise UsageError("bad read stop_line value")
+        elif val not in READ_VALUES[key]:
+            raise UsageError("bad read value")
+        if key in out and out[key] != val:
+            raise UsageError("a read answer given twice with different values")
+        out[key] = val
     return out
 
 
@@ -224,8 +253,17 @@ def _merge(s_ans, s_conf, founder):
     return "yes", "scanner", "high"
 
 
-def decide(scan, answers):
-    """The verdict. scan is accepted scanner JSON, or None on the degraded path."""
+def _apply_read(row, read):
+    """A read answer on top of the scanner+founder row: a no always wins; a yes fills only an unknown."""
+    if read == "no" and row["answer"] != "no":
+        row.update(answer="no", source="read", confidence="med")
+    elif read == "yes" and unknown(row["answer"]):
+        row.update(answer="yes", source="read", confidence="med")
+
+
+def decide(scan, answers, read=None):
+    """The verdict. scan is accepted scanner JSON, or None on the degraded path. read is parse_read's dict, or None
+    when the agent passed no --read (then the verdict is exactly 0.3.5's)."""
     degraded = scan is None
     partial = bool(scan["partial"]) if scan else False
     qs = scan["questions"] if scan else {}
@@ -249,7 +287,9 @@ def decide(scan, answers):
             founder = None  # decided 10/15: a founder yes cannot stand in for files a partial scan never read
         a, src, conf = _merge(part["answer"] if part else None, part.get("confidence") if part else None, founder)
         rows[q] = {"answer": a, "source": src, "confidence": conf, "label": None}
-        if degraded and q in SCANNER_BACKED and unknown(a) and src == "none":
+        if read and q in read:
+            _apply_read(rows[q], read[q])
+        if degraded and q in SCANNER_BACKED and unknown(rows[q]["answer"]) and rows[q]["source"] == "none":
             rows[q]["label"] = "scanner-unavailable"
 
     git_unread = bool(scan) and any(e.get("check") == "git-index-unread" for e in qs["q1"]["evidence"])
@@ -266,7 +306,8 @@ def decide(scan, answers):
     if scan:
         for e in qs["q10"]["evidence"]:
             fields |= stopline_terms(e.get("snippet", ""))
-    ticked = any(v != "none" for v in founder_sl) or bool(fields)
+    read_sl = list(read.get("stop_line", [])) if read else []
+    ticked = any(v != "none" for v in founder_sl) or bool(fields) or bool(read_sl)
 
     patch = [q for q in ("q1", "q2", "q3") if rows[q]["answer"] == "no"]
     patch += [q for q in ("q4", "q5", "q6", "q9") if rows[q]["answer"] == "no" or unknown(rows[q]["answer"])]
@@ -294,10 +335,13 @@ def decide(scan, answers):
     else:
         footer = "default"
 
+    stop_line = {"ticked": ticked, "founder": founder_sl, "fields": sorted(fields)}
+    if read is not None:
+        stop_line["read"] = read_sl
     return {
         "door": door,
         "door_step": step,
-        "stop_line": {"ticked": ticked, "founder": founder_sl, "fields": sorted(fields)},
+        "stop_line": stop_line,
         "rerun_recipe": {"needed": rerun,
                          "max_file_bytes": bool(rerun and scan and scan["stats"].get("files_skipped_oversize_relevant"))},
         "patch_list": patch[:3] if door != "ship-it" else [],
@@ -358,6 +402,7 @@ def main(argv=None):
         mode.add_argument("--no-scan", action="store_true")
         mode.add_argument("--scan-json", choices=["-"])
         p.add_argument("--answers", default="")
+        p.add_argument("--read")
         p.add_argument("--expect")
         p.add_argument("--max-files", type=int)
         p.add_argument("--max-file-bytes", type=int)
@@ -367,6 +412,7 @@ def main(argv=None):
         p.add_argument("--browser-prefix", action="append", default=[])
         args = p.parse_args(argv)
         answers = parse_answers(args.answers)
+        read = parse_read(args.read) if args.read is not None else None
         expect = None
         if args.repo is not None:
             if args.expect is None:
@@ -393,7 +439,7 @@ def main(argv=None):
             scan, _reason = accept_scan(sys.stdin.read())
             if scan is None:
                 return fail("scan-rejected")
-        verdict = decide(scan, answers)
+        verdict = decide(scan, answers, read)
         out = {"ok": True, "version": __version__, "scanner": "ran" if scan else "unavailable",
                "scanner_reason": None if scan else "no-scan", "scan": scan, "verdict": verdict}
         if len(json.dumps(out, ensure_ascii=True, separators=(",", ":"))) > MAX_OUTPUT_BYTES:

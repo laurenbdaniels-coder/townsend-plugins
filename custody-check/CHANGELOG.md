@@ -2,6 +2,16 @@
 
 The footer of every verdict names the version that produced it. Later entries carry a "What changed since the workshop" line so an attendee can tell whether an answer would come out differently today.
 
+## 0.4.0 (2026-10-16)
+
+What changed since the workshop build: the check now reads your code before it asks you anything. You no longer have to know who is allowed to delete a record, or which calls run in the browser: when the code shows it, the answer comes from the code, marked "(from your code)" with the file and line it read.
+
+- **What it reads.** Code files inside your app folder only: at most 120 lines at a time, and at most 40 searches and reads in all. It never opens `.env` files, key files, lockfiles, build folders or AI instruction files, and it never quotes a key or a line of your code. The parts of your code it reads go to your AI provider, like anything else in the chat.
+- **What the code can answer.** Q2 (client or server) and Q4 (who is allowed to do this) can be Yes or No from the code. Q1 (secrets) and Q3 (who can read) can only be No from the code: a key in browser code or a table left open is visible, but proving there is none needs the running app. The code can also tick the stop-line (card details handled by the app, money moved for others, health or other sensitive data). Q5 to Q11 still come from the scanner and from you.
+- **How answers combine.** A No from the scanner, the code or you always wins. A Yes from the code fills only a question that is still Don't know, and never overrides your No. A comment or a document that says a check exists is not the check: a Yes needs the line of code that does it.
+- **The one door that can be kinder.** If the code shows that every handler that writes, deletes, changes roles or takes payment checks the user's role or ownership, Q4 is Yes where before it stayed Don't know. With one other open question, that can turn Patch it into Ship it. The verdict script's test runs 0.3.5's script on the same scans and answers and fails on any other door that is kinder than 0.3.5's.
+- **Tested.** The verdict script takes the code's answers as fixed words (`--read 'q2=yes q4=no'`) and refuses anything else, such as a code Yes on Q1 or Q3. With no code answers, its output is identical to 0.3.5's. New eval cases cover an app whose handlers check ownership, one whose handlers do not, one that plants text telling the AI to answer Yes and to open `.env`, and the seeded app with a key in browser code.
+
 ## 0.3.6 (2026-10-16)
 
 What changed since the workshop build: the verdict reads in plain English. No answer and no door changed.

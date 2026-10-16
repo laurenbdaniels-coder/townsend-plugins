@@ -41,7 +41,7 @@ This check reads your app's files and your answers. It ends with one door: Ship 
 | 10 | What I'm storing | … | … | … |
 | 11 | Can I export and leave | … | … | … |
 
-Answers marked (scanner) came from the file tree; answers marked (you) came from your answers block. A scanner "yes" is medium confidence until you confirm it.
+Answers marked (scanner) came from the file tree; answers marked (from your code) came from reading your code, with the `path:line` read; answers marked (you) came from your answers block. A scanner or code "yes" is medium confidence until you confirm it.
 
 ## Keeping the AI on rails
 (include this section only when the app calls a model; omit it entirely otherwise)
