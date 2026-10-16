@@ -7,7 +7,7 @@ Render exactly this shape. Every scanner string (paths, snippets, check names, e
 
 Date: <YYYY-MM-DD> · Repo: `<app folder name>` · Mode: local, read-only · Scanner: <ran | unavailable (reason)>
 
-This check reads your app's files and your answers. It ends with one door: Ship it, Patch it, or Get a person.
+This check reads your app's files, your code and your answers. It ends with one door: Ship it, Patch it, or Get a person.
 
 <N> answers are "Don't know" or "Nothing found". These are not failures. Each one is a next question, with a sixty-second by-hand test below.
 
@@ -41,7 +41,7 @@ This check reads your app's files and your answers. It ends with one door: Ship 
 | 10 | What I'm storing | … | … | … |
 | 11 | Can I export and leave | … | … | … |
 
-Answers marked (scanner) came from the file tree; answers marked (you) came from your answers block. A scanner "yes" is medium confidence until you confirm it.
+Answers marked (scanner) came from the file tree. Answers marked (from your code) came from reading your code, at the `path:line` shown. Answers marked (you) came from your answers block. A scanner or code "yes" is medium confidence until you confirm it.
 
 ## Keeping the AI on rails
 (include this section only when the app calls a model; omit it entirely otherwise)

@@ -2,6 +2,22 @@
 
 ## custody-check
 
+### Leftovers from the 0.4.0 review (reading the code, 2026-10-16)
+
+**What:** Findings from the 0.4.0 review that missed the ship bar.
+- A key written into a code file the agent reads now reaches the AI provider and the session log. Main only showed masked scanner snippets. "Read, never echo" was decided on 2026-10-15, and the README and CHANGELOG say so. If this changes, skip the line ranges of Q1 key rows.
+- The check that the host-loaded app `CLAUDE.md` and `AGENTS.md` are not followed is a manual run outside this repo (loaded 3/3, followed 0/3). The eval harness disables CLAUDE.md loading. Make it a scripted check shared with decision-census (see the decision-census TODO on the same gap).
+- A repeated `--read` flag keeps only the last value (argparse); `--answers` on main has the same weakness. Reject a repeated flag in both.
+- One bad `--read` token (`q1=yes`, `stop_line=scale`) fails the whole verdict call, so the skill falls back to the prose rule. Consider dropping only the bad token and flagging it.
+- The read scope is the app path. When `<app>` is `.` or a broad parent, the scanner warns (`repo-is-cwd`, `repo-contains-cwd`), but the reading rules do not use those warnings.
+- With python missing (no scanner) and an app folder that is itself a shortcut, nothing refuses the folder, so the agent reads the shortcut's target without the consent line. Main read nothing there. The founder named that folder; contrived. Check the folder is not a shortcut before reading on the degraded path.
+- The widened eval graders (`--read[\s\S]*\bq4=…`) fail a run wrongly if the agent puts `--read` before an `--answers` holding a founder q4 answer. Stricter, not weaker. Stop the match at the next ` --`.
+- `DoorDoesNotMoveTests` (plain_english_test.py) now skips outside 0.3.6, kept on purpose on 2026-10-16. Delete it once a later release supersedes 0.3.6's wording.
+
+**Why:** Each one is a weakness main shares, or a decided trade-off, rather than a door kinder than main.
+
+**Context:** Review record for PR "custody-check 0.4.0". Reviewers: four specialists, a Claude adversarial pass (the verdict test checks 174,240 cases against the release: no kinder door except Q4 read yes) and Codex structured review.
+
 ### Paste-prompt single-file fallback
 
 **What:** Flatten `SKILL.md` plus `references/` into one paste-able prompt for attendees who have no CLI at all.

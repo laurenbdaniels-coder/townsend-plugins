@@ -5,12 +5,16 @@ SKILL.md's prose rule gives on realistic scans plus answers, labelled by hand. N
 Run from this folder: python3 -m unittest custody_verdict_test
 """
 import copy
+import importlib.util
+import itertools
 import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 from unittest import mock
 
@@ -662,6 +666,253 @@ class VerdictMatchesProseRuleTests(unittest.TestCase):
         steps = ("stop-line", "Q1, Q2 or Q3", "partial", "Two or more", "Otherwise", "git-index-unread")
         for r in self.corpus["rows"]:
             self.assertTrue(any(s in r["why"] for s in steps), r["id"])
+
+
+def read_decide(scan, answers="", read=""):
+    return cv.decide(scan, cv.parse_answers(answers), cv.parse_read(read))
+
+
+class ReadSourceTests(unittest.TestCase):
+    """0.4.0: what the agent read in the app's code is a third source, next to the scanner and the founder. It may
+    say no on Q1-Q4, yes only on Q2 and Q4, and add stop-line words. Any no wins; a yes fills only what is still
+    unknown; a read answer is medium confidence."""
+
+    def test_read_vocabulary(self):
+        self.assertEqual(cv.parse_read("q1=no q2=yes q3=no q4=yes stop_line=sensitive,health"),
+                         {"q1": "no", "q2": "yes", "q3": "no", "q4": "yes", "stop_line": ["sensitive", "health"]})
+        self.assertEqual(cv.parse_read(""), {})
+
+    def test_read_can_never_say_yes_on_q1_or_q3(self):
+        for tok in ("q1=yes", "q3=yes"):
+            with self.assertRaises(cv.UsageError, msg=tok):
+                cv.parse_read(tok)
+
+    def test_read_answers_only_q1_to_q4(self):
+        for tok in ("q5=yes", "q5_code=no", "q6=yes", "q9=no", "q10=yes", "q11=no", "q4=maybe", "next_change=x"):
+            with self.assertRaises(cv.UsageError, msg=tok):
+                cv.parse_read(tok)
+
+    def test_read_stop_line_only_adds(self):
+        for tok in ("stop_line=none", "stop_line=scale", "stop_line=payments", "stop_line=whatever"):
+            with self.assertRaises(cv.UsageError, msg=tok):
+                cv.parse_read(tok)
+
+    def test_read_twice_with_different_values_is_an_error(self):
+        with self.assertRaises(cv.UsageError):
+            cv.parse_read("q4=yes q4=no")
+
+    def test_read_yes_fills_an_unknown(self):
+        v = read_decide(ok_scan(q4="dont-know"), "q5_data=yes", "q4=yes")
+        self.assertEqual((v["rows"]["q4"]["answer"], v["rows"]["q4"]["source"], v["rows"]["q4"]["confidence"]),
+                         ("yes", "read", "med"))
+
+    def test_read_yes_beats_a_founder_dont_know(self):
+        v = read_decide(ok_scan(q4="dont-know"), "q5_data=yes q4=dont-know", "q4=yes")
+        self.assertEqual((v["rows"]["q4"]["answer"], v["rows"]["q4"]["source"]), ("yes", "read"))
+
+    def test_read_yes_never_beats_a_founder_no(self):
+        v = read_decide(ok_scan(q4="dont-know"), "q5_data=yes q4=no", "q4=yes")
+        self.assertEqual((v["rows"]["q4"]["answer"], v["rows"]["q4"]["source"]), ("no", "you"))
+
+    def test_read_no_beats_a_founder_yes(self):
+        v = read_decide(ok_scan(q2="dont-know"), "q5_data=yes q2=yes", "q2=no")
+        self.assertEqual((v["rows"]["q2"]["answer"], v["rows"]["q2"]["source"]), ("no", "read"))
+        self.assertEqual(v["door"], "patch-it")
+
+    def test_read_no_beats_a_scanner_yes(self):
+        v = read_decide(ok_scan(), "q5_data=yes", "q4=no q2=no")
+        self.assertEqual(v["rows"]["q4"]["answer"], "no")
+        self.assertEqual(v["door"], "patch-it")
+
+    def test_read_yes_never_overrides_a_scanner_no(self):
+        for q in ("q2", "q4"):
+            v = read_decide(ok_scan(**{q: "no"}), "q5_data=yes", "%s=yes" % q)
+            self.assertEqual((v["rows"][q]["answer"], v["rows"][q]["source"]), ("no", "scanner"), q)
+
+    def test_read_never_softens_a_scanner_no(self):
+        v = read_decide(ok_scan(q1="no"), "q5_data=yes", "q1=dont-know")
+        self.assertEqual((v["rows"]["q1"]["answer"], v["rows"]["q1"]["source"]), ("no", "scanner"))
+
+    def test_read_no_on_q1_counts_on_a_partial_scan(self):
+        v = read_decide(ok_scan(partial=True, q1="dont-know"), "q5_data=yes", "q1=no")
+        self.assertEqual(v["rows"]["q1"]["answer"], "no")
+        self.assertEqual(v["door"], "patch-it")
+
+    def test_read_dont_know_changes_nothing(self):
+        base = decide(ok_scan(q4="dont-know"), "q5_data=yes")
+        v = read_decide(ok_scan(q4="dont-know"), "q5_data=yes", "q4=dont-know")
+        self.assertEqual(v["rows"], base["rows"])
+        self.assertEqual(v["door"], base["door"])
+
+    def test_read_stop_line_word_ticks(self):
+        v = read_decide(ok_scan(), "q5_data=yes stop_line=none", "stop_line=health")
+        self.assertEqual(v["door"], "get-a-person")
+        self.assertEqual(v["stop_line"]["read"], ["health"])
+        self.assertEqual(v["stop_line"]["founder"], ["none"])
+
+    def test_q4_read_yes_is_the_one_kinder_path(self):
+        """The case the release can't reach: the founder doesn't know Q4, the code shows the checks."""
+        scan = ok_scan(q4="dont-know", q9="nothing-found")
+        self.assertEqual(decide(scan, "q5_data=yes")["door"], "patch-it")
+        self.assertEqual(read_decide(scan, "q5_data=yes", "q4=yes")["door"], "ship-it")
+
+    def test_q2_read_yes_never_changes_a_door(self):
+        for scan in (ok_scan(q2="dont-know"), ok_scan(q2="dont-know", q4="dont-know", q9="dont-know")):
+            self.assertEqual(read_decide(scan, "q5_data=yes", "q2=yes")["door"], decide(scan, "q5_data=yes")["door"])
+
+    def test_degraded_read_no_fills_q1(self):
+        v = cv.decide(None, cv.parse_answers("stop_line=none"), cv.parse_read("q1=no"))
+        self.assertEqual((v["rows"]["q1"]["answer"], v["rows"]["q1"]["source"], v["rows"]["q1"]["label"]),
+                         ("no", "read", None))
+
+    def test_no_read_keeps_the_verdict_shape(self):
+        v = decide(ok_scan(), "q5_data=yes")
+        self.assertNotIn("read", v["stop_line"])
+        self.assertEqual(cv.decide(ok_scan(), cv.parse_answers("q5_data=yes"), None), v)
+
+    def test_cli_read(self):
+        out = subprocess.run([sys.executable, "-I", VERDICT, "--scan-json", "-", "--answers", "q5_data=yes",
+                              "--read", "q4=yes"], input=json.dumps(ok_scan(q4="dont-know", q9="dont-know")) + "\n",
+                             capture_output=True, text=True, timeout=60, cwd=FIXTURES)
+        v = json.loads(out.stdout)["verdict"]
+        self.assertEqual((v["rows"]["q4"]["source"], v["door"]), ("read", "ship-it"))
+
+    def test_cli_empty_read_on_the_degraded_path(self):
+        out = subprocess.run([sys.executable, "-I", VERDICT, "--no-scan", "--answers", "stop_line=none", "--read", ""],
+                             capture_output=True, text=True, timeout=60, cwd=FIXTURES)
+        v = json.loads(out.stdout)["verdict"]
+        self.assertEqual(v["stop_line"]["read"], [])
+        self.assertEqual(v["door"], cv.decide(None, cv.parse_answers("stop_line=none"))["door"])
+
+    def test_cli_bad_read_is_usage_and_never_echoed(self):
+        out = subprocess.run([sys.executable, "-I", VERDICT, "--no-scan", "--read", "q1=yes-really"],
+                             capture_output=True, text=True, timeout=60, cwd=FIXTURES)
+        env = json.loads(out.stdout)
+        self.assertEqual((env["ok"], env["error"]), (False, "usage"))
+        self.assertNotIn("really", out.stdout)
+
+    def test_skill_documents_the_read_vocabulary(self):
+        with open(os.path.join(SKILL_DIR, "SKILL.md"), encoding="utf-8") as fh:
+            section = fh.read().split("## Run the verdict", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("--read '<read>'", section)
+        for q, vals in cv.READ_VALUES.items():
+            for val in vals:
+                self.assertIn("`%s=%s`" % (q, val), section, (q, val))
+        for word in cv.READ_STOP_LINE_VALUES:
+            self.assertIn("`%s`" % word, section, word)
+
+
+def _all_reads():
+    """Every --read the vocabulary allows: each q1-q4 value or absent, crossed with no stop_line or one word."""
+    keys = list(cv.READ_VALUES)
+    for vals in itertools.product(*[(None,) + cv.READ_VALUES[k] for k in keys]):
+        for word in (None,) + cv.READ_STOP_LINE_VALUES:
+            toks = ["%s=%s" % (k, v) for k, v in zip(keys, vals) if v]
+            if word:
+                toks.append("stop_line=" + word)
+            yield " ".join(toks)
+
+
+READ_PRESETS = tuple(_all_reads())
+# The one kind of door that may be kinder than released main: Q4 read yes, where the release could only ask a founder
+# who usually can't know. Every row that uses it is counted; an entry no row needs fails.
+Q4_READ_YES = ("released main asks the founder Q4 (\"who is allowed to do this?\"), which a vibe-coder usually "
+               "can't answer, so it stays Don't know; 0.4.0 reads the write, delete, admin and payment handlers and "
+               "may answer yes from a role or ownership check in code (Lauren, 2026-10-15: start by looking at the code)")
+
+
+class ReleasedVerdictNeverWorseTests(unittest.TestCase):
+    """Never worse than main, run live against released main's custody_verdict.py (exported with git archive, as the
+    scanner floor does). (a) With no read answers the branch verdict is identical to the release's. (b) With read
+    answers the door is never kinder than the release given the same founder answers, except Q4 read yes. (c) Read
+    answers fed to the release as founder tokens never give a kinder door: a read answer is never kinder than a
+    founder giving it."""
+
+    @classmethod
+    def setUpClass(cls):
+        import custody_scan_test as cst
+        cls.released = None
+        ref = cst._release_ref()
+        reason = "no git checkout or no main to compare against"
+        if ref:
+            dest = tempfile.mkdtemp(prefix="custody released verdict ")
+            try:
+                cst._build_cases().export_release(ref, dest, cst.REPO_ROOT)
+                path = os.path.join(dest, "custody_verdict.py")
+                if os.path.exists(path):
+                    spec = importlib.util.spec_from_file_location("custody_verdict_released", path)
+                    cls.released = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(cls.released)
+                else:
+                    reason = "the release has no custody_verdict.py"
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
+                reason = "cannot export %s: %s" % (ref, e)
+            finally:
+                shutil.rmtree(dest, True)
+        if cls.released is None:
+            if cst.REQUIRE_GIT or os.environ.get("CUSTODY_RELEASE_REF"):
+                raise AssertionError("the released verdict did not load: %s" % reason)
+            raise unittest.SkipTest(reason)
+        with open(os.path.join(FIXTURES, "verdict", "corpus.json"), encoding="utf-8") as fh:
+            cls.corpus = json.load(fh)
+
+    def rows(self):
+        for r in self.corpus["rows"]:
+            yield r, self.corpus["scans"][r["scan"]]
+
+    def test_a_no_read_is_identical_to_the_release(self):
+        for r, scan in self.rows():
+            got = cv.decide(copy.deepcopy(scan), cv.parse_answers(r["answers"]))
+            want = self.released.decide(copy.deepcopy(scan), self.released.parse_answers(r["answers"]))
+            self.assertEqual(got, want, r["id"])
+
+    def test_a_empty_read_is_the_release_plus_an_empty_read_list(self):
+        """SKILL.md passes --read '' when the agent read nothing: same verdict as the release, plus stop_line.read = []."""
+        for r, scan in self.rows():
+            got = cv.decide(copy.deepcopy(scan), cv.parse_answers(r["answers"]), cv.parse_read(""))
+            want = self.released.decide(copy.deepcopy(scan), self.released.parse_answers(r["answers"]))
+            self.assertEqual(got["stop_line"].pop("read"), [], r["id"])
+            self.assertEqual(got, want, r["id"])
+
+    @staticmethod
+    def founder_variants(answers):
+        """The row's answers, and the same with the founder saying q4=no (a no the code must never overturn)."""
+        toks = [t for t in answers.split() if not t.startswith(("q4=", "q4_"))]
+        return (answers, " ".join(toks + ["q4=no"]))
+
+    def test_b_read_is_never_kinder_than_the_release_except_q4_yes(self):
+        kinder = 0
+        for r, scan in self.rows():
+            for answers in self.founder_variants(r["answers"]):
+                rel = self.released.decide(copy.deepcopy(scan), self.released.parse_answers(answers))
+                for read in READ_PRESETS:
+                    v = cv.decide(copy.deepcopy(scan), cv.parse_answers(answers), cv.parse_read(read))
+                    if RANK[v["door"]] > RANK[rel["door"]]:
+                        self.assertEqual((v["rows"]["q4"]["source"], v["rows"]["q4"]["answer"]), ("read", "yes"),
+                                         "%s + read %r: %s is kinder than released %s; the one listed exception: %s"
+                                         % (r["id"], read, v["door"], rel["door"], Q4_READ_YES))
+                        self.assertIn(rel["rows"]["q4"]["answer"], ("dont-know", "nothing-found"),
+                                      "%s + read %r: a code yes overturned a released Q4 %s"
+                                      % (r["id"], read, rel["rows"]["q4"]["answer"]))
+                        kinder += 1
+        self.assertGreater(kinder, 0, "no corpus row reaches the Q4 read yes path: the exception is untested")
+
+    def test_c_read_is_never_kinder_than_the_release_told_as_a_founder(self):
+        for r, scan in self.rows():
+            founder = cv.parse_answers(r["answers"])
+            for read in READ_PRESETS:
+                rd = cv.parse_read(read)
+                v = cv.decide(copy.deepcopy(scan), founder, rd)
+                # The release, told the read answers as if the founder gave them where the founder gave none.
+                merged = dict(founder)
+                for q, val in rd.items():
+                    if q == "stop_line":
+                        merged["stop_line"] = list(founder.get("stop_line", [])) + val
+                    elif val == "no" or q not in founder or founder[q] == "dont-know":
+                        merged[q] = val
+                tokens = " ".join("%s=%s" % (k, ",".join(x) if isinstance(x, list) else x) for k, x in merged.items())
+                want = self.released.decide(copy.deepcopy(scan), self.released.parse_answers(tokens))["door"]
+                self.assertLessEqual(RANK[v["door"]], RANK[want], "%s + read %r" % (r["id"], read))
 
 
 if __name__ == "__main__":
