@@ -141,10 +141,17 @@ class FounderTextTests(unittest.TestCase):
 
 
 class DoorDoesNotMoveTests(unittest.TestCase):
-    """Plain English rewrites words, never the rule: these files match the release byte for byte."""
+    """Plain English rewrites words, never the rule: these files match the release byte for byte.
+
+    This guards the wording-only release 0.3.6 against the release it left. A later release that changes the rule on
+    purpose (0.4.0: answers read from the code) is held to the never-worse tests instead: custody_verdict_test's
+    ReleasedVerdictNeverWorseTests and VerdictMatchesProseRuleTests, and custody_scan_test's NeverWorseThanMainTests."""
 
     @classmethod
     def setUpClass(cls):
+        import custody_verdict as cv
+        if cv.__version__ != "0.3.6":
+            raise unittest.SkipTest("guards the wording-only release 0.3.6; later rule changes meet the never-worse tests")
         cls.ref = cst._release_ref(REPO_ROOT)
         if cls.ref is None:
             if cst.REQUIRE_GIT:
