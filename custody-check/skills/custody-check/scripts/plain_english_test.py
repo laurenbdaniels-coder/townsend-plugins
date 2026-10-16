@@ -64,6 +64,9 @@ SKILL_FOUNDER = (
     r'"(your package file[^"]+)"',
     r'"(do you train[^"]+)"',
     r"^> (.+)$",                                            # the preflight message
+    r'Say: "([^"]+)"',                                      # the app folder is a shortcut (0.4.0)
+    r'say once: "([^"]+)"',                                 # read it anyway: what the provider sees
+    r'say instead: "([^"]+)"',                              # a refused folder: nothing read
 )
 
 
