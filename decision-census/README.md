@@ -107,4 +107,4 @@ macOS and Linux. Windows isn't supported yet.
 
 ## Credits
 
-MIT licensed. The walk rules and the never-open list are custody-check's. The plain-English approach (a little context first, ASD-STE100 Simplified Technical English, one set of words used the same way) comes from Matt Pocock's `/wait-what` skill in [mattpocock/skills](https://github.com/mattpocock/skills), MIT. Want a second pair of eyes? Bring your census to a Free Assessment, one per company: townsendaistudio.com/assessment?src=decision-census (or write to hello@townsendaistudio.com).
+MIT licensed. The walk rules and the never-open list are custody-check's. The census is written in ASD-STE100 Simplified Technical English: a little context first, one idea per sentence, and one set of words used the same way. The report follows the [free-plugin report standard](../free-plugin-standard/STANDARD.md). Want a second pair of eyes? Bring your census to a Free Assessment, one per company: townsendaistudio.com/assessment?src=decision-census (or write to hello@townsendaistudio.com).
