@@ -8,7 +8,7 @@ the fixed VOCABULARY below. The skill starts from the listed lines and searches 
 Decision types: visibility (who can see a record), price (what something costs),
 paid (whether someone has paid), rounding (how money rounds).
 """
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 import sys
 

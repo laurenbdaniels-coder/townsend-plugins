@@ -2,6 +2,11 @@
 
 The footer of every census names the version that produced it.
 
+## 0.3.1 (2026-10-15)
+
+- **Diagnose, never prescribe.** The "To fix" line is gone. In its place: "Before you change any of these", with one question for your AI tool that ends "Change nothing.", and the Free Assessment link (no link when the stop-line is ticked). A new rule says the census never gives fix steps, code, a prompt that changes the app, or an offer to make changes, even when you ask it to fix things. Choosing the real copy and changing the others safely needs judgment; a generic "put it in one place" prompt could make an AI tool drop the server's copy of an access rule.
+- **Evals:** checks for the new line, against fix prompts and offers to fix, and against unfilled `<…>` placeholders, on every case with planted pairs and on the "fix it too" case. The new-line and no-fix-prompt checks failed on the saved 0.3.0 reports.
+
 ## 0.3.0 (2026-10-15)
 
 - **A report that says what is at risk.** It opens with how many rules your app writes in more than one place, then one fixed line on why that matters: a change can land in one copy and miss the others, and the app then does things you don't expect. Each rule follows with how many places hold it, each place as a plain sentence with its file at the end, what you would see if the copies get out of sync, and a one-minute check. A "To fix" line gives a prompt for your AI tool. The "Screen:/Server:" labels are gone, and nothing comes before the title.
