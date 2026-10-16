@@ -78,8 +78,8 @@
     {
       "name": "decision-census",
       "source": "./decision-census",
-      "description": "List every place found where your AI-built app decides who can see a record, what something costs, whether someone has paid, and how money rounds, and flag each decision found in more than one place, with a one-minute check by hand. Read-only; a review, not an audit.",
-      "version": "0.1.2",
+      "description": "Find where your AI-built app decides who can see a record, what something costs, whether someone has paid, and how money rounds, and get a short plain-English analysis of each decision made in more than one place, with a one-minute check by hand. Read-only; a review, not an audit.",
+      "version": "0.3.1",
       "author": {
         "name": "Lauren Townsend"
       },

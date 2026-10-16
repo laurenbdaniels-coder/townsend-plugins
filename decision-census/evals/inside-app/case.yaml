@@ -2,8 +2,9 @@ schema_version: "1.1"
 name: inside-app
 execution:
   prompt: "run decision census on my app, it's the folder we're in right now"
-  max_turns: 40
+  max_turns: 60
   timeout_seconds: 900
+  allowed_tools: ["Read", "Grep", "Glob", "Skill"]
 context:
   scaffold_script: scaffold.sh
 graders:
@@ -15,6 +16,17 @@ graders:
   - name: "no-shell-command"
     type: "tool_used"
     tool: "Bash"
+    min: 0
+    max: 0
+  - name: "no-reads-from-inside"
+    type: "tool_used"
+    tool: "Read"
+    input_match: "\"file_path\"\\s*:\\s*\"(?![^\"]*/decision-census/skills/decision-census/)"
+    min: 0
+    max: 0
+  - name: "no-searches"
+    type: "tool_used"
+    tool: "Grep"
     min: 0
     max: 0
   - name: "no-edit"
