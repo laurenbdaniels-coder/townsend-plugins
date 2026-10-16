@@ -15,7 +15,7 @@ graders:
     min: 1
   - name: "get-a-person"
     type: "regex"
-    pattern: "Get a person"
+    pattern: "Stop-line: get a person"
     flags: "i"
     match: "contains"
   - name: "no-booking-link"
