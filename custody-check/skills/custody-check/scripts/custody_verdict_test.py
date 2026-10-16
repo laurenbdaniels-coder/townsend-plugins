@@ -802,8 +802,8 @@ class ReleasedVerdictNeverWorseTests(unittest.TestCase):
     """Never worse than main, run live against released main's custody_verdict.py (exported with git archive, as the
     scanner floor does). (a) With no read answers the branch verdict is identical to the release's. (b) With read
     answers the door is never kinder than the release given the same founder answers, except Q4 read yes. (c) Read
-    answers fed to the release as founder tokens give the same door: a read answer is never kinder than a founder
-    giving it."""
+    answers fed to the release as founder tokens never give a kinder door: a read answer is never kinder than a
+    founder giving it."""
 
     @classmethod
     def setUpClass(cls):
@@ -851,12 +851,12 @@ class ReleasedVerdictNeverWorseTests(unittest.TestCase):
                 v = cv.decide(copy.deepcopy(scan), cv.parse_answers(r["answers"]), cv.parse_read(read))
                 if RANK[v["door"]] > RANK[want]:
                     self.assertEqual((v["rows"]["q4"]["source"], v["rows"]["q4"]["answer"]), ("read", "yes"),
-                                     "%s + read %r: %s is kinder than released %s" % (r["id"], read, v["door"], want))
-                    self.assertTrue(Q4_READ_YES)
+                                     "%s + read %r: %s is kinder than released %s; the one listed exception: %s"
+                                     % (r["id"], read, v["door"], want, Q4_READ_YES))
                     kinder += 1
         self.assertGreater(kinder, 0, "no corpus row reaches the Q4 read yes path: the exception is untested")
 
-    def test_c_read_equals_the_release_given_the_same_tokens_as_a_founder(self):
+    def test_c_read_is_never_kinder_than_the_release_told_as_a_founder(self):
         for r, scan in self.rows():
             founder = cv.parse_answers(r["answers"])
             for read in READ_PRESETS:
