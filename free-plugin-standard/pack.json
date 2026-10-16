@@ -51,7 +51,8 @@
   "plugins": {
     "decision-census": {
       "exempt": {
-        "inside-app": "stops before any report: it only tells the founder to run the census from the folder above the app"
+        "inside-app": "stops before any report: it only tells the founder to run the census from the folder above the app",
+        "near-miss": "the census does not run: the prompt asks for a code review, so no report is rendered"
       }
     }
   }

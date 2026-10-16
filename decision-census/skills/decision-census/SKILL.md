@@ -33,7 +33,7 @@ You are taking a census, not passing judgment. The founder leaves with a short a
 - Every check is done in the running app: open a screen, click, compare what two screens show. If one place cannot be seen in the app (it is in the database or runs in the background), the step is to ask their AI tool a plain question, for example: Ask your AI tool: "Which plan names does the database accept? Change nothing."
 - File paths stay exactly as found, in code spans. The founder copies them into their AI tool; they do not need to understand them.
 
-Write every sentence the founder reads in ASD-STE100 Simplified Technical English: give a little context first, then say each thing plainly, using the same words every time. The word limits are ASD-STE100's.
+Write every sentence the founder reads in ASD-STE100 Simplified Technical English. Give a little context first, then say each thing plainly, using the same words every time. The word limits are ASD-STE100's.
 
 - One idea per sentence. Active voice, present tense, common words. At most 20 words in an instruction, at most 25 in any other sentence.
 - Words the founder reads, used only with these meanings: **rule** (how the app decides who can see a record, what something costs, whether someone has paid, or how money rounds), **place** (one line in one file that applies a rule), **written in more than one place** (two or more places each hold their own copy of a rule), **out of sync** (the copies no longer agree), **found / not found by this run**, **check** (a test of about one minute in the running app). Internally, a rule is a decision; the founder never sees "decision" except in the title and the closing prompt.

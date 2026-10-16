@@ -76,9 +76,15 @@ def _parse(text, pack):
 def _scan(root):
     """Yield (path, problem or None, new_text or None) for every case of every registered plugin."""
     pack = load_pack(root)
+    for path in sorted(glob.glob(os.path.join(root, '*', 'evals', '*', 'case.yaml'))):
+        plugin = os.path.basename(os.path.dirname(os.path.dirname(os.path.dirname(path))))
+        if plugin not in pack['plugins'] and START.search(open(path, encoding='utf-8').read()):
+            yield path, 'carries a free-plugin-standard block but %s is not registered in pack.json' % plugin, None
     for plugin, conf in sorted(pack['plugins'].items()):
         exempt = conf.get('exempt', {})
         names = set()
+        if not case_files(root, plugin):
+            yield plugin, 'registered in pack.json but has no eval cases', None
         for path in case_files(root, plugin):
             name = os.path.basename(os.path.dirname(path))
             names.add(name)

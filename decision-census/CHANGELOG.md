@@ -5,7 +5,7 @@ The footer of every census names the version that produced it.
 ## 0.3.2 (2026-10-16)
 
 - **The report standard is shared.** The shape this census reports in (the count, why it matters, each rule with what goes wrong and a one-minute check, then "Before you change any of these") is now the standard every free plugin follows: `free-plugin-standard/STANDARD.md`. The census report does not change.
-- **Evals:** six checks now come from the shared pack (`free-plugin-standard/pack.json`), stamped into each case by `sync_graders.py`. The four census checks the pack repeats were removed, so each case holds one copy. The clean-looking, near-miss and stop-line cases now also check for fix prompts and code words, and the "fix it too" case checks the full report shape. On the saved reports, every 0.3.1 report passes; the new alarms are all on older releases.
+- **Evals:** six checks now come from the shared pack (`free-plugin-standard/pack.json`), stamped into each case by `sync_graders.py`. The four census checks the pack repeats were removed, so each case holds one copy. The clean-looking and stop-line cases now also check for fix prompts and code words, and the "fix it too" case checks the full report shape. On the saved reports, every 0.3.1 report passes the shared checks; the new alarms are all on older releases.
 - **Credits:** the ASD-STE100 line no longer credits another skill. No text was copied from it.
 
 ## 0.3.1 (2026-10-15)

@@ -144,6 +144,18 @@ class SyncTest(unittest.TestCase):
         pack = json.load(open(os.path.join(HERE, 'pack.json')))['groups']
         self.assertEqual(graders[1:], pack['always'] + pack['issues'])
 
+    def test_registered_plugin_without_cases_fails(self):
+        root = self.repo({})
+        self.assertTrue(any('no eval cases' in e for e in sync_graders.check(root)))
+
+    def test_unregistered_plugin_carrying_blocks_fails(self):
+        root = self.repo({'a': CASE_HEAD}, exempt={'a': 'why'})
+        d = os.path.join(root, 'other-plugin', 'evals', 'b')
+        os.makedirs(d)
+        with open(os.path.join(d, 'case.yaml'), 'w') as fh:
+            fh.write(CASE_HEAD + marker('always'))
+        self.assertTrue(any('not registered' in e for e in sync_graders.check(root)))
+
     def test_main_entry_point_exit_codes(self):
         script = os.path.join(HERE, 'sync_graders.py')
         ok = subprocess.run([sys.executable, script, '--check', '--root', ROOT],
@@ -162,12 +174,17 @@ class SyncTest(unittest.TestCase):
 #   1. no check that fails on main passes on the branch (graders compared by pattern, flags and
 #      match, so a renamed or moved grader still counts as the same check), and
 #   2. no report that passes every regex grader on main fails one on the branch (no new alarm),
-# unless the exact report is listed in ALLOWED with the reason main was wrong.
+#      unless the exact report is listed in ALLOWED with the reason main was wrong, and
+#   3. every case on main still exists on the branch.
+# ALLOWED excuses only a new alarm, never a lost check, and an entry that no longer excuses
+# anything fails the test. Every plugin registered in pack.json needs its corpus file.
 # Checked against Python's re: on the saved runs it reproduces all 2,612 regex verdicts the eval
 # runner recorded (scored on the last message).
 # ---------------------------------------------------------------------------
 
-CORPORA = {'decision-census': os.path.join(HERE, 'corpus', 'decision-census-reports.jsonl')}
+def corpora():
+    plugins = json.load(open(os.path.join(HERE, 'pack.json')))['plugins']
+    return {p: os.path.join(HERE, 'corpus', '%s-reports.jsonl' % p) for p in sorted(plugins)}
 
 # (plugin, case, sha256 of report text[:12]) -> reason main was wrong. Every entry is a report from
 # a release before the standard (0.3.1): main never graded these lines in these cases. None is a 0.3.1 report.
@@ -182,9 +199,6 @@ ALLOWED = {
     ('decision-census', 'fix-request', '3043b45bf8a6'): 'same as 0.1.0: pre-standard report shape, ungraded in this case on main.',  # 0.1.1
     ('decision-census', 'fix-request', '4a35677c0251'): 'same as 0.1.0: pre-standard report shape, ungraded in this case on main.',  # 0.1.1
     ('decision-census', 'fix-request', '6364b0c3dff1'): 'same as 0.1.0: pre-standard report shape, ungraded in this case on main.',  # 0.1.1
-    ('decision-census', 'near-miss', '419ed735dd1c'): 'the founder-facing text uses code words ("config"); main had no code-words grader in this case.',  # 0.1.1
-    ('decision-census', 'near-miss', '9a125d8d81ad'): 'the founder-facing text uses code words ("config"); main had no code-words grader in this case.',  # 0.1.1
-    ('decision-census', 'near-miss', '96ec7c5f8025'): 'the founder-facing text uses code words ("config"); main had no code-words grader in this case.',  # 0.1.1
     ('decision-census', 'fix-request', '5ee71a00ce5f'): 'same as 0.1.0: pre-standard report shape, ungraded in this case on main.',  # 0.1.2
     ('decision-census', 'fix-request', 'e84cb1b3b775'): 'same as 0.1.0: pre-standard report shape, ungraded in this case on main.',  # 0.1.2
     ('decision-census', 'stopline-app', 'bd2e7bb93421'): 'the stop-line text uses code words ("schema", "config", "route"); main had no code-words grader in this case.',  # 0.1.2
@@ -197,7 +211,6 @@ ALLOWED = {
     ('decision-census', 'stopline-app', '85d4d41bc2d1'): 'the stop-line text uses code words ("schema", "config", "route"); main had no code-words grader in this case.',  # 0.2.0
     ('decision-census', 'stopline-app', '4610bfb777dd'): 'the stop-line text uses code words ("schema", "config", "route"); main had no code-words grader in this case.',  # 0.2.0
     ('decision-census', 'stopline-app', '4543da4931b0'): 'the stop-line text uses code words ("schema", "config", "route"); main had no code-words grader in this case.',  # 0.2.0
-    ('decision-census', 'near-miss', '3fdc6dbb1f30'): 'the founder-facing text uses code words ("config"); main had no code-words grader in this case.',  # 0.2.1
     ('decision-census', 'stopline-app', 'acea6336a74f'): '0.3.0 gave a fix prompt, the gap 0.3.1 closed; main had no fix-prompt grader in this case.',  # 0.3.0
 }
 
@@ -240,35 +253,50 @@ class NeverWorseThanMainTest(unittest.TestCase):
                 self.fail('no origin/main to compare against')
             self.skipTest('no origin/main')
 
+    def test_every_registered_plugin_has_a_corpus(self):
+        for plugin, corpus in corpora().items():
+            self.assertTrue(os.path.isfile(corpus), '%s has no corpus at %s' % (plugin, corpus))
+
     def test_branch_suite_never_worse_than_main(self):
         import hashlib
         problems = []
         compared = 0
-        for plugin, corpus in CORPORA.items():
+        used = set()
+        for plugin, corpus in corpora().items():
             reports = [json.loads(l) for l in open(corpus)]
+            main_cases = _git('ls-tree', '-d', '--name-only', '%s:%s/evals' % (self.base, plugin))
+            for case in main_cases.stdout.split():
+                if _git('cat-file', '-e', '%s:%s/evals/%s/case.yaml' % (self.base, plugin, case)).returncode:
+                    continue
+                if not os.path.exists(os.path.join(ROOT, plugin, 'evals', case, 'case.yaml')):
+                    problems.append('%s/%s: case on main is missing on the branch' % (plugin, case))
             for case in sorted({r['case'] for r in reports}):
                 rel = '%s/evals/%s/case.yaml' % (plugin, case)
                 old = _git('show', '%s:%s' % (self.base, rel))
                 new_path = os.path.join(ROOT, rel)
-                if old.returncode != 0 or not os.path.exists(new_path):
-                    continue
+                if old.returncode != 0:
+                    continue  # a case new on the branch has no baseline
+                if not os.path.exists(new_path):
+                    continue  # reported above
                 main_checks = _regex_checks(old.stdout)
                 branch_checks = _regex_checks(open(new_path).read())
                 for r in (x for x in reports if x['case'] == case):
                     compared += 1
                     text = r['text']
                     key = (plugin, case, hashlib.sha256(text.encode()).hexdigest()[:12])
-                    if key in ALLOWED:
-                        continue
                     main_failing = {c for c in main_checks if _fails(c, text)}
                     branch_failing = {c for c in branch_checks if _fails(c, text)}
                     lost = main_failing - branch_failing
                     if lost:
                         problems.append('%s more permissive on %s %s: %s' % (
                             key, r['version'], case, [c[0][:60] for c in lost]))
-                    if not main_failing and branch_failing:
+                    if not main_failing and branch_failing and key in ALLOWED:
+                        used.add(key)
+                    elif not main_failing and branch_failing:
                         problems.append('%s new alarm on %s %s: %s' % (
                             key, r['version'], case, [c[0][:60] for c in branch_failing]))
+        for key in sorted(set(ALLOWED) - used):
+            problems.append('%s: ALLOWED entry excuses nothing; drop it' % (key,))
         self.assertGreater(compared, 400)
         self.assertEqual(problems, [], '\n'.join(problems))
 
