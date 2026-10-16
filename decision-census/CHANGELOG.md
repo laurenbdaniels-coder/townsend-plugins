@@ -2,6 +2,11 @@
 
 The footer of every census names the version that produced it.
 
+## 0.3.0 (2026-10-15)
+
+- **A report that says what is at risk.** It opens with how many rules your app writes in more than one place, then one fixed line on why that matters: a change can land in one copy and miss the others, and the app then does things you don't expect. Each rule follows with how many places hold it, each place as a plain sentence with its file at the end, what you would see if the copies get out of sync, and a one-minute check. A "To fix" line gives a prompt for your AI tool. The "Screen:/Server:" labels are gone, and nothing comes before the title.
+- **Evals:** the planted-pair checks now match any bullet that names the file, and new checks require the count line, the "why this matters" line, an "if they get out of sync" line and the "To fix" line on every case with planted pairs. All four new checks failed on every saved 0.2.1 report.
+
 ## 0.2.1 (2026-10-15)
 
 - **Written for founders who don't code.** The report now speaks to an ordinary adult who built the app with an AI tool and does not read code. Each place is described by what it does in the app ("hides the Suspend button for the owner"), not by how the code does it. Programming words (function, helper, constant, endpoint, schema, query and the like) are not used outside file paths. Every check is done in the running app, or is a plain question to ask your AI tool, never a database console.
