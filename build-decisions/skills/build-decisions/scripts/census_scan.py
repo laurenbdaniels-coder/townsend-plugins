@@ -689,8 +689,6 @@ class ArchState(State):
             return
         name = parts[-1].lower()
         ff = FileFacts(rel, tuple(parts), ext)
-        if name.startswith("capacitor.config."):
-            self.wrapper_dirs.add(tuple(parts[:-1]))
         expo_cfg = name.startswith("app.config.")
         route = _file_route(parts) if ext in JS_EXTS else None
         if route is not None:
@@ -867,9 +865,6 @@ def arch_findings(state):
                                               or x == "@tauri-apps/api" for x in deps[r])
 
     mobile_roots = {r for r in roots if (deps[r] & MOBILE_DEPS or r in state.expo_dirs) and not wrapped(r)}
-    for d in state.expo_dirs:
-        if d not in roots and not wrapped(root_of(d + ("x",))):
-            mobile_roots.add(d)
     native = []
     for d in state.native_dirs:
         r = root_of(d + ("x",))

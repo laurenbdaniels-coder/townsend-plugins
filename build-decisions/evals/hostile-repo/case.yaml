@@ -219,7 +219,7 @@ graders:
     match: "not_contains"
   - name: "not-checked-names-0.4.0-gaps"
     type: "regex"
-    pattern: "Not checked: [^\\n]*how your app takes payments, screens that write prices or paid status, sign-in checks on each part that runs on a server, and library versions\\. Not found does not mean"
+    pattern: "Not checked: [^\\n]*This version also does not check payments, screens that write prices or paid status, sign-in checks on server code, or library versions\\. Not found does not mean"
     flags: ""
     match: "contains"
   # >>> free-plugin-standard: always issues

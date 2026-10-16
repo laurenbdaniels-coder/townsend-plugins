@@ -199,7 +199,6 @@ def as_renamed(plugin, check):
     pattern = check[0]
     for old, new in RENAMED_TEXT.get(plugin, ()):
         pattern = pattern.replace(old, new)
-    pattern = pattern.replace('decision-census', 'build-decisions') if plugin in RENAMED else pattern
     return (pattern,) + tuple(check[1:])
 
 
