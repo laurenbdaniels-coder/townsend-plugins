@@ -185,6 +185,87 @@ class DifferentialTests(unittest.TestCase):
         self.assertEqual(lost_hints, [], "main reports these stop-line hints and the branch does not: %r" % lost_hints)
 
 
+def arch_listings(result):
+    """Everything the section lists, as comparable identity keys."""
+    out = {("signal", s["signal"], s["path"]) for s in result["shape"]}
+    out |= {("fact", f["fact"], f["path"]) for f in result["facts"]}
+    out |= {("candidate", c["type"], c["path"], c["line"], c["app"]) for c in result["candidates"]}
+    return out
+
+
+# Section listings main had that the branch may drop, or new ones the branch may add, each with the reason.
+# Format: {"key": [...identity key...], "reason": "..."}
+ARCH_RECALL_EXCEPTIONS = []
+ARCH_NEW_ALARM_EXCEPTIONS = []
+
+
+class ArchitectureSectionTests(unittest.TestCase):
+    """The architecture section is new in 0.4.0: gated by seeded positives and labeled negatives on
+    fixtures/shapes, and by main vs branch once main ships the section."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp(prefix="census-arch-")
+        cls.expected = load_expected()["sections"]["architecture"]
+        cls.repo = os.path.join(cls.tmp, cls.expected["app"])
+        shutil.copytree(os.path.join(FIXTURES, cls.expected["app"]), cls.repo)
+        cls.result = scan(SCRIPT, cls.repo, "--section", "architecture")
+        cls.listed = arch_listings(cls.result)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_seeded_listed_and_advice(self):
+        """protects=every seeded signal, fact and flagged decision is listed, and the rule order picks the seeded advice;
+        fails_when=one is missing or the advice id differs;
+        no_claim=only as good as the fixture."""
+        missing = []
+        for s in self.expected["seeded"]:
+            if "signal" in s:
+                key = ("signal", s["signal"], s["path"])
+            elif "fact" in s:
+                key = ("fact", s["fact"], s["path"])
+            else:
+                key = ("candidate", s["candidate"], s["path"], s["line"], s["app"])
+            if key not in self.listed:
+                missing.append(key)
+        self.assertEqual(missing, [])
+        self.assertEqual(self.result["advice"], self.expected["advice"])
+        self.assertEqual(self.result["coverage"], "complete")
+
+    def test_negatives_not_listed(self):
+        """protects=wrappers, server files, comments, docs sites and negated workspaces stay out;
+        fails_when=a negative path is listed under its kind;
+        no_claim=noise in paths the fixture does not label is not measured."""
+        for n in self.expected["negatives"]:
+            hits = [k for k in self.listed if k[2] == n["path"]
+                    and (k[0] == n["kind"] or k[1] == n["kind"])
+                    and ("line" not in n or k[3] == n["line"])]
+            self.assertEqual(hits, [], "%s: %s" % (n["path"], n["why"]))
+
+    def test_never_worse_than_main(self):
+        """protects=no later version lists fewer seeded section findings, or new ones, than the released one;
+        fails_when=main's section lists something the branch drops, or the branch adds a listing main lacks,
+        with no exception and reason;
+        no_claim=skipped (visibly) while main has no architecture section (before 0.4.0 merges)."""
+        script = main_script(self.tmp)
+        if script is None:
+            self.skipTest("main helper not found; the census differential reports this")
+        parent, name = os.path.split(self.repo)
+        proc = subprocess.run([sys.executable, "-I", script, "--repo", name, "--section", "architecture"],
+                              cwd=parent, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=600)
+        theirs = json.loads(proc.stdout.decode("utf-8").strip().split("\n")[0])
+        if not theirs.get("ok") and theirs.get("error") == "usage":
+            print("SKIPPED: main has no architecture section yet")
+            self.skipTest("main has no architecture section yet")
+        main_listed = arch_listings(theirs)
+        lost = sorted(main_listed - self.listed - {tuple(e["key"]) for e in ARCH_RECALL_EXCEPTIONS})
+        self.assertEqual(lost, [], "main lists these and the branch does not: %r" % lost)
+        new = sorted(self.listed - main_listed - {tuple(e["key"]) for e in ARCH_NEW_ALARM_EXCEPTIONS})
+        self.assertEqual(new, [], "the branch lists these and main does not (add each with a reason): %r" % new)
+
+
 class MainScriptTests(unittest.TestCase):
     """main_script() finds main's helper under either name, and says so when it finds neither."""
 

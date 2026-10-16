@@ -290,5 +290,96 @@
       "line": 7,
       "field": "birthday"
     }
-  ]
+  ],
+  "sections": {
+    "architecture": {
+      "about": "Ground truth for fixtures/shapes (--section architecture). 'seeded': every signal, fact and flagged decision the helper must list. 'negatives': a path that must not be listed under the named kind, with why. 'advice': the one id the rule order must pick. Main vs branch, per section, is compared in differential_test once main ships the section.",
+      "app": "shapes",
+      "advice": "shared-api",
+      "seeded": [
+        {
+          "signal": "baas-from-browser",
+          "path": "apps/admin/app/Users.tsx"
+        },
+        {
+          "signal": "baas-from-browser",
+          "path": "apps/web/app/billing/Plans.tsx"
+        },
+        {
+          "signal": "own-api-routes",
+          "path": "apps/web/app/api/projects/[id]/route.ts"
+        },
+        {
+          "signal": "own-api-routes",
+          "path": "apps/admin/app/api/refund/route.ts"
+        },
+        {
+          "signal": "server-actions",
+          "path": "apps/web/app/actions.ts"
+        },
+        {
+          "signal": "second-client",
+          "path": "mobile/src/api.ts"
+        },
+        {
+          "signal": "second-client",
+          "path": "apps/admin/app/Users.tsx"
+        },
+        {
+          "fact": "api-key-routes",
+          "path": "apps/web/app/api/api-keys/route.ts"
+        },
+        {
+          "candidate": "price",
+          "path": "mobile/src/Checkout.tsx",
+          "line": 2,
+          "app": "mobile-app"
+        },
+        {
+          "candidate": "price",
+          "path": "apps/admin/app/Users.tsx",
+          "line": 3,
+          "app": "web-app"
+        }
+      ],
+      "negatives": [
+        {
+          "kind": "baas-from-browser",
+          "path": "apps/web/app/page.tsx",
+          "why": "a Next server component (no 'use client') is not the browser"
+        },
+        {
+          "kind": "second-client",
+          "path": "apps/web/ios/App/AppDelegate.swift",
+          "why": "ios/ inside a Capacitor-wrapped web app is the same app, not a second one"
+        },
+        {
+          "kind": "candidate",
+          "path": "apps/admin/app/api/refund/route.ts",
+          "why": "a server file of a second web app is not a client decision"
+        },
+        {
+          "kind": "candidate",
+          "path": "mobile/src/Checkout.tsx",
+          "line": 5,
+          "why": "a decision in a comment is not flagged"
+        },
+        {
+          "kind": "fact",
+          "path": "apps/legacy/package.json",
+          "why": "left out of the workspace list by a negation"
+        },
+        {
+          "kind": "fact",
+          "path": "apps/docs/package.json",
+          "why": "a docs site with no database client is not a front end"
+        },
+        {
+          "kind": "fact",
+          "path": "mobile/package.json",
+          "why": "the phone app is linked, so it is a second-client, not an unlinked mobile-app fact"
+        }
+      ]
+    }
+  }
 }
