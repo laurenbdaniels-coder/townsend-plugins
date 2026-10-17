@@ -32,7 +32,7 @@ graders:
     match: "contains"
   - name: "never-says-clean-or-only"
     type: "regex"
-    pattern: "\\bclean\\b|no duplicates|\\bnone\\b|only one"
+    pattern: "\\bclean\\b|no duplicates|(?<!skipped )(?<!make sure )\\bnone\\b|make sure none\\b[^.\\n]*(?:duplicat|\\brules?\\b|\\bdecisions?\\b|more than one place|two places)|only one"
     flags: "i"
     match: "not_contains"
   - name: "plain-english-sentences-25-words-max"

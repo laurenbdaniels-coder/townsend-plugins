@@ -3,6 +3,8 @@
 Run: python3 -m unittest discover -s free-plugin-standard -p '*_test.py' -v
 The differential needs PyYAML (CI installs it) and git history with origin/main.
 """
+import functools
+import hashlib
 import json
 import os
 import re
@@ -173,11 +175,10 @@ class SyncTest(unittest.TestCase):
 # runs, 0.1.0 to 0.3.1). For every report:
 #   1. no check that fails on main passes on the branch (graders compared by pattern, flags and
 #      match, so a renamed or moved grader still counts as the same check), and
-#   2. no report that passes every regex grader on main fails one on the branch (no new alarm),
-#      unless the exact report is listed in ALLOWED with the reason main was wrong, and
-#   3. every case on main still exists on the branch.
-# ALLOWED excuses only a new alarm, never a lost check, and an entry that no longer excuses
-# anything fails the test. Every plugin registered in pack.json needs its corpus file.
+#   2. no report that passes every regex grader on main fails one on the branch (no new alarm), and
+#   3. every case on main still exists on the branch,
+# unless the exact check on the exact report is listed in ALLOWED with the reason main was wrong.
+# Every plugin registered in pack.json needs its corpus file.
 # Checked against Python's re: on the saved runs it reproduces all 2,612 regex verdicts the eval
 # runner recorded (scored on the last message).
 # ---------------------------------------------------------------------------
@@ -219,12 +220,75 @@ def corpora():
     plugins = json.load(open(os.path.join(HERE, 'pack.json')))['plugins']
     return {p: os.path.join(HERE, 'corpus', '%s-reports.jsonl' % p) for p in sorted(plugins)}
 
-# (plugin, case, sha256 of report text[:12]) -> reason main was wrong. A new alarm on a saved report
-# needs an entry here; an entry that no longer excuses anything fails the test.
+# One entry excuses one check on one saved report, in one direction:
+#   (plugin, case, sha256 of report text[:12], 'alarm', pattern)  the branch newly fails this check
+#   (plugin, case, sha256 of report text[:12], 'looser', pattern) the branch no longer fails main's check
+# -> the reason main was wrong. 'looser' names main's pattern; 'alarm' names the branch's.
+# An entry fails the test only when the branch no longer needs it: an 'alarm' check the branch
+# passes again, a 'looser' check the branch fails again, or a report not in the corpus. When main
+# and the branch agree (after the PR merges) the entry is used up and stays green, so adding an
+# exception never turns main red. Entries don't expire on their own; one only ever excuses the
+# exact check on the exact report it names.
+_NONE_WAS_WRONG = ('main\'s never-says-clean grader matched any "none"; this report only says the run '
+                   '"skipped none" files, which describes the run, not the app. S-035 exempts it.')
+_STILL_FAILS = ('S-035 changed this pattern, so main\'s exact check is gone; the branch\'s new pattern '
+                'still fails this report. Nothing is looser.')
+_OLD_NONE = '\\bclean\\b|no duplicates|\\bnone\\b'
 ALLOWED = {
-    # Empty since build-decisions 0.4.0 (#42) merged: main now carries the same graders, so the 41
-    # pre-0.4.0 reports it listed fail on main and on a branch alike, and an entry excuses nothing.
+    ('build-decisions', 'clean-looking-app', '51b4c395a164', 'looser', _OLD_NONE + '|only one'): _STILL_FAILS,
+    ('build-decisions', 'clean-looking-app', '75392260c3b9', 'looser', _OLD_NONE + '|only one'): _STILL_FAILS,
+    ('build-decisions', 'clean-looking-app', 'c6e6e10bb6a4', 'looser', _OLD_NONE + '|only one'): _NONE_WAS_WRONG,
+    ('build-decisions', 'seeded-app', '127806e47a33', 'looser', _OLD_NONE): _STILL_FAILS,
+    ('build-decisions', 'seeded-app', '04f2ac84bf5e', 'looser', _OLD_NONE): _STILL_FAILS,
+    ('build-decisions', 'seeded-app', 'b8fc1c6d5727', 'looser', _OLD_NONE): _STILL_FAILS,
 }
+KINDS = ('alarm', 'looser')
+
+
+def judge(reports_by_plugin, main_checks, branch_checks, allowed, main_prints=None):
+    """Score each saved report with main's and the branch's regex checks; return (problems, compared).
+
+    main_checks / branch_checks map (plugin, case) -> [(pattern, flags, match)]; a case missing on
+    either side has no baseline and is skipped. main_prints(plugin, text) is the text main's graders
+    score (default: the saved text). Each problem is (kind, key, detail) with kind 'looser', 'alarm'
+    or 'stale'; key is the ALLOWED key that would excuse it (for 'stale', the entry itself).
+    """
+    def valid(k):
+        return k in allowed and k[3] in KINDS and bool(allowed[k])
+
+    problems, compared, seen = [], 0, {}
+    for plugin, reports in sorted(reports_by_plugin.items()):
+        for r in reports:
+            case, text = r['case'], r['text']
+            if (plugin, case) not in main_checks or (plugin, case) not in branch_checks:
+                continue
+            compared += 1
+            rkey = (plugin, case, hashlib.sha256(text.encode()).hexdigest()[:12])
+            main_text = main_prints(plugin, text) if main_prints else text
+            main_failing = {as_renamed(plugin, c) for c in main_checks[(plugin, case)] if _fails(c, main_text)}
+            branch_failing = {c for c in branch_checks[(plugin, case)] if _fails(c, as_branch_prints(plugin, text))}
+            seen[rkey] = {c[0] for c in branch_failing}
+            for c in sorted(main_failing - branch_failing):
+                if not valid(rkey + ('looser', c[0])):
+                    problems.append(('looser', rkey + ('looser', c[0]), 'more permissive on %s' % r['version']))
+            if not main_failing:
+                for c in sorted(branch_failing):
+                    if not valid(rkey + ('alarm', c[0])):
+                        problems.append(('alarm', rkey + ('alarm', c[0]), 'new alarm on %s' % r['version']))
+    for k in sorted(allowed, key=str):
+        branch_fails = seen.get(k[:3])
+        if not valid(k):
+            why = 'needs a kind in %s and a reason' % (KINDS,)
+        elif branch_fails is None:
+            why = 'its report is not in the corpus (or its case is not on both sides)'
+        elif k[3] == 'alarm' and k[4] not in branch_fails:
+            why = 'the branch passes this check again'
+        elif k[3] == 'looser' and k[4] in branch_fails:
+            why = 'the branch fails this check again'
+        else:
+            continue
+        problems.append(('stale', k, 'ALLOWED entry no longer needed (%s); drop it' % why))
+    return problems, compared
 
 
 def _git(*args):
@@ -245,6 +309,7 @@ def _regex_checks(text):
     return out
 
 
+@functools.lru_cache(maxsize=None)
 def _fails(check, report):
     pattern, flags, match = check
     found = re.search(pattern, report, re.I if 'i' in flags else 0) is not None
@@ -270,51 +335,224 @@ class NeverWorseThanMainTest(unittest.TestCase):
             self.assertTrue(os.path.isfile(corpus), '%s has no corpus at %s' % (plugin, corpus))
 
     def test_branch_suite_never_worse_than_main(self):
-        import hashlib
-        problems = []
-        compared = 0
-        used = set()
-        for plugin, corpus in corpora().items():
-            reports = [json.loads(l) for l in open(corpus)]
+        reports, main, branch, main_prints = _real_inputs(self)
+        problems, compared = judge(reports, main, branch, ALLOWED, main_prints)
+        problems = ['%s %s: %s' % (p[1], p[0], p[2]) for p in problems]
+        for plugin in sorted(reports):
             on_main = main_folder(plugin, self.base)
-            main_cases = _git('ls-tree', '-d', '--name-only', '%s:%s/evals' % (self.base, on_main))
-            for case in main_cases.stdout.split():
+            listed = _git('ls-tree', '-d', '--name-only', '%s:%s/evals' % (self.base, on_main))
+            for case in listed.stdout.split():
                 if _git('cat-file', '-e', '%s:%s/evals/%s/case.yaml' % (self.base, on_main, case)).returncode:
                     continue
                 if not os.path.exists(os.path.join(ROOT, plugin, 'evals', case, 'case.yaml')):
                     problems.append('%s/%s: case on main is missing on the branch' % (plugin, case))
-            for case in sorted({r['case'] for r in reports}):
-                rel = '%s/evals/%s/case.yaml' % (plugin, case)
-                old = _git('show', '%s:%s/evals/%s/case.yaml' % (self.base, on_main, case))
-                new_path = os.path.join(ROOT, rel)
-                if old.returncode != 0:
-                    continue  # a case new on the branch has no baseline
-                if not os.path.exists(new_path):
-                    continue  # reported above
-                main_checks = _regex_checks(old.stdout)
-                branch_checks = _regex_checks(open(new_path).read())
-                for r in (x for x in reports if x['case'] == case):
-                    compared += 1
-                    text = r['text']
-                    key = (plugin, case, hashlib.sha256(text.encode()).hexdigest()[:12])
-                    # Once the rename is on main, main's graders expect the new name too: both sides score
-                    # the report as the renamed plugin prints it. Before that, main scores the saved text.
-                    main_text = as_branch_prints(plugin, text) if on_main == plugin else text
-                    main_failing = {as_renamed(plugin, c) for c in main_checks if _fails(c, main_text)}
-                    branch_failing = {c for c in branch_checks if _fails(c, as_branch_prints(plugin, text))}
-                    lost = main_failing - branch_failing
-                    if lost:
-                        problems.append('%s more permissive on %s %s: %s' % (
-                            key, r['version'], case, [c[0][:60] for c in lost]))
-                    if not main_failing and branch_failing and key in ALLOWED:
-                        used.add(key)
-                    elif not main_failing and branch_failing:
-                        problems.append('%s new alarm on %s %s: %s' % (
-                            key, r['version'], case, [c[0][:60] for c in branch_failing]))
-        for key in sorted(set(ALLOWED) - used):
-            problems.append('%s: ALLOWED entry excuses nothing; drop it' % (key,))
         self.assertGreater(compared, 400)
         self.assertEqual(problems, [], '\n'.join(problems))
+
+
+def _real_inputs(test):
+    """judge()'s inputs from the saved reports, main's case files (git) and the branch's (disk)."""
+    try:
+        import yaml  # noqa: F401
+    except ImportError:
+        if os.environ.get('CI'):
+            raise
+        test.skipTest('PyYAML not installed (CI installs it)')
+    base = _base()
+    if not base:
+        if os.environ.get('CI'):
+            test.fail('no origin/main to compare against')
+        test.skipTest('no origin/main')
+    reports, main, branch, merged = {}, {}, {}, set()
+    for plugin, corpus in corpora().items():
+        reports[plugin] = [json.loads(l) for l in open(corpus)]
+        on_main = main_folder(plugin, base)
+        if on_main == plugin:
+            merged.add(plugin)
+        for case in sorted({r['case'] for r in reports[plugin]}):
+            old = _git('show', '%s:%s/evals/%s/case.yaml' % (base, on_main, case))
+            new_path = os.path.join(ROOT, plugin, 'evals', case, 'case.yaml')
+            if old.returncode == 0:
+                main[(plugin, case)] = _regex_checks(old.stdout)
+            if os.path.exists(new_path):
+                branch[(plugin, case)] = _regex_checks(open(new_path).read())
+
+    # Once the rename is on main, main's graders expect the new name too: both sides score the
+    # report as the renamed plugin prints it. Before that, main scores the saved text.
+    def main_prints(plugin, text):
+        return as_branch_prints(plugin, text) if plugin in merged else text
+    return reports, main, branch, main_prints
+
+
+# Two toy checks: a report fails A when it says "alpha", B when it says "beta".
+A = ('alpha', 'i', 'not_contains')
+B = ('beta', 'i', 'not_contains')
+
+
+def _h(text):
+    return hashlib.sha256(text.encode()).hexdigest()[:12]
+
+
+def _toy(text, main, branch, allowed):
+    """judge() on one demo report; returns {(kind, key)} for the problems."""
+    reports = {'demo': [{'case': 'c', 'version': '0.0.1', 'text': text}]}
+    problems, compared = judge(reports, {('demo', 'c'): main}, {('demo', 'c'): branch}, allowed)
+    return {(p[0], p[1]) for p in problems}
+
+
+class JudgeTest(unittest.TestCase):
+    """The ALLOWED rules on toy inputs. Mutating any guard in judge() fails one of these."""
+
+    def key(self, text, kind, check):
+        return ('demo', 'c', _h(text), kind, check[0])
+
+    def test_unexcused_new_alarm_fails(self):
+        self.assertEqual(_toy('alpha', [], [A], {}), {('alarm', ('demo', 'c', _h('alpha'), 'alarm', 'alpha'))})
+
+    def test_unexcused_looser_check_fails(self):
+        self.assertEqual(_toy('alpha', [A], [], {}), {('looser', ('demo', 'c', _h('alpha'), 'looser', 'alpha'))})
+
+    def test_alarm_entry_excuses_its_alarm(self):
+        self.assertEqual(_toy('alpha', [], [A], {self.key('alpha', 'alarm', A): 'why'}), set())
+
+    def test_alarm_entry_after_merge_is_used_up_not_stale(self):
+        # S-039: once the PR merges, main fails the report the same way. Main's CI must stay green.
+        self.assertEqual(_toy('alpha', [A], [A], {self.key('alpha', 'alarm', A): 'why'}), set())
+
+    def test_looser_entry_excuses_its_check(self):
+        self.assertEqual(_toy('alpha', [A], [], {self.key('alpha', 'looser', A): 'why'}), set())
+
+    def test_looser_entry_after_merge_is_used_up_not_stale(self):
+        self.assertEqual(_toy('alpha', [], [], {self.key('alpha', 'looser', A): 'why'}), set())
+
+    def test_alarm_entry_is_stale_once_the_branch_passes(self):
+        self.assertEqual(_toy('alpha', [], [], {self.key('alpha', 'alarm', A): 'why'}),
+                         {('stale', self.key('alpha', 'alarm', A))})
+
+    def test_looser_entry_is_stale_once_the_branch_fails_again(self):
+        self.assertEqual(_toy('alpha', [A], [A], {self.key('alpha', 'looser', A): 'why'}),
+                         {('stale', self.key('alpha', 'looser', A))})
+
+    def test_entry_excuses_only_its_own_check(self):
+        text = 'alpha beta'
+        got = _toy(text, [], [A, B], {self.key(text, 'alarm', A): 'why'})
+        self.assertEqual(got, {('alarm', self.key(text, 'alarm', B))})
+        got = _toy(text, [A, B], [], {self.key(text, 'looser', A): 'why'})
+        self.assertEqual(got, {('looser', self.key(text, 'looser', B))})
+
+    def test_alarm_entry_does_not_excuse_a_looser_check(self):
+        self.assertEqual(_toy('alpha', [A], [], {self.key('alpha', 'alarm', A): 'why'}),
+                         {('looser', self.key('alpha', 'looser', A)), ('stale', self.key('alpha', 'alarm', A))})
+
+    def test_entry_for_a_report_not_in_the_corpus_is_stale(self):
+        for kind in KINDS:
+            gone = self.key('never saved', kind, A)
+            self.assertEqual(_toy('alpha', [], [], {gone: 'why'}), {('stale', gone)})
+
+    def test_entry_needs_a_known_kind_and_a_reason(self):
+        odd = ('demo', 'c', _h('alpha'), 'excused', 'alpha')
+        self.assertIn(('stale', odd), _toy('alpha', [], [A], {odd: 'why'}))
+        self.assertIn(('stale', self.key('alpha', 'alarm', A)),
+                      _toy('alpha', [], [A], {self.key('alpha', 'alarm', A): ''}))
+
+    def test_new_alarm_only_counts_when_main_passed_every_check(self):
+        # Same report-level trigger as the released rule: a report main already fails isn't a new alarm.
+        self.assertEqual(_toy('alpha beta', [A], [A, B], {}), set())
+
+
+# The released rule (main at 3e9a764), frozen: per report, a lost check or a new alarm on a report
+# main passes, excused only by a report-level ALLOWED entry. Only this trigger logic is frozen; it
+# shares the scoring helpers (_fails, as_renamed, as_branch_prints) with judge(). With no entries,
+# judge() must flag exactly what this flags, so the new rules only ever change things through a
+# listed entry.
+def _released_judge(reports_by_plugin, main_checks, branch_checks, main_prints=None):
+    out = set()
+    for plugin, reports in reports_by_plugin.items():
+        for r in reports:
+            case = r['case']
+            if (plugin, case) not in main_checks or (plugin, case) not in branch_checks:
+                continue
+            text = r['text']
+            rkey = (plugin, case, _h(text))
+            main_text = main_prints(plugin, text) if main_prints else text
+            main_failing = {as_renamed(plugin, c) for c in main_checks[(plugin, case)] if _fails(c, main_text)}
+            branch_failing = {c for c in branch_checks[(plugin, case)] if _fails(c, as_branch_prints(plugin, text))}
+            if main_failing - branch_failing:
+                out.add(('looser', rkey))
+            if not main_failing and branch_failing:
+                out.add(('alarm', rkey))
+    return out
+
+
+def _as_released(problems):
+    return {(p[0], p[1][:3]) for p in problems if p[0] in ('looser', 'alarm')}
+
+
+class GateNeverWorseThanReleasedTest(unittest.TestCase):
+    """The differential on the gate itself: with no ALLOWED entries the new rules flag what main's did."""
+
+    def test_toy_scenarios_match_the_released_rule(self):
+        for text in ('alpha', 'beta', 'alpha beta', 'gamma'):
+            for main in ([], [A], [B], [A, B]):
+                for branch in ([], [A], [B], [A, B]):
+                    reports = {'demo': [{'case': 'c', 'version': '0', 'text': text}]}
+                    m, b = {('demo', 'c'): main}, {('demo', 'c'): branch}
+                    problems, _ = judge(reports, m, b, {})
+                    self.assertEqual(_as_released(problems), _released_judge(reports, m, b),
+                                     (text, main, branch))
+
+    def test_real_corpus_matches_the_released_rule(self):
+        reports, main, branch, main_prints = _real_inputs(self)
+        problems, compared = judge(reports, main, branch, {}, main_prints)
+        self.assertGreater(compared, 400)
+        self.assertEqual(_as_released(problems), _released_judge(reports, main, branch, main_prints))
+
+    def test_after_merge_main_stays_green(self):
+        # S-039: score the corpus with the branch's case files on both sides, as main will be once
+        # this branch merges. Every ALLOWED entry must be used up, not stale.
+        reports, _, branch, _ = _real_inputs(self)
+        problems, compared = judge(reports, branch, branch, ALLOWED, as_branch_prints)
+        self.assertGreater(compared, 400)
+        self.assertEqual(problems, [], '\n'.join(map(str, problems)))
+
+
+# Ordinary English the never-says-clean graders must let through (it describes the run or a check,
+# not the app), and lines they must still fail. SKILL.md rule 6: "none" never describes the app, so
+# every other "none" fails as on main, including the card note (TODOS: the plugin should drop it).
+PLAIN_NONE = ["make sure none of the first user's reports show",   # seeded-app-crowded run, 0.3.1
+              "Make sure none of them can open the export.",
+              "It scanned 5 files and skipped none, so the result is complete."]
+SAYS_CLEAN = ["Duplicates: none", "**Duplicates:** none", "**Rules written in more than one place:** None.",
+              "Rules written in more than one place \u2014 none.", "None found.", "I found none.",
+              "There are none in this app.", "There is none.", "None. The app decides each rule once.",
+              "None of these decisions is made in two places.", "None turned up in more than one place.",
+              "None of your app's rules are written in more than one place.",
+              "No duplicates.", "The app looks clean.", "Each was found once, so none gets a card.",
+              "We make sure none of your app's rules are duplicated.",          # Codex review, 2026-10-17
+              "Make sure none of the decisions are made in two places."]
+
+
+class NeverSaysCleanGraderTest(unittest.TestCase):
+    def test_graders_pass_plain_none_and_catch_clean_claims(self):
+        try:
+            import yaml
+        except ImportError:
+            self.skipTest('PyYAML not installed (CI installs it)')
+        seen = 0
+        for case in sorted(os.listdir(os.path.join(ROOT, 'build-decisions', 'evals'))):
+            path = os.path.join(ROOT, 'build-decisions', 'evals', case, 'case.yaml')
+            if not os.path.isfile(path):
+                continue
+            for g in yaml.safe_load(open(path)).get('graders') or []:
+                if not g['name'].startswith('never-says-clean') or 'none' not in g['pattern']:
+                    continue
+                seen += 1
+                check = (g['pattern'], g.get('flags', ''), g.get('match', 'contains'))
+                for line in PLAIN_NONE:
+                    self.assertFalse(_fails(check, line), '%s fails plain line %r' % (case, line))
+                for line in SAYS_CLEAN:
+                    self.assertTrue(_fails(check, line), '%s misses %r' % (case, line))
+        self.assertEqual(seen, 6)
 
 
 if __name__ == '__main__':

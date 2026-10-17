@@ -37,7 +37,7 @@ graders:
     match: "not_contains"
   - name: "never-says-clean"
     type: "regex"
-    pattern: "\\bclean\\b|no duplicates|\\bnone\\b"
+    pattern: "\\bclean\\b|no duplicates|(?<!skipped )(?<!make sure )\\bnone\\b|make sure none\\b[^.\\n]*(?:duplicat|\\brules?\\b|\\bdecisions?\\b|more than one place|two places)"
     flags: "i"
     match: "not_contains"
   - name: "plain-english-sentences-25-words-max"
