@@ -426,6 +426,8 @@ From the 0.4.0 review (2026-10-16), below the ship bar:
 - **The section's main-vs-branch differential ignores advice and coverage, and has no exact golden** for the shapes fixture until main ships the section. P2 for the next release that changes the section.
 - **The free-plugin standard's never-worse test only reports a new alarm when main passes the report,** and ALLOWED is keyed per report, not per check (main has this too). Key it by check name. P2.
 - **Hoist the 41 ALLOWED reason strings** in `sync_graders_test.py` into one constant. P3.
+- **Browser database calls in Remix, React Router 7 and SvelteKit apps are missed** (useEffect, clientLoader, onMount): those stacks count only with 'use client'. The report says less, never something false (Codex, round 2). P2: needs a per-framework rule for client-only code.
+- **A Supabase client passed in under another name** (`(sb) => sb.from('x')`) is missed; only names holding "supabase" or assigned from a client factory count. P3.
 - **Coverage wording:** "the scan stopped early" also covers `files_skipped_oversize` and `files_errored`, where the walk finished (the census has the same wording). P3.
 
 From the v0.1.0 review (2026-10-15). None met the ship bar; each is a one-line follow-up.

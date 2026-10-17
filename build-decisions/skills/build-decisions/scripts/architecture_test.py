@@ -666,6 +666,36 @@ class ReviewRound1Tests(ArchCase):
         self.assertEqual(self.facts(result, "mobile-app"), [])
 
 
+class ReviewRound2Tests(ArchCase):
+    """Round 2 (2026-10-16): a .from('x') call counts only when its receiver is a Supabase client."""
+
+    def test_date_library_from_is_not_a_database_call(self):
+        """protects=dayjs(date).from('2025-01-01') next to a Supabase type import is not the browser reading the database;
+        fails_when=it is a baas-from-browser signal (Codex round 2);
+        no_claim=none."""
+        self.w("package.json", VITE_SUPABASE_PKG)
+        self.w("src/Ago.tsx", "import type { User } from '@supabase/supabase-js'\nimport dayjs from 'dayjs'\n"
+                              "export const ago = (u: User) => dayjs(u.created_at).from('2025-01-01')\n")
+        self.assertEqual(self.signals(self.arch(), "baas-from-browser"), [])
+
+    def test_common_supabase_call_shapes_count(self):
+        """protects=the shapes real apps use still count: Lovable's alias import, a chain split over lines,
+        a client from a factory with another name, and storage;
+        fails_when=any of the four files is missed;
+        no_claim=a client passed in as a differently named argument is missed."""
+        self.w("package.json", VITE_SUPABASE_PKG)
+        self.w("src/pages/Todos.tsx", "import { supabase } from '@/integrations/supabase/client'\n"
+                                      "export const load = async () => {\n  const { data } = await supabase\n"
+                                      "    .from('todos')\n    .select('*')\n  return data\n}\n")
+        self.w("src/lib/db.ts", "import { createClient } from '@supabase/supabase-js'\nconst db = createClient(url, key)\n"
+                                "export const save = (row) => db.from('rows').insert(row)\n")
+        self.w("src/lib/files.ts", "import { supabase } from './client'\nexport const up = (f) => supabase.storage.from('docs').upload(f.name, f)\n")
+        self.w("src/lib/rpc.ts", "import { supabase } from './client'\nexport const total = () => supabase.rpc('cart_total')\n")
+        self.assertEqual(self.signals(self.arch(), "baas-from-browser"),
+                         [("baas-from-browser", p) for p in ("src/lib/db.ts", "src/lib/files.ts", "src/lib/rpc.ts",
+                                                              "src/pages/Todos.tsx")])
+
+
 class HostileInputTests(ArchCase):
     """App-controlled globs and route paths never become backtracking regexes; work after the walk is capped."""
 

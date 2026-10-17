@@ -602,9 +602,15 @@ USE_CLIENT_RE = re.compile(r"""^\s*['"]use client['"]\s*;?\s*$""")
 USE_SERVER_RE = re.compile(r"""^\s*['"]use server['"]\s*;?\s*$""")
 BAAS_IMPORT_RE = re.compile(r"""^\s*(?!import\s+type\b)(?:import\b[^'"]*|.*\brequire\(\s*|export\b[^'"]*from\s*)['"]"""
                             r"""(@supabase/(?:supabase-js|ssr|auth-helpers-[\w-]+)|firebase(?:/(?:app|firestore|database|auth|storage))?)['"]""")
-SUPABASE_NAME_RE = re.compile(r"\bsupabase", re.I)
-# A database read or write, not set-up or sign-in: .from('table') / .rpc('fn') / .storage.from(...)
-SUPABASE_CALL_RE = re.compile(r"""(?<!Buffer)(?<!Array)\.\s*(?:from|rpc)\s*\(\s*['"`]|\.\s*storage\s*\.\s*from\s*\(""")
+# A database read or write, not set-up or sign-in: <client>.from('table'), <client>.rpc('fn'),
+# <client>.storage.from(...). The receiver must be a Supabase client: a name holding "supabase", or a
+# name the file assigns from a client factory; or the factory call itself, chained.
+CLIENT_FACTORIES = r"(?:createClient|createBrowserClient|createServerClient|useSupabaseClient|createClientComponentClient|createPagesBrowserClient)"
+CLIENT_ASSIGN_RE = re.compile(r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=]{0,40})?=\s*(?:await\s+)?" + CLIENT_FACTORIES + r"\s*[(<]")
+RECEIVER_CALL_RE = re.compile(r"""([A-Za-z_$][\w$]*)\s*\.\s*(?:storage\s*\.\s*)?(?:from|rpc)\s*\(\s*['"`]""")
+LEADING_CALL_RE = re.compile(r"""^\s*\.\s*(?:storage\s*\.\s*)?(?:from|rpc)\s*\(\s*['"`]""")
+TRAILING_NAME_RE = re.compile(r"([A-Za-z_$][\w$]*)\s*$")
+CHAINED_FACTORY_CALL_RE = re.compile(r"\b" + CLIENT_FACTORIES + r"""\s*\([^()]*\)\s*\.\s*(?:from|rpc)\s*\(\s*['"`]""")
 FIRESTORE_SHAPED_RE = re.compile(r"\b(?:getDocs?|addDoc|setDoc|updateDoc|deleteDoc|onSnapshot)\s*\(\s*(?:collection|collectionGroup|doc|query)\s*\(")
 FIRESTORE_NAME_RE = re.compile(r"\b(?:getDocs?|addDoc|setDoc|updateDoc|deleteDoc|onSnapshot)\s*\(")
 BROWSER_CLIENT_RE = re.compile(r"\bcreateBrowserClient\s*\(")
@@ -742,7 +748,10 @@ class ArchState(State):
         if route is not None:
             ff.routes.append(route)
         seen_code = 0
-        supabase_named = firestore_named = False
+        firestore_named = False
+        receivers = set()  # names a .from('x') / .rpc('x') call was made on
+        clients = set()  # names the file assigns from a Supabase client factory
+        prev_tail = None  # the last name on the previous code line, for chains split over lines
         for line in lines:
             if len(line) > LINE_CLIP_CHARS:
                 line = line[:LINE_CLIP_CHARS]
@@ -762,10 +771,16 @@ class ArchState(State):
                 m = BAAS_IMPORT_RE.match(line)
                 if m:
                     ff.baas.add("supabase" if m.group(1).startswith("@supabase") else "firebase")
-                if SUPABASE_NAME_RE.search(line):
-                    supabase_named = True
-                if SUPABASE_CALL_RE.search(line):
-                    ff.baas_call = ff.baas_call or "pending-supabase"
+                for m in CLIENT_ASSIGN_RE.finditer(line):
+                    clients.add(m.group(1))
+                for m in RECEIVER_CALL_RE.finditer(line):
+                    receivers.add(m.group(1))
+                if LEADING_CALL_RE.match(line) and prev_tail:
+                    receivers.add(prev_tail)
+                if CHAINED_FACTORY_CALL_RE.search(line):
+                    ff.baas_call = True
+                m = TRAILING_NAME_RE.search(line)
+                prev_tail = m.group(1) if m else None
                 if FIRESTORE_SHAPED_RE.search(line):
                     ff.baas_call = True
                 elif FIRESTORE_NAME_RE.search(line):
@@ -788,13 +803,12 @@ class ArchState(State):
                 ff.baas.add("supabase" if "upabase" in line else "firebase")
             for m in API_URL_RE.finditer(line):
                 ff.links.append(m.group(1))
-        # A data call counts only with evidence of which database: .from('x') needs a Supabase name or
-        # import in the file; a Firestore-named call needs a Firestore import or a collection()/doc() argument.
-        if ff.baas_call == "pending-supabase":
-            ff.baas_call = supabase_named or "supabase" in ff.baas or ff.browser_client
+        # A data call counts only with evidence of which database: .from('x') needs a Supabase client as its
+        # receiver; a Firestore-named call needs a Firestore import or a collection()/doc() argument.
+        if any("supabase" in r.lower() or r in clients for r in receivers):
+            ff.baas_call = True
         if not ff.baas_call and firestore_named and "firebase" in ff.baas:
             ff.baas_call = True
-        ff.baas_call = bool(ff.baas_call)
         # framework-call routes only count where the file uses that framework
         ff.routes = [r for r in ff.routes if r[0] == "file" or (r[0] == "node" and ff.node_server)
                      or (r[0] == "py" and ff.py_server)]
