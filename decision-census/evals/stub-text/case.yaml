@@ -1,0 +1,38 @@
+schema_version: "1.1"
+name: stub-text
+execution:
+  prompt: "run decision census on ./cartwheel"
+  max_turns: 10
+  timeout_seconds: 300
+  allowed_tools: ["Read", "Grep", "Glob", "Skill"]
+graders:
+  - name: "pointer-fired"
+    type: "tool_used"
+    tool: "Skill"
+    input_match: "decision-census"
+    min: 1
+  - name: "runs-nothing"
+    type: "tool_used"
+    tool: "Bash"
+    min: 0
+    max: 0
+  - name: "reads-nothing"
+    type: "tool_used"
+    tool: "Read"
+    min: 0
+    max: 0
+  - name: "searches-nothing"
+    type: "tool_used"
+    tool: "Grep"
+    min: 0
+    max: 0
+  - name: "fixed-pointer-text"
+    type: "regex"
+    pattern: "Decision Census is now Build Decisions\\. Run these in your terminal, then start a new session and say 'run build decisions on \\./your-app': `claude plugin marketplace update townsend-plugins` · `claude plugin install build-decisions@townsend-plugins` · `claude plugin uninstall decision-census@townsend-plugins`\\. \\(Claude Code commands; in Codex or Cowork, reinstall from the townsend-plugins README\\.\\)"
+    flags: ""
+    match: "contains"
+  - name: "no-census-report"
+    type: "regex"
+    pattern: "# (?:Decision census|Build decisions):|Your app has \\d"
+    flags: "i"
+    match: "not_contains"

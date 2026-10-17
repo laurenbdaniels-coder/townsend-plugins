@@ -3,7 +3,7 @@
   "owner": {
     "name": "Lauren Townsend"
   },
-  "description": "Townsend AI Studio plugins for Claude Code and Cowork: product-flow (stage-by-stage product management), pm-growth-coach (PM self-development), prompt-coach (prompt guardrails and answer verification), custody-check (the eleven custody questions for AI-built apps, read-only), decision-census (every place found where an AI-built app decides access, prices, paid status and money rounding, read-only), and spell-it-out (technical yes/no stops explained in plain English before you answer).",
+  "description": "Townsend AI Studio plugins for Claude Code and Cowork: product-flow (stage-by-stage product management), pm-growth-coach (PM self-development), prompt-coach (prompt guardrails and answer verification), custody-check (the eleven custody questions for AI-built apps, read-only), build-decisions (every place found where an AI-built app decides access, prices, paid status and money rounding, and how the app is built, read-only; replaces decision-census, kept as a pointer), and spell-it-out (technical yes/no stops explained in plain English before you answer).",
   "plugins": [
     {
       "name": "product-flow",
@@ -76,10 +76,10 @@
       ]
     },
     {
-      "name": "decision-census",
-      "source": "./decision-census",
-      "description": "Find where your AI-built app decides who can see a record, what something costs, whether someone has paid, and how money rounds, and get a short plain-English analysis of each decision made in more than one place, with a one-minute check by hand. Read-only; a review, not an audit.",
-      "version": "0.3.2",
+      "name": "build-decisions",
+      "source": "./build-decisions",
+      "description": "Find where your AI-built app decides who can see a record, what something costs, whether someone has paid, and how money rounds, and how the app is built, then get a short plain-English analysis of each decision made in more than one place, with a one-minute check by hand. Read-only; a review, not an audit.",
+      "version": "0.4.0",
       "author": {
         "name": "Lauren Townsend"
       },
@@ -90,7 +90,23 @@
         "read-only",
         "review",
         "duplication",
-        "decisions"
+        "decisions",
+        "architecture"
+      ]
+    },
+    {
+      "name": "decision-census",
+      "source": "./decision-census",
+      "description": "Decision Census is now Build Decisions. This pointer tells you how to install build-decisions and remove this plugin. It runs nothing.",
+      "version": "0.3.3",
+      "author": {
+        "name": "Lauren Townsend"
+      },
+      "category": "productivity",
+      "keywords": [
+        "vibe-coding",
+        "founders",
+        "renamed"
       ]
     },
     {

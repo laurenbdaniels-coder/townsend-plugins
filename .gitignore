@@ -2,4 +2,5 @@ __pycache__/
 *.py[cod]
 .DS_Store
 .context/
+build-decisions/evals/results/
 decision-census/evals/results/

@@ -182,14 +182,91 @@ class SyncTest(unittest.TestCase):
 # runner recorded (scored on the last message).
 # ---------------------------------------------------------------------------
 
+# A renamed plugin: branch folder -> the folder main keeps it in, until the rename merges. Main's case
+# files are read from the old folder, so the comparison runs instead of finding nothing to compare.
+RENAMED = {'build-decisions': 'decision-census'}
+
+# The saved reports were printed under the old name. The branch's graders score each one as the
+# renamed plugin prints it: only the name changes (title, footer, booking tag), nothing else, so no
+# grader is loosened to accept the old name. Main's graders score the saved text as it is.
+RENAMED_TEXT = {'build-decisions': (('# Decision census', '# Build decisions'),
+                                    ('decision-census v', 'build-decisions v'),
+                                    ('src=decision-census', 'src=build-decisions'))}
+
+
+def as_renamed(plugin, check):
+    """Main's check under the branch's name, so a check that only follows the rename is the same check."""
+    pattern = check[0]
+    for old, new in RENAMED_TEXT.get(plugin, ()):
+        pattern = pattern.replace(old, new)
+    return (pattern,) + tuple(check[1:])
+
+
+def as_branch_prints(plugin, text):
+    for old, new in RENAMED_TEXT.get(plugin, ()):
+        text = text.replace(old, new)
+    return text
+
+
+def main_folder(plugin, base):
+    """The folder main keeps this plugin's evals in: its own name once merged, else the old one."""
+    if _git('cat-file', '-e', '%s:%s/evals' % (base, plugin)).returncode == 0:
+        return plugin
+    return RENAMED.get(plugin, plugin)
+
+
 def corpora():
     plugins = json.load(open(os.path.join(HERE, 'pack.json')))['plugins']
     return {p: os.path.join(HERE, 'corpus', '%s-reports.jsonl' % p) for p in sorted(plugins)}
 
-# (plugin, case, sha256 of report text[:12]) -> reason main was wrong. Empty: the 23 entries that
-# excused pre-standard reports were consumed when the standard merged (#39), because main now
-# carries the same graders. A PR that adds entries drops them in a follow-up once it merges.
-ALLOWED = {}
+# (plugin, case, sha256 of report text[:12]) -> reason main was wrong. A new alarm on a saved report
+# needs an entry here; an entry that no longer excuses anything fails the test.
+ALLOWED = {
+    # #39's 23 entries went when it merged: main now grades those lines itself, so they excused nothing.
+    # 0.4.0 (build-decisions) adds the "How your app is built" line and names its unchecked sections in
+    # "Not checked"; every saved report predates both, so each one that passes main fails only those.
+    ('build-decisions', 'clean-looking-app', '9a598fd4ee39'): 'pre-0.4.0 report: no "How your app is built" line and the shorter "Not checked" line; both are new in 0.4.0.',  # 0.3.0
+    ('build-decisions', 'clean-looking-app', 'b9d641e5388f'): 'pre-0.4.0 report: no "How your app is built" line and the shorter "Not checked" line; both are new in 0.4.0.',  # 0.3.0
+    ('build-decisions', 'clean-looking-app', 'b6c5a9aa7f43'): 'pre-0.4.0 report: no "How your app is built" line and the shorter "Not checked" line; both are new in 0.4.0.',  # 0.3.1
+    ('build-decisions', 'clean-looking-app', '4953c662f670'): 'pre-0.4.0 report: no "How your app is built" line and the shorter "Not checked" line; both are new in 0.4.0.',  # 0.3.1
+    ('build-decisions', 'fix-request', '6c84326d3b57'): 'pre-0.4.0 report: no "How your app is built" line and the shorter "Not checked" line; both are new in 0.4.0.',  # 0.3.1
+    ('build-decisions', 'fix-request', '9bf1f60eb24c'): 'pre-0.4.0 report: no "How your app is built" line and the shorter "Not checked" line; both are new in 0.4.0.',  # 0.3.1
+    ('build-decisions', 'fix-request', 'fb1ee3aa7024'): 'pre-0.4.0 report: no "How your app is built" line and the shorter "Not checked" line; both are new in 0.4.0.',  # 0.3.1
+    ('build-decisions', 'fix-request', '10d0ad16edb0'): 'pre-0.4.0 report: no "How your app is built" line and the shorter "Not checked" line; both are new in 0.4.0.',  # 0.3.1
+    ('build-decisions', 'fix-request', '7d4a8b4568cb'): 'pre-0.4.0 report: no "How your app is built" line and the shorter "Not checked" line; both are new in 0.4.0.',  # 0.3.1
+    ('build-decisions', 'fix-request', '9374529175e1'): 'pre-0.4.0 report: no "How your app is built" line and the shorter "Not checked" line; both are new in 0.4.0.',  # 0.3.1
+    ('build-decisions', 'hostile-repo', 'd3cdac4b6145'): 'pre-0.4.0 report: no "How your app is built" line and the shorter "Not checked" line; both are new in 0.4.0.',  # 0.3.1
+    ('build-decisions', 'hostile-repo', '87c4da89f638'): 'pre-0.4.0 report: no "How your app is built" line and the shorter "Not checked" line; both are new in 0.4.0.',  # 0.3.1
+    ('build-decisions', 'hostile-repo', '69eeebbaa3ca'): 'pre-0.4.0 report: no "How your app is built" line and the shorter "Not checked" line; both are new in 0.4.0.',  # 0.3.1
+    ('build-decisions', 'seeded-app', '9e40fe32c2d4'): 'pre-0.4.0 report: no "How your app is built" line and the shorter "Not checked" line; both are new in 0.4.0.',  # 0.3.1
+    ('build-decisions', 'seeded-app', '142a1731f82d'): 'pre-0.4.0 report: no "How your app is built" line and the shorter "Not checked" line; both are new in 0.4.0.',  # 0.3.1
+    ('build-decisions', 'seeded-app', '8d116ba1e1b2'): 'pre-0.4.0 report: no "How your app is built" line and the shorter "Not checked" line; both are new in 0.4.0.',  # 0.3.1
+    ('build-decisions', 'seeded-app-crowded', '7a9fcce2f5a2'): 'pre-0.4.0 report: no "How your app is built" line and the shorter "Not checked" line; both are new in 0.4.0.',  # 0.3.1
+    ('build-decisions', 'seeded-app-crowded', 'be2958eba0a6'): 'pre-0.4.0 report: no "How your app is built" line and the shorter "Not checked" line; both are new in 0.4.0.',  # 0.3.1
+    ('build-decisions', 'seeded-app-crowded', '32db269eec53'): 'pre-0.4.0 report: no "How your app is built" line and the shorter "Not checked" line; both are new in 0.4.0.',  # 0.3.1
+    ('build-decisions', 'shared-constant-app', 'd46e0eb99b08'): 'pre-0.4.0 report: no "How your app is built" line and the shorter "Not checked" line; both are new in 0.4.0.',  # 0.3.1
+    ('build-decisions', 'shared-constant-app', '34c69d555efa'): 'pre-0.4.0 report: no "How your app is built" line and the shorter "Not checked" line; both are new in 0.4.0.',  # 0.3.1
+    ('build-decisions', 'shared-constant-app', 'd9d50db85efe'): 'pre-0.4.0 report: no "How your app is built" line and the shorter "Not checked" line; both are new in 0.4.0.',  # 0.3.1
+    ('build-decisions', 'shared-constant-app', '2fda70241773'): 'pre-0.4.0 report: no "How your app is built" line and the shorter "Not checked" line; both are new in 0.4.0.',  # 0.3.1
+    ('build-decisions', 'shared-constant-app', 'e8546c5452b3'): 'pre-0.4.0 report: no "How your app is built" line and the shorter "Not checked" line; both are new in 0.4.0.',  # 0.3.1
+    ('build-decisions', 'shared-helper-diverges', 'c4abcce93e11'): 'pre-0.4.0 report: no "How your app is built" line and the shorter "Not checked" line; both are new in 0.4.0.',  # 0.3.1
+    ('build-decisions', 'shared-helper-diverges', 'a47f52311a07'): 'pre-0.4.0 report: no "How your app is built" line and the shorter "Not checked" line; both are new in 0.4.0.',  # 0.3.1
+    ('build-decisions', 'shared-helper-diverges', '7efef89a24d4'): 'pre-0.4.0 report: no "How your app is built" line and the shorter "Not checked" line; both are new in 0.4.0.',  # 0.3.1
+    ('build-decisions', 'stopline-app', 'a945ed3ace84'): 'pre-0.4.0 report: no "How your app is built" line and the shorter "Not checked" line; both are new in 0.4.0.',  # 0.1.2
+    ('build-decisions', 'stopline-app', '0db560c07bbc'): 'pre-0.4.0 report: no "How your app is built" line and the shorter "Not checked" line; both are new in 0.4.0.',  # 0.1.2
+    ('build-decisions', 'stopline-app', '4fee87acdaaf'): 'pre-0.4.0 report: no "How your app is built" line and the shorter "Not checked" line; both are new in 0.4.0.',  # 0.2.0
+    ('build-decisions', 'stopline-app', 'd604557778c8'): 'pre-0.4.0 report: no "How your app is built" line and the shorter "Not checked" line; both are new in 0.4.0.',  # 0.2.1
+    ('build-decisions', 'stopline-app', '2c48a176dfd5'): 'pre-0.4.0 report: no "How your app is built" line and the shorter "Not checked" line; both are new in 0.4.0.',  # 0.2.1
+    ('build-decisions', 'stopline-app', '17593c36be4a'): 'pre-0.4.0 report: no "How your app is built" line and the shorter "Not checked" line; both are new in 0.4.0.',  # 0.2.1
+    ('build-decisions', 'stopline-app', '812d2be83106'): 'pre-0.4.0 report: no "How your app is built" line and the shorter "Not checked" line; both are new in 0.4.0.',  # 0.3.0
+    ('build-decisions', 'stopline-app', 'c46a896f0ebd'): 'pre-0.4.0 report: no "How your app is built" line and the shorter "Not checked" line; both are new in 0.4.0.',  # 0.3.0
+    ('build-decisions', 'stopline-app', '206b3ea10e1f'): 'pre-0.4.0 report: no "How your app is built" line and the shorter "Not checked" line; both are new in 0.4.0.',  # 0.3.1
+    ('build-decisions', 'stopline-app', '9a22062e9ba6'): 'pre-0.4.0 report: no "How your app is built" line and the shorter "Not checked" line; both are new in 0.4.0.',  # 0.3.1
+    ('build-decisions', 'stopline-app', '6b48a8e4a7c6'): 'pre-0.4.0 report: no "How your app is built" line and the shorter "Not checked" line; both are new in 0.4.0.',  # 0.3.1
+    ('build-decisions', 'stopline-app', '97aec9e870c0'): 'pre-0.4.0 report: no "How your app is built" line and the shorter "Not checked" line; both are new in 0.4.0.',  # 0.3.1
+    ('build-decisions', 'stopline-app', '26246ddffb0e'): 'pre-0.4.0 report: no "How your app is built" line and the shorter "Not checked" line; both are new in 0.4.0.',  # 0.3.1
+    ('build-decisions', 'stopline-app', 'c0b6556d0f17'): 'pre-0.4.0 report: no "How your app is built" line and the shorter "Not checked" line; both are new in 0.4.0.',  # 0.3.1
+}
 
 
 def _git(*args):
@@ -241,15 +318,16 @@ class NeverWorseThanMainTest(unittest.TestCase):
         used = set()
         for plugin, corpus in corpora().items():
             reports = [json.loads(l) for l in open(corpus)]
-            main_cases = _git('ls-tree', '-d', '--name-only', '%s:%s/evals' % (self.base, plugin))
+            on_main = main_folder(plugin, self.base)
+            main_cases = _git('ls-tree', '-d', '--name-only', '%s:%s/evals' % (self.base, on_main))
             for case in main_cases.stdout.split():
-                if _git('cat-file', '-e', '%s:%s/evals/%s/case.yaml' % (self.base, plugin, case)).returncode:
+                if _git('cat-file', '-e', '%s:%s/evals/%s/case.yaml' % (self.base, on_main, case)).returncode:
                     continue
                 if not os.path.exists(os.path.join(ROOT, plugin, 'evals', case, 'case.yaml')):
                     problems.append('%s/%s: case on main is missing on the branch' % (plugin, case))
             for case in sorted({r['case'] for r in reports}):
                 rel = '%s/evals/%s/case.yaml' % (plugin, case)
-                old = _git('show', '%s:%s' % (self.base, rel))
+                old = _git('show', '%s:%s/evals/%s/case.yaml' % (self.base, on_main, case))
                 new_path = os.path.join(ROOT, rel)
                 if old.returncode != 0:
                     continue  # a case new on the branch has no baseline
@@ -261,8 +339,8 @@ class NeverWorseThanMainTest(unittest.TestCase):
                     compared += 1
                     text = r['text']
                     key = (plugin, case, hashlib.sha256(text.encode()).hexdigest()[:12])
-                    main_failing = {c for c in main_checks if _fails(c, text)}
-                    branch_failing = {c for c in branch_checks if _fails(c, text)}
+                    main_failing = {as_renamed(plugin, c) for c in main_checks if _fails(c, text)}
+                    branch_failing = {c for c in branch_checks if _fails(c, as_branch_prints(plugin, text))}
                     lost = main_failing - branch_failing
                     if lost:
                         problems.append('%s more permissive on %s %s: %s' % (
