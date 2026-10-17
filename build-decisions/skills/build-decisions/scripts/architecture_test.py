@@ -696,6 +696,58 @@ class ReviewRound2Tests(ArchCase):
                                                               "src/pages/Todos.tsx")])
 
 
+class ReviewRound2bTests(ArchCase):
+    """Round 2, Claude pass (2026-10-16): signals round 1 caught, and the time limit."""
+
+    def test_firebase_import_split_over_lines(self):
+        """protects=a Firestore import formatted over several lines (the default past 80 characters) still counts;
+        fails_when=getDocs(q) / onSnapshot(q) after a multi-line `import {...} from "firebase/firestore"` is missed;
+        no_claim=none."""
+        self.w("package.json", json.dumps({"dependencies": {"react-dom": "18", "vite": "5", "firebase": "10"}}))
+        self.w("src/pages/Orders.tsx", 'import {\n  collection,\n  getDocs,\n  onSnapshot,\n  query,\n  where,\n} from "firebase/firestore";\n'
+                                       "const q = query(collection(db, 'orders'), where('uid', '==', uid))\n"
+                                       "export const load = () => getDocs(q)\n")
+        self.assertEqual(self.signals(self.arch(), "baas-from-browser"), [("baas-from-browser", "src/pages/Orders.tsx")])
+
+    def test_svelte_and_vue_components_run_in_the_browser(self):
+        """protects=SvelteKit .svelte and Nuxt .vue components that call the database are browser code;
+        fails_when=+page.svelte or pages/index.vue with a Supabase call is missed, or +page.server.ts counts;
+        no_claim=a component's top-level script also runs on the server for the first render."""
+        cases = {
+            "sveltekit": (json.dumps({"devDependencies": {"@sveltejs/kit": "2", "svelte": "4"},
+                                      "dependencies": {"@supabase/supabase-js": "2"}}),
+                          {"src/routes/todos/+page.svelte": "<script>\n  import { supabase } from '$lib/supabase'\n"
+                                                            "  const add = (t) => supabase.from('todos').insert(t)\n</script>\n",
+                           "src/routes/todos/+page.server.ts": "export const load = () => supabase.from('todos').select()\n"},
+                          "src/routes/todos/+page.svelte"),
+            "nuxt": (json.dumps({"dependencies": {"nuxt": "3", "@nuxtjs/supabase": "1"}}),
+                     {"pages/index.vue": "<script setup>\nconst supabase = useSupabaseClient()\n"
+                                         "const { data } = await supabase.from('notes').select()\n</script>\n"},
+                     "pages/index.vue"),
+        }
+        for name, (pkg, files, want) in cases.items():
+            shutil.rmtree(self.repo)
+            os.makedirs(self.repo)
+            self.w("package.json", pkg)
+            for rel, text in files.items():
+                self.w(rel, text)
+            self.assertEqual(self.signals(self.arch(), "baas-from-browser"), [("baas-from-browser", want)], name)
+
+    def test_findings_survive_a_walk_that_hit_the_time_limit(self):
+        """protects=when the walk used up the time limit, what it found is still reported, not thrown away;
+        fails_when=work after the walk stops at once because the walk's deadline has passed;
+        no_claim=work after the walk has its own short budget (POST_WALK_BUDGET_S) and may itself stop early."""
+        self.w("package.json", VITE_SUPABASE_PKG)
+        self.w("src/components/A.tsx", BROWSER_DB)
+        state = cs.ArchState(cs.Options(cs.DEFAULT_MAX_FILES, cs.DEFAULT_MAX_FILE_BYTES, cs.DEFAULT_MAX_TOTAL_BYTES, 60))
+        cs.walk(self.repo, state)
+        state.opts.deadline_s = 0  # the walk finished exactly at its limit
+        state.reason("deadline_hit")
+        result = cs.build_architecture(state)
+        self.assertEqual(result["coverage"], "partial")
+        self.assertEqual([(s["signal"], s["path"]) for s in result["shape"]], [("baas-from-browser", "src/components/A.tsx")])
+
+
 class HostileInputTests(ArchCase):
     """App-controlled globs and route paths never become backtracking regexes; work after the walk is capped."""
 

@@ -473,6 +473,10 @@ class PartialTests(TreeCase):
         r, _, _ = self.scan("--deadline-s", "0.000001")
         self.assertTrue(r["partial"])
         self.assertIn("deadline_hit", r["partial_reasons"])
+        self.assertEqual(r["files_read"], 0, "the walk must stop at the deadline, not just say it passed it")
+        state = cs.State(cs.Options(cs.DEFAULT_MAX_FILES, cs.DEFAULT_MAX_FILE_BYTES, cs.DEFAULT_MAX_TOTAL_BYTES, 1e-9))
+        cs.walk(self.repo, state)
+        self.assertTrue(state.stopped, "past the deadline the walk stops listing folders too")
         r, _, _ = self.scan("--max-total-bytes", "1")
         self.assertIn("max_total_bytes_hit", r["partial_reasons"])
         if hasattr(os, "geteuid") and os.geteuid() == 0:

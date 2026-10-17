@@ -367,7 +367,7 @@ def count_never_open(path, state):
     """Count files under a never-open folder by name only; nothing inside is opened."""
     stack = [path]
     seen = 0
-    while stack and seen < MAX_NEVER_OPEN_COUNT and not _late(state):
+    while stack and seen < MAX_NEVER_OPEN_COUNT and not state.over_deadline():
         d = stack.pop()
         seen += 1
         try:
@@ -439,7 +439,7 @@ def scan_file(path, parts, ext, state):
             line = line[:-1]
         if len(line) > LINE_CLIP_CHARS:
             line = line[:LINE_CLIP_CHARS]
-        if (i % DEADLINE_LINE_TICK == 0 or len(line) > 512) and _late(state):
+        if (i % DEADLINE_LINE_TICK == 0 or len(line) > 512) and state.over_deadline():
             break
         for typ, pid, strength in classify_line(line, ext, where_open > 0):
             found.append((typ, 0 if strength == "strong" else 1, i, pid))
@@ -487,7 +487,7 @@ def walk(repo, state):
         entries.sort(key=lambda e: e.name)
         subdirs = []
         for e in entries:
-            if _late(state):
+            if state.over_deadline():
                 break
             name = e.name
             try:
@@ -573,12 +573,14 @@ MAX_GLOBS = 200
 MAX_GLOB_CHARS = 200
 MAX_PATH_SEGS = 30
 MAX_DIRECTIVE_LINES = 5  # 'use client' counts only near the top of a file
+POST_WALK_BUDGET_S = 10.0  # after the 90 s walk: still under the 120 s a host gives one command
 
 META_BASENAMES = {"package.json", "app.json", "pnpm-workspace.yaml"}
 NATIVE_MARKERS = {"podfile", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"}
 NOT_APP_DIRS = TEST_DIRS | {"fixtures", "__fixtures__", "examples", "example"}
 JS_EXTS = {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".mts", ".cts", ".vue", ".svelte", ".astro"}
 NATIVE_EXTS = {".swift", ".kt", ".java", ".dart"}
+COMPONENT_EXTS = {".svelte", ".vue"}  # components: their handlers run in the browser in every framework
 ROUTE_FILE_RE = re.compile(r"^route\.(?:js|jsx|ts|tsx|mjs|mts|cjs|cts)$")
 SERVER_SEGMENTS = {"api", "server", "backend", "functions", "supabase", "scripts", "lambda", "lambdas", "worker",
                    "workers", "cron", "jobs", "edge", "netlify", "convex"}
@@ -614,6 +616,8 @@ CHAINED_FACTORY_CALL_RE = re.compile(r"\b" + CLIENT_FACTORIES + r"""\s*\([^()]*\
 FIRESTORE_SHAPED_RE = re.compile(r"\b(?:getDocs?|addDoc|setDoc|updateDoc|deleteDoc|onSnapshot)\s*\(\s*(?:collection|collectionGroup|doc|query)\s*\(")
 FIRESTORE_NAME_RE = re.compile(r"\b(?:getDocs?|addDoc|setDoc|updateDoc|deleteDoc|onSnapshot)\s*\(")
 BROWSER_CLIENT_RE = re.compile(r"\bcreateBrowserClient\s*\(")
+# The closing line of an import formatted over several lines: `} from "firebase/firestore";`
+BAAS_IMPORT_CLOSE_RE = re.compile(r"""^\s*\}\s*from\s*['"](@supabase/(?:supabase-js|ssr|auth-helpers-[\w-]+)|firebase(?:/(?:app|firestore|database|auth|storage))?)['"]""")
 NATIVE_BAAS_RE = re.compile(r"^\s*import\s+(?:Supabase|FirebaseFirestore|FirebaseDatabase|Firebase)\b|"
                             r"^\s*import\s+(?:io\.github\.jan\.supabase|com\.google\.firebase\.(?:firestore|database))\b|"
                             r"""^\s*import\s+['"]package:(?:supabase_flutter|supabase|cloud_firestore|firebase_database)/""")
@@ -768,7 +772,7 @@ class ArchState(State):
             if expo_cfg and EXPO_CONFIG_RE.search(line):
                 self.expo_dirs.add(tuple(parts[:-1]))
             if ext in JS_EXTS:
-                m = BAAS_IMPORT_RE.match(line)
+                m = BAAS_IMPORT_RE.match(line) or BAAS_IMPORT_CLOSE_RE.match(line)
                 if m:
                     ff.baas.add("supabase" if m.group(1).startswith("@supabase") else "firebase")
                 for m in CLIENT_ASSIGN_RE.finditer(line):
@@ -962,8 +966,10 @@ def _deps(manifest, keys=("dependencies", "devDependencies", "peerDependencies")
 
 
 def _late(state):
-    """Past the walk's time limit (only time: a run stopped by the file or byte limit still gets its findings)."""
-    if time.monotonic() - state.started > state.opts.deadline_s:
+    """Past the short budget for the work after the walk. It starts when the walk ends, so a walk that used
+    its whole time limit still has its findings reported (partial), and the total stays under the host's
+    limit for one command."""
+    if time.monotonic() - state.post_walk_started > POST_WALK_BUDGET_S:
         state.reason("deadline_hit")
         return True
     return False
@@ -1055,7 +1061,7 @@ def arch_findings(state):
         # The browser reads or writes the database: a real data call, in a file that runs in the browser
         # (it says so, or its app is a browser-only stack such as Vite or Expo), outside server folders.
         if ff.ext in JS_EXTS and ff.baas_call and not _server_path(ff):
-            if ff.use_client or ff.browser_client or browser_root(root_of(ff.parts)):
+            if ff.use_client or ff.browser_client or ff.ext in COMPONENT_EXTS or browser_root(root_of(ff.parts)):
                 shape["baas-from-browser"].append(ff.rel)
     for r in sorted(roots):
         if not r:
@@ -1150,6 +1156,7 @@ def arch_findings(state):
 
 
 def build_architecture(state):
+    state.post_walk_started = time.monotonic()
     shape, facts, advice, flagged = arch_findings(state)
     shape_l = {k: v[:MAX_PER_SIGNAL] for k, v in shape.items()}
     facts_l = {k: v[:MAX_PER_SIGNAL] for k, v in facts.items()}
