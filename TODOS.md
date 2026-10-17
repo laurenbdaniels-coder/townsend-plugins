@@ -6,7 +6,7 @@
 
 **What:** Findings from the 0.4.0 review that missed the ship bar.
 - A key written into a code file the agent reads now reaches the AI provider and the session log. Main only showed masked scanner snippets. "Read, never echo" was decided on 2026-10-15, and the README and CHANGELOG say so. If this changes, skip the line ranges of Q1 key rows.
-- The check that the host-loaded app `CLAUDE.md` and `AGENTS.md` are not followed is a manual run outside this repo (loaded 3/3, followed 0/3). The eval harness disables CLAUDE.md loading. Make it a scripted check shared with decision-census (see the decision-census TODO on the same gap).
+- The check that the host-loaded app `CLAUDE.md` and `AGENTS.md` are not followed is a manual run outside this repo (loaded 3/3, followed 0/3). The eval harness disables CLAUDE.md loading. Make it a scripted check shared with decision-census (see the build-decisions TODO on the same gap).
 - A repeated `--read` flag keeps only the last value (argparse); `--answers` on main has the same weakness. Reject a repeated flag in both.
 - One bad `--read` token (`q1=yes`, `stop_line=scale`) fails the whole verdict call, so the skill falls back to the prose rule. Consider dropping only the bad token and flagging it.
 - The read scope is the app path. When `<app>` is `.` or a broad parent, the scanner warns (`repo-is-cwd`, `repo-contains-cwd`), but the reading rules do not use those warnings.
@@ -426,7 +426,7 @@ From the 0.4.0 review (2026-10-16), below the ship bar:
 - **The section's main-vs-branch differential ignores advice and coverage, and has no exact golden** for the shapes fixture until main ships the section. P2 for the next release that changes the section.
 - **The free-plugin standard's never-worse test only reports a new alarm when main passes the report,** and ALLOWED is keyed per report, not per check (main has this too). Key it by check name. P2.
 - **Hoist the 41 ALLOWED reason strings** in `sync_graders_test.py` into one constant. P3.
-- **Browser database calls in Remix, React Router 7 and SvelteKit apps are missed** (useEffect, clientLoader, onMount): those stacks count only with 'use client'. The report says less, never something false (Codex, round 2). P2: needs a per-framework rule for client-only code.
+- **Browser database calls in Remix and React Router 7 apps are missed** (useEffect, clientLoader), and in SvelteKit client code kept in plain `.ts`/`.js` files: those stacks count only with 'use client' or a component file. The report says less, never something false (Codex, round 2). P2: needs a per-framework rule for client-only code.
 - **A Supabase client passed in under another name** (`(sb) => sb.from('x')`) is missed; only names holding "supabase" or assigned from a client factory count. P3.
 - **Coverage wording:** "the scan stopped early" also covers `files_skipped_oversize` and `files_errored`, where the walk finished (the census has the same wording). P3.
 
