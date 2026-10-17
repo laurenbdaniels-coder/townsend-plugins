@@ -609,9 +609,9 @@ BAAS_IMPORT_RE = re.compile(r"""^\s*(?!import\s+type\b)(?:import\b[^'"]*|.*\breq
 # name the file assigns from a client factory; or the factory call itself, chained.
 CLIENT_FACTORIES = r"(?:createClient|createBrowserClient|createServerClient|useSupabaseClient|createClientComponentClient|createPagesBrowserClient)"
 CLIENT_ASSIGN_RE = re.compile(r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=]{0,40})?=\s*(?:await\s+)?" + CLIENT_FACTORIES + r"\s*[(<]")
-RECEIVER_CALL_RE = re.compile(r"""([A-Za-z_$][\w$]*)\s*\.\s*(?:storage\s*\.\s*)?(?:from|rpc)\s*\(\s*['"`]""")
+RECEIVER_CALL_RE = re.compile(r"""(?<![\w$])([A-Za-z_$][\w$]*)\s*\.\s*(?:storage\s*\.\s*)?(?:from|rpc)\s*\(\s*['"`]""")
 LEADING_CALL_RE = re.compile(r"""^\s*\.\s*(?:storage\s*\.\s*)?(?:from|rpc)\s*\(\s*['"`]""")
-TRAILING_NAME_RE = re.compile(r"([A-Za-z_$][\w$]*)\s*$")
+TRAILING_NAME_RE = re.compile(r"(?<![\w$])([A-Za-z_$][\w$]*)\s*$")
 CHAINED_FACTORY_CALL_RE = re.compile(r"\b" + CLIENT_FACTORIES + r"""\s*\([^()]*\)\s*\.\s*(?:from|rpc)\s*\(\s*['"`]""")
 FIRESTORE_SHAPED_RE = re.compile(r"\b(?:getDocs?|addDoc|setDoc|updateDoc|deleteDoc|onSnapshot)\s*\(\s*(?:collection|collectionGroup|doc|query)\s*\(")
 FIRESTORE_NAME_RE = re.compile(r"\b(?:getDocs?|addDoc|setDoc|updateDoc|deleteDoc|onSnapshot)\s*\(")

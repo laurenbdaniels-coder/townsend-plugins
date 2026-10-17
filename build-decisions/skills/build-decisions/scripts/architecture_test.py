@@ -791,6 +791,24 @@ class HostileInputTests(ArchCase):
         self.assertLessEqual(len(result["facts"]), cs.MAX_PER_SIGNAL)
 
 
+class LinearityTests(unittest.TestCase):
+    def test_section_patterns_stay_linear_on_long_names(self):
+        """protects=the section's line patterns start at a name boundary, like the census's, so one long name
+        costs one try, not one per character;
+        fails_when=any section pattern takes more than 2 ms on a 2 KB line of one long name;
+        no_claim=none."""
+        import time
+        line = "a" * cs.LINE_CLIP_CHARS
+        for name in ("RECEIVER_CALL_RE", "TRAILING_NAME_RE", "CLIENT_ASSIGN_RE", "CHAINED_FACTORY_CALL_RE",
+                     "NODE_ROUTE_RE", "FETCH_RE", "API_URL_RE", "FIRESTORE_NAME_RE", "FIRESTORE_SHAPED_RE"):
+            rx = getattr(cs, name)
+            t = time.perf_counter()
+            for _ in range(20):
+                list(rx.finditer(line))
+            per_line = (time.perf_counter() - t) / 20
+            self.assertLess(per_line, 0.002 * float(os.environ.get("CENSUS_TIME_SLACK", "1")), name)
+
+
 class PointerTextTests(unittest.TestCase):
     def test_pointer_skill_prints_the_graded_text(self):
         """protects=the decision-census pointer's fixed message and its eval regex can't drift apart;
