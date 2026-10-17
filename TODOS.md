@@ -418,6 +418,16 @@
 
 ## build-decisions (decision-census until 0.4.0)
 
+From the 0.4.0 review (2026-10-16), below the ship bar:
+- **Two apps on different Supabase projects are linked** because both use the Supabase package (the plan's linking rule). The project URL is in env files the helper never opens. P3.
+- **A phone app calling an outside service at a path the web app also serves** (`https://partner.example/api/users` vs `/api/users`) is linked; the called host is dropped. P3.
+- **A leftover copy of the app inside the repo** (`old-version/`) is a second app. P3.
+- **The no-raw-ids grader is copied by hand into 10 cases;** generate its id list from `census_scan.py` (SIGNALS, FACTS, ADVICE, ARCH_KINDS, APP_KINDS) in `sync_graders.py` or test that it covers them. P3.
+- **The section's main-vs-branch differential ignores advice and coverage, and has no exact golden** for the shapes fixture until main ships the section. P2 for the next release that changes the section.
+- **The free-plugin standard's never-worse test only reports a new alarm when main passes the report,** and ALLOWED is keyed per report, not per check (main has this too). Key it by check name. P2.
+- **Hoist the 41 ALLOWED reason strings** in `sync_graders_test.py` into one constant. P3.
+- **Coverage wording:** "the scan stopped early" also covers `files_skipped_oversize` and `files_errored`, where the walk finished (the census has the same wording). P3.
+
 From the v0.1.0 review (2026-10-15). None met the ship bar; each is a one-line follow-up.
 
 - **Remix / React Router `$` route files are withheld.** `app/routes/projects.$id.tsx` fails the path charset, so its places are counted as held back, and a stop-line field in a held-back schema file is dropped. Decide whether `$` can print (paths go to the Read tool, never a shell), or count withheld stop-line hints. P2.

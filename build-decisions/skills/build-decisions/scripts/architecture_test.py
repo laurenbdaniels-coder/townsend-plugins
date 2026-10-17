@@ -126,18 +126,20 @@ class SignalTests(ArchCase):
                          [("baas-from-browser", "src/components/List.tsx")])
 
     def test_baas_from_browser_next_use_client_and_browser_client(self):
-        """protects=Next client components and createBrowserClient count; server components don't;
-        fails_when=a 'use client' file or createBrowserClient file is missed, or a server component counts;
+        """protects=Next client components and browser-client data calls count; set-up and server components don't;
+        fails_when=a 'use client' or createBrowserClient data call is missed, or a set-up-only file or server component counts;
         no_claim=a server component passing data to a client one is not followed."""
         self.w("package.json", NEXT_PKG)
         self.w("app/dashboard/List.tsx", "'use client'\n" + BROWSER_DB)
         self.w("lib/supabase/client.ts", "import { createBrowserClient } from '@supabase/ssr'\n"
-                                         "export const sb = () => createBrowserClient(u, k)\n")
+                                         "export const sb = () => createBrowserClient(u, k)\n")  # set-up only: no data call
+        self.w("lib/data.ts", "import { createBrowserClient } from '@supabase/ssr'\n"
+                              "export const rows = () => createBrowserClient(u, k).from('x').select()\n")
         self.w("app/page.tsx", BROWSER_DB)  # server component by default
         self.w("lib/db.ts", BROWSER_DB)  # Next lib file, no client marker
         self.assertEqual(self.signals(self.arch(), "baas-from-browser"),
                          [("baas-from-browser", "app/dashboard/List.tsx"),
-                          ("baas-from-browser", "lib/supabase/client.ts")])
+                          ("baas-from-browser", "lib/data.ts")])
 
     def test_baas_negatives(self):
         """protects=type-only imports and server-side folders are not the browser;
@@ -154,7 +156,7 @@ class SignalTests(ArchCase):
         """protects=Firebase web apps are named like Supabase ones;
         fails_when=a component calling Firestore directly is missed;
         no_claim=Realtime Database calls other than the listed names are not matched."""
-        self.w("package.json", json.dumps({"dependencies": {"react-dom": "18", "firebase": "10"}}))
+        self.w("package.json", json.dumps({"dependencies": {"react-dom": "18", "vite": "5", "firebase": "10"}}))
         self.w("src/Board.jsx", "import { collection, getDocs } from 'firebase/firestore'\nconst d = await getDocs(collection(db, 'x'))\n")
         self.assertEqual(self.signals(self.arch(), "baas-from-browser"), [("baas-from-browser", "src/Board.jsx")])
 
@@ -234,14 +236,13 @@ class SecondAppTests(ArchCase):
         self.assertEqual(self.signals(self.arch(), "second-client"), [("second-client", "mobile/src/api.ts")])
 
     def test_mobile_linked_by_a_path_built_at_runtime(self):
-        """protects=a call whose path ends where an id is joined on ('/api/projects/' + id, `${id}`) still links;
-        fails_when=either form is not matched to app/api/projects/[id]/route.ts;
+        """protects=a call whose path ends where an id is joined on ('/api/projects/' + id) still links;
+        fails_when=it is not matched to app/api/projects/[id]/route.ts (the `${id}` form has its own test);
         no_claim=a path cut before its last fixed segment is not matched."""
         self.w("package.json", NEXT_PKG)
         self.w("app/api/projects/[id]/route.ts", ROUTE)
         self.w("mobile/package.json", EXPO_PKG)
         self.w("mobile/src/a.ts", "export const g = (id) => fetch('https://cartwheel.app/api/projects/' + id)\n")
-        self.w("mobile/src/b.ts", "export const h = (id) => fetch(`/api/projects/${id}`)\n")
         self.assertEqual(self.signals(self.arch(), "second-client"), [("second-client", "mobile/src/a.ts")])
 
     def test_wrapped_web_apps_are_not_a_second_client(self):
@@ -249,6 +250,7 @@ class SecondAppTests(ArchCase):
         fails_when=ios/ or android/ next to capacitor.config, a cordova dependency or src-tauri/ is a mobile-app or second-client;
         no_claim=none."""
         native = {"ios/App/AppDelegate.swift": "import Supabase\nlet u = URL(string: \"https://x.app/api/p\")\n",
+                  "ios/Podfile": "platform :ios\n", "android/build.gradle": "x\n",
                   "android/app/src/main/Main.kt": "import io.github.jan.supabase.createSupabaseClient\n"}
         wrappers = {
             "capacitor": ({"@capacitor/core": "6"}, {"capacitor.config.ts": "export default { appId: 'x' }\n"}),
@@ -273,6 +275,7 @@ class SecondAppTests(ArchCase):
         no_claim=only the listed Swift, Kotlin and Dart import names are known."""
         self.w("package.json", VITE_SUPABASE_PKG)
         self.w("src/App.tsx", BROWSER_DB)
+        self.w("ios/Podfile", "platform :ios\n")
         self.w("ios/Cartwheel/Store.swift", "import Supabase\n")
         self.assertEqual(self.signals(self.arch(), "second-client"), [("second-client", "ios/Cartwheel/Store.swift")])
 
@@ -430,19 +433,6 @@ class ClientAppDecisionTests(ArchCase):
 # ------------------------------------------------------------------- metadata reader and coverage
 
 class MetadataTests(ArchCase):
-    def test_unreadable_manifest_makes_coverage_partial(self):
-        """protects=a broken or oversized package.json says 'not determined', never a confident answer;
-        fails_when=a malformed or oversized manifest leaves coverage complete or is read anyway;
-        no_claim=none."""
-        self.w("package.json", "{ not json")
-        self.w("mobile/package.json", '{"dependencies": {"expo": "51"}, "pad": "' + "x" * (cs.MAX_META_BYTES + 10) + '"}')
-        self.w("src/App.tsx", BROWSER_DB)
-        result = self.arch()
-        self.assertEqual(result["stats"]["manifests_unreadable"], 2)
-        self.assertIn("manifests_unreadable", result["partial_reasons"])
-        self.assertEqual(result["coverage"], "partial")
-        self.assertEqual(self.facts(result, "mobile-app"), [])
-
     def test_symlinked_manifest_is_not_followed(self):
         """protects=a package.json link never points the reader outside the app;
         fails_when=a symlinked package.json is read;
@@ -475,15 +465,265 @@ class MetadataTests(ArchCase):
         fails_when=many long-named signal files push the line over the cap, or trimming is silent;
         no_claim=none."""
         self.w("package.json", VITE_SUPABASE_PKG)
-        deep = "/".join(["d" * 40] * 3)
+        deep = "/".join(["d" * 50] * 3)
         for i in range(30):
             self.w("src/%s/c%02d.tsx" % (deep, i), BROWSER_DB)
             self.w("app/api/%s/r%02d/route.ts" % (deep, i), ROUTE)
             self.w("app/%s/a%02d.ts" % (deep, i), "'use server'\n")
+            self.w("app/api/%s/k%02d/api-keys/route.ts" % (deep, i), ROUTE)
+            self.w("srv/%s/s%02d.ts" % (deep, i), "'use server'\n")
+            self.w("m/%s/p%02d/package.json" % (deep, i), EXPO_SUPABASE_PKG)
+            self.w("m/%s/p%02d/pay.ts" % (deep, i), "export const t = (seats) => {\n  const total = seats * 15\n}\n")
         result = self.arch()
         self.assertLessEqual(len(self.line.encode("utf-8")), 30000)
+        self.assertIn("output_trimmed", result["partial_reasons"])
+        self.assertTrue(result["partial"])
         self.assertEqual(result["totals"]["shape"]["baas-from-browser"]["listed"]
                          + result["totals"]["shape"]["baas-from-browser"]["not_listed"], 30)
+
+
+# ------------------------------------------------------------------- review round 1 (2026-10-16)
+# Every input a review found, kept as a test. Each was a false claim or a time overrun on the branch;
+# main has no section, so each was a new alarm.
+
+REMIX_PKG = json.dumps({"dependencies": {"@remix-run/node": "2", "@remix-run/react": "2", "react-dom": "18",
+                                         "@supabase/supabase-js": "2"}})
+
+
+class ReviewRound1Tests(ArchCase):
+    def test_type_import_and_sign_in_are_not_database_reads(self):
+        """protects=the real-run app (vercel/nextjs-subscription-payments): type imports and sign-in calls in
+        browser files are not 'screens read and save data straight to the database';
+        fails_when=a 'use client' file with only `import { type Provider }`, `import { User }` or a sign-in call
+        is a baas-from-browser signal;
+        no_claim=sign-in that writes profile rows through a trigger is not seen."""
+        self.w("package.json", json.dumps({"dependencies": {"next": "14", "@supabase/supabase-js": "2", "@supabase/ssr": "0"}}))
+        self.w("components/OauthSignIn.tsx", "'use client';\nimport { type Provider } from '@supabase/supabase-js';\n")
+        self.w("components/Pricing.tsx", "'use client';\nimport { User } from '@supabase/supabase-js';\n")
+        self.w("utils/auth/client.ts", "'use client';\nimport { createClient } from '@/utils/supabase/client';\n"
+                                       "export async function go(p) {\n  const supabase = createClient();\n"
+                                       "  await supabase.auth.signInWithOAuth({ provider: p });\n}\n")
+        self.w("utils/supabase/client.ts", "import { createBrowserClient } from '@supabase/ssr';\n"
+                                           "export const createClient = () => createBrowserClient(u, k);\n")
+        self.assertEqual(self.signals(self.arch(), "baas-from-browser"), [])
+
+    def test_a_function_named_getDocs_is_not_firestore(self):
+        """protects=Firestore and Supabase calls need evidence of that database;
+        fails_when=a React app's own getDocs() that fetches the app's server, or a query builder's .from('users'),
+        counts as the browser reading the database;
+        no_claim=none."""
+        self.w("package.json", json.dumps({"dependencies": {"react-dom": "18", "vite": "5"}}))
+        self.w("src/api.ts", "export async function getDocs() { return fetch('/api/docs') }\n")
+        self.w("src/Docs.tsx", "import { getDocs } from './api'\nexport const load = () => getDocs()\n")
+        self.w("src/report.ts", "import knex from 'knex'\nexport const rows = () => knex.from('users').select('*')\n")
+        self.assertEqual(self.signals(self.arch(), "baas-from-browser"), [])
+
+    def test_server_rendering_frameworks_are_not_the_browser(self):
+        """protects=Remix, React Router 7, Astro and SvelteKit run loaders and pages on the server;
+        fails_when=a database call in their route files is a baas-from-browser signal;
+        no_claim=their client-only modules are not told apart; only explicit 'use client' counts there."""
+        db = "import { createClient } from '@supabase/supabase-js'\nexport const loader = () => supabase.from('x').select()\n"
+        cases = {
+            "remix": (REMIX_PKG, "app/routes/_index.tsx"),
+            "react-router-7": (json.dumps({"dependencies": {"@react-router/node": "7", "react-router": "7", "react-dom": "19"},
+                                           "devDependencies": {"@react-router/dev": "7"}}), "app/routes/home.tsx"),
+            "astro": (json.dumps({"dependencies": {"astro": "4", "@supabase/supabase-js": "2"}}), "src/pages/index.astro"),
+            "sveltekit": (json.dumps({"devDependencies": {"@sveltejs/kit": "2", "svelte": "4"}}), "src/routes/hook/+server.ts"),
+        }
+        for name, (pkg, rel) in cases.items():
+            shutil.rmtree(self.repo)
+            os.makedirs(self.repo)
+            self.w("package.json", pkg)
+            self.w(rel, db)
+            result = self.arch()
+            self.assertEqual(self.signals(result, "baas-from-browser"), [], name)
+            self.assertNotEqual(result["advice"], "one-server-place", name)
+
+    def test_monorepo_apps_calling_their_own_paths_are_not_linked(self):
+        """protects=a Turborepo where each app calls its own /api paths is not 'a second app using the same data';
+        fails_when=apps/web and apps/admin, each with its own /api/health and a call to it, are second-client;
+        no_claim=two apps that both serve and call the same path are not linked by that path."""
+        self.w("package.json", json.dumps({"workspaces": ["apps/*"]}))
+        for app in ("web", "admin"):
+            self.w("apps/%s/package.json" % app, NEXT_PKG)
+            self.w("apps/%s/app/api/health/route.ts" % app, ROUTE)
+            self.w("apps/%s/app/Status.tsx" % app, "'use client'\nexport const s = () => fetch('/api/health')\n")
+        result = self.arch()
+        self.assertEqual(self.signals(result, "second-client"), [])
+        self.assertNotEqual(result["advice"], "shared-api")
+
+    def test_a_catch_all_route_alone_does_not_link(self):
+        """protects=a catch-all handler (Hono's app/api/[[...route]]) matches any path, so it proves no link;
+        fails_when=a landing app posting to /api/contact is linked to apps/web's catch-all;
+        no_claim=paths a catch-all really serves are not linked."""
+        self.w("package.json", json.dumps({"workspaces": ["apps/*"]}))
+        self.w("apps/web/package.json", NEXT_PKG)
+        self.w("apps/web/app/api/[[...route]]/route.ts", ROUTE)
+        self.w("apps/landing/package.json", NEXT_PKG)
+        self.w("apps/landing/app/Form.tsx", "'use client'\nexport const send = () => fetch('/api/contact', {method: 'POST'})\n")
+        self.assertEqual(self.signals(self.arch(), "second-client"), [])
+
+    def test_test_and_example_folders_are_not_apps(self):
+        """protects=package.json files under tests/, fixtures and examples/ are not apps;
+        fails_when=tests/fixtures/mobile (Expo + Supabase) or examples/admin (Next + Supabase) is a second-client or a fact;
+        no_claim=none."""
+        self.w("package.json", VITE_SUPABASE_PKG)
+        self.w("src/App.tsx", BROWSER_DB)
+        self.w("tests/fixtures/mobile/package.json", EXPO_SUPABASE_PKG)
+        self.w("examples/admin/package.json", json.dumps({"dependencies": {"next": "15", "@supabase/supabase-js": "2"}}))
+        self.w("examples/admin/app/A.tsx", "'use client'\n" + BROWSER_DB)
+        result = self.arch()
+        self.assertEqual(self.signals(result, "second-client"), [])
+        self.assertEqual(self.signals(result, "baas-from-browser"), [("baas-from-browser", "src/App.tsx")])
+        self.assertEqual(result["facts"], [])
+
+    def test_icon_folders_named_ios_are_not_phone_apps(self):
+        """protects=an ios/ or android/ folder is a phone app only with a project file (Xcode project, Podfile, Gradle);
+        fails_when=public/icons/ios or assets/android in a web app is a mobile-app fact;
+        no_claim=a native project without those files is missed."""
+        self.w("package.json", VITE_SUPABASE_PKG)
+        self.w("src/App.tsx", BROWSER_DB)
+        self.w("public/icons/ios/Icons.swift", "import UIKit\n")
+        self.w("assets/android/Colors.kt", "package app.colors\n")
+        self.assertEqual(self.arch()["facts"], [])
+
+    def test_flutter_app_is_one_app(self):
+        """protects=a Flutter app's own ios/ and android/ folders are not separate phone apps;
+        fails_when=pubspec.yaml at the root plus ios/Runner (Podfile, Firebase import) gives second-client or facts;
+        no_claim=none."""
+        self.w("pubspec.yaml", "name: app\n")
+        self.w("lib/main.dart", "import 'package:cloud_firestore/cloud_firestore.dart';\n")
+        self.w("ios/Podfile", "platform :ios\n")
+        self.w("ios/Runner/AppDelegate.swift", "import Firebase\n")
+        self.w("android/build.gradle", "x\n")
+        result = self.arch()
+        self.assertEqual(self.signals(result, "second-client"), [])
+        self.assertEqual(result["facts"], [])
+
+    def test_a_lone_phone_app_is_not_a_fact_about_itself(self):
+        """protects=an Expo app on its own is not 'signs of a phone app ... could not tell if it uses the same data';
+        fails_when=a repo that is one Expo app gets the mobile-app fact;
+        no_claim=none."""
+        self.w("package.json", EXPO_SUPABASE_PKG)
+        self.w("App.tsx", BROWSER_DB)
+        result = self.arch()
+        self.assertEqual(result["facts"], [])
+        self.assertEqual(self.signals(result, "baas-from-browser"), [("baas-from-browser", "App.tsx")])
+
+    def test_dev_only_react_and_email_templates_are_not_websites(self):
+        """protects=a shared UI package (react-dom in devDependencies) and react-email templates are not front ends;
+        fails_when=packages/ui or emails/ counts toward multi-frontend;
+        no_claim=none."""
+        self.w("package.json", json.dumps({"workspaces": ["apps/*", "packages/*", "emails"]}))
+        self.w("apps/web/package.json", NEXT_PKG)
+        self.w("packages/ui/package.json", json.dumps({"devDependencies": {"react-dom": "19"}, "peerDependencies": {"react": "19"}}))
+        self.w("emails/package.json", json.dumps({"dependencies": {"react-email": "3", "@react-email/components": "0", "react-dom": "19"}}))
+        self.assertEqual(self.facts(self.arch(), "multi-frontend"), [])
+
+    def test_expo_found_by_app_json(self):
+        """protects=an Expo app marked only by app.json {"expo": ...} is still a phone app;
+        fails_when=mobile/ with app.json and no expo dependency is not a mobile-app fact;
+        no_claim=none."""
+        self.w("package.json", NEXT_PKG)
+        self.w("app/api/x/route.ts", ROUTE)
+        self.w("mobile/package.json", json.dumps({"dependencies": {}}))
+        self.w("mobile/app.json", json.dumps({"expo": {"name": "x"}}))
+        self.w("mobile/App.tsx", "export default () => null\n")
+        self.assertEqual(self.facts(self.arch(), "mobile-app"), [("mobile-app", "mobile/package.json")])
+
+    def test_template_literal_path_links_alone(self):
+        """protects=the `${id}` form links on its own (the other test stops at the first linking file);
+        fails_when=a phone app whose only call is fetch(`/api/projects/${id}`) is not linked;
+        no_claim=none."""
+        self.w("package.json", NEXT_PKG)
+        self.w("app/api/projects/[id]/route.ts", ROUTE)
+        self.w("mobile/package.json", EXPO_PKG)
+        self.w("mobile/src/b.ts", "export const h = (id) => fetch(`/api/projects/${id}`)\n")
+        self.assertEqual(self.signals(self.arch(), "second-client"), [("second-client", "mobile/src/b.ts")])
+
+    def test_coverage_counts_facts(self):
+        """protects=a partial run that found only a fact says partial, not 'could not tell';
+        fails_when=coverage is not_determined while facts are listed;
+        no_claim=none."""
+        self.w("package.json", NEXT_PKG)
+        self.w("app/page.tsx", "export default () => null\n")
+        self.w("mobile/package.json", EXPO_PKG)
+        for i in range(6):
+            self.w("zz/f%d.ts" % i, "export const a = 1\n")
+        result = self.arch("--max-files", "2")
+        self.assertTrue(result["facts"])
+        self.assertEqual(result["coverage"], "partial")
+
+    def test_unreadable_manifest_is_counted_not_called_stopped_early(self):
+        """protects=a broken package.json is a counted fact the report names, not 'the scan stopped early';
+        fails_when=manifests_unreadable is a partial reason, or an oversized manifest is read;
+        no_claim=none."""
+        self.w("package.json", "{ not json")
+        self.w("mobile/package.json", '{"dependencies": {"expo": "51"}, "pad": "' + "x" * (cs.MAX_META_BYTES + 10) + '"}')
+        result = self.arch()
+        self.assertEqual(result["stats"]["manifests_unreadable"], 2)
+        self.assertNotIn("manifests_unreadable", result["partial_reasons"])
+        self.assertEqual(self.facts(result, "mobile-app"), [])
+
+
+class HostileInputTests(ArchCase):
+    """App-controlled globs and route paths never become backtracking regexes; work after the walk is capped."""
+
+    def timed(self, *extra):
+        import time
+        t = time.monotonic()
+        result = self.arch(*extra)
+        return result, time.monotonic() - t
+
+    def test_hostile_workspace_globs_finish_fast(self):
+        """protects=a two-file repo can't hang the section past the host's time limit;
+        fails_when=workspace globs like '*a*a*...ab' or '**/**/**...zz' against a deep path take more than 5 s;
+        no_claim=none."""
+        globs = ["*a" * 14 + "b", "**/" * 30 + "zz", "*" * 200]
+        self.w("package.json", json.dumps({"workspaces": globs}))
+        self.w("a" * 40 + "/package.json", NEXT_PKG)
+        self.w("/".join(["d%d" % i for i in range(15)]) + "/package.json", NEXT_PKG)
+        _, secs = self.timed()
+        self.assertLess(secs, 5 * float(os.environ.get("CENSUS_TIME_SLACK", "1")))
+
+    def test_hostile_catch_all_routes_finish_fast(self):
+        """protects=stacked catch-all segments in a route can't blow up link matching;
+        fails_when=a route with 7 [...a] segments against 40 long calls takes more than 5 s;
+        no_claim=none."""
+        self.w("server/s.ts", "import express from 'express'\napp.get('/" + "[...a]/" * 7 + "zz', h)\n")
+        self.w("mobile/package.json", EXPO_PKG)
+        self.w("mobile/a.ts", "".join("fetch('/api/%s')\n" % "/".join(["ab"] * 60) for _ in range(40)))
+        _, secs = self.timed()
+        self.assertLess(secs, 5 * float(os.environ.get("CENSUS_TIME_SLACK", "1")))
+
+    def test_many_apps_are_capped_and_said(self):
+        """protects=hundreds of app folders can't multiply the work after the walk;
+        fails_when=more than MAX_APPS phone apps are all processed, or the cap is silent;
+        no_claim=which apps are kept when capped is by path order."""
+        self.w("package.json", NEXT_PKG)
+        for i in range(cs.MAX_APPS + 5):
+            self.w("n%03d/ios/Podfile" % i, "platform :ios\n")
+            self.w("n%03d/ios/App.swift" % i, "import UIKit\n")
+        result = self.arch()
+        self.assertIn("apps_capped", result["partial_reasons"])
+        self.assertLessEqual(len(result["facts"]), cs.MAX_PER_SIGNAL)
+
+
+class PointerTextTests(unittest.TestCase):
+    def test_pointer_skill_prints_the_graded_text(self):
+        """protects=the decision-census pointer's fixed message and its eval regex can't drift apart;
+        fails_when=the quoted line in the pointer SKILL.md does not match the stub-text case's fixed-pointer-text pattern;
+        no_claim=whether the model prints it is the eval's job."""
+        import re
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(SCRIPT_DIR))))
+        skill = open(os.path.join(root, "decision-census", "skills", "decision-census", "SKILL.md"), encoding="utf-8").read()
+        quoted = [ln[2:] for ln in skill.split("\n") if ln.startswith("> ")]
+        self.assertEqual(len(quoted), 1)
+        case = open(os.path.join(root, "decision-census", "evals", "stub-text", "case.yaml"), encoding="utf-8").read()
+        m = re.search(r'name: "fixed-pointer-text"\n    type: "regex"\n    pattern: "(.*)"\n', case)
+        pattern = m.group(1).encode("utf-8").decode("unicode_escape").encode("latin-1").decode("utf-8")
+        self.assertRegex(quoted[0], pattern)
+        self.assertIn("claude plugin install build-decisions@townsend-plugins", quoted[0])
 
 
 if __name__ == "__main__":

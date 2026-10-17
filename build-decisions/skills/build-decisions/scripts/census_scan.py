@@ -7,6 +7,10 @@ the fixed VOCABULARY below. The skill starts from the listed lines and searches 
 
 Decision types: visibility (who can see a record), price (what something costs),
 paid (whether someone has paid), rounding (how money rounds).
+
+`--section architecture` prints a different line instead: how the app is built (shape signals with the
+file that shows each, facts, one advice id) and census decisions found inside a second app that uses
+the same data. Same rule: only safe paths and fixed words.
 """
 __version__ = "0.4.0"
 
@@ -38,6 +42,7 @@ if _guard is not None and __name__ == "__main__":
     sys.exit(0)
 
 import argparse
+import fnmatch
 import json
 import os
 import re
@@ -362,7 +367,7 @@ def count_never_open(path, state):
     """Count files under a never-open folder by name only; nothing inside is opened."""
     stack = [path]
     seen = 0
-    while stack and seen < MAX_NEVER_OPEN_COUNT and not state.over_deadline():
+    while stack and seen < MAX_NEVER_OPEN_COUNT and not _late(state):
         d = stack.pop()
         seen += 1
         try:
@@ -434,7 +439,7 @@ def scan_file(path, parts, ext, state):
             line = line[:-1]
         if len(line) > LINE_CLIP_CHARS:
             line = line[:LINE_CLIP_CHARS]
-        if (i % DEADLINE_LINE_TICK == 0 or len(line) > 512) and state.over_deadline():
+        if (i % DEADLINE_LINE_TICK == 0 or len(line) > 512) and _late(state):
             break
         for typ, pid, strength in classify_line(line, ext, where_open > 0):
             found.append((typ, 0 if strength == "strong" else 1, i, pid))
@@ -482,7 +487,7 @@ def walk(repo, state):
         entries.sort(key=lambda e: e.name)
         subdirs = []
         for e in entries:
-            if state.over_deadline():
+            if _late(state):
                 break
             name = e.name
             try:
@@ -546,41 +551,62 @@ def walk(repo, state):
 # `--section architecture` runs its own walk (own State, counters, deadline and output cap) and prints
 # one line: shape signals with the file that shows each, facts, one advice id picked by a fixed rule
 # order, and census decisions found inside a second app that uses the same data. Nothing from inside
-# a file reaches the output: only safe paths and the words below.
+# a file reaches the output: only safe paths and the words below. App text (globs, route paths, called
+# paths) is never compiled into a regex: it is matched one path segment at a time.
 
 SECTIONS = ("architecture",)
 SIGNALS = ("baas-from-browser", "own-api-routes", "server-actions", "separate-backend", "second-client")
 FACTS = ("mobile-app", "multi-frontend", "api-key-routes")
-ADVICE = ("shared-api", "each-entry-checks", "one-server-place")  # rule 1 (outgrown-writes) ships with client writes
+ADVICE = ("shared-api", "each-entry-checks", "one-server-place")
 COVERAGE = ("complete", "partial", "not_determined")
 ARCH_KINDS = ("decision-in-client-app",)
 APP_KINDS = ("mobile-app", "web-app")
-ARCH_REASONS = ("manifests_unreadable",)
+ARCH_REASONS = ("apps_capped", "links_capped")
 MAX_PER_SIGNAL = 25
 MAX_META_BYTES = 262144
 MAX_META_FILES = 500
 MAX_ROUTE_PATHS = 2000
 MAX_LINK_PATHS = 2000
+MAX_APPS = 50
+MAX_NATIVE_DIRS = 200
+MAX_GLOBS = 200
+MAX_GLOB_CHARS = 200
+MAX_PATH_SEGS = 30
+MAX_DIRECTIVE_LINES = 5  # 'use client' counts only near the top of a file
 
 META_BASENAMES = {"package.json", "app.json", "pnpm-workspace.yaml"}
+NATIVE_MARKERS = {"podfile", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"}
+NOT_APP_DIRS = TEST_DIRS | {"fixtures", "__fixtures__", "examples", "example"}
 JS_EXTS = {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".mts", ".cts", ".vue", ".svelte", ".astro"}
 NATIVE_EXTS = {".swift", ".kt", ".java", ".dart"}
 ROUTE_FILE_RE = re.compile(r"^route\.(?:js|jsx|ts|tsx|mjs|mts|cjs|cts)$")
 SERVER_SEGMENTS = {"api", "server", "backend", "functions", "supabase", "scripts", "lambda", "lambdas", "worker",
                    "workers", "cron", "jobs", "edge", "netlify", "convex"}
-SERVER_NAME_RE = re.compile(r"(?:^|\.)server\.|^middleware\.|^route\.|^proxy\.")
+SERVER_NAME_RE = re.compile(r"(?:^|\.)server\.|^\+server\.|^middleware\.|^route\.|^proxy\.")
 BACKEND_DIRS = {"server", "backend", "api"}
 NODE_SERVER_DEPS = {"express", "fastify", "hono", "@nestjs/core", "koa"}
 BAAS_DEPS = {"@supabase/supabase-js": "supabase", "@supabase/ssr": "supabase", "firebase": "firebase"}
-WEB_DEPS = {"react-dom", "next", "vue", "svelte", "@sveltejs/kit", "nuxt"}
-DOCS_DEPS = {"nextra", "@docusaurus/core", "docusaurus", "vitepress", "astro"}
+# A root whose code runs in the browser unless a file says otherwise, and the frameworks that run pages and
+# loaders on the server by default (there only an explicit browser marker counts).
+BROWSER_DEPS = {"react-dom", "vue", "svelte", "preact", "solid-js", "@angular/core", "vite", "react-scripts"}
+SERVER_RENDER_DEPS = {"next", "nuxt", "astro", "@sveltejs/kit", "@remix-run/node", "@remix-run/react", "@remix-run/dev",
+                      "@react-router/dev", "@react-router/node", "@solidjs/start", "@tanstack/react-start",
+                      "@tanstack/start"}
+WEB_FRAMEWORK_DEPS = {"next", "nuxt", "@sveltejs/kit", "@remix-run/react", "@react-router/dev"}
+WEB_RUNTIME_DEPS = {"react-dom", "vue", "svelte", "preact", "solid-js"}
+NOT_FRONTEND_DEPS = {"nextra", "@docusaurus/core", "docusaurus", "vitepress", "astro", "react-email",
+                     "@react-email/components"}
 MOBILE_DEPS = {"react-native", "expo"}
 
 USE_CLIENT_RE = re.compile(r"""^\s*['"]use client['"]\s*;?\s*$""")
 USE_SERVER_RE = re.compile(r"""^\s*['"]use server['"]\s*;?\s*$""")
 BAAS_IMPORT_RE = re.compile(r"""^\s*(?!import\s+type\b)(?:import\b[^'"]*|.*\brequire\(\s*|export\b[^'"]*from\s*)['"]"""
                             r"""(@supabase/(?:supabase-js|ssr|auth-helpers-[\w-]+)|firebase(?:/(?:app|firestore|database|auth|storage))?)['"]""")
-BAAS_CALL_RE = re.compile(r"\bsupabase\s*\.\s*(?:from|rpc|storage)\s*\(|\b(?:getDocs?|addDoc|setDoc|updateDoc|deleteDoc|onSnapshot)\s*\(")
+SUPABASE_NAME_RE = re.compile(r"\bsupabase", re.I)
+# A database read or write, not set-up or sign-in: .from('table') / .rpc('fn') / .storage.from(...)
+SUPABASE_CALL_RE = re.compile(r"""(?<!Buffer)(?<!Array)\.\s*(?:from|rpc)\s*\(\s*['"`]|\.\s*storage\s*\.\s*from\s*\(""")
+FIRESTORE_SHAPED_RE = re.compile(r"\b(?:getDocs?|addDoc|setDoc|updateDoc|deleteDoc|onSnapshot)\s*\(\s*(?:collection|collectionGroup|doc|query)\s*\(")
+FIRESTORE_NAME_RE = re.compile(r"\b(?:getDocs?|addDoc|setDoc|updateDoc|deleteDoc|onSnapshot)\s*\(")
 BROWSER_CLIENT_RE = re.compile(r"\bcreateBrowserClient\s*\(")
 NATIVE_BAAS_RE = re.compile(r"^\s*import\s+(?:Supabase|FirebaseFirestore|FirebaseDatabase|Firebase)\b|"
                             r"^\s*import\s+(?:io\.github\.jan\.supabase|com\.google\.firebase\.(?:firestore|database))\b|"
@@ -594,6 +620,10 @@ API_URL_RE = re.compile(r"""['"](?:https?://[^/'"\s]+)(/api/[^'"?#\s]*)""")
 API_KEYS_RE = re.compile(r"(?:^|/)api[-_]?keys?(?:/|$)", re.I)
 EXPO_CONFIG_RE = re.compile(r"\bexpo\b")
 WORKSPACE_LINE_RE = re.compile(r"""^\s*-\s*['"]?([^'"#\s]+)['"]?\s*(?:#.*)?$""")
+
+
+def _not_app(parts):
+    return any(p.lower() in NOT_APP_DIRS for p in parts)
 
 
 class FileFacts:
@@ -618,26 +648,45 @@ class ArchState(State):
         self.files = []
         self.manifests = {}  # dir parts tuple -> parsed package.json dict
         self.expo_dirs = set()
+        self.flutter_dirs = set()
         self.wrapper_dirs = set()  # dir parts with capacitor.config.* or src-tauri/
         self.native_dirs = []  # parts of ios/ and android/ folders
+        self.native_marked = set()  # every prefix of a folder holding an Xcode or Gradle project file
         self.workspace_globs = None
         self.route_count = 0
         self.link_count = 0
 
+    def mark_native(self, d):
+        for k in range(1, len(d) + 1):
+            self.native_marked.add(tuple(d[:k]))
+
     def on_dir(self, parts):
+        if _not_app(parts):
+            return
         name = parts[-1]
         if name == "src-tauri":
             self.wrapper_dirs.add(tuple(parts[:-1]))
         elif name in ("ios", "android"):
-            self.native_dirs.append(tuple(parts))
+            if len(self.native_dirs) < MAX_NATIVE_DIRS:
+                self.native_dirs.append(tuple(parts))
+            else:
+                self.reason("apps_capped")
+        elif name.endswith((".xcodeproj", ".xcworkspace")):
+            self.mark_native(parts[:-1])
 
     def meta_unreadable(self):
         self.stats["manifests_unreadable"] += 1
-        self.reason("manifests_unreadable")
 
     def on_meta(self, path, parts, lower, is_link):
+        d = tuple(parts[:-1])
+        if _not_app(d):
+            return lower in META_BASENAMES
         if lower.startswith("capacitor.config."):
-            self.wrapper_dirs.add(tuple(parts[:-1]))
+            self.wrapper_dirs.add(d)
+        if lower in NATIVE_MARKERS:
+            self.mark_native(d)
+        if lower == "pubspec.yaml":
+            self.flutter_dirs.add(d)
         if lower not in META_BASENAMES:
             return False
         if is_link:
@@ -648,14 +697,13 @@ class ArchState(State):
             self.meta_unreadable()
             return True
         try:
-            data, why = read_file(path, self, cap=MAX_META_BYTES)
+            data, _ = read_file(path, self, cap=MAX_META_BYTES)
         except OSError:
-            data, why = None, "error"
+            data = None
         if data is None:
             self.meta_unreadable()
             return True
         text = data.decode("utf-8", errors="replace")
-        d = tuple(parts[:-1])
         if lower == "pnpm-workspace.yaml":
             self.stats["manifests_read"] += 1
             if not d:
@@ -685,7 +733,7 @@ class ArchState(State):
 
     def on_lines(self, parts, ext, lines):
         rel = safe_rel(parts)
-        if rel is None:
+        if rel is None or _not_app(parts[:-1]):
             return
         name = parts[-1].lower()
         ff = FileFacts(rel, tuple(parts), ext)
@@ -694,13 +742,14 @@ class ArchState(State):
         if route is not None:
             ff.routes.append(route)
         seen_code = 0
+        supabase_named = firestore_named = False
         for line in lines:
             if len(line) > LINE_CLIP_CHARS:
                 line = line[:LINE_CLIP_CHARS]
             stripped = line.strip()
             if not stripped:
                 continue
-            if seen_code < 5 and USE_CLIENT_RE.match(line):
+            if seen_code < MAX_DIRECTIVE_LINES and USE_CLIENT_RE.match(line):
                 ff.use_client = True
             if USE_SERVER_RE.match(line):
                 ff.use_server = True
@@ -713,8 +762,14 @@ class ArchState(State):
                 m = BAAS_IMPORT_RE.match(line)
                 if m:
                     ff.baas.add("supabase" if m.group(1).startswith("@supabase") else "firebase")
-                if BAAS_CALL_RE.search(line):
+                if SUPABASE_NAME_RE.search(line):
+                    supabase_named = True
+                if SUPABASE_CALL_RE.search(line):
+                    ff.baas_call = ff.baas_call or "pending-supabase"
+                if FIRESTORE_SHAPED_RE.search(line):
                     ff.baas_call = True
+                elif FIRESTORE_NAME_RE.search(line):
+                    firestore_named = True
                 if BROWSER_CLIENT_RE.search(line):
                     ff.browser_client = True
                 if NODE_SERVER_IMPORT_RE.search(line):
@@ -733,11 +788,21 @@ class ArchState(State):
                 ff.baas.add("supabase" if "upabase" in line else "firebase")
             for m in API_URL_RE.finditer(line):
                 ff.links.append(m.group(1))
+        # A data call counts only with evidence of which database: .from('x') needs a Supabase name or
+        # import in the file; a Firestore-named call needs a Firestore import or a collection()/doc() argument.
+        if ff.baas_call == "pending-supabase":
+            ff.baas_call = supabase_named or "supabase" in ff.baas or ff.browser_client
+        if not ff.baas_call and firestore_named and "firebase" in ff.baas:
+            ff.baas_call = True
+        ff.baas_call = bool(ff.baas_call)
         # framework-call routes only count where the file uses that framework
         ff.routes = [r for r in ff.routes if r[0] == "file" or (r[0] == "node" and ff.node_server)
                      or (r[0] == "py" and ff.py_server)]
-        ff.routes = ff.routes[:max(0, MAX_ROUTE_PATHS - self.route_count)]
-        ff.links = ff.links[:max(0, MAX_LINK_PATHS - self.link_count)]
+        room_r, room_l = MAX_ROUTE_PATHS - self.route_count, MAX_LINK_PATHS - self.link_count
+        if len(ff.routes) > room_r or len(ff.links) > room_l:
+            self.reason("links_capped")
+        ff.routes = ff.routes[:max(0, room_r)]
+        ff.links = ff.links[:max(0, room_l)]
         self.route_count += len(ff.routes)
         self.link_count += len(ff.links)
         if ff.use_client or ff.use_server or ff.baas or ff.baas_call or ff.browser_client or ff.routes or ff.links \
@@ -763,27 +828,87 @@ def _pnpm_globs(text):
     return out
 
 
-def _glob_re(glob):
-    g = glob.strip()
-    while g.startswith("./"):
-        g = g[2:]
-    g = g.rstrip("/")
+def _segs(path):
+    return [s for s in path.strip().strip("/").split("/") if s and s != "."]
+
+
+def _glob_match(glob, rel_dir):
+    """Workspace glob against a folder path, one segment at a time: ** matches any number of folders, other
+    segments use fnmatch (linear in python 3.9+). Bounded by MAX_PATH_SEGS on both sides."""
+    g = []
+    for s in _segs(glob):
+        if not (s == "**" and g and g[-1] == "**"):
+            g.append(s)
+    p = _segs(rel_dir)
+    if len(g) > MAX_PATH_SEGS or len(p) > MAX_PATH_SEGS:
+        return False
+    memo = {}
+
+    def go(i, j):
+        key = (i, j)
+        if key not in memo:
+            if i == len(g):
+                memo[key] = j == len(p)
+            elif g[i] == "**":
+                memo[key] = go(i + 1, j) or (j < len(p) and go(i, j + 1))
+            else:
+                memo[key] = j < len(p) and fnmatch.fnmatchcase(p[j], g[i]) and go(i + 1, j + 1)
+        return memo[key]
+    return go(0, 0)
+
+
+def _route_segs(path):
+    """A route as a list of ('fixed', name) | ('one',) | ('rest',) | ('opt-rest',) segments, or None."""
     out = []
-    i = 0
-    while i < len(g):
-        if g.startswith("**", i):
-            out.append(".*")
-            i += 2
-        elif g[i] == "*":
-            out.append("[^/]*")
-            i += 1
-        elif g[i] == "?":
-            out.append("[^/]")
-            i += 1
+    for s in _segs(path):
+        if s.startswith("[[...") and s.endswith("]]"):
+            out.append(("opt-rest",))
+        elif s.startswith("[...") and s.endswith("]"):
+            out.append(("rest",))
+        elif (s.startswith("[") and s.endswith("]")) or s.startswith(":") or (s.startswith("{") and s.endswith("}")):
+            out.append(("one",))
+        elif s == "*":
+            out.append(("rest",))
         else:
-            out.append(re.escape(g[i]))
-            i += 1
-    return re.compile("^" + "".join(out) + "$")
+            out.append(("fixed", s))
+    return out if len(out) <= MAX_PATH_SEGS else None
+
+
+def _route_proves(route):
+    """A route links two apps only if it names something: a fixed segment besides 'api'."""
+    return any(k[0] == "fixed" and k[1].lower() != "api" for k in route)
+
+
+def _route_match(route, path):
+    """Segment matcher, no regex: 'one' takes one segment, 'rest' one or more, 'opt-rest' any number.
+    A called path cut where an id is joined on ('/api/projects/' + id) ends in '/' and also tries one more
+    segment."""
+    tries = [_segs(path)]
+    if path.endswith("/"):
+        tries.append(tries[0] + ["x"])
+    for p in tries:
+        if len(p) > MAX_PATH_SEGS:
+            continue
+        memo = {}
+
+        def go(i, j):
+            key = (i, j)
+            if key not in memo:
+                if i == len(route):
+                    ok = j == len(p)
+                else:
+                    k = route[i][0]
+                    if k == "fixed":
+                        ok = j < len(p) and p[j] == route[i][1] and go(i + 1, j + 1)
+                    elif k == "one":
+                        ok = j < len(p) and go(i + 1, j + 1)
+                    else:
+                        ok = (k == "opt-rest" and go(i + 1, j)) or (j < len(p) and (go(i + 1, j + 1) or go(i, j + 1)))
+                memo[key] = ok
+            return memo[key]
+        if go(0, 0):
+            return True
+    return False
 
 
 def _file_route(parts):
@@ -802,25 +927,6 @@ def _file_route(parts):
     return None
 
 
-def _route_re(path):
-    segs = [s for s in path.strip("/").split("/") if s]
-    out = []
-    for s in segs:
-        if (s.startswith("[") and s.endswith("]")) or s.startswith(":") or (s.startswith("{") and s.endswith("}")):
-            out.append("[^/]+" if not s.startswith("[...") and not s.startswith("[[...") else ".+")
-        else:
-            out.append(re.escape(s))
-    return re.compile("^/" + "/".join(out) + "/?$")
-
-
-def _path_matches(rx, path):
-    """A called path matches a route. A path cut where an id is joined on ('/api/projects/' + id) ends
-    in '/': it matches a route whose last segment is dynamic."""
-    if rx.match(path.rstrip("/") or "/"):
-        return True
-    return path.endswith("/") and rx.match(path + "x") is not None
-
-
 def _server_path(ff):
     low = [p.lower() for p in ff.parts]
     if any(p in SERVER_SEGMENTS for p in low[:-1]) or SERVER_NAME_RE.search(low[-1]):
@@ -832,65 +938,98 @@ def _under(parts, folder):
     return tuple(parts[:len(folder)]) == tuple(folder)
 
 
-def _deps(manifest):
+def _deps(manifest, keys=("dependencies", "devDependencies", "peerDependencies")):
     out = set()
-    for key in ("dependencies", "devDependencies", "peerDependencies"):
+    for key in keys:
         v = manifest.get(key)
         if isinstance(v, dict):
             out.update(k for k in v if isinstance(k, str))
     return out
 
 
+def _late(state):
+    """Past the walk's time limit (only time: a run stopped by the file or byte limit still gets its findings)."""
+    if time.monotonic() - state.started > state.opts.deadline_s:
+        state.reason("deadline_hit")
+        return True
+    return False
+
+
 def arch_findings(state):
-    """Turn the walk's records into shape signals, facts, the advice id and flagged decisions."""
+    """Turn the walk's records into shape signals, facts, the advice id and flagged decisions.
+    Every loop is linear in files (or capped), and checks the walk's deadline."""
     roots = set(state.manifests)
     if state.workspace_globs:
-        inc = [_glob_re(g) for g in state.workspace_globs if not g.strip().startswith("!")]
-        exc = [_glob_re(g.strip()[1:]) for g in state.workspace_globs if g.strip().startswith("!")]
-        roots = {r for r in roots if not r or (any(x.match("/".join(r)) for x in inc)
-                                                and not any(x.match("/".join(r)) for x in exc))}
+        globs = [g.strip() for g in state.workspace_globs[:MAX_GLOBS] if len(g) <= MAX_GLOB_CHARS]
+        inc = [g for g in globs if not g.startswith("!")]
+        exc = [g[1:] for g in globs if g.startswith("!")]
+        kept = set()
+        for r in roots:
+            if _late(state):
+                break
+            rd = "/".join(r)
+            if not r or (any(_glob_match(g, rd) for g in inc) and not any(_glob_match(g, rd) for g in exc)):
+                kept.add(r)
+        roots = kept
     roots.add(())
     deps = {r: _deps(state.manifests.get(r, {})) for r in roots}
+    runtime = {r: _deps(state.manifests.get(r, {}), ("dependencies",)) for r in roots}
+
+    def deepest(d, folders):
+        for k in range(len(d), -1, -1):
+            if tuple(d[:k]) in folders:
+                return tuple(d[:k])
+        return None
 
     def root_of(parts):
-        d = tuple(parts[:-1])
-        best = ()
-        for r in roots:
-            if len(r) > len(best) and _under(d, r):
-                best = r
-        return best
+        return deepest(parts[:-1], roots) or ()
 
     def wrapped(r):
         return r in state.wrapper_dirs or any(x.startswith("cordova") or x.startswith("@capacitor/")
                                               or x == "@tauri-apps/api" for x in deps[r])
 
-    mobile_roots = {r for r in roots if (deps[r] & MOBILE_DEPS or r in state.expo_dirs) and not wrapped(r)}
+    mobile_roots = {r for r in roots if (deps[r] & MOBILE_DEPS or r in state.expo_dirs or r in state.flutter_dirs)
+                    and not wrapped(r)}
+    for d in state.flutter_dirs | state.expo_dirs:
+        if d not in roots and not wrapped(root_of(d + ("x",))):
+            mobile_roots.add(d)
     native = []
     for d in state.native_dirs:
+        if d not in state.native_marked:
+            continue  # an icon or asset folder, not an Xcode or Gradle project
         r = root_of(d + ("x",))
         if r in mobile_roots or wrapped(r) or any(_under(d, m) for m in mobile_roots):
             continue
         native.append(d)
-    web_roots = {r for r in roots if deps[r] & WEB_DEPS and r not in mobile_roots
-                 and not ((deps[r] & DOCS_DEPS or any(x.startswith("@storybook/") for x in deps[r]))
+    web_roots = {r for r in roots if r not in mobile_roots
+                 and (deps[r] & WEB_FRAMEWORK_DEPS or runtime[r] & WEB_RUNTIME_DEPS)
+                 and not ((deps[r] & NOT_FRONTEND_DEPS or any(x.startswith("@storybook/") for x in deps[r]))
                           and not any(x in BAAS_DEPS for x in deps[r]))}
-    apps = [(m, "mobile-app") for m in sorted(mobile_roots)] + [(n, "mobile-app") for n in native]
+    apps = [(m, "mobile-app") for m in sorted(mobile_roots)] + [(n, "mobile-app") for n in sorted(native)]
     if len(web_roots) >= 2:
         apps += [(w, "web-app") for w in sorted(web_roots)]
+    if len(apps) > MAX_APPS:
+        apps = apps[:MAX_APPS]
+        state.reason("apps_capped")
+    app_folders = {f for f, _ in apps}
+    owner = {}  # file rel -> owning app folder or None (files outside every app)
+    for ff in state.files:
+        owner[ff.rel] = deepest(ff.parts[:-1], app_folders)
 
-    def in_app(ff, folder):
-        if not _under(ff.parts, folder):
-            return False
-        # a nested app inside this folder owns its own files
-        return not any(len(o) > len(folder) and _under(ff.parts, o) for o, _ in apps)
+    def browser_root(r):
+        return r in mobile_roots or (bool(deps[r] & BROWSER_DEPS) and not deps[r] & SERVER_RENDER_DEPS)
 
     shape = {s: [] for s in SIGNALS}
     facts = {f: [] for f in FACTS}
-    route_res = []
+    routes = []  # (owner folder, route segments, proves)
     for ff in state.files:
-        for kind, path in ff.routes:
-            route_res.append((ff, _route_re(path)))
-            if API_KEYS_RE.search(path) and ff.rel not in facts["api-key-routes"]:
+        if _late(state):
+            break
+        for _, path in ff.routes:
+            segs = _route_segs(path)
+            if segs is not None:
+                routes.append((owner[ff.rel], segs, _route_proves(segs)))
+            if API_KEYS_RE.search(path):
                 facts["api-key-routes"].append(ff.rel)
         if ff.routes:
             shape["own-api-routes"].append(ff.rel)
@@ -899,11 +1038,10 @@ def arch_findings(state):
         low = [p.lower() for p in ff.parts]
         if ff.py_server and (low[0] in BACKEND_DIRS or (len(low) > 2 and low[0] in ("apps", "packages") and low[1] in BACKEND_DIRS)):
             shape["separate-backend"].append(ff.rel)
-        if ff.ext in JS_EXTS and (ff.baas or ff.baas_call or ff.browser_client):
-            r = root_of(ff.parts)
-            # In a Next app a file runs in the browser only when it says so; elsewhere any file outside
-            # server folders does (Vite, Expo and React Native screens).
-            if ff.use_client or ff.browser_client or (not _server_path(ff) and (r in mobile_roots or "next" not in deps[r])):
+        # The browser reads or writes the database: a real data call, in a file that runs in the browser
+        # (it says so, or its app is a browser-only stack such as Vite or Expo), outside server folders.
+        if ff.ext in JS_EXTS and ff.baas_call and not _server_path(ff):
+            if ff.use_client or ff.browser_client or browser_root(root_of(ff.parts)):
                 shape["baas-from-browser"].append(ff.rel)
     for r in sorted(roots):
         if not r:
@@ -915,28 +1053,45 @@ def arch_findings(state):
                 if rel:
                     shape["separate-backend"].append(rel)
 
+    # Which database packages each app uses, and which the rest of the repo uses (files and manifests).
+    fam_by_owner = {}
+    for ff in state.files:
+        fam_by_owner.setdefault(owner[ff.rel], set()).update(ff.baas)
+    for r in roots:
+        fam = {BAAS_DEPS[x] for x in deps[r] if x in BAAS_DEPS}
+        if fam:
+            fam_by_owner.setdefault(r if r in app_folders else deepest(r, app_folders), set()).update(fam)
+    own_files = {}
+    for ff in state.files:
+        own_files.setdefault(owner[ff.rel], []).append(ff)
+
     linked = {}
     for folder, kind in apps:
-        own = [ff for ff in state.files if in_app(ff, folder)]
-        rest = [ff for ff in state.files if not _under(ff.parts, folder)]
-        fam = set(ff_f for ff in own for ff_f in ff.baas)
-        fam.update(BAAS_DEPS[x] for x in deps.get(folder, ()) if x in BAAS_DEPS)
-        other_fam = set(f for ff in rest for f in ff.baas)
-        other_fam.update(BAAS_DEPS[x] for r in roots if not _under(r, folder) for x in deps[r] if x in BAAS_DEPS)
+        if _late(state):
+            break
+        own = own_files.get(folder, [])
+        fam = fam_by_owner.get(folder, set())
+        other_fam = set()
+        for o, f in fam_by_owner.items():
+            if o != folder:
+                other_fam |= f
         evidence = None
         if fam & other_fam:
             evidence = next((ff.rel for ff in own if ff.baas & other_fam), None)
             if evidence is None and folder in state.manifests:
                 evidence = safe_rel(list(folder) + ["package.json"])
         if evidence is None:
+            mine = [segs for o, segs, _ in routes if o == folder]
+            theirs = [segs for o, segs, proves in routes if o != folder and proves]
             for ff in own:
-                if any(_path_matches(rx, p) for p in ff.links for o, rx in route_res if not _under(o.parts, folder)):
+                if any(any(_route_match(t, p) for t in theirs) and not any(_route_match(m, p) for m in mine)
+                       for p in ff.links):
                     evidence = ff.rel
                     break
         if evidence is not None:
             linked[folder] = kind
             shape["second-client"].append(evidence)
-        elif kind == "mobile-app":
+        elif kind == "mobile-app" and folder:  # a repo that is one phone app is not 'a phone app in this folder'
             if folder in state.manifests:
                 rel = safe_rel(list(folder) + ["package.json"])
             else:
@@ -950,20 +1105,21 @@ def arch_findings(state):
                 facts["multi-frontend"].append(rel)
 
     # Census decisions (strong, not in a comment) inside a linked second app. In a second web app only a
-    # client file counts: 'use client' or a browser database client, never its server files.
+    # client file counts: 'use client' or a browser database call, never its server files.
     client_files = set(shape["baas-from-browser"]) | {ff.rel for ff in state.files if ff.use_client}
     flagged = []
+    linked_folders = set(linked)
     for t in TYPES:
         for rank, path, line_no, pid in sorted(state.hits[t]):
             if rank != 0 or pid.endswith("-comment"):
                 continue
-            parts = tuple(path.split("/"))
-            for folder, kind in linked.items():
-                if not _under(parts, folder) or any(len(o) > len(folder) and _under(parts, o) for o, _ in apps):
-                    continue
-                if kind == "web-app" and path not in client_files:
-                    continue
-                flagged.append({"kind": "decision-in-client-app", "type": t, "path": path, "line": line_no, "app": kind})
+            app = deepest(tuple(path.split("/"))[:-1], app_folders)
+            if app is None or app not in linked_folders:
+                continue
+            kind = linked[app]
+            if kind == "web-app" and path not in client_files:
+                continue
+            flagged.append({"kind": "decision-in-client-app", "type": t, "path": path, "line": line_no, "app": kind})
     for k in shape:
         shape[k] = sorted(set(shape[k]))
     for k in facts:
@@ -987,7 +1143,7 @@ def build_architecture(state):
 
     def render():
         reasons = list(state.reasons)
-        found = any(shape.values())
+        found = any(shape.values()) or any(facts.values())
         coverage = "complete" if not reasons else ("partial" if found else "not_determined")
         return {
             "ok": True,

@@ -93,7 +93,14 @@ Then name at most 3 of the files it saw this in, from `shape[].path` and `facts[
 | `one-server-place` | So anyone using the app can change what a screen sends to the database. |
 | null | (no sentence) |
 
-When `shape` and `facts` are both empty: "This run could not tell how your app is built." When `coverage` is `not_determined`: "This run could not tell how your app is built, because the scan stopped early." When `coverage` is `partial` and something was found, add "The scan stopped early, so there may be more." Never print an id from the output (`baas-from-browser`, `shared-api`, and the rest): only the words in these tables.
+Use the first of these that applies, and only that one:
+
+1. The second output was not accepted, or `ok` is false: "This run could not tell how your app is built."
+2. `coverage` is `not_determined`: "This run could not tell how your app is built, because the scan stopped early."
+3. `shape` and `facts` are both empty: "This run could not tell how your app is built."
+4. Otherwise write the sentences above. When `coverage` is `partial`, add "The scan stopped early, so there may be more."
+
+Then, when `stats.manifests_unreadable` is more than 0, add "Some of your app's settings files could not be read." Never print an id from the output (`baas-from-browser`, `shared-api`, and the rest): only the words in these tables.
 
 A place in a numbered block that the second output lists in `candidates` sits inside the second app. In that place's sentence, say where it is: "in the phone app" (`app` is `mobile-app`) or "in the second website" (`app` is `web-app`).
 

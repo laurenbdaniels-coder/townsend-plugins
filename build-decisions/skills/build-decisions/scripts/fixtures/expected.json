@@ -378,6 +378,26 @@
           "kind": "fact",
           "path": "mobile/package.json",
           "why": "the phone app is linked, so it is a second-client, not an unlinked mobile-app fact"
+        },
+        {
+          "kind": "baas-from-browser",
+          "path": "apps/web/app/login/OauthButton.tsx",
+          "why": "a type import and a sign-in call are not the browser reading the database (review round 1, real-run app)"
+        },
+        {
+          "kind": "fact",
+          "path": "apps/web/public/icons/ios/manifest.ts",
+          "why": "an icon folder named ios/ is not a phone app (review round 1)"
+        },
+        {
+          "kind": "second-client",
+          "path": "apps/web/tests/fixtures/mobile/package.json",
+          "why": "a test fixture manifest is not an app (review round 1)"
+        },
+        {
+          "kind": "second-client",
+          "path": "apps/admin/app/Status.tsx",
+          "why": "an app calling its own /api/health is not a link to another app (review round 1)"
         }
       ]
     }
