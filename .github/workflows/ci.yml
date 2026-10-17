@@ -71,6 +71,7 @@ jobs:
           claude plugin validate --strict ./custody-check
           claude plugin validate --strict ./build-decisions
           claude plugin validate --strict ./decision-census
+          claude plugin validate --strict ./spell-it-out
           claude plugin validate --strict .
       - name: Validation outcome
         run: |

@@ -3,7 +3,7 @@
   "owner": {
     "name": "Lauren Townsend"
   },
-  "description": "Townsend AI Studio plugins for Claude Code and Cowork: product-flow (stage-by-stage product management), pm-growth-coach (PM self-development), prompt-coach (prompt guardrails and answer verification), custody-check (the eleven custody questions for AI-built apps, read-only), and build-decisions (every place found where an AI-built app decides access, prices, paid status and money rounding, and how the app is built, read-only; replaces decision-census, kept as a pointer).",
+  "description": "Townsend AI Studio plugins for Claude Code and Cowork: product-flow (stage-by-stage product management), pm-growth-coach (PM self-development), prompt-coach (prompt guardrails and answer verification), custody-check (the eleven custody questions for AI-built apps, read-only), build-decisions (every place found where an AI-built app decides access, prices, paid status and money rounding, and how the app is built, read-only; replaces decision-census, kept as a pointer), and spell-it-out (technical yes/no stops explained in plain English before you answer).",
   "plugins": [
     {
       "name": "product-flow",
@@ -107,6 +107,23 @@
         "vibe-coding",
         "founders",
         "renamed"
+      ]
+    },
+    {
+      "name": "spell-it-out",
+      "source": "./spell-it-out",
+      "description": "When Claude stops to ask you a technical yes/no or choice, it spells it out first: the ask, where things stand, what each answer changes, whether you can undo it, its pick, the safe answer if you're not sure, and a one-line TL;DR. For people who build with AI but don't read code.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Lauren Townsend"
+      },
+      "category": "productivity",
+      "keywords": [
+        "plain-english",
+        "vibe-coding",
+        "founders",
+        "decisions",
+        "approvals"
       ]
     }
   ]

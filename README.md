@@ -1,6 +1,6 @@
 # Townsend Plugins
 
-**TL;DR & So What:** A Claude Code / Cowork plugin marketplace with five plugins from Townsend AI Studio: **product-flow** (a ten-skill, stage-by-stage product management workflow — from "is this problem real?" to "did the launch work?" — with fill-in templates, evidence rules, and a built-in critique gate), **pm-growth-coach** (a self-development coach that baselines your PM competencies and builds a deliberate-practice growth plan grounded in your real work artifacts), **prompt-coach** (upleveled prompts with the right guardrails, plus a verification battery that audits an AI draft before it ships), **custody-check** (the eleven custody questions from the workshop "It Said It Was Fine", run read-only on an AI-built app, with a verdict: ship it, patch it, or shelve it), and **build-decisions** (a short analysis of how an AI-built app is built and where it decides who can see a record, what something costs, whether someone has paid, and how money rounds, and which of those decisions it makes in more than one place; formerly decision-census).
+**TL;DR & So What:** A Claude Code / Cowork plugin marketplace with six plugins from Townsend AI Studio: **product-flow** (a ten-skill, stage-by-stage product management workflow — from "is this problem real?" to "did the launch work?" — with fill-in templates, evidence rules, and a built-in critique gate), **pm-growth-coach** (a self-development coach that baselines your PM competencies and builds a deliberate-practice growth plan grounded in your real work artifacts), **prompt-coach** (upleveled prompts with the right guardrails, plus a verification battery that audits an AI draft before it ships), **custody-check** (the eleven custody questions from the workshop "It Said It Was Fine", run read-only on an AI-built app, with a verdict: ship it, patch it, or shelve it), **build-decisions** (a short analysis of how an AI-built app is built and where it decides who can see a record, what something costs, whether someone has paid, and how money rounds, and which of those decisions it makes in more than one place; formerly decision-census), and **spell-it-out** (when Claude stops to ask you something technical, it first spells out what each answer does, whether you can undo it, and its pick).
 
 So what: install once, and Claude becomes your product process, your PM development partner, and the check that keeps AI-drafted work from shipping unverified — in Claude Code, Cowork, or anywhere Claude plugins run.
 
@@ -15,6 +15,7 @@ From GitHub (https://github.com/laurenbdaniels-coder/townsend-plugins):
 /plugin install prompt-coach@townsend-plugins
 /plugin install custody-check@townsend-plugins
 /plugin install build-decisions@townsend-plugins
+/plugin install spell-it-out@townsend-plugins
 ```
 
 Or from a local clone of this folder:
@@ -36,10 +37,11 @@ For quick local testing without installing: `claude --plugin-dir /path/to/townse
 | custody-check | 0.4.0 | The workshop giveaway: eleven custody questions for AI-built apps, answered read-only by a python scanner, a read of your code, and your own answers, rendered as a verdict with the tier of your next change, the stop-line, a door (ship, patch, shelve), and a sixty-second test for every "don't know". Also runs in Codex. See `custody-check/README.md`. |
 | build-decisions | 0.4.0 | The companion to custody-check: says in plain words how an AI-built app is built (browser to database, its own server code, a second app sharing the data), finds where it decides who can see a record, what something costs, whether someone has paid, and how money rounds, and gives a short plain-English analysis of each decision made in more than one place, with a one-minute check by hand. Read-only: a python helper lists the starting places and the agent searches the code from there. Never says the app is clean. See `build-decisions/README.md`. |
 | decision-census | 0.3.3 | The old name of build-decisions, kept as a pointer: it prints the three commands to switch and runs nothing. |
+| spell-it-out | 0.1.0 | Plain-English stops: before a technical yes/no, choice or approval, Claude writes a short brief (the ask, where we are, if yes / if no, undo, its pick, the safe answer if you're not sure, a TL;DR). Questions about taste, wording, people or dates stay plain. Optional `CLAUDE.md` lines make it a standing rule. See `spell-it-out/README.md`. |
 
 ## Free plugins
 
-A free plugin diagnoses and never prescribes the fix. New free plugins follow [the free-plugin report standard](free-plugin-standard/STANDARD.md), and their evals carry its shared graders. build-decisions is the reference implementation.
+A free plugin that checks an app diagnoses and never prescribes the fix. New free plugins that check an app follow [the free-plugin report standard](free-plugin-standard/STANDARD.md), and their evals carry its shared graders. build-decisions is the reference implementation.
 
 ## Updating
 
