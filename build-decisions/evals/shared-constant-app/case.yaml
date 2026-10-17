@@ -40,7 +40,7 @@ graders:
     match: "not_contains"
   - name: "never-says-clean"
     type: "regex"
-    pattern: "\\bclean\\b|no duplicates|\\bnone\\b"
+    pattern: "\\bclean\\b|no duplicates|\\bnone (?:was |were )?found\\b|\\bfound none\\b|:\\s*none\\b|\\bthere (?:are|were) none\\b"
     flags: "i"
     match: "not_contains"
   - name: "at-most-40-reads"

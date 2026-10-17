@@ -460,17 +460,8 @@ Review findings on the shared grader pack (S-032 review, 2026-10-16) that did no
 - **`render()` assumes regex graders.** A non-regex grader in pack.json crashes with KeyError instead of a clear error. P3.
 - **The re-scoring claim is not a test.** The comment says Python `re` reproduces all 2,612 recorded verdicts; nothing checks it, and flags other than `i` are ignored. P3.
 - **Credits link in an installed copy.** build-decisions/README.md links `../free-plugin-standard/STANDARD.md`, which is dead when only the plugin folder is installed. P3.
-
-### ALLOWED entries turn main red on merge
-
-**What:** The never-worse differential fails on any ALLOWED entry that excuses nothing. When the PR that adds entries merges, main gets the same graders, so every entry goes stale and main's CI fails until a follow-up drops them. #39 left 23; the spell-it-out PR emptied the list.
-
-**Why:** Each PR that adds an exception turns main red at merge. Fix the class, not each case.
-
-**Context:** Count an entry as consumed, not stale, when main and the branch fail the report with the same checks; fail only when the branch no longer fails it. Risk: entries then never expire, so an old excuse could re-arm if a later main stops failing that report. Mutate the guard before trusting it.
-
-**Effort:** S
-**Priority:** P1
+- **ALLOWED entries never expire.** Since S-039 an entry is used up, not stale, once main agrees, so an entry can outlive its reason and re-excuse the same check on the same report if a later main stops failing it. Each entry names one check, one report and one direction, which bounds it. Prune entries whose pattern no longer exists on either side when the list gets long. P3.
+- **A changed pattern reads as a lost check.** Checks are compared by exact pattern, so narrowing a grader flags every saved report that fails it on main, even when the new pattern still fails the report (S-035 needed 2 entries for that). Compare graders by name when both sides have it. P3.
 
 ## spell-it-out
 
@@ -492,6 +483,19 @@ Review findings on the shared grader pack (S-032 review, 2026-10-16) that did no
 **Priority:** P3
 
 ## Completed
+
+### ALLOWED entries turn main red on merge
+
+**What:** The never-worse differential fails on any ALLOWED entry that excuses nothing. When the PR that adds entries merges, main gets the same graders, so every entry goes stale and main's CI fails until a follow-up drops them. #39 left 23; the spell-it-out PR emptied the list.
+
+**Why:** Each PR that adds an exception turns main red at merge. Fix the class, not each case.
+
+**Context:** Count an entry as consumed, not stale, when main and the branch fail the report with the same checks; fail only when the branch no longer fails it. Risk: entries then never expire, so an old excuse could re-arm if a later main stops failing that report. Mutate the guard before trusting it.
+
+**Effort:** S
+**Priority:** P1
+
+**Done:** S-039 (branch `fix/allowed-entries-and-none-grader`). ALLOWED entries are per check and per direction (`alarm` / `looser`); an entry fails only when the branch no longer needs it, and is used up when main agrees. `test_after_merge_main_stays_green` scores the corpus with the branch on both sides, as main will be after merge. Mutation-checked.
 
 ### Graduated differential exceptions never expire (fix before the stop-line PR merges)
 
