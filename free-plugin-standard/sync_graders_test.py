@@ -3,6 +3,7 @@
 Run: python3 -m unittest discover -s free-plugin-standard -p '*_test.py' -v
 The differential needs PyYAML (CI installs it) and git history with origin/main.
 """
+import functools
 import hashlib
 import json
 import os
@@ -228,18 +229,18 @@ def corpora():
 # and the branch agree (after the PR merges) the entry is used up and stays green, so adding an
 # exception never turns main red. Entries don't expire on their own; one only ever excuses the
 # exact check on the exact report it names.
-_NONE_WAS_WRONG = ('main\'s never-says-clean grader matched any "none"; this report never calls the '
-                   'app clean (it says "skipped none" / "none gets a card"). S-035 narrows it.')
+_NONE_WAS_WRONG = ('main\'s never-says-clean grader matched any "none"; this report only says the run '
+                   '"skipped none" files, which describes the run, not the app. S-035 exempts it.')
 _STILL_FAILS = ('S-035 changed this pattern, so main\'s exact check is gone; the branch\'s new pattern '
-                'still fails this report on "only one". Nothing is looser.')
+                'still fails this report. Nothing is looser.')
 _OLD_NONE = '\\bclean\\b|no duplicates|\\bnone\\b'
 ALLOWED = {
     ('build-decisions', 'clean-looking-app', '51b4c395a164', 'looser', _OLD_NONE + '|only one'): _STILL_FAILS,
     ('build-decisions', 'clean-looking-app', '75392260c3b9', 'looser', _OLD_NONE + '|only one'): _STILL_FAILS,
     ('build-decisions', 'clean-looking-app', 'c6e6e10bb6a4', 'looser', _OLD_NONE + '|only one'): _NONE_WAS_WRONG,
-    ('build-decisions', 'seeded-app', '127806e47a33', 'looser', _OLD_NONE): _NONE_WAS_WRONG,
-    ('build-decisions', 'seeded-app', '04f2ac84bf5e', 'looser', _OLD_NONE): _NONE_WAS_WRONG,
-    ('build-decisions', 'seeded-app', 'b8fc1c6d5727', 'looser', _OLD_NONE): _NONE_WAS_WRONG,
+    ('build-decisions', 'seeded-app', '127806e47a33', 'looser', _OLD_NONE): _STILL_FAILS,
+    ('build-decisions', 'seeded-app', '04f2ac84bf5e', 'looser', _OLD_NONE): _STILL_FAILS,
+    ('build-decisions', 'seeded-app', 'b8fc1c6d5727', 'looser', _OLD_NONE): _STILL_FAILS,
 }
 KINDS = ('alarm', 'looser')
 
@@ -308,6 +309,7 @@ def _regex_checks(text):
     return out
 
 
+@functools.lru_cache(maxsize=None)
 def _fails(check, report):
     pattern, flags, match = check
     found = re.search(pattern, report, re.I if 'i' in flags else 0) is not None
@@ -459,8 +461,10 @@ class JudgeTest(unittest.TestCase):
 
 
 # The released rule (main at 3e9a764), frozen: per report, a lost check or a new alarm on a report
-# main passes, excused only by a report-level ALLOWED entry. With no entries, judge() must flag
-# exactly what this flags, so the new rules only ever change things through a listed entry.
+# main passes, excused only by a report-level ALLOWED entry. Only this trigger logic is frozen; it
+# shares the scoring helpers (_fails, as_renamed, as_branch_prints) with judge(). With no entries,
+# judge() must flag exactly what this flags, so the new rules only ever change things through a
+# listed entry.
 def _released_judge(reports_by_plugin, main_checks, branch_checks, main_prints=None):
     out = set()
     for plugin, reports in reports_by_plugin.items():
@@ -469,14 +473,14 @@ def _released_judge(reports_by_plugin, main_checks, branch_checks, main_prints=N
             if (plugin, case) not in main_checks or (plugin, case) not in branch_checks:
                 continue
             text = r['text']
-            key = (plugin, case, _h(text))
+            rkey = (plugin, case, _h(text))
             main_text = main_prints(plugin, text) if main_prints else text
             main_failing = {as_renamed(plugin, c) for c in main_checks[(plugin, case)] if _fails(c, main_text)}
             branch_failing = {c for c in branch_checks[(plugin, case)] if _fails(c, as_branch_prints(plugin, text))}
             if main_failing - branch_failing:
-                out.add(('looser', key))
+                out.add(('looser', rkey))
             if not main_failing and branch_failing:
-                out.add(('alarm', key))
+                out.add(('alarm', rkey))
     return out
 
 
@@ -512,12 +516,20 @@ class GateNeverWorseThanReleasedTest(unittest.TestCase):
         self.assertEqual(problems, [], '\n'.join(map(str, problems)))
 
 
-# Ordinary English the never-says-clean graders must let through, and claims of clean they must catch.
+# Ordinary English the never-says-clean graders must let through (it describes the run or a check,
+# not the app), and lines they must still fail. SKILL.md rule 6: "none" never describes the app, so
+# every other "none" fails as on main, including the card note (TODOS: the plugin should drop it).
 PLAIN_NONE = ["make sure none of the first user's reports show",   # seeded-app-crowded run, 0.3.1
-              "It scanned 5 files and skipped none, so the result is complete.",
-              "Each was found once, so none gets a card."]
-SAYS_CLEAN = ["Duplicates: none", "None found.", "I found none.", "There are none in this app.",
-              "No duplicates.", "The app looks clean."]
+              "Make sure none of them can open the export.",
+              "It scanned 5 files and skipped none, so the result is complete."]
+SAYS_CLEAN = ["Duplicates: none", "**Duplicates:** none", "**Rules written in more than one place:** None.",
+              "Rules written in more than one place \u2014 none.", "None found.", "I found none.",
+              "There are none in this app.", "There is none.", "None. The app decides each rule once.",
+              "None of these decisions is made in two places.", "None turned up in more than one place.",
+              "None of your app's rules are written in more than one place.",
+              "No duplicates.", "The app looks clean.", "Each was found once, so none gets a card.",
+              "We make sure none of your app's rules are duplicated.",          # Codex review, 2026-10-17
+              "Make sure none of the decisions are made in two places."]
 
 
 class NeverSaysCleanGraderTest(unittest.TestCase):
