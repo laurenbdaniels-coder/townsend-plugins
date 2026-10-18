@@ -3620,7 +3620,7 @@ class RailsQuestionsTests(ScanCase):
         self.assertEqual([rid for rid, _ in pairs], ids)
         for rid, body in pairs:
             for required, why in (("**By hand (60 s):**", "its own sixty-second test"),
-                                  ("**The fix:**", "its own fix line"),
+                                  ("**Check it:**", "its own check line (0.5.0: checks, never fixes)"),
                                   ("**Yes**", "what a Yes means"),
                                   ("**No**", "what a No means"),
                                   ("Scanner hints:", "whether the scanner can help")):
@@ -3633,8 +3633,9 @@ class RailsQuestionsTests(ScanCase):
                       "so they pass and tell you nothing", "call training and serving skew, data leakage"):
             self.assertNotIn(wrong, section, "this claim was corrected; see the 0.2.0 changelog")
         self.assertIn("a random split is the correct choice", section, "random splits are right for independent rows")
-        self.assertEqual(section.count("**The fix"), len(ids) + 1,
-                         "every rails question ends with a fix, plus the stale-examples note")
+        self.assertEqual(section.count("**Check it:**"), len(ids) + 1,
+                         "every rails question ends with a check, plus the stale-examples note")
+        self.assertNotIn("**The fix", section, "0.5.0: a free check never gives the fix")
 
     def test_the_skill_gates_them_on_the_scanner_evidence(self):
         ids, _ = self.rails_ids()

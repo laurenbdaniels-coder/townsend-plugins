@@ -2,6 +2,18 @@
 
 The footer of every verdict names the version that produced it. Later entries carry a "What changed since the workshop" line so an attendee can tell whether an answer would come out differently today.
 
+## 0.5.0 (2026-10-17)
+
+What changed since the workshop build: the verdict now opens with a count and one line on why it matters. It finds and checks, and it no longer tells you how to fix things. No answer and no door changed.
+
+- **The free-plugin standard.** custody-check now reports the way build-decisions does. The verdict starts with "Your app has N answers that are No or Don't know." and a fixed "Why this matters" line. Each Patch list item is a short block: what is open, where, "What could go wrong:" and "Check it (1 min):". The verdict ends with "Before you change any of these", the Free Assessment line, a fixed "Not checked" line and a pointer to build-decisions. The door, the eleven, the tier and the five stay where they were.
+- **Diagnose, never prescribe.** A free check finds what is open and gives a by-hand test. It never gives fix steps or a prompt that changes your app, even when you ask. The six "The fix:" lines on the AI questions are now "Check it:" lines, and "move it server-side" and "set a spend cap" are gone. "Rotate that key now" stays: it is a safety step, not a fix.
+- **One place decides? (Q4).** After Q4 the check asks: "Is there one place in your app that decides who is allowed to do this?" On no or don't know, the verdict points you to build-decisions. The answer never goes to the verdict script and never changes the door. The answers block takes it as `q4_one_place:`.
+- **Plain words.** The by-hand tests and fixed lines use no programming words (API, schema, migration, config and the rest of the standard's list). The footer now reads "read-only · a review, not an audit" and carries the date.
+- **Credits.** The plain-English line keeps ASD-STE100 and no longer credits `/wait-what`, as build-decisions did in decision-census 0.3.2.
+- **Nothing that decides changed.** The scanners and the verdict script are the same as 0.4.0 (only the version number moved), and the door rule in SKILL.md and tiers-and-doors.md is byte for byte the same. A test checks both against the release.
+- **Tested.** The shared graders from `free-plugin-standard/` now run on every custody-check eval case. Each plugin can name its own risk line (custody-check: "What could go wrong:"; build-decisions keeps "If they get out of sync:"), and only that grader can be reworded.
+
 ## 0.4.0 (2026-10-16)
 
 What changed since the workshop build: the check now reads your code before it asks you anything. You no longer have to know who is allowed to delete a record, or which calls run in the browser: when the code shows it, the answer comes from the code, marked "(from your code)" with the file and line it read.

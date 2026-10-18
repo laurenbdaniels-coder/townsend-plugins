@@ -8,6 +8,7 @@ q1: dont-know — I think the keys are on the server but I never checked the bro
 q2: yes — the browser only calls my /api routes
 q3: dont-know — never tried the logged-out test
 q4: no — any logged-in user can hit the admin delete route
+q4_one_place: dont-know — the admin check might be in two files
 q5_code: yes — rolled back once on Vercel last month
 q5_data: no — no backup configured yet
 q6: yes — there is a preview deployment I use first
@@ -25,6 +26,7 @@ stop_line: none
 Field notes:
 
 - `q5_code` and `q5_data` replace `q5:`; the verdict shows the lower of the two.
+- `q4_one_place:` is your answer to "Is there one place in your app that decides who is allowed to do this?" It changes no answer and no door. On no or don't know, the verdict points you to build-decisions.
 - `stores:` is free text: what the app keeps about people.
 - `users:` is free text: who uses it and roughly how many.
 - `next_change:` is the change you are about to make; it is what gets tiered.

@@ -32,12 +32,14 @@ graders:
 '''
 
 
-def make_repo(cases, exempt=None):
+def make_repo(cases, exempt=None, words=None):
     """A throwaway repo root holding the real pack and one fake free plugin, 'demo-plugin'."""
     root = tempfile.mkdtemp()
     os.makedirs(os.path.join(root, 'free-plugin-standard'))
     pack = json.load(open(os.path.join(HERE, 'pack.json')))
     pack['plugins'] = {'demo-plugin': {'exempt': exempt or {}}}
+    if words is not None:
+        pack['plugins']['demo-plugin']['words'] = words
     with open(os.path.join(root, 'free-plugin-standard', 'pack.json'), 'w') as fh:
         json.dump(pack, fh)
     for name, text in cases.items():
@@ -61,8 +63,8 @@ class SyncTest(unittest.TestCase):
         for root in getattr(self, '_roots', []):
             shutil.rmtree(root, ignore_errors=True)
 
-    def repo(self, cases, exempt=None):
-        root = make_repo(cases, exempt)
+    def repo(self, cases, exempt=None, words=None):
+        root = make_repo(cases, exempt, words)
         self._roots = getattr(self, '_roots', []) + [root]
         return root
 
@@ -145,6 +147,45 @@ class SyncTest(unittest.TestCase):
         graders = yaml.safe_load(open(case_path(root, 'a')))['graders']
         pack = json.load(open(os.path.join(HERE, 'pack.json')))['groups']
         self.assertEqual(graders[1:], pack['always'] + pack['issues'])
+
+    def _graders(self, root):
+        try:
+            import yaml
+        except ImportError:
+            self.skipTest('PyYAML not installed')
+        return {g['name']: g for g in yaml.safe_load(open(case_path(root, 'a')))['graders']}
+
+    def test_plugin_words_change_only_that_plugins_risk_line(self):
+        """custody-check says "What could go wrong:" where build-decisions says "If they get out of sync:"."""
+        root = self.repo({'a': CASE_HEAD + marker('always issues')},
+                         words={'std-out-of-sync': 'What could go wrong:'})
+        sync_graders.sync(root)
+        self.assertEqual(sync_graders.check(root), [])
+        got = self._graders(root)
+        pack = {g['name']: g for grp in json.load(open(os.path.join(HERE, 'pack.json')))['groups'].values()
+                for g in grp}
+        self.assertEqual(got['std-out-of-sync']['pattern'], 'What could go wrong:')
+        for name, g in pack.items():
+            if name != 'std-out-of-sync':
+                self.assertEqual(got[name], g, name)
+            else:
+                self.assertEqual({k: v for k, v in got[name].items() if k != 'pattern'},
+                                 {k: v for k, v in g.items() if k != 'pattern'})
+
+    def test_no_words_keeps_the_pack_pattern(self):
+        root = self.repo({'a': CASE_HEAD + marker('always issues')})
+        sync_graders.sync(root)
+        self.assertEqual(self._graders(root)['std-out-of-sync']['pattern'], 'If they get out of sync:')
+
+    def test_words_only_for_graders_the_pack_lets_plugins_word(self):
+        """A plugin may reword its risk line, never loosen another shared grader."""
+        root = self.repo({'a': CASE_HEAD + marker('always issues')}, words={'std-no-fix-prompt': 'nothing'})
+        self.assertTrue(any('std-no-fix-prompt' in e for e in sync_graders.check(root)))
+
+    def test_words_must_be_a_plain_label(self):
+        for bad in ('', '.*', 'what could go wrong', 'If (they)? break:', 'x' * 61 + ':'):
+            root = self.repo({'a': CASE_HEAD + marker('always issues')}, words={'std-out-of-sync': bad})
+            self.assertTrue(any('label' in e for e in sync_graders.check(root)), repr(bad))
 
     def test_registered_plugin_without_cases_fails(self):
         root = self.repo({})

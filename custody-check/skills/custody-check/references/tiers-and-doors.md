@@ -12,13 +12,13 @@ The tier is a property of the **next change**, not of the app. Blast radius, not
 | **Standard** | a feature, two or more files, or anything with a UI | Define, Audit, Plan, Plan review, Build, Verify, Diff review |
 | **Gated** | touches any escalation trigger below | everything in Standard plus a security review |
 
-**Escalation triggers (any one makes the change Gated):** auth or sessions; user data; payments, including payments your payment company runs; secrets; dependencies; deploy; the schema or a migration; webhooks; background jobs; file uploads; security rules; email; AI prompts or tools; the model or provider (including swapping a model version, changing a prompt that is in production, or turning on training of any kind).
+**Escalation triggers (any one makes the change Gated):** auth or sessions; user data; payments, including payments your payment company runs; secrets; dependencies; deploy; how your data is stored (its tables and fields, or a change to them); webhooks; background jobs; file uploads; security rules; email; AI prompts or tools; the model or provider (including swapping a model version, changing a prompt that is in production, or turning on training of any kind).
 
 The nine gates, names only: Define, Audit, Plan, Plan review, Build, Verify, Diff review, Ship, Watch.
 
 ## If AI drives part of the product
 
-Six more failure modes live in `questions.md` (A1 to A6): the latency budget, where prompts live, whether production is running what was actually tested, whether a change made things better rather than different, what the user sees when the model is wrong, and whether the provider is about to move them off their model version. They bite at Plan, Diff review, Verify, Verify, Build and Watch respectively, and each one ends with a fix the founder can start in the room.
+Six more failure modes live in `questions.md` (A1 to A6): the latency budget, where prompts live, whether production is running what was actually tested, whether a change made things better rather than different, what the user sees when the model is wrong, and whether the provider is about to move them off their model version. They bite at Plan, Diff review, Verify, Verify, Build and Watch respectively, and each one ends with a check the founder can run in the room.
 
 They do not change the tier and they do not change the door. The door is the eleven. What they change is the Don't-know list, which is the part the founder leaves with.
 
@@ -67,10 +67,10 @@ At most three items, in this order: Q1, then Q2, then Q3, then whichever of Q4, 
 | # | The five | Mapped questions | Dropped only when |
 |---|---|---|---|
 | 1 | Classify the change against the Gated list | (tier step) | never |
-| 2 | Boundary test: logged out, wrong user, right user; API, database, files | Q3, Q4 | both yes, any confidence |
-| 3 | One deployed end-to-end path, including any job, webhook, email, or AI call | (always kept) | never |
-| 4 | Read the diff for surprises | Q7 | yes, any confidence |
-| 5 | Prove rollback and one real alert | Q5, Q9 | both yes, any confidence |
+| 2 | Boundary test: logged out, wrong user, right user; on each screen, each saved record and each uploaded file | Q3, Q4 | both yes, any confidence |
+| 3 | One full path on the live site, including any background job, email, payment message or AI call | (always kept) | never |
+| 4 | Read the changes line by line for surprises | Q7 | yes, any confidence |
+| 5 | Prove you can go back to the last version, and get one real alert | Q5, Q9 | both yes, any confidence |
 
 Items 1 and 3 are always printed. The others print unless every mapped question is yes.
 
