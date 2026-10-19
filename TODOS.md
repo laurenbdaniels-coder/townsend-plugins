@@ -10,6 +10,8 @@
 - A saved fix-request report said "Each handler must check access itself": a prescription the no-fix grader misses. The template now says "never say what the app must do". Add a grader for "must" sentences outside Check it lines, tuned on the corpus.
 - The Q4 isolation eval cannot catch `q4_one_place: no` being sent as `q4=no`: its only `no` case already expects Q4 No. Add a case with `q4_one_place: no` where the code makes Q4 yes.
 - The count line does not say Nothing found counts; consider "No, Don't know or Nothing found".
+- Q3 logged-out step opens "Logged out: logged in, copy…", which can trip a reader; "While logged in, copy…" reads better.
+- Q3's copied request may not open as a plain address (a key in a header, a POST or a websocket), so it refuses whatever the rules say. Main's "URL or API endpoint" had the same gap. Say which request to copy, and what to do when it will not open.
 
 **Why:** Each one is contrived, a weakness main shares, or a test gap with no shown regression.
 
