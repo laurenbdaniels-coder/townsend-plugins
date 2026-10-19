@@ -183,9 +183,31 @@ class SyncTest(unittest.TestCase):
         self.assertTrue(any('std-no-fix-prompt' in e for e in sync_graders.check(root)))
 
     def test_words_must_be_a_plain_label(self):
-        for bad in ('', '.*', 'what could go wrong', 'If (they)? break:', 'X' * 60 + ':'):
+        # Value (extended: non-string rows 5, None, list): protects=check reports a non-string label as a
+        # problem; fails_when=the isinstance guard is dropped and LABEL.fullmatch raises TypeError, so
+        # --check crashes instead of naming the bad entry; why_new=the table held only strings;
+        # seam=none; no_claim=does not test which non-string types a JSON pack can hold beyond these.
+        for bad in ('', '.*', 'what could go wrong', 'If (they)? break:', 'X' * 60 + ':', 5, None, ['A:']):
             root = self.repo({'a': CASE_HEAD + marker('always issues')}, words={'std-out-of-sync': bad})
             self.assertTrue(any('label' in e for e in sync_graders.check(root)), repr(bad))
+
+    def test_bad_words_never_reach_a_case_file(self):
+        # Value: protects=sync never writes a plugin's disallowed or malformed words into its graders;
+        # fails_when=_scan stops skipping a plugin with bad words, so sync rewrites the block with the
+        # loosened pattern (e.g. std-no-fix-prompt -> 'nothing') and a commit could carry it;
+        # why_new=the words tests only call check(), which still errors either way; seam=none;
+        # no_claim=does not cover a hand edit of the case file, which the stale-block check owns.
+        for words in ({'std-no-fix-prompt': 'nothing'}, {'std-out-of-sync': '.*'}):
+            root = self.repo({'a': CASE_HEAD + marker('always issues')})
+            sync_graders.sync(root)
+            before = open(case_path(root, 'a')).read()
+            pack_path = os.path.join(root, 'free-plugin-standard', 'pack.json')
+            pack = json.load(open(pack_path))
+            pack['plugins']['demo-plugin']['words'] = words
+            with open(pack_path, 'w') as fh:
+                json.dump(pack, fh)
+            self.assertEqual(sync_graders.sync(root), [], words)
+            self.assertEqual(open(case_path(root, 'a')).read(), before, words)
 
     def test_registered_plugin_without_cases_fails(self):
         root = self.repo({})
