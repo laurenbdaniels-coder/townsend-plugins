@@ -2,6 +2,10 @@
 
 The footer of every verdict names the version that produced it. Later entries carry a "What changed since the workshop" line so an attendee can tell whether an answer would come out differently today.
 
+## 0.5.1 (2026-10-19)
+
+What changed since the workshop build: nothing in the verdict. One line in the description and README says how custody-check and build-decisions split the work: "Build Decisions shows where your app decides each thing and in how many places. Custody Check answers what a stranger can do and which door your next change takes." Only the version number moved in the scanners and the verdict script.
+
 ## 0.5.0 (2026-10-17)
 
 What changed since the workshop build: the verdict now opens with a count and one line on why it matters. It finds and checks, and it no longer tells you how to fix things. No answer and no door changed.

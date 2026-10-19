@@ -61,7 +61,7 @@
       "name": "custody-check",
       "source": "./custody-check",
       "description": "Run the eleven gut-check questions from 'It Said It Was Fine' on your own AI-built app, read-only, and get a verdict: what you can prove, what you can't, and whether to ship it, patch it, or shelve it. Works in Claude Code and Codex.",
-      "version": "0.5.0",
+      "version": "0.5.1",
       "author": {
         "name": "Lauren Townsend"
       },
@@ -78,8 +78,8 @@
     {
       "name": "build-decisions",
       "source": "./build-decisions",
-      "description": "Find where your AI-built app decides who can see a record, what something costs, whether someone has paid, and how money rounds, and how the app is built, then get a short plain-English analysis of each decision made in more than one place, with a one-minute check by hand. Read-only; a review, not an audit.",
-      "version": "0.4.0",
+      "description": "Find where your AI-built app decides who can see a record, what something costs, whether someone has paid, and how money rounds, how the app is built, and where it saves whether someone has paid, then get a short plain-English analysis of each decision made in more than one place, with a one-minute check by hand. Read-only; a review, not an audit.",
+      "version": "0.5.0",
       "author": {
         "name": "Lauren Townsend"
       },

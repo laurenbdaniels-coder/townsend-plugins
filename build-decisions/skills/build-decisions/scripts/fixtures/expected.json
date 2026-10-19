@@ -400,6 +400,365 @@
           "why": "an app calling its own /api/health is not a link to another app (review round 1)"
         }
       ]
+    },
+    "payment": {
+      "about": "Ground truth for fixtures/payments (--section payment). 'seeded': every listing the helper must print, as an identity key. 'negatives': a listing that must not appear, with why. Main vs branch is compared in differential_test once main ships the section.",
+      "app": "payments",
+      "seeded": [
+        {
+          "key": [
+            "writer",
+            "app/api/stripe/webhook/route.ts",
+            6,
+            "is_paid",
+            "webhook"
+          ]
+        },
+        {
+          "key": [
+            "writer",
+            "app/checkout/success/page.tsx",
+            6,
+            "is_paid",
+            "success-page"
+          ]
+        },
+        {
+          "key": [
+            "writer",
+            "app/credits/BuyCredits.tsx",
+            7,
+            "credits",
+            "browser"
+          ]
+        },
+        {
+          "key": [
+            "writer",
+            "app/tasks/actions.ts",
+            7,
+            "credits",
+            "other"
+          ]
+        },
+        {
+          "key": [
+            "webhook",
+            "app/api/stripe/webhook/route.ts",
+            5,
+            "not-found"
+          ]
+        },
+        {
+          "key": [
+            "webhook",
+            "app/api/legacy-hook/route.ts",
+            4,
+            "not-found"
+          ]
+        },
+        {
+          "key": [
+            "webhook",
+            "app/api/verified-hook/route.ts",
+            4,
+            "found"
+          ]
+        },
+        {
+          "key": [
+            "webhook",
+            "app/api/alias-hook/route.ts",
+            4,
+            "found"
+          ]
+        },
+        {
+          "key": [
+            "client-write",
+            "app/checkout/success/page.tsx",
+            6,
+            "is_paid"
+          ]
+        },
+        {
+          "key": [
+            "client-write",
+            "app/credits/BuyCredits.tsx",
+            7,
+            "credits"
+          ]
+        },
+        {
+          "key": [
+            "price-constant",
+            "lib/plans.ts",
+            1
+          ]
+        },
+        {
+          "key": [
+            "price-id",
+            "app/api/checkout/route.ts",
+            5
+          ]
+        },
+        {
+          "key": [
+            "webhook",
+            "app/api/two-hop/route.ts",
+            4,
+            "found"
+          ]
+        },
+        {
+          "key": [
+            "webhook",
+            "app/api/baseurl-hook/route.ts",
+            4,
+            "found"
+          ]
+        },
+        {
+          "key": [
+            "webhook",
+            "app/api/scoped-hook/route.ts",
+            4,
+            "found"
+          ]
+        },
+        {
+          "key": [
+            "webhook",
+            "app/api/header-hook/route.ts",
+            6,
+            "found"
+          ]
+        },
+        {
+          "key": [
+            "webhook",
+            "app/api/missing-hook/route.ts",
+            4,
+            "unresolved"
+          ]
+        },
+        {
+          "key": [
+            "webhook",
+            "app/api/hmac-log/route.ts",
+            6,
+            "not-found"
+          ]
+        },
+        {
+          "key": [
+            "webhook",
+            "app/api/block-comment-hook/route.ts",
+            6,
+            "not-found"
+          ]
+        },
+        {
+          "key": [
+            "webhook",
+            "server/routes/webhook.js",
+            6,
+            "found"
+          ]
+        },
+        {
+          "key": [
+            "webhook",
+            "pyapi/app/routers/billing.py",
+            9,
+            "found"
+          ]
+        },
+        {
+          "key": [
+            "webhook",
+            "supabase/functions/stripe-webhook/index.ts",
+            5,
+            "found"
+          ]
+        },
+        {
+          "key": [
+            "writer",
+            "server/routes/webhook.js",
+            7,
+            "is_paid",
+            "webhook"
+          ]
+        },
+        {
+          "key": [
+            "writer",
+            "pyapi/app/routers/billing.py",
+            10,
+            "is_paid",
+            "webhook"
+          ]
+        },
+        {
+          "key": [
+            "writer",
+            "supabase/functions/_shared/stripe-events.ts",
+            6,
+            "is_paid",
+            "other"
+          ]
+        },
+        {
+          "key": [
+            "writer",
+            "lib/upgrade.ts",
+            3,
+            "is_paid",
+            "other"
+          ]
+        }
+      ],
+      "negatives": [
+        {
+          "kind": "webhook",
+          "path": "lib/handlers.ts",
+          "why": "a module that only switches on the event type is not a payment handler"
+        },
+        {
+          "kind": "webhook",
+          "path": "app/api/verified-hook/route.ts",
+          "signature": "not-found",
+          "why": "the check is one relative import away (the template layout)"
+        },
+        {
+          "kind": "webhook",
+          "path": "app/api/alias-hook/route.ts",
+          "signature": "not-found",
+          "why": "the @/ alias is followed to a file that checks"
+        },
+        {
+          "kind": "writer",
+          "path": "app/api/checkout/route.ts",
+          "why": "metadata sent to the payment company is not a database write"
+        },
+        {
+          "kind": "writer",
+          "path": "app/notes/NoteForm.tsx",
+          "why": "a paid-field write in a comment, and a title write, are not paid writers"
+        },
+        {
+          "kind": "client-write",
+          "path": "app/tasks/actions.ts",
+          "why": "a 'use server' file is not a screen saving to the database"
+        },
+        {
+          "kind": "writer",
+          "path": "app/tasks/actions.ts",
+          "line": 4,
+          "why": "status: 'done' is not paid state, and the next statement's field is not borrowed (found while building 0.5.0)"
+        },
+        {
+          "kind": "webhook",
+          "path": "app/api/two-hop/route.ts",
+          "signature": "not-found",
+          "why": "route -> relay -> verifier: two relative hops are followed (review round 1, 0.5.0)"
+        },
+        {
+          "kind": "webhook",
+          "path": "app/api/baseurl-hook/route.ts",
+          "signature": "not-found",
+          "why": "a bare 'lib/...' import (tsconfig baseUrl) is followed (review round 1, 0.5.0)"
+        },
+        {
+          "kind": "webhook",
+          "path": "app/api/scoped-hook/route.ts",
+          "signature": "not-found",
+          "why": "'@lib/...' is a path alias, not an installed package (review round 1, 0.5.0)"
+        },
+        {
+          "kind": "webhook",
+          "path": "app/api/header-hook/route.ts",
+          "signature": "not-found",
+          "why": "verifyHeader is a check (review round 1, 0.5.0)"
+        },
+        {
+          "kind": "webhook",
+          "path": "app/api/missing-hook/route.ts",
+          "signature": "not-found",
+          "why": "an import this run did not read is never called missing (review round 1, 0.5.0)"
+        },
+        {
+          "kind": "webhook",
+          "path": "app/api/hmac-log/route.ts",
+          "signature": "found",
+          "why": "an HMAC made for a log id is not a signature check (Codex, review round 1, 0.5.0)"
+        },
+        {
+          "kind": "webhook",
+          "path": "app/api/block-comment-hook/route.ts",
+          "signature": "found",
+          "why": "a check inside /* */ is switched off (Codex, review round 1, 0.5.0)"
+        },
+        {
+          "kind": "webhook",
+          "path": "server/routes/webhook.js",
+          "signature": "not-found",
+          "why": "Express checks in middleware mounted before the router in app.js (review round 1, 0.5.0)"
+        },
+        {
+          "kind": "webhook",
+          "path": "pyapi/app/routers/billing.py",
+          "signature": "not-found",
+          "why": "FastAPI absolute import of a local module that checks (review round 1, 0.5.0)"
+        },
+        {
+          "kind": "webhook",
+          "path": "supabase/functions/_shared/stripe-events.ts",
+          "why": "the _shared folder of edge functions holds helpers, not handlers (review round 1, 0.5.0)"
+        },
+        {
+          "kind": "webhook",
+          "path": "api/lib/stripe-events.js",
+          "why": "a helper under api/ with no exported handler is not a function (review round 1, 0.5.0)"
+        },
+        {
+          "kind": "client-write",
+          "path": "app/billing/StartCheckout.tsx",
+          "why": "the Firebase Stripe extension's checkout_sessions request carries a price id (review round 1, 0.5.0)"
+        },
+        {
+          "kind": "client-write",
+          "path": "app/expenses/AddExpense.tsx",
+          "why": "an expense amount is not money paid to the app (review round 1, 0.5.0)"
+        },
+        {
+          "kind": "client-write",
+          "path": "app/profile/Profile.tsx",
+          "why": "a profile role is not a money or paid field (review round 1, 0.5.0)"
+        },
+        {
+          "kind": "client-write",
+          "path": "app/trips/Trip.tsx",
+          "why": "a trip's plan is not a paid plan (review round 1, 0.5.0)"
+        },
+        {
+          "kind": "writer",
+          "path": "app/trips/Trip.tsx",
+          "why": "a trip's plan is not a paid plan (review round 1, 0.5.0)"
+        },
+        {
+          "kind": "writer",
+          "path": "app/projects/Project.tsx",
+          "why": "status 'active' on a project is not paid state (review round 1, 0.5.0)"
+        },
+        {
+          "kind": "writer",
+          "path": "lib/profile-sync.ts",
+          "why": "the subscriptions table read on the line above is not the table written (review round 1, 0.5.0)"
+        }
+      ]
     }
   }
 }
