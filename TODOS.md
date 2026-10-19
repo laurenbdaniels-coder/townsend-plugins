@@ -436,6 +436,34 @@
 
 ## build-decisions (decision-census until 0.4.0)
 
+From the 0.5.0 review (payment section, 2026-10-19), below the ship bar:
+- **The payment section's main-vs-branch differential turns on after 0.5.0 merges.** Until then the labeled `fixtures/payments` corpus is the only gate. Its keys hold line numbers, so every fixture edit after that needs an exception entry. P2 for the next release that changes the section.
+- **Handlers that pass the event on without an event name are missed** (`index.ts` verifies and calls `_shared/handle.ts`, which holds the event names): the entry file is not listed. It says less, never something false. P3.
+- **Paddle, Lemon Squeezy and Go handlers are not listed;** only Stripe event names mark a handler. P3.
+- **Lovable's `subscribers` table and other paid-table names** (`customers`, `memberships`) are not paid tables. P3.
+- **Ternaries and TypeScript type annotations read as keys** (`a ? b : c`, `{ plan: Plan }`) inside a write window. P3.
+- **Python docstrings and `#` inside strings** are not tracked as comments in the payment scan (JS block comments are). P3.
+- **`_norm` could be `posixpath.normpath`** with a root check. P3.
+- **The boundary sentence lives in 5 copies** (two READMEs, two SKILL descriptions, the plan) with no sync test. P3.
+- **The payment writers list is uncapped before the 25 cut,** and a second performance pass (one regex pass per line instead of five) is still open. P3.
+- **The stop-line eval for "Stripe Checkout plus a card_number column"** is not written; SKILL rule 7 now says a stopline_hints field always ticks it. P2.
+- **fix-request is flaky on main too:** 1 of 3 main runs said "I can make the fixes as a separate step" after the footer. P2 (prompt rule, not this release).
+- **custody-check 0.5.1's description change ran no custody-check eval;** it changes one sentence and no behavior. P3.
+
+From the 0.5.0 review round 2 (2026-10-19). The "no signature check found" report line was held back from 0.5.0 (Lauren chose option A); the helper still emits `webhooks[].signature`, and STACK S-040 rebuilds it. Each item is a case the rebuilt check must get right:
+- **Blocker (held back): dotted file names are treated as non-code.** `_Resolver._js` returns None for any 2-6 letter extension, so `./webhook.utils` or `../lib/stripe.edge` is never opened and a verifying handler is "not-found". Try code candidates first; treat an import as non-code only for a fixed asset list (css, scss, png, svg, json, md...).
+- **Blocker (held back): `@/` picks the wrong folder.** With `@/*` -> `./src/*` and both `lib/verify.ts` (unrelated) and `src/lib/verify.ts` (verifies), the root wins. Read `tsconfig.json`/`jsconfig.json` `paths` and `baseUrl`; when more than one candidate exists, say "not determined".
+- **Blocker (held back): a regex literal reads as a comment.** `/[/*]/` above `constructEvent` opens a block comment in `_cut_blocks`, hiding the check. A block comment opened mid-line after code should make the file "not determined", or the cutter should know JS regex literals.
+- **An Express app mounts an unchecked `routes/webhook.js` beside `routes/other.js` with `constructEvent`:** the webhook gets "found" through the shared importer. Credit an importer only when it checks before mounting that route. P2.
+- **A local folder named like a Node built-in** (`util/stripe` with baseUrl `src`) is treated as a package. P3.
+- **A hand-made HMAC compared without "sig" in the variable name** gives "not-found". P2 for S-040.
+- **When `_late()` fires during `importers()`,** the importer map is partial and can give "not-found"; a late walk should give "not determined". P2 for S-040.
+- **A hostile 19,000-file tree takes 100.2 s** (0.2 s over 90 + 10): `_closure` and `edges()` do not check `_late()`. P2.
+- **A payment word earlier on a line makes `status: 'done'` a writer:** the status context includes the line's prefix. P3.
+- **Backtick import paths are never followed.** P3.
+- **SvelteKit, Remix, Nuxt, Fastify autoload and Django handlers are not entry points,** so they are silently not listed. P3.
+- **The 42 eval reports from 0.5.0 are not in `free-plugin-standard/corpus/` yet.** Each one carries the reworded "Not checked" line, so main's 0.4.0 check fails it and the never-worse test calls it "looser" (the REWORDED map renames the check, but main still scores the old text). Saved at `townsend-ai-studio-workspace/plugins-internal/build-decisions/reports-0.5.0-evals.jsonl`; add them in the first PR after 0.5.0 merges (S-040), when main prints the same line; 0.3.2 and 0.4.0 reports are missing for the same reason. P2.
+
 From the 0.4.0 review (2026-10-16), below the ship bar:
 - **Two apps on different Supabase projects are linked** because both use the Supabase package (the plan's linking rule). The project URL is in env files the helper never opens. P3.
 - **A phone app calling an outside service at a path the web app also serves** (`https://partner.example/api/users` vs `/api/users`) is linked; the called host is dropped. P3.

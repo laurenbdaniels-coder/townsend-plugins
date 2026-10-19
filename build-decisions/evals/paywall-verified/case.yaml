@@ -203,7 +203,7 @@ graders:
     match: "contains"
   - name: "never-says-a-check-is-missing"
     type: "regex"
-    pattern: "no sign that it checks|really come from your payment company"
+    pattern: "no sign that it checks"
     flags: "i"
     match: "not_contains"
   - name: "one-writer-is-not-a-rule-in-several-places"
