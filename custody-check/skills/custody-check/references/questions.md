@@ -125,7 +125,7 @@ The same instruction pasted into three files and edited in place is the AI versi
 - **Yes** only from you: prompts live in one place, in version control.
 - **No** only from you: the same instruction is copy-pasted in more than one place, or prompts are edited live in a dashboard and nothing ties the version to the answer it produced.
 - Scanner hints: none that are decisive. A prompt is just a string, and the scanner will not read your app's instruction files by design.
-- **By hand (60 s):** Copy one unusual sentence from your main prompt. Ask your AI tool to "find every place in this project that contains this sentence." More than one hit is your answer. If your tool has no project to search, that is your answer too.
+- **By hand (60 s):** Copy one unusual sentence from your main prompt. Ask your AI tool to "find every place in this project that contains this sentence. Change nothing." More than one hit is your answer. If your tool has no project to search, that is your answer too.
 - **Check it:** Ask your AI tool: "List every file that holds a prompt, and say which version answered the last request. Change nothing." A change to a prompt in production needs extra checks: it is Gated.
 
 ## A3. Is production running what you actually tested? (Verify)
@@ -135,7 +135,7 @@ The prompt you tried in the playground is not the prompt your code sends. Your c
 - **Yes** only from you: you have seen the exact final text and settings one real request sent, and it matches what you evaluated.
 - **No** only from you: you tuned it in a playground, shipped something your code assembles, and have never compared the two.
 - Scanner hints: `model-literal` shows which model names appear in the code. Two different model names in two places is worth a look.
-- **By hand (60 s):** Ask your AI tool to "print the exact text and settings you send the model for one request." It must be in full, not summarised. Read it next to what you tested. People are usually surprised.
+- **By hand (60 s):** Ask your AI tool to "print the exact text and settings you send the model for one request. Change nothing." It must be in full, not summarised. Read it next to what you tested. People are usually surprised.
 - **Check it:** Put the printed text next to what you tested, line by line. Each difference is a finding. If you cannot tell them apart, that is the finding.
 - *If you also train a model, this one has a name: training and serving skew. Without training, it is the same shape with a smaller blast radius, because only the input differs, not the model.*
 

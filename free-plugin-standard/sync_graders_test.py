@@ -183,7 +183,7 @@ class SyncTest(unittest.TestCase):
         self.assertTrue(any('std-no-fix-prompt' in e for e in sync_graders.check(root)))
 
     def test_words_must_be_a_plain_label(self):
-        for bad in ('', '.*', 'what could go wrong', 'If (they)? break:', 'x' * 61 + ':'):
+        for bad in ('', '.*', 'what could go wrong', 'If (they)? break:', 'X' * 60 + ':'):
             root = self.repo({'a': CASE_HEAD + marker('always issues')}, words={'std-out-of-sync': bad})
             self.assertTrue(any('label' in e for e in sync_graders.check(root)), repr(bad))
 

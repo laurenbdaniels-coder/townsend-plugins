@@ -76,4 +76,4 @@ Items 1 and 3 are always printed. The others print unless every mapped question 
 
 ## Why a scanner no cannot be argued down, and a scanner yes can be raised
 
-A scanner **no** is positive evidence: a key-shaped value where the browser can read it, a table with its row security switched off. The founder's answers never override it; the fix is to rotate or close the thing, then re-run. A scanner **yes** is an inference from file names and history (a deploy config exists, two environments are named) and renders at **medium** confidence; the founder raises it to **high** by confirming the thing has actually been done once.
+A scanner **no** is positive evidence: a key-shaped value where the browser can read it, a table with its row security switched off. The founder's answers never override it; only a new scan, after the thing is rotated or closed, changes it. A scanner **yes** is an inference from file names and history (a deploy config exists, two environments are named) and renders at **medium** confidence; the founder raises it to **high** by confirming the thing has actually been done once.

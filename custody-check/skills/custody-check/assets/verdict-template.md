@@ -45,7 +45,7 @@ Check it (1 min): <the by-hand test, in short steps; for Q1 end with "If you fin
 
 Answers marked (scanner) came from the file tree. Answers marked (from your code) came from reading your code, at the `path:line` shown. Answers marked (you) came from your answers block. A scanner or code "yes" is medium confidence until you confirm it.
 
-One place decides who is allowed: <yes | no | don't know> (you). <on no or don't know:> Run build-decisions to see each place your app decides it.
+One place decides who is allowed: <yes (you) | no (you) | don't know (you) | not asked>. <on no, don't know or not asked:> Run build-decisions to see each place your app decides it.
 
 ## Keeping the AI on rails
 (include this section only when the app calls a model; omit it entirely otherwise)
@@ -75,7 +75,7 @@ Trains or fine-tunes their own model: <no | yes, and then the training-shaped ve
 - …
 
 ## Rotate now
-(only when a named key was evidenced) The scanner saw a key-shaped value at `<path:line>`. Assume it is exposed: rotate it at the provider now.
+(only when a named key was evidenced) The scanner saw a key-shaped value at `<path:line>`. Assume it is exposed: rotate it at the provider now. A new key in the same place can be seen the same way.
 
 **Before you change any of these:** ask your AI tool: "Show me where my app decides <the first Patch list item, in plain words>, with file and line. Change nothing." <the footer next-step line, copied exactly from the Footer next step rule below>
 
@@ -91,9 +91,9 @@ Rules for filling it in:
 - **Nothing before the title.** The message starts with `# Custody check:`. Fill every `<…>` with real words: the verdict never shows angle brackets.
 - **The count line:** N is how many of the eleven are not Yes (No, Don't know and Nothing found all count; Q5 counts once, by its lower half). Use "answer that is" when N is 1.
 - **Why this matters**, **Not checked** and the **build-decisions line** are fixed: copy them exactly.
-- **Patch list blocks:** one block per `verdict.patch_list` item, in its order. The title says what is open in plain words, as a person using the app would notice it ("Keys the browser can see", "Records a logged-out visitor can open"). List at most 2 places, from the question's evidence rows that have a path; with none, leave the place lines out. `What could go wrong:` says what a stranger or a user would see. `Check it (1 min):` is that question's by-hand test from questions.md. These blocks find and check. They never say how to change the app.
-- **One place decides:** the founder's `q4_one_place` answer, or "don't know" when they gave none. It changes no answer and no door.
-- **Before you change any of these:** name the first Patch list item in plain words. When the door is Ship it, name the first Don't-know question instead. Then copy the next-step line from the Footer next step rule.
+- **Patch list blocks:** one block per `verdict.patch_list` item, in its order. The title says what is open in plain words, as a person using the app would notice it ("Keys the browser can see", "Records a logged-out visitor can open"). List at most 2 places, from the question's evidence rows that have a path; with none, leave the place lines out. `What could go wrong:` says what a stranger or a user would see. `Check it (1 min):` is that question's by-hand test from questions.md. These blocks find and check. They never say how to change the app. They take the place of the one-sentence item that tiers-and-doors.md describes.
+- **One place decides:** the founder's `q4_one_place` answer, marked (you). When they gave none, print "not asked" with no (you). It changes no answer and no door.
+- **Before you change any of these:** name the first Patch list item in plain words. When the Patch list is empty, name the first Don't-know question instead. When both are empty, leave out the quoted ask and print only the next-step line after the label. When the item is Q1, end the quoted ask with "Change nothing. Do not show the key itself." Then copy the next-step line from the Footer next step rule.
 
 - **Door, Patch list, stop-line, rerun recipe, Don't-know list and the next-step line** come from the verdict script's JSON when it ran (SKILL.md "Run the verdict"); the rules below are what it applies, and what you apply when it could not run.
 - **Nothing found:** render `nothing-found` as "Nothing found" and put the `nothing-found-*` row's text in the Evidence cell (what was read and checked). It counts as Don't know for the door and the Patch list, and it goes on the Don't-know list with its by-hand test, prefixed "Nothing found in the files; the running app is still the question:".

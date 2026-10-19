@@ -201,6 +201,8 @@ class FreePluginStandardTests(unittest.TestCase):
                 self.assertNotIn(bad, text, "%s: %s" % (name, bad))
             if name != "skill":  # SKILL.md quotes the banned words to forbid them
                 self.assertIsNone(fix.search(text), "%s: %s" % (name, fix.search(text) and fix.search(text).group(0)))
+        for said in skill_founder_lines():  # what SKILL.md tells the agent to say to the founder
+            self.assertIsNone(fix.search(said), said)
 
     def test_rotation_stays_as_a_safety_step(self):
         self.assertIn("rotate it now", read("assets", "verdict-template.md"))
@@ -220,8 +222,10 @@ class FreePluginStandardTests(unittest.TestCase):
 
     def test_every_check_for_the_ai_tool_says_change_nothing(self):
         q = read("references", "questions.md")
-        for m in re.finditer(r'Ask your AI tool: "([^"]+)"', q + read("assets", "verdict-template.md")):
-            self.assertTrue(m.group(1).endswith("Change nothing."), m.group(1))
+        asks = re.findall(r'Ask your AI tool(?: to)?:? "([^"]+)"', q + read("assets", "verdict-template.md"), re.I)
+        self.assertGreaterEqual(len(asks), 7, asks)  # A1, A2 (two), A3, A5, A6, Before you change
+        for said in asks:
+            self.assertTrue(said.endswith("Change nothing."), said)
 
     def test_skill_has_the_free_paid_rule(self):
         skill = read("SKILL.md")
@@ -261,7 +265,7 @@ class OnePlaceDecidesTests(unittest.TestCase):
 
     def test_template_renders_it_with_the_pointer(self):
         block = template_block()
-        self.assertIn("One place decides who is allowed: <yes | no | don't know> (you).", block)
+        self.assertIn("One place decides who is allowed: <yes (you) | no (you) | don't know (you) | not asked>.", block)
         self.assertIn("Run build-decisions to see each place your app decides it.", block)
 
 
@@ -315,6 +319,10 @@ class DoorDoesNotMoveTests(unittest.TestCase):
         for heading in ("### Door rule (applied in this order)", "### Patch-list order"):
             self.assertEqual(self.section(self.current(doors), heading, "### "),
                              self.section(self.released(doors), heading, "### "), heading)
+        # what the agent answers from and when the stop-line ticks: wording-only releases leave these too
+        self.assertEqual(self.section(self.current(p), "## Answer rules"), self.section(self.released(p), "## Answer rules"))
+        self.assertEqual(self.section(self.current(doors), "## The stop-line"),
+                         self.section(self.released(doors), "## The stop-line"))
 
     def test_scanners_and_verdict_script_are_unchanged(self):
         base = "custody-check/skills/custody-check/scripts/"

@@ -193,7 +193,7 @@ graders:
     match: "contains"
   - name: "one-place-line"
     type: "regex"
-    pattern: "One place decides who is allowed: (?:yes|no|don't know)"
+    pattern: "One place decides who is allowed: (?:yes|no|don't know|not asked)"
     flags: "i"
     match: "contains"
   - name: "one-place-never-reaches-the-verdict-script"

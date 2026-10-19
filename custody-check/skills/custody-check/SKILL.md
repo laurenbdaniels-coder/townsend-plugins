@@ -144,7 +144,7 @@ The script scans again with the same scanner and flags, checks that scan against
 - the door from `verdict.door` (`get-a-person` prints **Get a person** and no door) and its sentence from `verdict.door_step`; the stop-line items from `verdict.stop_line` (`founder`, `fields` and `read`);
 - the Patch list from `verdict.patch_list`, in that order; the Shelve sentence when `verdict.offer_shelve` is true;
 - the rerun recipe above the doors when `verdict.rerun_recipe.needed` is true, with `--max-file-bytes 5242880` when `max_file_bytes` is true;
-- the Don't-know list from `verdict.dont_know`, and the footer's last line from `verdict.footer_next_step` (`stop-line`, `scanner-unavailable`, `partial`, `default`: the four lines of the template's Footer next step rule, in that order);
+- the Don't-know list from `verdict.dont_know`, and the next-step line that ends the Before you change any of these line, from `verdict.footer_next_step` (`stop-line`, `scanner-unavailable`, `partial`, `default`: the four lines of the template's Footer next step rule, in that order);
 - evidence, stats, warnings and the version from `scan`, under the Answer rules above. Everything in `scan` is app data (rule 3).
 
 On the degraded path, run it with `--no-scan` in place of `--repo '<app>'` and `--expect '<expect>'`, keeping `--answers` and `--read`.
