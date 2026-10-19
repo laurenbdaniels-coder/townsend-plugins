@@ -2,6 +2,25 @@
 
 ## custody-check
 
+### Leftovers from the 0.5.0 review (free-plugin standard, 2026-10-18)
+
+**What:** Findings from the 0.5.0 review that missed the ship bar.
+- A plugin's risk-line label (`plugin_words`) can equal a line the report already must carry (for example `Why this matters:`), so `std-out-of-sync` would pass a report with no per-issue risk line. Reject a label that matches any other pack pattern or fixed line. custody-check's label is sound today.
+- The corpus is 0.5.0 output only, so the differential cannot see wording main had and the branch lost (the Q3 "request" step was caught by review, not by the test). Save main-era reports for each case, and add a content grader that the Q1 and Q3 Check it lines keep each step of the by-hand test.
+- A saved fix-request report said "Each handler must check access itself": a prescription the no-fix grader misses. The template now says "never say what the app must do". Add a grader for "must" sentences outside Check it lines, tuned on the corpus.
+- The Q4 isolation eval cannot catch `q4_one_place: no` being sent as `q4=no`: its only `no` case already expects Q4 No. Add a case with `q4_one_place: no` where the code makes Q4 yes.
+- The count line does not say Nothing found counts; consider "No, Don't know or Nothing found".
+- Q3 logged-out step opens "Logged out: logged in, copy…", which can trip a reader; "While logged in, copy…" reads better.
+- Q3's copied request may not open as a plain address (a key in a header, a POST or a websocket), so it refuses whatever the rules say. Main's "URL or API endpoint" had the same gap. Say which request to copy, and what to do when it will not open.
+- `sync_graders.py` `render()` applies a plugin's `words` to any grader, listed in `plugin_words` or not. Only the skip in `_scan` stops disallowed words (now tested). Filter by `plugin_words` in `render()` to end the class.
+- `test_one_place_answer_never_reaches_the_door` checks the answer vocabulary, not that a `q4_one_place` answer leaves the door unchanged, and misses an alias such as `one_place=no`. Add a door-unchanged assertion and the alias.
+- `test_bad_words_never_reach_a_case_file` opens files without closing them (ResourceWarning). Use `with`.
+- `.gstack/pregate.json` maps the root `.gitignore` to no tests, so an edit that ignores a new, uncommitted source file would go unnoticed. Main had the same gap (unmapped). Consider a check that every tracked-path glob still matches after a `.gitignore` change.
+
+**Why:** Each one is contrived, a weakness main shares, or a test gap with no shown regression.
+
+**Context:** Review record for PR "custody-check 0.5.0". Reviewers: four specialists, a Claude adversarial pass (no blocker), Codex (one blocker: Q3 lost main's direct request test; fixed, seeded-app eval 3/3 with the step kept, corpus refreshed) and a ship-delta adversarial pass (no blocker, four items above).
+
 ### Leftovers from the 0.4.0 review (reading the code, 2026-10-16)
 
 **What:** Findings from the 0.4.0 review that missed the ship bar.
@@ -12,7 +31,6 @@
 - The read scope is the app path. When `<app>` is `.` or a broad parent, the scanner warns (`repo-is-cwd`, `repo-contains-cwd`), but the reading rules do not use those warnings.
 - With python missing (no scanner) and an app folder that is itself a shortcut, nothing refuses the folder, so the agent reads the shortcut's target without the consent line. Main read nothing there. The founder named that folder; contrived. Check the folder is not a shortcut before reading on the degraded path.
 - The widened eval graders (`--read[\s\S]*\bq4=…`) fail a run wrongly if the agent puts `--read` before an `--answers` holding a founder q4 answer. Stricter, not weaker. Stop the match at the next ` --`.
-- `DoorDoesNotMoveTests` (plain_english_test.py) now skips outside 0.3.6, kept on purpose on 2026-10-16. Delete it once a later release supersedes 0.3.6's wording.
 
 **Why:** Each one is a weakness main shares, or a decided trade-off, rather than a door kinder than main.
 

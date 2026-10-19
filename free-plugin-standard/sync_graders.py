@@ -10,7 +10,8 @@ pack between two marker lines at the end of its `graders:` list:
 
 Groups come from pack.json: `always` for every case that renders a report, `issues` when the case
 expects at least one issue. Every case of a plugin listed in pack.json carries a block or is
-exempt there with a reason.
+exempt there with a reason. A plugin may give its own words (`words`) only for the graders listed
+in `plugin_words` (the per-issue risk line), as a plain label ending in a colon.
 
   python3 free-plugin-standard/sync_graders.py           rewrite the blocks from pack.json
   python3 free-plugin-standard/sync_graders.py --check   exit 1 if any block is missing or stale
@@ -28,6 +29,7 @@ START = re.compile(r'^  # >>> free-plugin-standard:(?P<groups>[^\n]*)\n', re.M)
 END = '  # <<< free-plugin-standard\n'
 KEYS = ('name', 'type', 'pattern', 'flags', 'match')
 REQUIRED_GROUP = 'always'
+LABEL = re.compile(r"[A-Z][A-Za-z' ]{0,58}:")
 
 
 def load_pack(root):
@@ -35,14 +37,26 @@ def load_pack(root):
         return json.load(fh)
 
 
-def render(groups, pack):
+def render(groups, pack, plugin=None):
+    words = pack['plugins'].get(plugin, {}).get('words', {}) if plugin else {}
     lines = []
     for group in groups:
         for grader in pack['groups'][group]:
+            grader = dict(grader, pattern=words.get(grader['name'], grader['pattern']))
             lines.append('  - name: %s\n' % json.dumps(grader['name']))
             for key in KEYS[1:]:
                 lines.append('    %s: %s\n' % (key, json.dumps(grader[key], ensure_ascii=False)))
     return ''.join(lines)
+
+
+def words_problems(plugin, conf, pack):
+    allowed = set(pack.get('plugin_words', []))
+    for name, label in sorted(conf.get('words', {}).items()):
+        if name not in allowed:
+            yield '%s: words for %s, which plugins may not reword (only %s)' % (
+                plugin, name, ', '.join(sorted(allowed)) or 'none')
+        elif not isinstance(label, str) or not LABEL.fullmatch(label):
+            yield '%s: words for %s must be a plain label ending in a colon, got %r' % (plugin, name, label)
 
 
 def case_files(root, plugin):
@@ -82,6 +96,11 @@ def _scan(root):
             yield path, 'carries a free-plugin-standard block but %s is not registered in pack.json' % plugin, None
     for plugin, conf in sorted(pack['plugins'].items()):
         exempt = conf.get('exempt', {})
+        bad_words = list(words_problems(plugin, conf, pack))
+        for problem in bad_words:
+            yield plugin, problem, None
+        if bad_words:
+            continue
         names = set()
         if not case_files(root, plugin):
             yield plugin, 'registered in pack.json but has no eval cases', None
@@ -103,7 +122,7 @@ def _scan(root):
                 yield path, parsed, None
                 continue
             groups, _, body_start, body_end = parsed
-            want = render(groups, pack)
+            want = render(groups, pack, plugin)
             if text[body_start:body_end] != want:
                 yield path, 'stale block: run python3 free-plugin-standard/sync_graders.py', \
                     text[:body_start] + want + text[body_end:]

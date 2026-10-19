@@ -442,6 +442,15 @@ class ParityTests(unittest.TestCase):
         values = set(re.search(r"comma-separated from (.*)\.", text).group(1).replace("`", "").replace(" ", "").split(","))
         self.assertEqual(values, set(cv.STOP_LINE_VALUES) - set(cv.LEGACY_STOP_LINE_VALUES))
 
+    def test_one_place_answer_never_reaches_the_door(self):
+        # Value: protects=the 0.5.0 q4_one_place interview answer stays outside the verdict script's vocabulary;
+        # fails_when=someone adds q4_one_place to ANSWER_KEYS, so a "no" could start counting toward the door;
+        # why_new=the example-block check skips keys it does not match; seam=none;
+        # no_claim=does not prove the agent leaves it out of --answers (the eval input_match grader owns that).
+        self.assertNotIn("q4_one_place", cv.ANSWER_KEYS)
+        with self.assertRaises(cv.UsageError):
+            cv.parse_answers("q4_one_place=no")
+
     def test_version_matches_scanner_and_plugin(self):
         import custody_scan as cs
         with open(os.path.join(os.path.dirname(os.path.dirname(SKILL_DIR)), ".claude-plugin", "plugin.json"),

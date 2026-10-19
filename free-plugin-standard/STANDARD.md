@@ -22,15 +22,17 @@ Choosing the fix and making it safely is the paid work. A generic fix prompt bot
 4. **Each issue** (at most 4, then "And N more"):
    - a numbered bold title in plain words, with how many places;
    - each place as one plain sentence about what it does in the app, then `path:line` at the end;
-   - `If they get out of sync:` what the reader would see go wrong;
+   - the plugin's risk line: what the reader would see go wrong. build-decisions says `If they get out of sync:`; custody-check says `What could go wrong:`;
    - `Check it (1 min):` short steps in the running app, or a plain question for their AI tool ending "Change nothing."
 5. **Before you change any of these:** ask your AI tool "... Change nothing.", then the Free Assessment link. When the stop-line is ticked, there is no link: tell the reader to get a person who does this for a living first.
 6. **Also worth a look:** at most 2 short lines, or nothing.
 7. **Not checked:** one fixed line that names what the run did not look at and ends "Not found does not mean it isn't there." A free plugin never says the app is clean.
-8. **Pointer** to the other free plugin (custody-check for keys, data access and who can call what).
+8. **Pointer** to the other free plugin: build-decisions points to custody-check (keys, data access and who can call what); custody-check points to build-decisions (a rule decided in more than one place).
 9. **Footer:** plugin name and version, what was read, "read-only", "a review, not an audit".
 
-The per-issue lines use these exact words. A plugin whose issues need other words changes this standard, and the shared graders, in a pull request. It does not loosen its own graders.
+The per-issue lines use these exact words. The risk line is the one exception: each plugin names its own in `pack.json` (`words`), because "out of sync" fits copies of a rule and not an open key. Only the graders listed in `plugin_words` can be reworded, and only to a plain label ending in a colon. A plugin whose issues need other words changes this standard, and the shared graders, in a pull request. It does not loosen its own graders.
+
+custody-check keeps its verdict's own shape around these parts (the door, the eleven, the tier and the five, which the workshop handout uses): its Patch list items are the issue blocks, and the Free Assessment line closes its "Before you change any of these" line.
 
 ## Plain English
 
@@ -45,7 +47,7 @@ The per-issue lines use these exact words. A plugin whose issues need other word
 `claude plugin eval` has no include for `case.yaml`, so the shared graders live in `pack.json` and are copied into each case:
 
 - `always`: no fix prompt, no code words. Every case that renders a report carries it.
-- `issues`: the count line, the why line, the out-of-sync line, the check-it line. Every case that expects at least one issue carries it.
+- `issues`: the count line, the why line, the risk line (`std-out-of-sync`, in the plugin's own words), the check-it line. Every case that expects at least one issue carries it.
 
 To add a free plugin, list it under `plugins` in `pack.json`. Then end each case's `graders:` list with:
 

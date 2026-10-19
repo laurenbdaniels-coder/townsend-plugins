@@ -4,3 +4,4 @@ __pycache__/
 .context/
 build-decisions/evals/results/
 decision-census/evals/results/
+custody-check/evals/results/
