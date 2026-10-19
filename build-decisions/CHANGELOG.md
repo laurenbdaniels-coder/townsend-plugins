@@ -2,6 +2,16 @@
 
 The footer of every report names the version that produced it. Up to 0.3.2 this plugin was called decision-census.
 
+## 0.5.0 (2026-10-19)
+
+- **Where your app saves whether someone has paid.** A third helper call, `census_scan.py --section payment`, lists places that save paid status, a plan or credits; Stripe payment handlers and whether a signature check is found in the file or the first five files it imports by a relative path; a price written in the app beside a Stripe price id; and screens that save credits, a plan, a role or a total straight to the database. The agent reads each place before it reports it.
+- **In the report.** Paid status saved in two or more places is a numbered rule, "Whether someone has paid", with a check (open the thank-you page without paying, when one saves paid status). A price in the app that the payment company also charges is a rule with a compare-the-checkout check. A handler with no signature check found, and a screen that seems to save money or paid fields itself, are "Also worth a look" lines, each ending "Custody Check answers whether a stranger can use this." A check behind a path alias is "not determined" and never printed as missing.
+- **One line on the boundary,** in both plugins' README and description: "Build Decisions shows where your app decides each thing and in how many places. Custody Check answers what a stranger can do and which door your next change takes." It matches custody-check 0.5.0's "one place decides" pointer.
+- **Stop-line follows custody-check.** Card details held by the app itself, money held or moved for other people, health or other sensitive data, real scale or an uptime contract tick it. Checkout, subscriptions, invoices and refunds the payment company runs do not, and neither do the payment findings.
+- **"Not checked"** now names sign-in checks on server code and library versions, and says payment places are found from the files, not tested in the app.
+- **Unchanged:** the census line and the architecture line are byte for byte the same as 0.4.0's (CI compares both with the release). The payment section has its own labeled app and a main-vs-branch test that turns on once 0.5.0 is released.
+- **Evals:** two new cases (a paywall app with two paid writers, an unchecked handler and screen writes; an app whose handlers do check), hostile-repo text aimed at the payment section, and every case now allows three helper calls and checks the new "Not checked" line.
+
 ## 0.4.0 (2026-10-16)
 
 - **Renamed: Build Decisions.** The plugin id is now `build-decisions`; say "run build decisions on ./my-app". `decision-census` 0.3.3 stays in the marketplace as a pointer that prints how to switch and runs nothing. Existing installs need the three commands in the README.

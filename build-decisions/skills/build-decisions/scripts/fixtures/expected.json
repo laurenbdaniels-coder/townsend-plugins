@@ -400,6 +400,150 @@
           "why": "an app calling its own /api/health is not a link to another app (review round 1)"
         }
       ]
+    },
+    "payment": {
+      "about": "Ground truth for fixtures/payments (--section payment). 'seeded': every listing the helper must print, as an identity key. 'negatives': a listing that must not appear, with why. Main vs branch is compared in differential_test once main ships the section.",
+      "app": "payments",
+      "seeded": [
+        {
+          "key": [
+            "writer",
+            "app/api/stripe/webhook/route.ts",
+            6,
+            "is_paid",
+            "webhook"
+          ]
+        },
+        {
+          "key": [
+            "writer",
+            "app/checkout/success/page.tsx",
+            6,
+            "is_paid",
+            "success-page"
+          ]
+        },
+        {
+          "key": [
+            "writer",
+            "app/credits/BuyCredits.tsx",
+            7,
+            "credits",
+            "browser"
+          ]
+        },
+        {
+          "key": [
+            "writer",
+            "app/tasks/actions.ts",
+            7,
+            "credits",
+            "other"
+          ]
+        },
+        {
+          "key": [
+            "webhook",
+            "app/api/stripe/webhook/route.ts",
+            5,
+            "not-found"
+          ]
+        },
+        {
+          "key": [
+            "webhook",
+            "app/api/legacy-hook/route.ts",
+            4,
+            "not-found"
+          ]
+        },
+        {
+          "key": [
+            "webhook",
+            "app/api/verified-hook/route.ts",
+            4,
+            "found"
+          ]
+        },
+        {
+          "key": [
+            "webhook",
+            "app/api/alias-hook/route.ts",
+            4,
+            "unresolved"
+          ]
+        },
+        {
+          "key": [
+            "client-write",
+            "app/checkout/success/page.tsx",
+            6,
+            "is_paid"
+          ]
+        },
+        {
+          "key": [
+            "client-write",
+            "app/credits/BuyCredits.tsx",
+            7,
+            "credits"
+          ]
+        },
+        {
+          "key": [
+            "price-constant",
+            "lib/plans.ts",
+            1
+          ]
+        },
+        {
+          "key": [
+            "price-id",
+            "app/api/checkout/route.ts",
+            5
+          ]
+        }
+      ],
+      "negatives": [
+        {
+          "kind": "webhook",
+          "path": "lib/handlers.ts",
+          "why": "a module that only switches on the event type is not a payment handler"
+        },
+        {
+          "kind": "webhook",
+          "path": "app/api/verified-hook/route.ts",
+          "signature": "not-found",
+          "why": "the check is one relative import away (the template layout)"
+        },
+        {
+          "kind": "webhook",
+          "path": "app/api/alias-hook/route.ts",
+          "signature": "not-found",
+          "why": "a check behind an alias import is unresolved, never called missing"
+        },
+        {
+          "kind": "writer",
+          "path": "app/api/checkout/route.ts",
+          "why": "metadata sent to the payment company is not a database write"
+        },
+        {
+          "kind": "writer",
+          "path": "app/notes/NoteForm.tsx",
+          "why": "a paid-field write in a comment, and a title write, are not paid writers"
+        },
+        {
+          "kind": "client-write",
+          "path": "app/tasks/actions.ts",
+          "why": "a 'use server' file is not a screen saving to the database"
+        },
+        {
+          "kind": "writer",
+          "path": "app/tasks/actions.ts",
+          "line": 4,
+          "why": "status: 'done' is not paid state, and the next statement's field is not borrowed (found while building 0.5.0)"
+        }
+      ]
     }
   }
 }

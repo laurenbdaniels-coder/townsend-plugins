@@ -266,6 +266,80 @@ class ArchitectureSectionTests(unittest.TestCase):
         self.assertEqual(new, [], "the branch lists these and main does not (add each with a reason): %r" % new)
 
 
+def pay_listings(result):
+    """Everything the payment section lists, as comparable identity keys."""
+    out = {("writer", w["path"], w["line"], w["field"], w["where"]) for w in result["writers"]}
+    out |= {("webhook", h["path"], h["line"], h["signature"]) for h in result["webhooks"]}
+    out |= {("client-write", c["path"], c["line"], c["field"]) for c in result["client_writes"]}
+    out |= {("price-constant", p["path"], p["line"]) for p in result["price_pairs"]["constants"]}
+    out |= {("price-id", p["path"], p["line"]) for p in result["price_pairs"]["payment_ids"]}
+    return out
+
+
+# Payment listings main had that the branch may drop, or new ones the branch may add, each with the reason.
+# Format: {"key": [...identity key...], "reason": "..."}
+PAY_RECALL_EXCEPTIONS = []
+PAY_NEW_ALARM_EXCEPTIONS = []
+
+
+class PaymentSectionTests(unittest.TestCase):
+    """The payment section is new in 0.5.0: gated by seeded positives and labeled negatives on
+    fixtures/payments, and by main vs branch once main ships the section."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp(prefix="census-pay-")
+        cls.expected = load_expected()["sections"]["payment"]
+        cls.repo = os.path.join(cls.tmp, cls.expected["app"])
+        shutil.copytree(os.path.join(FIXTURES, cls.expected["app"]), cls.repo)
+        cls.result = scan(SCRIPT, cls.repo, "--section", "payment")
+        cls.listed = pay_listings(cls.result)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_seeded_listed(self):
+        """protects=every seeded writer, handler verdict, browser write and price pair is listed;
+        fails_when=one is missing or carries another kind or verdict;
+        no_claim=only as good as the fixture."""
+        missing = [tuple(s["key"]) for s in self.expected["seeded"] if tuple(s["key"]) not in self.listed]
+        self.assertEqual(missing, [])
+        self.assertEqual(self.result["coverage"], "complete")
+
+    def test_negatives_not_listed(self):
+        """protects=handler modules, checks one import away, alias imports, payment-company calls, comments and
+        server files stay out;
+        fails_when=a negative path is listed under its kind (and verdict or line, when the negative names one);
+        no_claim=noise in paths the fixture does not label is not measured."""
+        for n in self.expected["negatives"]:
+            hits = [k for k in self.listed if k[0] == n["kind"] and k[1] == n["path"]
+                    and ("line" not in n or k[2] == n["line"])
+                    and ("signature" not in n or k[3] == n["signature"])]
+            self.assertEqual(hits, [], "%s: %s" % (n["path"], n["why"]))
+
+    def test_never_worse_than_main(self):
+        """protects=no later version drops a payment listing or adds a new one (a handler newly called
+        not-found is a new listing) without a listed reason;
+        fails_when=main's section and the branch's differ with no exception;
+        no_claim=skipped (visibly) while main has no payment section (before 0.5.0 merges)."""
+        script = main_script(self.tmp)
+        if script is None:
+            self.skipTest("main helper not found; the census differential reports this")
+        parent, name = os.path.split(self.repo)
+        proc = subprocess.run([sys.executable, "-I", script, "--repo", name, "--section", "payment"],
+                              cwd=parent, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=600)
+        theirs = json.loads(proc.stdout.decode("utf-8").strip().split("\n")[0])
+        if not theirs.get("ok") and theirs.get("error") == "usage":
+            print("SKIPPED: main has no payment section yet")
+            self.skipTest("main has no payment section yet")
+        main_listed = pay_listings(theirs)
+        lost = sorted(main_listed - self.listed - {tuple(e["key"]) for e in PAY_RECALL_EXCEPTIONS})
+        self.assertEqual(lost, [], "main lists these and the branch does not: %r" % lost)
+        new = sorted(self.listed - main_listed - {tuple(e["key"]) for e in PAY_NEW_ALARM_EXCEPTIONS})
+        self.assertEqual(new, [], "the branch lists these and main does not (add each with a reason): %r" % new)
+
+
 class MainScriptTests(unittest.TestCase):
     """main_script() finds main's helper under either name, and says so when it finds neither."""
 

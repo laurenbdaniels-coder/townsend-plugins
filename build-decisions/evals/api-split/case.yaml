@@ -25,11 +25,17 @@ graders:
     input_match: "census_scan\\.py'? --repo '[^']*'? --section architecture 2>"
     min: 1
     max: 1
-  - name: "two-shell-commands-at-most"
+  - name: "payment-section-ran-once"
+    type: "tool_used"
+    tool: "Bash"
+    input_match: "census_scan\\.py'? --repo '[^']*'? --section payment 2>"
+    min: 1
+    max: 1
+  - name: "three-shell-commands-at-most"
     type: "tool_used"
     tool: "Bash"
     min: 0
-    max: 2
+    max: 3
   - name: "does-not-say-nothing-found"
     type: "regex"
     pattern: "found no rule written"
@@ -202,12 +208,12 @@ graders:
     match: "contains"
   - name: "no-raw-ids"
     type: "regex"
-    pattern: "(?:^|\\n)(?:[^`\\n]*`[^`\\n]*`)*[^`\\n]*?(?<![\\w/.-])(?:baas-from-browser|own-api-routes|server-actions|separate-backend|second-client|shared-api|each-entry-checks|one-server-place|mobile-app|multi-frontend|api-key-routes|decision-in-client-app|not_determined)(?![\\w/.-])"
+    pattern: "(?:^|\\n)(?:[^`\\n]*`[^`\\n]*`)*[^`\\n]*?(?<![\\w/.-])(?:baas-from-browser|own-api-routes|server-actions|separate-backend|second-client|shared-api|each-entry-checks|one-server-place|mobile-app|multi-frontend|api-key-routes|decision-in-client-app|not_determined|webhooks?|success-page|not-found|client_writes|price_pairs|is_paid|subscription_status)(?![\\w/.-])"
     flags: ""
     match: "not_contains"
-  - name: "not-checked-names-0.4.0-gaps"
+  - name: "not-checked-names-0.5.0-gaps"
     type: "regex"
-    pattern: "Not checked: [^\\n]*This version also does not check payments, screens that write prices or paid status, sign-in checks on server code, or library versions\\.[^\\n]*Not found does not mean"
+    pattern: "Not checked: [^\\n]*This version also does not check sign-in checks on server code, or library versions\\. Payment places are found from the files, not tested in the app\\.[^\\n]*Not found does not mean"
     flags: ""
     match: "contains"
   - name: "seat-price-in-the-phone-app"

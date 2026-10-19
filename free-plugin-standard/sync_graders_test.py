@@ -258,11 +258,29 @@ RENAMED_TEXT = {'build-decisions': (('# Decision census', '# Build decisions'),
                                     ('src=decision-census', 'src=build-decisions'))}
 
 
+# A fixed report line a release rewords on purpose: main's whole pattern -> the branch's, with the reason.
+# Main's check then counts as the branch's check, so a saved report that fails both is not "looser", and
+# one the branch passes is still caught. Only exact whole patterns are swapped.
+REWORDED = {
+    'build-decisions': (
+        (r"Not checked: [^\n]*This version also does not check payments, screens that write prices or paid status, "
+         r"sign-in checks on server code, or library versions\.[^\n]*Not found does not mean",
+         r"Not checked: [^\n]*This version also does not check sign-in checks on server code, or library versions\. "
+         r"Payment places are found from the files, not tested in the app\.[^\n]*Not found does not mean",
+         '0.5.0 checks payments, so the fixed Not checked line stops naming them (S-008).'),
+    ),
+}
+
+
 def as_renamed(plugin, check):
-    """Main's check under the branch's name, so a check that only follows the rename is the same check."""
+    """Main's check under the branch's name, so a check that only follows the rename (or a listed reword of
+    a fixed line) is the same check."""
     pattern = check[0]
     for old, new in RENAMED_TEXT.get(plugin, ()):
         pattern = pattern.replace(old, new)
+    for old, new, _ in REWORDED.get(plugin, ()):
+        if pattern == old:
+            pattern = new
     return (pattern,) + tuple(check[1:])
 
 
@@ -463,6 +481,43 @@ def _toy(text, main, branch, allowed):
     return {(p[0], p[1]) for p in problems}
 
 
+class RewordTest(unittest.TestCase):
+    """A listed reword maps main's check to the branch's; the branch still has to fail what main failed."""
+
+    def setUp(self):
+        REWORDED['demo'] = (('alpha', 'gamma', 'toy reword'),)
+
+    def tearDown(self):
+        REWORDED.pop('demo', None)
+
+    def test_reworded_check_failing_both_is_not_looser(self):
+        self.assertEqual(_toy('alpha gamma', [A], [('gamma', 'i', 'not_contains')], {}), set())
+
+    def test_reworded_check_the_branch_passes_is_looser(self):
+        got = _toy('alpha', [A], [('gamma', 'i', 'not_contains')], {})
+        self.assertEqual({k[0] for k in got}, {'looser'})
+
+    def test_every_listed_reword_names_a_branch_check(self):
+        """protects=a reword entry can't excuse a check the branch dropped;
+        fails_when=a REWORDED target pattern is in no case of that plugin."""
+        try:
+            import yaml  # noqa: F401
+        except ImportError:
+            self.skipTest('PyYAML not installed (CI installs it)')
+        for plugin, entries in REWORDED.items():
+            if plugin == 'demo':
+                continue
+            pats = set()
+            evals = os.path.join(ROOT, plugin, 'evals')
+            for case in os.listdir(evals):
+                path = os.path.join(evals, case, 'case.yaml')
+                if os.path.isfile(path):
+                    pats |= {c[0] for c in _regex_checks(open(path).read())}
+            for old, new, reason in entries:
+                self.assertIn(new, pats, reason)
+                self.assertTrue(reason)
+
+
 class JudgeTest(unittest.TestCase):
     """The ALLOWED rules on toy inputs. Mutating any guard in judge() fails one of these."""
 
@@ -615,7 +670,7 @@ class NeverSaysCleanGraderTest(unittest.TestCase):
                     self.assertFalse(_fails(check, line), '%s fails plain line %r' % (case, line))
                 for line in SAYS_CLEAN:
                     self.assertTrue(_fails(check, line), '%s misses %r' % (case, line))
-        self.assertEqual(seen, 6)
+        self.assertEqual(seen, 8)
 
 
 if __name__ == '__main__':

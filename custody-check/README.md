@@ -4,6 +4,8 @@ I built this for the people who came to "It Said It Was Fine" at Seattle AI Week
 
 It runs inside Claude Code or Codex. It never changes your app, and the scanner makes no network calls; what does leave your machine is the redacted scan, the parts of your code the agent reads, and your answers, sent to the AI provider your host already uses (see What leaves the machine).
 
+Build Decisions shows where your app decides each thing and in how many places. Custody Check answers what a stranger can do and which door your next change takes. Both are free and read-only.
+
 ## Step 0: get your code onto your machine
 
 The check reads a folder on your laptop. If your app lives in a browser tab, get it out first. Each recipe ends in the same place: a folder on your machine that contains the app.
