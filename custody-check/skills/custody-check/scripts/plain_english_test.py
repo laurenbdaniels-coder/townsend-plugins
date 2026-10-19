@@ -204,6 +204,14 @@ class FreePluginStandardTests(unittest.TestCase):
         for said in skill_founder_lines():  # what SKILL.md tells the agent to say to the founder
             self.assertIsNone(fix.search(said), said)
 
+    def test_q3_still_tests_the_request_not_only_the_page(self):
+        """Main said "URL or API endpoint". A protected page can load an open record, so the request is tested too."""
+        q3 = read("references", "questions.md").split("**Logged out:**", 1)[1].split("\n", 1)[0]
+        self.assertIn("request", q3)
+        self.assertIn("network tab", q3)
+        for name in (("assets", "verdict-template.md"), ("references", "tiers-and-doors.md")):
+            self.assertIn("each request a screen sends", read(*name), name)
+
     def test_rotation_stays_as_a_safety_step(self):
         self.assertIn("rotate it now", read("assets", "verdict-template.md"))
         self.assertIn("Rotate that key now.", read("references", "questions.md"))

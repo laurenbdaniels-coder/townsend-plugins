@@ -65,7 +65,7 @@ Trains or fine-tunes their own model: <no | yes, and then the training-shaped ve
 
 ## Five, if you'll only do five
 1. Classify the next change against the Gated list.
-2. Boundary test: logged out, wrong user, right user; on each screen, each saved record and each uploaded file. (drop only if Q3 and Q4 are yes)
+2. Boundary test: logged out, wrong user, right user; on each screen, each request a screen sends, each saved record and each uploaded file. (drop only if Q3 and Q4 are yes)
 3. One full path on the live site, including any background job, email, payment message or AI call.
 4. Read the changes line by line for surprises. (drop only if Q7 is yes)
 5. Prove you can go back to the last version, and get one real alert. (drop only if Q5 and Q9 are yes)
@@ -91,7 +91,7 @@ Rules for filling it in:
 - **Nothing before the title.** The message starts with `# Custody check:`. Fill every `<…>` with real words: the verdict never shows angle brackets.
 - **The count line:** N is how many of the eleven are not Yes (No, Don't know and Nothing found all count; Q5 counts once, by its lower half). Use "answer that is" when N is 1.
 - **Why this matters**, **Not checked** and the **build-decisions line** are fixed: copy them exactly.
-- **Patch list blocks:** one block per `verdict.patch_list` item, in its order. The title says what is open in plain words, as a person using the app would notice it ("Keys the browser can see", "Records a logged-out visitor can open"). List at most 2 places, from the question's evidence rows that have a path; with none, leave the place lines out. `What could go wrong:` says what a stranger or a user would see. `Check it (1 min):` is that question's by-hand test from questions.md. These blocks find and check. They never say how to change the app. They take the place of the one-sentence item that tiers-and-doors.md describes.
+- **Patch list blocks:** one block per `verdict.patch_list` item, in its order. The title says what is open in plain words, as a person using the app would notice it ("Keys the browser can see", "Records a logged-out visitor can open"). List at most 2 places, from the question's evidence rows that have a path; with none, leave the place lines out. `What could go wrong:` says what a stranger or a user would see. `Check it (1 min):` is that question's by-hand test from questions.md. Shorten its words, never drop a step: each thing it says to open or send stays. These blocks find and check. They never say how to change the app or what it must do. They take the place of the one-sentence item that tiers-and-doors.md describes.
 - **One place decides:** the founder's `q4_one_place` answer, marked (you). When they gave none, print "not asked" with no (you). It changes no answer and no door.
 - **Before you change any of these:** name the first Patch list item in plain words. When the Patch list is empty, name the first Don't-know question instead. When both are empty, leave out the quoted ask and print only the next-step line after the label. When the item is Q1, end the quoted ask with "Change nothing. Do not show the key itself." Then copy the next-step line from the Footer next step rule.
 

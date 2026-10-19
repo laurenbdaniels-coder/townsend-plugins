@@ -12,7 +12,7 @@ The tier is a property of the **next change**, not of the app. Blast radius, not
 | **Standard** | a feature, two or more files, or anything with a UI | Define, Audit, Plan, Plan review, Build, Verify, Diff review |
 | **Gated** | touches any escalation trigger below | everything in Standard plus a security review |
 
-**Escalation triggers (any one makes the change Gated):** auth or sessions; user data; payments, including payments your payment company runs; secrets; dependencies; deploy; how your data is stored (its tables and fields, or a change to them); webhooks; background jobs; file uploads; security rules; email; AI prompts or tools; the model or provider (including swapping a model version, changing a prompt that is in production, or turning on training of any kind).
+**Escalation triggers (any one makes the change Gated):** auth or sessions; user data; payments, including payments your payment company runs; secrets; dependencies; deploy; how your data is stored (its tables and fields), or any change to it, however small; webhooks; background jobs; file uploads; security rules; email; AI prompts or tools; the model or provider (including swapping a model version, changing a prompt that is in production, or turning on training of any kind).
 
 The nine gates, names only: Define, Audit, Plan, Plan review, Build, Verify, Diff review, Ship, Watch.
 
@@ -67,7 +67,7 @@ At most three items, in this order: Q1, then Q2, then Q3, then whichever of Q4, 
 | # | The five | Mapped questions | Dropped only when |
 |---|---|---|---|
 | 1 | Classify the change against the Gated list | (tier step) | never |
-| 2 | Boundary test: logged out, wrong user, right user; on each screen, each saved record and each uploaded file | Q3, Q4 | both yes, any confidence |
+| 2 | Boundary test: logged out, wrong user, right user; on each screen, each request a screen sends, each saved record and each uploaded file | Q3, Q4 | both yes, any confidence |
 | 3 | One full path on the live site, including any background job, email, payment message or AI call | (always kept) | never |
 | 4 | Read the changes line by line for surprises | Q7 | yes, any confidence |
 | 5 | Prove you can go back to the last version, and get one real alert | Q5, Q9 | both yes, any confidence |
