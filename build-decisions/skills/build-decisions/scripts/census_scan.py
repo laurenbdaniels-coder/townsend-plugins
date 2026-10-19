@@ -1202,7 +1202,8 @@ def build_architecture(state):
 # `--section payment` runs its own walk too (an ArchState, so it can tell which files run in the browser
 # by the same rule as the architecture section). It lists, from the files only, never confirmed by reading:
 # places that save whether someone has paid; Stripe payment handlers and whether a signature check is found
-# in the file or the first 5 files it imports by a relative path; prices written in the app beside
+# in the handler, the files it imports, or the files that import it (not-found only when all of those were
+# read; anything this run cannot follow is unresolved); prices written in the app beside
 # payment-company price ids; and screens that save money or paid fields straight to the database.
 
 PAY_WHERE = ("webhook", "success-page", "page", "browser", "other")
@@ -1210,29 +1211,52 @@ SIGNATURE = ("found", "not-found", "unresolved")
 PAID_FIELDS = ("is_paid", "paid", "has_paid", "subscription_status", "status", "plan", "tier", "is_pro",
                "is_premium", "credits")
 PAID_TABLES = ("subscriptions", "payments", "purchases", "entitlements", "invoices")
-CLIENT_FIELDS = ("credits", "plan", "tier", "is_paid", "paid", "role", "balance", "price", "total", "amount")
+CLIENT_FIELDS = ("credits", "plan", "tier", "is_paid", "paid", "balance", "price", "total", "amount")
+CLIENT_MONEY = ("balance", "price", "total", "amount")  # listed only beside order or payment words
 MAX_PAY_LIST = 25
 MAX_PRICE_PAIR = 3
-MAX_HOOK_IMPORTS = 5
 WRITE_WINDOW = 3  # a field counts on the write call's line or the 3 lines after it
+MAX_HOOK_DEPTH = 3  # import levels followed from a payment handler
+MAX_HOOK_FILES = 20  # files followed per handler; past it the verdict is unresolved
+MAX_IMPORTERS = 10  # files that import the handler, followed up to MAX_HOOK_DEPTH levels
 
 WRITE_CALL_RE = re.compile(r"\.\s*(?:update|insert|upsert|create|updateMany|createMany|upsertMany)\s*\(|"
                            r"\b(?:updateDoc|setDoc|addDoc)\s*\(|\bupdate\s+[\w.\"`]+\s+set\b", re.I)
 FIELD_KEY_RE = re.compile(r"""(?<![\w$.])['"]?([A-Za-z_$][\w$]*)['"]?\s*:(?!:)""")
 FIELD_EQ_RE = re.compile(r"""(?<![\w$.])([A-Za-z_$][\w$]*)\s*=(?![=>])""")  # keyword arguments, SQL SET
-TABLE_RE = re.compile(r"""\bfrom\s*\(\s*['"`](subscriptions?|payments?|purchases?|entitlements?|invoices?)['"`]\s*\)|"""
-                      r"""\.\s*(subscriptions?|payments?|purchases?|entitlements?|invoices?)\s*\.\s*(?:update|insert|upsert|create)\w*\s*\(""", re.I)
-STATUS_CONTEXT_RE = re.compile(r"subscri|payment|billing|invoice|['\"](?:paid|active|trialing|canceled|cancelled|past_due|unpaid)['\"]", re.I)
-PAYMENT_EVENT_RE = PATTERNS["paid"][0][2]
+FROM_TABLE_RE = re.compile(r"""\bfrom\s*\(\s*['"`]([\w.-]+)['"`]\s*\)""")
+SQL_TABLE_RE = re.compile(r"""^update\s+[\"`]?(?:\w+\.)?(\w+)""", re.I)
+PAID_TABLE_RE = re.compile(r"^(?:subscriptions?|payments?|purchases?|entitlements?|invoices?)$", re.I)
+PAY_WORDS = r"subscri|payment|billing|invoice|stripe|checkout"
+STATUS_CONTEXT_RE = re.compile(PAY_WORDS + r"|['\"](?:paid|trialing|past_due|unpaid)['\"]", re.I)
+PLAN_CONTEXT_RE = re.compile(PAY_WORDS + r"|price|['\"](?:free|pro|premium|basic|starter|plus|team|enterprise|"
+                             r"business|hobby|growth|scale|gold|silver|platinum|bronze|lifetime|monthly|yearly|annual)['\"]", re.I)
+MONEY_CONTEXT_RE = re.compile(PAY_WORDS + r"|order|purchase|transaction|cart|charge", re.I)
+PRICE_ID_VALUE_RE = re.compile(r"price_?id|['\"`]price_[A-Za-z0-9]", re.I)
+PAYMENT_EVENT_RE = next(rx for pid, _, rx, _ in PATTERNS["paid"] if pid == "payment-event")
 STRIPE_SIG_RE = re.compile(r"""['"]stripe-signature['"]""", re.I)
-VERIFY_RE = re.compile(r"\b(?:constructEvent(?:Async)?|construct_event)\s*\(|\bcreateHmac\s*\(|\btimingSafeEqual\s*\(|"
-                       r"\bcrypto\.subtle\.verify\s*\(|\bhmac\.compare_digest\s*\(")
-JS_REL_IMPORT_RE = re.compile(r"""(?:\bfrom\s*|\brequire\(\s*|\bimport\(\s*|^\s*import\s+)['"](\.{1,2}/[^'"]*)['"]""")
-JS_ALIAS_IMPORT_RE = re.compile(r"""(?:\bfrom\s*|\brequire\(\s*|\bimport\(\s*|^\s*import\s+)['"](?:@/|~/|#|\$lib/|src/)""")
-PY_REL_IMPORT_RE = re.compile(r"^\s*from\s+(\.+)([\w.]*)\s+import\s+([\w]+)")
+VERIFY_RE = re.compile(r"\b(?:constructEvent(?:Async)?|construct_event|verifyHeader|verify_header|timingSafeEqual|"
+                       r"compare_digest)\s*\(|\bcrypto\.subtle\.verify\s*\(|\bwebhooks\s*\.\s*unmarshal\s*\(")
+HMAC_RE = re.compile(r"\bcreateHmac\s*\(|\bhmac\.new\s*\(|\bcrypto\.subtle\.sign\s*\(")
+SIG_COMPARE_RE = re.compile(r"(?:[=!]==?).{0,80}\bsig|\bsig\w*\b.{0,80}(?:[=!]==?)", re.I)
+ENTRY_RE = re.compile(r"\bexport\s+default\b|\bmodule\.exports\b|\bexports\.(?:handler|default)\b|"
+                      r"\bexport\s+(?:async\s+)?function\s+(?:handler|GET|POST|PUT|PATCH|DELETE)\b|"
+                      r"\bexport\s+const\s+(?:handler|GET|POST|PUT|PATCH|DELETE)\b|\bDeno\.serve\s*\(|^\s*serve\s*\(|"
+                      r"\bclass\s+handler\b|\bdef\s+handler\s*\(|=\s*(?:Flask|FastAPI)\s*\(")
+JS_IMPORT_RE = re.compile(r"""(?:\bfrom\s*|\brequire\(\s*|\bimport\(\s*|^\s*import\s+)['"]([^'"\s]+)['"]""")
+PY_FROM_RE = re.compile(r"^\s*from\s+(\.*)(\w[\w.]*)?\s+import\b\s*\(?\s*([\w, ]*)")
+PY_IMPORT_RE = re.compile(r"^\s*import\s+(\w[\w., ]*)")
+PY_NAME_RE = re.compile(r"\w+")
 SUCCESS_SEG_RE = re.compile(r"(?:^|[-_.])(?:success|thank-?you|thanks|confirm(?:ation)?)(?:$|[-_.])", re.I)
 FUNCTION_DIRS = (("supabase", "functions"), ("netlify", "functions"))
 RESOLVE_EXTS = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts")
+EXTERNAL_PREFIXES = ("node:", "http:", "https:", "npm:", "jsr:", "data:", "bun:", "virtual:")
+NODE_BUILTINS = frozenset((
+    "assert", "async_hooks", "buffer", "child_process", "cluster", "console", "constants", "crypto", "dgram", "dns",
+    "domain", "events", "fs", "http", "http2", "https", "inspector", "module", "net", "os", "path", "perf_hooks",
+    "process", "punycode", "querystring", "readline", "repl", "stream", "string_decoder", "timers", "tls", "tty",
+    "url", "util", "v8", "vm", "worker_threads", "zlib"))
+LOCAL_DEP_PREFIXES = ("workspace:", "file:", "link:", "portal:")
 
 
 def _snake(name):
@@ -1240,25 +1264,100 @@ def _snake(name):
 
 
 class PayFacts:
-    __slots__ = ("writers", "client_writes", "event_line", "verified", "rel_imports", "alias_import")
+    __slots__ = ("writers", "client_writes", "event_line", "entry_mark")
 
     def __init__(self):
         self.writers = []  # (line, field)
         self.client_writes = []  # (line, field)
         self.event_line = None
-        self.verified = False
-        self.rel_imports = []  # resolved repo-relative candidates, source order
-        self.alias_import = False
+        self.entry_mark = False
+
+
+class _Blocks:
+    """Block-comment state across the lines of one JS-like file."""
+    __slots__ = ("block", "tmpl")
+
+    def __init__(self):
+        self.block = self.tmpl = False
+
+
+def _cut_blocks(line, st):
+    """The line with /* ... */ spans cut out. Quotes are tracked so '/*' in a string (a glob) is kept."""
+    if not st.block and not st.tmpl and "/*" not in line and "`" not in line:
+        return line
+    out = []
+    q = "`" if st.tmpl else None
+    i, n = 0, len(line)
+    while i < n:
+        if st.block:
+            j = line.find("*/", i)
+            if j < 0:
+                break
+            st.block = False
+            i = j + 2
+            continue
+        ch = line[i]
+        if q:
+            out.append(ch)
+            if ch == "\\":
+                out.append(line[i + 1:i + 2])
+                i += 2
+                continue
+            if ch == q:
+                q = None
+            i += 1
+            continue
+        if ch in "'\"`":
+            q = ch
+        elif line.startswith("//", i):
+            out.append(line[i:])
+            break
+        elif line.startswith("/*", i):
+            st.block = True
+            i += 2
+            continue
+        out.append(ch)
+        i += 1
+    st.tmpl = q == "`"
+    return "".join(out)
+
+
+def _receiver(prefix):
+    """The name chain a call is made on (`supabase.from('x')` in `supabase.from('x').update(`)."""
+    i, depth = len(prefix), 0
+    while i > 0:
+        ch = prefix[i - 1]
+        if ch == ")":
+            depth += 1
+        elif ch == "(":
+            if depth == 0:
+                break
+            depth -= 1
+        elif depth == 0 and not (ch.isalnum() or ch in "_$.?!'\"`-"):
+            break
+        i -= 1
+    return prefix[i:]
 
 
 class PayState(ArchState):
-    """An architecture walk that also records payment facts per file."""
+    """An architecture walk that also records payment facts and imports per file."""
 
     def __init__(self, opts):
         ArchState.__init__(self, opts)
         self.pay = {}  # rel -> PayFacts
+        self.imports = {}  # rel -> [("js", spec) | ("py", dots, module, names)]
         self.verified_files = set()
-        self.scanned = set()
+        self.scanned = set()  # files whose lines were read
+        self.known = set()  # every file the walk saw
+        self.dirs = set()
+
+    def on_dir(self, parts):
+        ArchState.on_dir(self, parts)
+        self.dirs.add("/".join(parts))
+
+    def on_meta(self, path, parts, lower, is_link):
+        self.known.add("/".join(parts))
+        return ArchState.on_meta(self, path, parts, lower, is_link)
 
     def on_lines(self, parts, ext, lines):
         ArchState.on_lines(self, parts, ext, lines)
@@ -1267,36 +1366,61 @@ class PayState(ArchState):
             return
         self.scanned.add(rel)
         pf = PayFacts()
-        code = []  # per line: code text with the trailing comment cut, or None for a comment line
-        for line in lines:
+        imports = []
+        code = []  # per line: code text without comments, or None for a comment or blank line
+        blocks = _Blocks() if ext in JS_EXTS else None
+        for i, line in enumerate(lines):
+            if (i % DEADLINE_LINE_TICK == 0 or len(line) > 512) and self.over_deadline():
+                break
             if line.endswith("\r"):
                 line = line[:-1]
             if len(line) > LINE_CLIP_CHARS:
                 line = line[:LINE_CLIP_CHARS]
+            if blocks is not None:
+                line = _cut_blocks(line, blocks)
             stripped = line.strip()
             code.append(None if (not stripped or comment_body(stripped, ext) is not None)
                         else strip_trailing_comment(line, ext))
+        strong = hmac = compared = False
         for i, c in enumerate(code):
             if c is None:
                 continue
+            if (i % DEADLINE_LINE_TICK == 0 or len(c) > 512) and self.over_deadline():
+                break
             if pf.event_line is None and (PAYMENT_EVENT_RE.search(c) or STRIPE_SIG_RE.search(c)):
                 pf.event_line = i + 1
-            if VERIFY_RE.search(c):
-                pf.verified = True
+            if not pf.entry_mark and ENTRY_RE.search(c):
+                pf.entry_mark = True
+            strong = strong or VERIFY_RE.search(c) is not None
+            hmac = hmac or HMAC_RE.search(c) is not None
+            compared = compared or SIG_COMPARE_RE.search(c) is not None
             if ext == ".py":
-                m = PY_REL_IMPORT_RE.match(c)
+                m = PY_FROM_RE.match(c)
                 if m:
-                    pf.rel_imports.append(_py_import(parts, m))
+                    names = PY_NAME_RE.findall(m.group(3))
+                    if not names and c.rstrip().endswith("("):
+                        nxt = next((x for x in code[i + 1:i + 3] if x is not None), "")
+                        names = PY_NAME_RE.findall(nxt)
+                    imports.append(("py", len(m.group(1)), m.group(2) or "", names))
+                else:
+                    m = PY_IMPORT_RE.match(c)
+                    if m:
+                        for mod in m.group(1).split(","):
+                            mod = mod.split(" as ")[0].strip()
+                            if mod:
+                                imports.append(("py", 0, mod, []))
             elif ext in JS_EXTS:
-                for m in JS_REL_IMPORT_RE.finditer(c):
-                    pf.rel_imports.append(_js_import(parts, m.group(1)))
-                if JS_ALIAS_IMPORT_RE.search(c):
-                    pf.alias_import = True
+                for m in JS_IMPORT_RE.finditer(c):
+                    imports.append(("js", m.group(1)))
             for m in WRITE_CALL_RE.finditer(c):
-                if "stripe" in c[:m.start()].lower():
-                    continue  # a call to the payment company, not a database write
                 head = c[m.start():]
                 sql = m.group(0).lower().startswith("update")
+                prefix = c[:m.start()]
+                recv = "" if sql else _receiver(prefix)
+                if not sql and not prefix.strip() and i > 0 and code[i - 1] is not None:
+                    recv = _receiver(code[i - 1].rstrip())  # a chain split over lines
+                if "stripe" in recv.lower():
+                    continue  # a call to the payment company, not a database write
                 window = [head]
                 depth = head.count("(") - head.count(")")
                 for x in code[i + 1:i + WRITE_WINDOW + 1]:
@@ -1306,19 +1430,23 @@ class PayState(ArchState):
                         window.append(x)
                         depth += x.count("(") - x.count(")")
                 text = " ".join(window)
-                eq_text = text if sql else head
-                keys = _fields(text, eq_text)
-                field = _paid_field(keys, text, " ".join(code[j] for j in range(max(0, i - 2), i + 1)
-                                                         if code[j] is not None) + " " + text)
+                before = " ".join(code[j] for j in range(max(0, i - 2), i) if code[j] is not None) + " " + prefix
+                if "checkout_sessions" in before or "checkout_sessions" in text:
+                    break  # a payment-company extension's checkout request, not a saved paid state
+                keys = _fields(text, text if sql else head)
+                context = prefix + " " + text
+                field = _paid_field(keys, context) or _paid_table(before, recv, head if sql else "")
                 if field:
                     pf.writers.append((i + 1, field))
-                cf = _client_field(keys)
+                cf = _client_field(keys, context + " " + before, text)
                 if cf:
                     pf.client_writes.append((i + 1, cf))
                 break
-        if pf.verified:
+        if strong or (hmac and compared):
             self.verified_files.add(rel)
-        if pf.writers or pf.client_writes or pf.event_line or pf.verified:
+        if imports:
+            self.imports[rel] = imports
+        if pf.writers or pf.client_writes or pf.event_line:
             self.pay[rel] = pf
 
 
@@ -1330,21 +1458,46 @@ def _fields(text, eq_text):
     return [f for _, f in sorted(found)]
 
 
-def _paid_field(keys, text, around):
+def _paid_field(keys, context):
     for f in keys:
-        if f in PAID_FIELDS and (f != "status" or STATUS_CONTEXT_RE.search(text)):
-            return f
-    m = TABLE_RE.search(around)
-    if m:
-        word = (m.group(1) or m.group(2)).lower()
+        if f not in PAID_FIELDS:
+            continue
+        if f == "status" and not STATUS_CONTEXT_RE.search(context):
+            continue
+        if f in ("plan", "tier") and not PLAN_CONTEXT_RE.search(context):
+            continue
+        return f
+    return None
+
+
+def _paid_table(before, recv, sql_head):
+    """The table the write goes to, when it is a payment table: the nearest .from('x') before the call,
+    the model a call is made on (prisma.subscription.update), or the table of a SQL UPDATE."""
+    word = None
+    if sql_head:
+        m = SQL_TABLE_RE.match(sql_head)
+        word = m.group(1) if m else None
+    else:
+        tables = FROM_TABLE_RE.findall(before)
+        if tables:
+            word = tables[-1]
+        elif "." in recv and "(" not in recv:
+            word = recv.rsplit(".", 1)[1]
+    if word and PAID_TABLE_RE.match(word):
+        word = word.lower()
         return word if word.endswith("s") else word + "s"
     return None
 
 
-def _client_field(keys):
+def _client_field(keys, context, text):
     for f in keys:
-        if f in CLIENT_FIELDS:
-            return f
+        if f not in CLIENT_FIELDS:
+            continue
+        if f in ("plan", "tier") and not PLAN_CONTEXT_RE.search(context):
+            continue
+        if f in CLIENT_MONEY and (not MONEY_CONTEXT_RE.search(context) or PRICE_ID_VALUE_RE.search(text)):
+            continue
+        return f
     return None
 
 
@@ -1362,37 +1515,200 @@ def _norm(parts):
     return out
 
 
-def _js_import(parts, spec):
-    base = _norm(list(parts[:-1]) + spec.split("/"))
-    if base is None:
-        return ()
-    stem = "/".join(base)
-    cands = [stem] + [stem + e for e in RESOLVE_EXTS] + [stem + "/index" + e for e in RESOLVE_EXTS]
-    return tuple(cands)
-
-
-def _py_import(parts, m):
-    dots, mod, name = m.group(1), m.group(2), m.group(3)
-    up = list(parts[:-1])
-    for _ in range(len(dots) - 1):
-        if not up:
-            return ()
-        up.pop()
-    segs = up + (mod.split(".") if mod else [name])
+def _js_candidates(segs):
     stem = "/".join(segs)
-    return (stem + ".py", stem + "/__init__.py")
+    cands = [stem] + [stem + e for e in RESOLVE_EXTS] + [stem + "/index" + e for e in RESOLVE_EXTS]
+    base, ext = os.path.splitext(stem)
+    if ext in (".js", ".jsx", ".mjs", ".cjs"):
+        cands += [base + e for e in RESOLVE_EXTS]  # ESM style: './x.js' written for x.ts
+    return cands
 
 
-def _entry_point(ff_routes, ff_server, parts):
+class _Resolver:
+    """Places each import of a scanned file: a file this run read, outside code, or unknown."""
+
+    def __init__(self, state):
+        self.state = state
+        self.deps = set()
+        self.local_pkgs = set()
+        self.pkg_roots = []
+        for d, man in state.manifests.items():
+            self.pkg_roots.append(list(d))
+            name = man.get("name")
+            if isinstance(name, str):
+                self.local_pkgs.add(name)
+            for key in ("dependencies", "devDependencies", "peerDependencies", "optionalDependencies"):
+                v = man.get(key)
+                if not isinstance(v, dict):
+                    continue
+                for k, ver in v.items():
+                    if not isinstance(k, str):
+                        continue
+                    if isinstance(ver, str) and ver.startswith(LOCAL_DEP_PREFIXES):
+                        self.local_pkgs.add(k)
+                    else:
+                        self.deps.add(k)
+        self.cache = {}
+
+    def edges(self, rel):
+        """(files this run read that rel imports, True when an import could not be placed)."""
+        if rel in self.cache:
+            return self.cache[rel]
+        parts = rel.split("/")
+        found, unknown = set(), False
+        for imp in self.state.imports.get(rel, ()):
+            got = self._js(parts, imp[1]) if imp[0] == "js" else self._py(parts, imp[1], imp[2], imp[3])
+            if got is None:
+                continue  # outside code
+            hit = [c for c in got if c in self.state.scanned]
+            if hit:
+                found.add(hit[0])
+            else:
+                unknown = True
+        self.cache[rel] = (found, unknown)
+        return self.cache[rel]
+
+    def _roots(self, parts):
+        """Folders a non-relative import may start from: the repo root, the nearest package folder, and src/ of each."""
+        roots = [[]]
+        best = None
+        for r in self.pkg_roots:
+            if r and tuple(parts[:len(r)]) == tuple(r) and (best is None or len(r) > len(best)):
+                best = r
+        if best:
+            roots.append(best)
+        return roots + [r + ["src"] for r in roots]
+
+    def _js(self, parts, spec):
+        """Candidate paths, or None for outside code."""
+        if spec.startswith(EXTERNAL_PREFIXES):
+            return None
+        ext = os.path.splitext(spec.split("?")[0])[1].lower()
+        if ext and ext not in RESOLVE_EXTS and ext not in (".js", ".jsx", ".mjs", ".cjs"):
+            if ext.lstrip(".").isalnum() and len(ext) <= 6:
+                return None  # a stylesheet, image or data file: it cannot check a signature
+        if spec.startswith(("./", "../")) or spec in (".", ".."):
+            segs = _norm(list(parts[:-1]) + spec.split("/"))
+            return [] if segs is None else _js_candidates(segs)
+        segs = spec.split("/")
+        pkg = "/".join(segs[:2]) if spec.startswith("@") and len(segs) > 1 else segs[0]
+        if segs[0] in NODE_BUILTINS:
+            return None
+        if pkg in self.local_pkgs:
+            return []  # the repo's own workspace package: not followed
+        if pkg in self.deps:
+            return None
+        stems = []
+        if spec[0] in "@~#$":
+            stems.append(spec[1:].lstrip("/").split("/"))  # @lib/x -> lib/x, $lib/x -> lib/x, @/x -> x
+            if len(segs) > 1:
+                stems.append(segs[1:])  # @lib/x -> x
+        else:
+            stems.append(segs)
+        out = []
+        for root in self._roots(parts):
+            for st in stems:
+                segs2 = _norm(root + st)
+                if segs2:
+                    out += _js_candidates(segs2)
+        return out
+
+    def _py(self, parts, dots, mod, names):
+        mod_segs = mod.split(".") if mod else []
+        if dots:
+            base = list(parts[:-1])
+            for _ in range(dots - 1):
+                if not base:
+                    return []
+                base.pop()
+            bases = [base]
+        else:
+            top = mod_segs[0] if mod_segs else ""
+            d = list(parts[:-1])
+            ancestors = [d[:k] for k in range(len(d), -1, -1)]
+            bases = []
+            for b in ancestors + [["src"]]:
+                p = "/".join(b + [top])
+                if p in self.state.dirs or p + ".py" in self.state.known:
+                    bases.append(b)
+            if not bases:
+                return None  # not a module in this repo: the standard library or an installed package
+        out = []
+        for b in bases:
+            stem = "/".join(b + mod_segs)
+            if mod_segs:
+                out += [stem + ".py", stem + "/__init__.py"]
+            for n in names:
+                sub = (stem + "/" if stem else "") + n
+                out += [sub + ".py", sub + "/__init__.py"]
+        return out
+
+
+def _closure(start, depth, res, cap):
+    """Files reached from start by imports, up to depth levels. Complete is False when an import could not be
+    placed, or a level or the file cap stopped the walk with files still to read."""
+    seen = {start}
+    frontier = [start]
+    complete = True
+    for level in range(depth + 1):
+        nxt = []
+        for f in frontier:
+            targets, unknown = res.edges(f)
+            if unknown:
+                complete = False
+            for t in sorted(targets):
+                if t in seen:
+                    continue
+                if level == depth or len(seen) >= cap:
+                    complete = False
+                    continue
+                seen.add(t)
+                nxt.append(t)
+        frontier = nxt
+    return seen, complete
+
+
+def _signature(rel, state, res, importers):
+    """found: a check in the handler, a file it imports (3 levels), or a file importing it with what that file
+    imports. not-found: every one of those files was read and none checks. unresolved: anything else."""
+    verified = state.verified_files
+    seen, complete = _closure(rel, MAX_HOOK_DEPTH, res, MAX_HOOK_FILES)
+    if seen & verified:
+        return "found"
+    ups, frontier = set(), [rel]
+    for _ in range(MAX_HOOK_DEPTH):
+        nxt = []
+        for f in frontier:
+            for u in sorted(importers().get(f, ())):
+                if u not in ups and u != rel:
+                    if len(ups) >= MAX_IMPORTERS:
+                        complete = False
+                        continue
+                    ups.add(u)
+                    nxt.append(u)
+        frontier = nxt
+    if frontier:
+        if any(importers().get(f) for f in frontier):
+            complete = False  # more levels of importers than are followed
+    for u in sorted(ups):
+        got, ok = _closure(u, MAX_HOOK_DEPTH - 1, res, MAX_HOOK_FILES)
+        if got & verified:
+            return "found"
+        complete = complete and ok
+    return "not-found" if complete else "unresolved"
+
+
+def _entry_point(ff_routes, ff_server, parts, pf):
     low = [p.lower() for p in parts]
     if _file_route(parts) is not None:
         return True
     for a, b in FUNCTION_DIRS:
         for k in range(len(low) - 1):
             if low[k] == a and low[k + 1] == b:
-                return True
+                below = low[k + 2:]
+                return (0 < len(below) <= 2 and not any(x.startswith("_") for x in below) and pf.entry_mark)
     if len(low) > 1 and low[0] == "api":
-        return True
+        return not any(x.startswith("_") for x in low[1:]) and pf.entry_mark
     return bool(ff_routes) and ff_server
 
 
@@ -1419,6 +1735,20 @@ def pay_findings(state):
     shape, _, _, _ = arch_findings(state)
     browser = set(shape["baas-from-browser"])
     ff_by_rel = {ff.rel: ff for ff in state.files}
+    res = _Resolver(state)
+    reverse = []
+
+    def importers():
+        if not reverse:
+            rev = {}
+            for f in sorted(state.imports):
+                if _late(state):
+                    break
+                for t in res.edges(f)[0]:
+                    rev.setdefault(t, set()).add(f)
+            reverse.append(rev)
+        return reverse[0]
+
     writers, hooks, client = [], [], []
     for rel in sorted(state.pay):
         if _late(state):
@@ -1426,24 +1756,13 @@ def pay_findings(state):
         pf = state.pay[rel]
         parts = rel.split("/")
         ff = ff_by_rel.get(rel)
-        is_entry = _entry_point(ff.routes if ff else [], bool(ff and (ff.node_server or ff.py_server)), parts)
+        is_entry = _entry_point(ff.routes if ff else [], bool(ff and (ff.node_server or ff.py_server)), parts, pf)
         is_hook = is_entry and pf.event_line is not None
         if is_hook:
-            if pf.verified:
-                sig = "found"
-            else:
-                sig = "not-found"
-                if pf.alias_import or len(pf.rel_imports) > MAX_HOOK_IMPORTS:
-                    sig = "unresolved"
-                for cands in pf.rel_imports[:MAX_HOOK_IMPORTS]:
-                    hit = [c for c in cands if c in state.scanned]
-                    if any(c in state.verified_files for c in hit):
-                        sig = "found"
-                        break
-                    if not hit:
-                        sig = "unresolved"  # it imports a file this run did not read
+            sig = "found" if rel in state.verified_files else _signature(rel, state, res, importers)
+            if sig != "found" and state.stopped:
+                sig = "unresolved"  # the walk stopped early: the check may sit in a file it never reached
             hooks.append({"path": rel, "line": pf.event_line, "signature": sig})
-        if is_hook:
             where = "webhook"
         else:
             where = _page_kind(parts)
@@ -1513,8 +1832,8 @@ def build_payment(state):
 
 
 VOCABULARY = frozenset(VOCABULARY_CENSUS + SECTIONS + SIGNALS + FACTS + ADVICE + COVERAGE + ARCH_KINDS + APP_KINDS
-                       + ARCH_REASONS + PAY_WHERE + SIGNATURE + PAID_FIELDS + PAID_TABLES
-                       + CLIENT_FIELDS)
+                       + ARCH_REASONS)
+PAY_VOCABULARY = VOCABULARY | frozenset(PAY_WHERE + SIGNATURE + PAID_FIELDS + PAID_TABLES + CLIENT_FIELDS)
 
 
 # ------------------------------------------------------------------- output

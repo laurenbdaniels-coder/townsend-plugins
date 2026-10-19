@@ -1,0 +1,1 @@
+{"name": "paylab-api", "dependencies": {"express": "4.19.2", "stripe": "16.0.0"}}
