@@ -43,6 +43,7 @@
     "custody-check/evals/**": [],
     "custody-check/README.md": [],
     "TODOS.md": [],
+    ".gitignore": [],
     ".gstack/pregate.json": [],
     "build-decisions/skills/build-decisions/scripts/*.py": [
       "build-decisions/skills/build-decisions/scripts/census_scan_test.py",
