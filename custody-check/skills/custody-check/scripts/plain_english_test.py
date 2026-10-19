@@ -207,8 +207,9 @@ class FreePluginStandardTests(unittest.TestCase):
     def test_q3_still_tests_the_request_not_only_the_page(self):
         """Main said "URL or API endpoint". A protected page can load an open record, so the request is tested too."""
         q3 = read("references", "questions.md").split("**Logged out:**", 1)[1].split("\n", 1)[0]
-        self.assertIn("request", q3)
-        self.assertIn("network tab", q3)
+        # copy it while logged in, then open it logged out: a page that redirects to log in never loads it
+        for word in ("logged in, copy the request", "network tab", "Open it in a private window"):
+            self.assertIn(word, q3)
         for name in (("assets", "verdict-template.md"), ("references", "tiers-and-doors.md")):
             self.assertIn("each request a screen sends", read(*name), name)
 
