@@ -12,10 +12,14 @@
 - The count line does not say Nothing found counts; consider "No, Don't know or Nothing found".
 - Q3 logged-out step opens "Logged out: logged in, copy…", which can trip a reader; "While logged in, copy…" reads better.
 - Q3's copied request may not open as a plain address (a key in a header, a POST or a websocket), so it refuses whatever the rules say. Main's "URL or API endpoint" had the same gap. Say which request to copy, and what to do when it will not open.
+- `sync_graders.py` `render()` applies a plugin's `words` to any grader, listed in `plugin_words` or not. Only the skip in `_scan` stops disallowed words (now tested). Filter by `plugin_words` in `render()` to end the class.
+- `test_one_place_answer_never_reaches_the_door` checks the answer vocabulary, not that a `q4_one_place` answer leaves the door unchanged, and misses an alias such as `one_place=no`. Add a door-unchanged assertion and the alias.
+- `test_bad_words_never_reach_a_case_file` opens files without closing them (ResourceWarning). Use `with`.
+- `.gstack/pregate.json` maps the root `.gitignore` to no tests, so an edit that ignores a new, uncommitted source file would go unnoticed. Main had the same gap (unmapped). Consider a check that every tracked-path glob still matches after a `.gitignore` change.
 
 **Why:** Each one is contrived, a weakness main shares, or a test gap with no shown regression.
 
-**Context:** Review record for PR "custody-check 0.5.0". Reviewers: four specialists, a Claude adversarial pass (no blocker) and Codex (one blocker: Q3 lost main's direct request test; fixed, seeded-app eval 3/3 with the step kept, corpus refreshed).
+**Context:** Review record for PR "custody-check 0.5.0". Reviewers: four specialists, a Claude adversarial pass (no blocker), Codex (one blocker: Q3 lost main's direct request test; fixed, seeded-app eval 3/3 with the step kept, corpus refreshed) and a ship-delta adversarial pass (no blocker, four items above).
 
 ### Leftovers from the 0.4.0 review (reading the code, 2026-10-16)
 
