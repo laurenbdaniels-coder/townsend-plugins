@@ -1581,17 +1581,16 @@ def _js_candidates(segs):
 def _hmac_compared(c, names):
     """True when the line compares an HMAC result: a name assigned one, or an HMAC call on the line, beside
     ==, !=, === or !==, or passed to a call whose name holds equal, compare, verify or match."""
-    inline = HMAC_RE.search(c) is not None
+    if HMAC_RE.search(c) and (COMPARE_OP_RE.search(c) or COMPARE_CALL_RE.search(c)):
+        return True
     for m in COMPARE_OP_RE.finditer(c):
-        if inline:
-            return True
         left = NAME_RE.findall(c[max(0, m.start() - 80):m.start()])
         right = NAME_RE.match(c[m.end():].lstrip())
         if (left and left[-1] in names) or (right and right.group(0) in names):
             return True
     for m in COMPARE_CALL_RE.finditer(c):
         args = c[m.end():m.end() + 200]
-        if inline or any(n in names for n in NAME_RE.findall(args)):
+        if any(n in names for n in NAME_RE.findall(args)):
             return True
     return False
 
@@ -1770,6 +1769,11 @@ class _Resolver:
             return UNKNOWN
         return None
 
+    def _place(self, cands, fallback):
+        """_pick, with fallback (OUTSIDE for an asset, else UNKNOWN) when nothing fits or an asset file exists."""
+        got = self._pick(cands)
+        return fallback if got is None or (got == UNKNOWN and fallback == OUTSIDE) else got
+
     def _js(self, parts, spec):
         if spec.startswith(EXTERNAL_PREFIXES):
             return OUTSIDE
@@ -1777,13 +1781,11 @@ class _Resolver:
         fallback = OUTSIDE if os.path.splitext(path)[1].lower() in ASSET_EXTS else UNKNOWN
         if path.startswith(("./", "../")) or path in (".", ".."):
             segs = _norm(list(parts[:-1]) + path.split("/"))
-            got = None if segs is None else self._pick(_js_candidates(segs))
-            if got == UNKNOWN and fallback == OUTSIDE:
-                return OUTSIDE  # an asset that exists (a stylesheet beside the file)
-            return got if got is not None else fallback
+            return fallback if segs is None else self._place(_js_candidates(segs), fallback)
         cfg = self._config(parts[:-1])
+        last = OUTSIDE if self._package(path) == OUTSIDE else fallback
         if cfg.paths == UNKNOWN:
-            return fallback if self._package(path) != OUTSIDE else OUTSIDE
+            return last
         if cfg.paths:
             best = None
             for pat in cfg.paths:
@@ -1803,18 +1805,15 @@ class _Resolver:
                     segs = _norm(list(root) + t.replace("*", best[3]).split("/"))
                     if segs:
                         cands += _js_candidates(segs)
-                got = self._pick(cands)
-                if got == UNKNOWN and fallback == OUTSIDE:
-                    return OUTSIDE
-                return got if got is not None else (OUTSIDE if fallback == OUTSIDE else UNKNOWN)
+                return self._place(cands, fallback)
         if cfg.base == UNKNOWN:
-            return OUTSIDE if self._package(path) == OUTSIDE else fallback
+            return last
         if cfg.base is not None:
             segs = _norm(list(cfg.base) + path.split("/"))
             got = self._pick(_js_candidates(segs)) if segs else None
             if got is not None:
                 return got
-        return OUTSIDE if self._package(path) == OUTSIDE else fallback
+        return last
 
     def _package(self, path):
         """OUTSIDE for a Node built-in or a listed package; UNKNOWN for the repo's own workspace package or a
