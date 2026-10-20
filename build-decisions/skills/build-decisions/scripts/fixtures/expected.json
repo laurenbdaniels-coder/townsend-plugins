@@ -564,7 +564,7 @@
             "webhook",
             "server/routes/webhook.js",
             6,
-            "found"
+            "unresolved"
           ]
         },
         {
@@ -617,6 +617,78 @@
             3,
             "is_paid",
             "other"
+          ]
+        },
+        {
+          "key": [
+            "webhook",
+            "app/api/dotted-hook/route.ts",
+            4,
+            "found"
+          ]
+        },
+        {
+          "key": [
+            "webhook",
+            "app/api/edge-dotted-hook/route.ts",
+            4,
+            "found"
+          ]
+        },
+        {
+          "key": [
+            "webhook",
+            "shop/src/app/api/stripe/route.ts",
+            4,
+            "found"
+          ]
+        },
+        {
+          "key": [
+            "webhook",
+            "app/api/regex-hook/route.ts",
+            6,
+            "unresolved"
+          ]
+        },
+        {
+          "key": [
+            "webhook",
+            "server2/routes/webhook.js",
+            6,
+            "unresolved"
+          ]
+        },
+        {
+          "key": [
+            "webhook",
+            "nb/src/app/api/stripe/route.ts",
+            4,
+            "found"
+          ]
+        },
+        {
+          "key": [
+            "webhook",
+            "app/api/hmac-named-hook/route.ts",
+            9,
+            "found"
+          ]
+        },
+        {
+          "key": [
+            "webhook",
+            "app/api/tick-hook/route.ts",
+            4,
+            "unresolved"
+          ]
+        },
+        {
+          "key": [
+            "webhook",
+            "server2/routes/refunds.js",
+            4,
+            "found"
           ]
         }
       ],
@@ -705,7 +777,7 @@
           "kind": "webhook",
           "path": "server/routes/webhook.js",
           "signature": "not-found",
-          "why": "Express checks in middleware mounted before the router in app.js (review round 1, 0.5.0)"
+          "why": "Express checks in middleware mounted before the router in app.js (review round 1, 0.5.0); a check in a file that imports the handler cannot be tied to this route, so 0.6.0 says unresolved, never not-found"
         },
         {
           "kind": "webhook",
@@ -757,6 +829,54 @@
           "kind": "writer",
           "path": "lib/profile-sync.ts",
           "why": "the subscriptions table read on the line above is not the table written (review round 1, 0.5.0)"
+        },
+        {
+          "kind": "webhook",
+          "path": "app/api/dotted-hook/route.ts",
+          "signature": "not-found",
+          "why": "'./webhook.utils' is a code file, not a stylesheet (review round 2, 0.5.0)"
+        },
+        {
+          "kind": "webhook",
+          "path": "app/api/edge-dotted-hook/route.ts",
+          "signature": "not-found",
+          "why": "'../lib/stripe.edge' is followed to stripe.edge.ts (review round 2, 0.5.0)"
+        },
+        {
+          "kind": "webhook",
+          "path": "shop/src/app/api/stripe/route.ts",
+          "signature": "not-found",
+          "why": "tsconfig '@/*' -> './src/*' wins over the unrelated shop/lib/shop-verify.ts (review round 2, 0.5.0)"
+        },
+        {
+          "kind": "webhook",
+          "path": "app/api/regex-hook/route.ts",
+          "signature": "not-found",
+          "why": "the regex /[/*]/ is not a block comment that hides the check (review round 2, 0.5.0)"
+        },
+        {
+          "kind": "webhook",
+          "path": "server2/routes/webhook.js",
+          "signature": "found",
+          "why": "the check on the sibling refunds route is not lent to the webhook route (review round 2, 0.5.0)"
+        },
+        {
+          "kind": "webhook",
+          "path": "nb/src/app/api/stripe/route.ts",
+          "signature": "not-found",
+          "why": "'util/stripe' under baseUrl 'src' is the app's file, not Node's util (review round 2, 0.5.0)"
+        },
+        {
+          "kind": "webhook",
+          "path": "app/api/hmac-named-hook/route.ts",
+          "signature": "not-found",
+          "why": "a hand-made HMAC compared as 'digest !== header' is a check (review round 2, 0.5.0)"
+        },
+        {
+          "kind": "webhook",
+          "path": "app/api/tick-hook/route.ts",
+          "signature": "not-found",
+          "why": "an import written in backticks is not followed, so it is never called missing (review round 2, 0.5.0)"
         }
       ]
     }

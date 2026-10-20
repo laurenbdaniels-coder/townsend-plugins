@@ -278,8 +278,27 @@ def pay_listings(result):
 
 # Payment listings main had that the branch may drop, or new ones the branch may add, each with the reason.
 # Format: {"key": [...identity key...], "reason": "..."}
-PAY_RECALL_EXCEPTIONS = []
-PAY_NEW_ALARM_EXCEPTIONS = []
+_R2 = "0.5.0 review round 2; 0.6.0 rebuilt the import resolver (S-040): "
+_PAY_CHANGED = (
+    ("app/api/dotted-hook/route.ts", 4, "not-found", "found", "main read './webhook.utils' as a non-code file"),
+    ("app/api/edge-dotted-hook/route.ts", 4, "not-found", "found", "main read '../lib/stripe.edge' as a non-code file"),
+    ("shop/src/app/api/stripe/route.ts", 4, "not-found", "found",
+     "main guessed @/ as the sub-app root, not the './src/*' its tsconfig names"),
+    ("nb/src/app/api/stripe/route.ts", 4, "not-found", "found",
+     "main treated the app's own 'util/' folder (baseUrl 'src') as Node's util"),
+    ("app/api/hmac-named-hook/route.ts", 9, "not-found", "found",
+     "main counted a hand-made HMAC only when a compared name held 'sig'"),
+    ("app/api/tick-hook/route.ts", 4, "not-found", "unresolved", "main skipped an import written in backticks"),
+    ("server/routes/webhook.js", 6, "found", "unresolved",
+     "main lent a check in a file importing the handler to it; which route it guards is not determined"),
+    ("server2/routes/webhook.js", 6, "found", "unresolved",
+     "main lent the sibling refunds route's check to the webhook route"),
+)
+PAY_RECALL_EXCEPTIONS = [{"key": ["webhook", p, n, old], "reason": _R2 + why} for p, n, old, _, why in _PAY_CHANGED]
+PAY_NEW_ALARM_EXCEPTIONS = [{"key": ["webhook", p, n, new], "reason": _R2 + why} for p, n, _, new, why in _PAY_CHANGED] + [
+    {"key": ["webhook", "app/api/regex-hook/route.ts", 6, "unresolved"],
+     "reason": _R2 + "main read the regex /[/*]/ as a block comment and missed the whole handler"},
+]
 
 
 class PaymentSectionTests(unittest.TestCase):
@@ -338,6 +357,15 @@ class PaymentSectionTests(unittest.TestCase):
         self.assertEqual(lost, [], "main lists these and the branch does not: %r" % lost)
         new = sorted(self.listed - main_listed - {tuple(e["key"]) for e in PAY_NEW_ALARM_EXCEPTIONS})
         self.assertEqual(new, [], "the branch lists these and main does not (add each with a reason): %r" % new)
+
+
+class PayExceptionTests(unittest.TestCase):
+    def test_no_exception_lets_a_new_not_found_through(self):
+        """protects=a listed exception never excuses a handler newly called not-found (that is the alarm the
+        report prints); new not-founds must come from main's own verdicts or fail the differential;
+        fails_when=PAY_NEW_ALARM_EXCEPTIONS names a not-found key;
+        no_claim=a reviewer may still list one by changing this test, which shows in the diff."""
+        self.assertEqual([e for e in PAY_NEW_ALARM_EXCEPTIONS if e["key"][0] == "webhook" and e["key"][3] == "not-found"], [])
 
 
 class MainScriptTests(unittest.TestCase):

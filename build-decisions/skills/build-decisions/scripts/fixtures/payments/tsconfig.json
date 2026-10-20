@@ -1,0 +1,7 @@
+{
+  // the app's own path settings: @/ and @lib/ aliases, bare imports from the root
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": { "@/*": ["./*"], "@lib/*": ["lib/*"] },
+  },
+}

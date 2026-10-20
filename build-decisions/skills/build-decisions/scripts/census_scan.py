@@ -12,7 +12,7 @@ paid (whether someone has paid), rounding (how money rounds).
 file that shows each, facts, one advice id) and census decisions found inside a second app that uses
 the same data. Same rule: only safe paths and fixed words.
 """
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 
 import sys
 
@@ -1257,6 +1257,21 @@ NODE_BUILTINS = frozenset((
     "process", "punycode", "querystring", "readline", "repl", "stream", "string_decoder", "timers", "tls", "tty",
     "url", "util", "v8", "vm", "worker_threads", "zlib"))
 LOCAL_DEP_PREFIXES = ("workspace:", "file:", "link:", "portal:")
+# Imports with these extensions are not code, so they cannot check a signature. Any other name is tried as code first.
+ASSET_EXTS = frozenset((
+    ".css", ".scss", ".sass", ".less", ".styl", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".avif", ".ico",
+    ".bmp", ".json", ".md", ".txt", ".html", ".woff", ".woff2", ".ttf", ".otf", ".eot", ".mp3", ".mp4", ".webm",
+    ".wav", ".ogg", ".csv", ".yaml", ".yml", ".graphql", ".gql", ".wasm"))
+CONFIG_RE = re.compile(r"^[jt]sconfig(?:\.[\w-]+)*\.json$")  # tsconfig.json, jsconfig.json, tsconfig.base.json
+MAX_CONFIG_FILES = 200
+MAX_EXTENDS = 5
+JS_TICK_IMPORT_RE = re.compile(r"(?:\bfrom\s*|\brequire\(\s*|\bimport\(\s*)`")
+CHECK_WORD_RE = re.compile(VERIFY_RE.pattern + "|" + HMAC_RE.pattern + r"|sig", re.I)
+HMAC_ASSIGN_RE = re.compile(r"([A-Za-z_$][\w$]*)\s*=(?!=)[^=]*?(?:\bcreateHmac|\bhmac\.new|\bcrypto\.subtle\.sign)\s*\(")
+COMPARE_OP_RE = re.compile(r"[=!]==?")
+COMPARE_CALL_RE = re.compile(r"\b\w*(?:equal|compare|verify|match)\w*\s*\(", re.I)
+NAME_RE = re.compile(r"[A-Za-z_$][\w$]*")
+OUTSIDE, UNKNOWN = "outside", "unknown"
 
 
 def _snake(name):
@@ -1274,16 +1289,20 @@ class PayFacts:
 
 
 class _Blocks:
-    """Block-comment state across the lines of one JS-like file."""
-    __slots__ = ("block", "tmpl")
+    """Block-comment state across the lines of one JS-like file. doubt: a comment marker after code on a line
+    may be part of code (a regex literal such as /[/*]/), so what this file checks is not determined."""
+    __slots__ = ("block", "tmpl", "doubt")
 
     def __init__(self):
-        self.block = self.tmpl = False
+        self.block = self.tmpl = self.doubt = False
 
 
 def _cut_blocks(line, st):
-    """The line with /* ... */ spans cut out. Quotes are tracked so '/*' in a string (a glob) is kept."""
-    if not st.block and not st.tmpl and "/*" not in line and "`" not in line:
+    """The line with /* ... */ spans cut out. Quotes are tracked so '/*' in a string (a glob) is kept.
+    A comment marker after code on the same line could be inside a regex literal. A '/*' there that does not
+    close on the line is kept as code; a same-line cut whose text holds a check word is kept as cut. Both set
+    st.doubt. A comment that starts the line is always a comment."""
+    if not st.block and not st.tmpl and "/*" not in line and "`" not in line and "//" not in line:
         return line
     out = []
     q = "`" if st.tmpl else None
@@ -1310,9 +1329,20 @@ def _cut_blocks(line, st):
         if ch in "'\"`":
             q = ch
         elif line.startswith("//", i):
+            if "".join(out).strip() and CHECK_WORD_RE.search(line, i):
+                st.doubt = True
             out.append(line[i:])
             break
         elif line.startswith("/*", i):
+            if "".join(out).strip():
+                j = line.find("*/", i + 2)
+                if j < 0:
+                    st.doubt = True  # maybe a regex: keep the rest of the line as code
+                    out.append("/*")
+                    i += 2
+                    continue
+                if CHECK_WORD_RE.search(line[i + 2:j]):
+                    st.doubt = True
             st.block = True
             i += 2
             continue
@@ -1350,6 +1380,8 @@ class PayState(ArchState):
         self.scanned = set()  # files whose lines were read
         self.known = set()  # every file the walk saw
         self.dirs = set()
+        self.uncertain = set()  # files where a comment marker after code may hide code
+        self.configs = {}  # rel -> text of a tsconfig*.json / jsconfig*.json this run read
 
     def on_dir(self, parts):
         ArchState.on_dir(self, parts)
@@ -1357,7 +1389,19 @@ class PayState(ArchState):
 
     def on_meta(self, path, parts, lower, is_link):
         self.known.add("/".join(parts))
-        return ArchState.on_meta(self, path, parts, lower, is_link)
+        if ArchState.on_meta(self, path, parts, lower, is_link):
+            return True
+        if not CONFIG_RE.match(lower) or _not_app(parts[:-1]):
+            return False
+        # The app's path settings. One this run cannot read stays out of configs: its settings are unknown.
+        if not is_link and len(self.configs) < MAX_CONFIG_FILES:
+            try:
+                data, _ = read_file(path, self, cap=MAX_META_BYTES)
+            except OSError:
+                data = None
+            if data is not None:
+                self.configs["/".join(parts)] = data.decode("utf-8", errors="replace")
+        return True
 
     def on_lines(self, parts, ext, lines):
         ArchState.on_lines(self, parts, ext, lines)
@@ -1382,6 +1426,7 @@ class PayState(ArchState):
             code.append(None if (not stripped or comment_body(stripped, ext) is not None)
                         else strip_trailing_comment(line, ext))
         strong = hmac = compared = False
+        hmac_names = set()  # names assigned an HMAC result
         for i, c in enumerate(code):
             if c is None:
                 continue
@@ -1394,6 +1439,11 @@ class PayState(ArchState):
             strong = strong or VERIFY_RE.search(c) is not None
             hmac = hmac or HMAC_RE.search(c) is not None
             compared = compared or SIG_COMPARE_RE.search(c) is not None
+            m = HMAC_ASSIGN_RE.search(c)
+            if m:
+                hmac_names.add(m.group(1))
+            if not compared and (hmac_names or HMAC_RE.search(c)):
+                compared = _hmac_compared(c, hmac_names)
             if ext == ".py":
                 m = PY_FROM_RE.match(c)
                 if m:
@@ -1412,6 +1462,8 @@ class PayState(ArchState):
             elif ext in JS_EXTS:
                 for m in JS_IMPORT_RE.finditer(c):
                     imports.append(("js", m.group(1)))
+                if JS_TICK_IMPORT_RE.search(c):
+                    imports.append(("tick",))  # a path in backticks is never followed
             for m in WRITE_CALL_RE.finditer(c):
                 head = c[m.start():]
                 sql = m.group(0).lower().startswith("update")
@@ -1444,6 +1496,8 @@ class PayState(ArchState):
                 break
         if strong or (hmac and compared):
             self.verified_files.add(rel)
+        if blocks is not None and blocks.doubt:
+            self.uncertain.add(rel)
         if imports:
             self.imports[rel] = imports
         if pf.writers or pf.client_writes or pf.event_line:
@@ -1524,16 +1578,87 @@ def _js_candidates(segs):
     return cands
 
 
+def _hmac_compared(c, names):
+    """True when the line compares an HMAC result: a name assigned one, or an HMAC call on the line, beside
+    ==, !=, === or !==, or passed to a call whose name holds equal, compare, verify or match."""
+    inline = HMAC_RE.search(c) is not None
+    for m in COMPARE_OP_RE.finditer(c):
+        if inline:
+            return True
+        left = NAME_RE.findall(c[max(0, m.start() - 80):m.start()])
+        right = NAME_RE.match(c[m.end():].lstrip())
+        if (left and left[-1] in names) or (right and right.group(0) in names):
+            return True
+    for m in COMPARE_CALL_RE.finditer(c):
+        args = c[m.end():m.end() + 200]
+        if inline or any(n in names for n in NAME_RE.findall(args)):
+            return True
+    return False
+
+
+def _jsonc(text):
+    """A tsconfig's object: JSON with // and /* */ comments and trailing commas. None when it does not parse."""
+    out, i, n, q = [], 0, len(text), None
+    while i < n:
+        ch = text[i]
+        if q:
+            out.append(ch)
+            if ch == "\\":
+                out.append(text[i + 1:i + 2])
+                i += 2
+                continue
+            if ch == q:
+                q = None
+            i += 1
+            continue
+        if ch == '"':
+            q = ch
+        elif text.startswith("//", i):
+            j = text.find("\n", i)
+            i = n if j < 0 else j
+            continue
+        elif text.startswith("/*", i):
+            j = text.find("*/", i + 2)
+            i = n if j < 0 else j + 2
+            continue
+        out.append(ch)
+        i += 1
+    try:
+        obj = json.loads(re.sub(r",(\s*[}\]])", r"\1", "".join(out)))
+    except ValueError:
+        return None
+    return obj if isinstance(obj, dict) else None
+
+
+class _Config:
+    """The path settings that apply to a folder: base (baseUrl folder parts), paths ({pattern: [targets]}) and
+    paths_root (the folder paths are read from). Each is None when unset and UNKNOWN when this run cannot tell."""
+    __slots__ = ("base", "paths", "paths_root")
+
+    def __init__(self, base=None, paths=None, paths_root=None):
+        self.base, self.paths, self.paths_root = base, paths, paths_root
+
+
+ALL_UNKNOWN = _Config(UNKNOWN, UNKNOWN, UNKNOWN)
+
+
+def _paths_value(v):
+    if isinstance(v, dict) and all(isinstance(k, str) and isinstance(t, list) and all(isinstance(x, str) for x in t)
+                                   for k, t in v.items()):
+        return v
+    return UNKNOWN
+
+
 class _Resolver:
-    """Places each import of a scanned file: a file this run read, outside code, or unknown."""
+    """Places each import of a scanned file: exactly one file this run read, outside code, or UNKNOWN.
+    Non-relative imports follow the app's own tsconfig/jsconfig (paths, then baseUrl), then packages.
+    Nothing is guessed: two candidates, an unreadable setting, or a name nothing explains is UNKNOWN."""
 
     def __init__(self, state):
         self.state = state
         self.deps = set()
         self.local_pkgs = set()
-        self.pkg_roots = []
         for d, man in state.manifests.items():
-            self.pkg_roots.append(list(d))
             name = man.get("name")
             if isinstance(name, str):
                 self.local_pkgs.add(name)
@@ -1549,69 +1674,158 @@ class _Resolver:
                     else:
                         self.deps.add(k)
         self.cache = {}
+        self.dir_cfg = {}
+        self.file_cfg = {}
 
     def edges(self, rel):
-        """(files this run read that rel imports, True when an import could not be placed)."""
+        """(files this run read that rel imports, True when an import could not be placed for sure)."""
         if rel in self.cache:
             return self.cache[rel]
         parts = rel.split("/")
-        found, unknown = set(), False
+        found, unknown = set(), rel in self.state.uncertain
         for imp in self.state.imports.get(rel, ()):
-            got = self._js(parts, imp[1]) if imp[0] == "js" else self._py(parts, imp[1], imp[2], imp[3])
-            if got is None:
-                continue  # outside code
-            hit = [c for c in got if c in self.state.scanned]
-            if hit:
-                found.add(hit[0])
-            else:
+            if _late(self.state):
                 unknown = True
+                break
+            if imp[0] == "js":
+                got = self._js(parts, imp[1])
+            elif imp[0] == "py":
+                got = self._py(parts, imp[1], imp[2], imp[3])
+            else:
+                got = UNKNOWN
+            if got == UNKNOWN:
+                unknown = True
+            elif got != OUTSIDE:
+                found |= got
         self.cache[rel] = (found, unknown)
         return self.cache[rel]
 
-    def _roots(self, parts):
-        """Folders a non-relative import may start from: the repo root, the nearest package folder, and src/ of each."""
-        roots = [[]]
-        best = None
-        for r in self.pkg_roots:
-            if r and tuple(parts[:len(r)]) == tuple(r) and (best is None or len(r) > len(best)):
-                best = r
-        if best:
-            roots.append(best)
-        return roots + [r + ["src"] for r in roots]
+    # -- the app's path settings
+
+    def _load(self, rel, depth=0):
+        if rel in self.file_cfg:
+            return self.file_cfg[rel]
+        self.file_cfg[rel] = ALL_UNKNOWN  # a loop of extends stays unknown
+        text = self.state.configs.get(rel)
+        obj = _jsonc(text) if text is not None else None
+        co = obj.get("compilerOptions", {}) if obj is not None else None
+        if not isinstance(co, dict):
+            return ALL_UNKNOWN
+        here = rel.split("/")[:-1]
+        cfg = _Config()
+        if "baseUrl" in co:
+            v = co["baseUrl"]
+            segs = _norm(here + v.split("/")) if isinstance(v, str) else None
+            cfg.base = UNKNOWN if segs is None else segs
+        if "paths" in co:
+            cfg.paths, cfg.paths_root = _paths_value(co["paths"]), here
+        ext = obj.get("extends")
+        if ext is not None:
+            parents = []
+            for e in (ext if isinstance(ext, list) else [ext]):
+                parents.append(self._parent(here, e, depth))
+            for parent in reversed(parents):  # a later entry wins
+                if cfg.base is None:
+                    cfg.base = parent.base
+                if cfg.paths is None:
+                    cfg.paths, cfg.paths_root = parent.paths, parent.paths_root
+        self.file_cfg[rel] = cfg
+        return cfg
+
+    def _parent(self, here, e, depth):
+        if not isinstance(e, str) or not e.startswith(("./", "../")) or depth >= MAX_EXTENDS:
+            return ALL_UNKNOWN  # an installed base config, or too deep: its settings are not read
+        segs = _norm(here + e.split("/"))
+        if segs is None:
+            return ALL_UNKNOWN
+        rel = "/".join(segs)
+        for cand in (rel, rel + ".json"):
+            if cand in self.state.known:
+                return self._load(cand, depth + 1)
+        return ALL_UNKNOWN
+
+    def _config(self, d):
+        """The settings of the nearest tsconfig.json (else jsconfig.json) at or above folder d."""
+        key = tuple(d)
+        if key in self.dir_cfg:
+            return self.dir_cfg[key]
+        cfg = _Config()
+        for k in range(len(d), -1, -1):
+            hit = next((c for c in ("/".join(list(d[:k]) + [n]) for n in ("tsconfig.json", "jsconfig.json"))
+                        if c in self.state.known), None)
+            if hit:
+                cfg = self._load(hit)
+                break
+        self.dir_cfg[key] = cfg
+        return cfg
+
+    # -- candidates
+
+    def _pick(self, cands):
+        """{the one file this run read}, UNKNOWN for several or for a file it saw but did not read, else None."""
+        hits = {c for c in cands if c in self.state.scanned}
+        if len(hits) == 1:
+            return hits
+        if hits or any(c in self.state.known for c in cands):
+            return UNKNOWN
+        return None
 
     def _js(self, parts, spec):
-        """Candidate paths, or None for outside code."""
         if spec.startswith(EXTERNAL_PREFIXES):
-            return None
-        ext = os.path.splitext(spec.split("?")[0])[1].lower()
-        if ext and ext not in RESOLVE_EXTS and ext not in (".js", ".jsx", ".mjs", ".cjs"):
-            if ext.lstrip(".").isalnum() and len(ext) <= 6:
-                return None  # a stylesheet, image or data file: it cannot check a signature
-        if spec.startswith(("./", "../")) or spec in (".", ".."):
-            segs = _norm(list(parts[:-1]) + spec.split("/"))
-            return [] if segs is None else _js_candidates(segs)
-        segs = spec.split("/")
-        pkg = "/".join(segs[:2]) if spec.startswith("@") and len(segs) > 1 else segs[0]
-        if segs[0] in NODE_BUILTINS:
-            return None
+            return OUTSIDE
+        path = spec.split("?")[0]
+        fallback = OUTSIDE if os.path.splitext(path)[1].lower() in ASSET_EXTS else UNKNOWN
+        if path.startswith(("./", "../")) or path in (".", ".."):
+            segs = _norm(list(parts[:-1]) + path.split("/"))
+            got = None if segs is None else self._pick(_js_candidates(segs))
+            if got == UNKNOWN and fallback == OUTSIDE:
+                return OUTSIDE  # an asset that exists (a stylesheet beside the file)
+            return got if got is not None else fallback
+        cfg = self._config(parts[:-1])
+        if cfg.paths == UNKNOWN:
+            return fallback if self._package(path) != OUTSIDE else OUTSIDE
+        if cfg.paths:
+            best = None
+            for pat in cfg.paths:
+                pre, star, post = pat.partition("*")
+                if star and path.startswith(pre) and path.endswith(post) and len(path) >= len(pre) + len(post):
+                    if best is None or len(pre) > len(best[1]):
+                        best = (pat, pre, post, path[len(pre):len(path) - len(post)])
+                elif not star and path == pat:
+                    best = (pat, pat + "\0", "", "")  # an exact pattern beats every wildcard
+                    break
+            if best is not None:
+                root = cfg.base if cfg.base is not None else cfg.paths_root
+                if root == UNKNOWN:
+                    return UNKNOWN
+                cands = []
+                for t in cfg.paths[best[0]]:
+                    segs = _norm(list(root) + t.replace("*", best[3]).split("/"))
+                    if segs:
+                        cands += _js_candidates(segs)
+                got = self._pick(cands)
+                if got == UNKNOWN and fallback == OUTSIDE:
+                    return OUTSIDE
+                return got if got is not None else (OUTSIDE if fallback == OUTSIDE else UNKNOWN)
+        if cfg.base == UNKNOWN:
+            return OUTSIDE if self._package(path) == OUTSIDE else fallback
+        if cfg.base is not None:
+            segs = _norm(list(cfg.base) + path.split("/"))
+            got = self._pick(_js_candidates(segs)) if segs else None
+            if got is not None:
+                return got
+        return OUTSIDE if self._package(path) == OUTSIDE else fallback
+
+    def _package(self, path):
+        """OUTSIDE for a Node built-in or a listed package; UNKNOWN for the repo's own workspace package or a
+        name nothing explains."""
+        segs = path.split("/")
+        pkg = "/".join(segs[:2]) if path.startswith("@") and len(segs) > 1 else segs[0]
         if pkg in self.local_pkgs:
-            return []  # the repo's own workspace package: not followed
-        if pkg in self.deps:
-            return None
-        stems = []
-        if spec[0] in "@~#$":
-            stems.append(spec[1:].lstrip("/").split("/"))  # @lib/x -> lib/x, $lib/x -> lib/x, @/x -> x
-            if len(segs) > 1:
-                stems.append(segs[1:])  # @lib/x -> x
-        else:
-            stems.append(segs)
-        out = []
-        for root in self._roots(parts):
-            for st in stems:
-                segs2 = _norm(root + st)
-                if segs2:
-                    out += _js_candidates(segs2)
-        return out
+            return UNKNOWN
+        if segs[0] in NODE_BUILTINS or pkg in self.deps:
+            return OUTSIDE
+        return UNKNOWN
 
     def _py(self, parts, dots, mod, names):
         mod_segs = mod.split(".") if mod else []
@@ -1619,7 +1833,7 @@ class _Resolver:
             base = list(parts[:-1])
             for _ in range(dots - 1):
                 if not base:
-                    return []
+                    return UNKNOWN
                 base.pop()
             bases = [base]
         else:
@@ -1629,30 +1843,38 @@ class _Resolver:
             bases = []
             for b in ancestors + [["src"]]:
                 p = "/".join(b + [top])
-                if p in self.state.dirs or p + ".py" in self.state.known:
+                if (p in self.state.dirs or p + ".py" in self.state.known) and b not in bases:
                     bases.append(b)
             if not bases:
-                return None  # not a module in this repo: the standard library or an installed package
-        out = []
+                return OUTSIDE  # not a module in this repo: the standard library or an installed package
+        groups = []
         for b in bases:
             stem = "/".join(b + mod_segs)
-            if mod_segs:
-                out += [stem + ".py", stem + "/__init__.py"]
+            cands = [stem + ".py", stem + "/__init__.py"] if mod_segs else []
             for n in names:
                 sub = (stem + "/" if stem else "") + n
-                out += [sub + ".py", sub + "/__init__.py"]
-        return out
+                cands += [sub + ".py", sub + "/__init__.py"]
+            hits = {c for c in cands if c in self.state.scanned}
+            if hits:
+                groups.append(hits)
+            elif any(c in self.state.known for c in cands):
+                return UNKNOWN
+        if len(groups) != 1:
+            return UNKNOWN  # nothing this run read, or the module sits in more than one folder
+        return groups[0]
 
 
 def _closure(start, depth, res, cap):
     """Files reached from start by imports, up to depth levels. Complete is False when an import could not be
-    placed, or a level or the file cap stopped the walk with files still to read."""
+    placed, the timer ran out, or a level or the file cap stopped the walk with files still to read."""
     seen = {start}
     frontier = [start]
     complete = True
     for level in range(depth + 1):
         nxt = []
         for f in frontier:
+            if _late(res.state):
+                return seen, False
             targets, unknown = res.edges(f)
             if unknown:
                 complete = False
@@ -1669,17 +1891,21 @@ def _closure(start, depth, res, cap):
 
 
 def _signature(rel, state, res, importers):
-    """found: a check in the handler, a file it imports (3 levels), or a file importing it with what that file
-    imports. not-found: every one of those files was read and none checks. unresolved: anything else."""
-    verified = state.verified_files
+    """found: a check in the handler or a file it imports (3 levels), in a file this run is sure it read as code.
+    not-found: the handler, every file it imports and every file importing it were read for sure, the map of
+    importers is whole, and none of them checks. unresolved: anything else, including a check in a file that
+    imports the handler (it may guard another route)."""
+    sure = state.verified_files - state.uncertain
     seen, complete = _closure(rel, MAX_HOOK_DEPTH, res, MAX_HOOK_FILES)
-    if seen & verified:
+    if seen & sure:
         return "found"
+    imap, whole = importers()
+    complete = complete and whole
     ups, frontier = set(), [rel]
     for _ in range(MAX_HOOK_DEPTH):
         nxt = []
         for f in frontier:
-            for u in sorted(importers().get(f, ())):
+            for u in sorted(imap.get(f, ())):
                 if u not in ups and u != rel:
                     if len(ups) >= MAX_IMPORTERS:
                         complete = False
@@ -1688,13 +1914,13 @@ def _signature(rel, state, res, importers):
                     nxt.append(u)
         frontier = nxt
     if frontier:
-        if any(importers().get(f) for f in frontier):
+        if any(imap.get(f) for f in frontier):
             complete = False  # more levels of importers than are followed
     for u in sorted(ups):
+        if not complete:
+            break
         got, ok = _closure(u, MAX_HOOK_DEPTH - 1, res, MAX_HOOK_FILES)
-        if got & verified:
-            return "found"
-        complete = complete and ok
+        complete = ok and not (got & state.verified_files)
     return "not-found" if complete else "unresolved"
 
 
@@ -1739,14 +1965,16 @@ def pay_findings(state):
     reverse = []
 
     def importers():
+        """(file -> files importing it, True when every file's imports were placed before the timer ran out)."""
         if not reverse:
-            rev = {}
+            rev, whole = {}, True
             for f in sorted(state.imports):
                 if _late(state):
+                    whole = False
                     break
                 for t in res.edges(f)[0]:
                     rev.setdefault(t, set()).add(f)
-            reverse.append(rev)
+            reverse.append((rev, whole))
         return reverse[0]
 
     writers, hooks, client = [], [], []
@@ -1759,7 +1987,8 @@ def pay_findings(state):
         is_entry = _entry_point(ff.routes if ff else [], bool(ff and (ff.node_server or ff.py_server)), parts, pf)
         is_hook = is_entry and pf.event_line is not None
         if is_hook:
-            sig = "found" if rel in state.verified_files else _signature(rel, state, res, importers)
+            sure = rel in state.verified_files and rel not in state.uncertain
+            sig = "found" if sure else _signature(rel, state, res, importers)
             if sig != "found" and state.stopped:
                 sig = "unresolved"  # the walk stopped early: the check may sit in a file it never reached
             hooks.append({"path": rel, "line": pf.event_line, "signature": sig})

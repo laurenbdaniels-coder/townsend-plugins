@@ -414,6 +414,7 @@ HOOK_BODY = (
     "}\n")
 VERIFY_LIB = ("import Stripe from 'stripe'\nconst stripe = new Stripe(k)\n"
               "export function verify(body, sig) {\n  return stripe.webhooks.constructEvent(body, sig, s)\n}\n")
+TSCONFIG_ROOT = json.dumps({"compilerOptions": {"baseUrl": ".", "paths": {"@/*": ["./*"], "@lib/*": ["lib/*"]}}})
 
 
 class ResolveTests(PayCase):
@@ -481,27 +482,31 @@ class ResolveTests(PayCase):
         self.assertEqual(self.hooks(self.pay()), {"main.py": "unresolved"})
 
     def test_bare_base_url_import(self):
-        """protects=`import ... from 'lib/stripe'` (tsconfig baseUrl) is followed;
+        """protects=`import ... from 'lib/stripe'` is followed when the app's tsconfig sets baseUrl;
         fails_when=it reads not-found;
-        no_claim=the repo root and src/ are the places tried."""
+        no_claim=only the app's own tsconfig/jsconfig decides where a bare import points."""
+        self.w("tsconfig.json", TSCONFIG_ROOT)
         self.assertEqual(self.hook_with("import { verify } from 'lib/stripe'", {"lib/stripe.ts": VERIFY_LIB}), "found")
 
     def test_scoped_alias_that_is_not_a_dependency(self):
         """protects=`@lib/stripe` (a tsconfig path, not an installed package) is followed;
         fails_when=it reads not-found;
-        no_claim=the alias folder is guessed from its name."""
+        no_claim=the alias folder comes from tsconfig paths, never from its name."""
+        self.w("tsconfig.json", TSCONFIG_ROOT)
         self.assertEqual(self.hook_with("import { verify } from '@lib/stripe'", {"lib/stripe.ts": VERIFY_LIB}), "found")
 
     def test_at_slash_alias_is_followed(self):
-        """protects=`@/lib/x` is followed, so a check behind it counts and a file without one does not hide a gap;
+        """protects=`@/lib/x` is followed to the folder tsconfig paths name;
         fails_when=a check behind @/ reads not-found;
-        no_claim=only the repo root and src/ are tried."""
+        no_claim=one config per folder, the nearest one above the importing file."""
+        self.w("tsconfig.json", json.dumps({"compilerOptions": {"paths": {"@/*": ["./src/*"]}}}))
         self.assertEqual(self.hook_with("import { verify } from '@/lib/stripe'", {"src/lib/stripe.ts": VERIFY_LIB}), "found")
 
     def test_alias_to_a_file_without_a_check_is_not_found(self):
         """protects=the paywall case still reads not-found when the alias target was followed and has no check;
         fails_when=a followed alias makes every handler unresolved;
         no_claim=the target is the file the alias names, by the same rule as above."""
+        self.w("tsconfig.json", TSCONFIG_ROOT)
         self.assertEqual(self.hook_with("import { db } from '@/lib/db'", {"lib/db.ts": "export const db = 1\n"}), "not-found")
 
     def test_js_extension_maps_to_ts(self):
@@ -549,7 +554,7 @@ class ResolveTests(PayCase):
 
     def test_express_mount_checks_before_the_router(self):
         """protects=Express apps that check in middleware mounted in app.js before the router are not a false alarm;
-        fails_when=the route file reads not-found;
+        fails_when=the route file reads not-found or found (a check beside the mount cannot be tied to this route);
         no_claim=files that import the handler are followed up to 3 levels, plus what they import."""
         self.w("package.json", json.dumps({"name": "api", "dependencies": {"express": "4.19.0", "stripe": "16.0.0"}}))
         self.w("app.js", "const express = require('express');\nconst verifyStripe = require('./middleware/stripeWebhook');\n"
@@ -560,8 +565,7 @@ class ResolveTests(PayCase):
         self.w("routes/webhook.js", "const express = require('express');\nconst router = express.Router();\n"
                "router.post('/', async (req, res) => {\n  if (req.event.type === 'checkout.session.completed') {}\n"
                "  res.json({ received: true });\n});\nmodule.exports = router;\n")
-        self.assertEqual(self.hooks(self.pay()), {"routes/webhook.js": "found"})
-
+        self.assertEqual(self.hooks(self.pay()), {"routes/webhook.js": "unresolved"})
 
     def test_walk_that_stopped_early_is_unresolved(self):
         """protects=when the walk stops before reading every file, a handler is never called missing;
@@ -635,6 +639,265 @@ class VerifyRuleTests(PayCase):
             "export async function POST(req) {\n  const body = await req.text()\n"
             "  const event = await paddle.webhooks.unmarshal(body, secret, req.headers.get('paddle-signature'))\n"
             "  if (body.includes('\"invoice.paid\"')) {}\n}\n"), "found")
+
+
+class Round2Tests(PayCase):
+    """0.5.0 review round 2: every case the rebuilt check must get right. not-found needs a certain chain;
+    anything this run cannot place for sure is unresolved."""
+
+    def hook_with(self, import_line, files, pkg=NEXT_PKG):
+        self.w("package.json", pkg)
+        for rel, text in files.items():
+            self.w(rel, text)
+        self.w("app/api/stripe/route.ts", import_line + "\n" + HOOK_BODY)
+        return self.hooks(self.pay())["app/api/stripe/route.ts"]
+
+    def one(self, body):
+        self.w("package.json", NEXT_PKG)
+        self.w("app/api/stripe/route.ts", body)
+        return self.hooks(self.pay())["app/api/stripe/route.ts"]
+
+    # dotted names, assets, several candidates
+    def test_dotted_file_name_is_code(self):
+        """protects=`./webhook.utils` is a code file, not a stylesheet;
+        fails_when=a check in lib/webhook.utils.ts reads not-found;
+        no_claim=only the fixed asset list is treated as non-code."""
+        self.assertEqual(self.hook_with("import { verify } from '../../../lib/webhook.utils'",
+                                        {"lib/webhook.utils.ts": VERIFY_LIB}), "found")
+
+    def test_dotted_edge_file_name_is_code(self):
+        """protects=`../lib/stripe.edge` is followed to stripe.edge.ts;
+        fails_when=it reads not-found;
+        no_claim=as above."""
+        self.assertEqual(self.hook_with("import { verify } from '../../../lib/stripe.edge'",
+                                        {"lib/stripe.edge.ts": VERIFY_LIB}), "found")
+
+    def test_unknown_extension_with_no_file_is_unresolved(self):
+        """protects=an import with an odd extension that names no file this run read is never treated as outside code;
+        fails_when=it reads not-found;
+        no_claim=stylesheets, images and data files on the asset list stay outside."""
+        self.assertEqual(self.hook_with("import { verify } from '../../../lib/thing.weird'", {}), "unresolved")
+
+    def test_asset_imports_are_not_gaps(self):
+        """protects=a stylesheet or JSON import does not make a plain handler unresolved;
+        fails_when=it reads anything but not-found;
+        no_claim=the asset list is fixed."""
+        self.assertEqual(self.hook_with("import '../../../styles/x.css'\nimport plans from '../../../data/plans.json'",
+                                        {"data/plans.json": "{}\n"}), "not-found")
+
+    def test_two_candidate_files_is_unresolved(self):
+        """protects=when an import could name two files this run read, the verdict is not guessed;
+        fails_when=it picks one and reads not-found;
+        no_claim=which file a bundler would pick is not modelled."""
+        self.assertEqual(self.hook_with("import { verify } from '../../../lib/verify'", {
+            "lib/verify.ts": "export const verify = 1\n", "lib/verify/index.ts": "export const verify = 2\n"}), "unresolved")
+
+    # the app's own path settings
+    def test_tsconfig_paths_beat_the_root_folder(self):
+        """protects=`@/*` -> `./src/*` follows src/lib/verify.ts, not an unrelated lib/verify.ts at the root;
+        fails_when=the root file wins and it reads not-found;
+        no_claim=paths patterns with one `*` are read."""
+        self.w("tsconfig.json", json.dumps({"compilerOptions": {"baseUrl": ".", "paths": {"@/*": ["./src/*"]}}}))
+        self.assertEqual(self.hook_with("import { verify } from '@/lib/verify'", {
+            "lib/verify.ts": "export const verify = (x) => x\n", "src/lib/verify.ts": VERIFY_LIB}), "found")
+
+    def test_alias_without_a_config_is_unresolved(self):
+        """protects=with no tsconfig or jsconfig, `@/x` is not guessed;
+        fails_when=a guessed folder with no check reads not-found;
+        no_claim=bundler aliases (vite, webpack) are not read."""
+        self.assertEqual(self.hook_with("import { db } from '@/lib/db'", {"lib/db.ts": "export const db = 1\n"}), "unresolved")
+
+    def test_config_with_comments_and_trailing_commas_is_read(self):
+        """protects=tsconfig files are JSON with comments; they still count;
+        fails_when=a commented config is ignored and the alias reads unresolved;
+        no_claim=only // and /* */ comments and trailing commas are tolerated."""
+        self.w("tsconfig.json", '{\n  // paths\n  "compilerOptions": {\n    /* alias */ "paths": {"@/*": ["./src/*",],},\n  },\n}\n')
+        self.assertEqual(self.hook_with("import { verify } from '@/lib/verify'", {"src/lib/verify.ts": VERIFY_LIB}), "found")
+
+    def test_config_extends_a_local_file(self):
+        """protects=paths set in a local base config (`extends: ./tsconfig.base.json`) are used;
+        fails_when=it reads unresolved or not-found;
+        no_claim=up to 5 local extends are followed."""
+        self.w("tsconfig.json", json.dumps({"extends": "./tsconfig.base.json"}))
+        self.w("tsconfig.base.json", json.dumps({"compilerOptions": {"baseUrl": ".", "paths": {"@/*": ["src/*"]}}}))
+        self.assertEqual(self.hook_with("import { verify } from '@/lib/verify'", {"src/lib/verify.ts": VERIFY_LIB}), "found")
+
+    def test_config_extending_a_package_is_unresolved(self):
+        """protects=settings that may come from an installed base config are not guessed;
+        fails_when=the alias is resolved anyway and reads not-found;
+        no_claim=a key set in the app's own file still wins over the package's."""
+        self.w("tsconfig.json", json.dumps({"extends": "@tsconfig/next/tsconfig.json",
+                                            "compilerOptions": {"paths": {"@/*": ["./*"]}}}))
+        self.assertEqual(self.hook_with("import { db } from '@/lib/db'", {"lib/db.ts": "export const db = 1\n"}), "unresolved")
+
+    def test_broken_config_is_unresolved(self):
+        """protects=a config this run cannot parse is unknown, not empty;
+        fails_when=the alias reads not-found;
+        no_claim=why it does not parse is not reported."""
+        self.w("tsconfig.json", '{"compilerOptions": {"paths": ')
+        self.assertEqual(self.hook_with("import { db } from '@/lib/db'", {"lib/db.ts": "export const db = 1\n"}), "unresolved")
+
+    def test_local_folder_named_like_a_node_builtin(self):
+        """protects=`util/stripe` under baseUrl `src` is the app's file, not Node's util;
+        fails_when=it is treated as a package and reads not-found;
+        no_claim=baseUrl is tried before packages, as TypeScript does."""
+        self.w("tsconfig.json", json.dumps({"compilerOptions": {"baseUrl": "src"}}))
+        self.assertEqual(self.hook_with("import { verify } from 'util/stripe'", {"src/util/stripe.ts": VERIFY_LIB}), "found")
+
+    # comments that may hide code, backticks
+    def test_regex_literal_that_looks_like_a_comment_is_unresolved(self):
+        """protects=`/[/*]/` above the check does not hide it and produce a false alarm;
+        fails_when=it reads not-found;
+        no_claim=regex literals are not parsed; a block comment opened after code makes the file not determined."""
+        self.assertEqual(self.one(
+            "const SLASHES = /[/*]/\nexport async function POST(req) {\n"
+            "  const event = stripe.webhooks.constructEvent(await req.text(), req.headers.get('stripe-signature'), s)\n"
+            "  if (event.type === 'invoice.paid') {}\n}\n"), "unresolved")
+
+    def test_line_comment_cut_after_code_holding_a_check_is_unresolved(self):
+        """protects=a `//` inside a regex on the same line as the check does not hide it;
+        fails_when=it reads not-found;
+        no_claim=a trailing comment without a check word stays a comment."""
+        self.assertEqual(self.one(
+            "export async function POST(req) {\n  const body = await req.text()\n"
+            "  const p = body.replace(/\\/\\//g, '/'); const event = stripe.webhooks.constructEvent(body, req.headers.get('stripe-signature'), s)\n"
+            "  if (event.type === 'invoice.paid') {}\n}\n"), "unresolved")
+
+    def test_plain_trailing_comment_stays_certain(self):
+        """protects=ordinary trailing comments do not turn every handler unresolved;
+        fails_when=a handler with `// parse the body` reads unresolved;
+        no_claim=only comments whose text holds a check word are doubted."""
+        self.assertEqual(self.one(
+            "export async function POST(req) {\n  const event = await req.json() // parse the body\n"
+            "  if (event.type === 'invoice.paid') {} /* paid */\n}\n"), "not-found")
+
+    def test_backtick_import_is_unresolved(self):
+        """protects=an import written with backticks is not silently skipped;
+        fails_when=it reads not-found;
+        no_claim=backtick paths are never followed."""
+        self.assertEqual(self.hook_with("const { verify } = await import(`../../../lib/stripe-verify`)",
+                                        {"lib/stripe-verify.ts": VERIFY_LIB}), "unresolved")
+
+    # importers
+    def test_check_beside_the_mount_is_unresolved(self):
+        """protects=an Express app whose other route checks does not lend that check to the webhook route;
+        fails_when=routes/webhook.js reads found through app.js;
+        no_claim=which route a check guards is not worked out, so this is not determined."""
+        self.w("package.json", json.dumps({"name": "api", "dependencies": {"express": "4.19.0", "stripe": "16.0.0"}}))
+        self.w("app.js", "const express = require('express');\nconst webhook = require('./routes/webhook');\n"
+               "const other = require('./routes/other');\nconst app = express();\napp.use('/webhook', webhook);\n"
+               "app.use('/other', other);\napp.listen(3000);\n")
+        self.w("routes/other.js", "const router = require('express').Router();\nrouter.post('/', (req, res) => {\n"
+               "  const e = stripe.webhooks.constructEvent(req.body, req.headers['stripe-signature'], s);\n  res.end();\n});\n"
+               "module.exports = router;\n")
+        self.w("routes/webhook.js", "const express = require('express');\nconst router = express.Router();\n"
+               "router.post('/', async (req, res) => {\n  if (req.body.type === 'checkout.session.completed') {}\n"
+               "  res.json({ received: true });\n});\nmodule.exports = router;\n")
+        self.assertEqual(self.hooks(self.pay())["routes/webhook.js"], "unresolved")
+
+    def test_importer_without_any_check_keeps_not_found(self):
+        """protects=a mounted router with no check anywhere is still a finding;
+        fails_when=it reads unresolved;
+        no_claim=as above."""
+        self.w("package.json", json.dumps({"name": "api", "dependencies": {"express": "4.19.0"}}))
+        self.w("app.js", "const express = require('express');\nconst webhook = require('./routes/webhook');\n"
+               "const app = express();\napp.use('/webhook', webhook);\napp.listen(3000);\n")
+        self.w("routes/webhook.js", "const express = require('express');\nconst router = express.Router();\n"
+               "router.post('/', async (req, res) => {\n  if (req.body.type === 'checkout.session.completed') {}\n"
+               "  res.json({ received: true });\n});\nmodule.exports = router;\n")
+        self.assertEqual(self.hooks(self.pay())["routes/webhook.js"], "not-found")
+
+    # hand-made checks
+    def test_hmac_compared_under_another_name_counts(self):
+        """protects=a hand-made check whose names hold no "sig" is still a check;
+        fails_when=`digest !== header` reads not-found;
+        no_claim=the HMAC result must be compared, or passed to an equal/compare/verify call."""
+        self.assertEqual(self.one(
+            "import { createHmac } from 'crypto'\nexport async function POST(req) {\n  const body = await req.text()\n"
+            "  const header = req.headers.get('x-payment-check')\n"
+            "  const digest = createHmac('sha256', secret).update(body).digest('hex')\n"
+            "  if (digest !== header) return new Response('bad', { status: 400 })\n"
+            "  const event = JSON.parse(body)\n  if (event.type === 'invoice.paid') {}\n}\n"), "found")
+
+    def test_hmac_passed_to_a_compare_call_counts(self):
+        """protects=`safeEqual(digest, header)` is a check;
+        fails_when=it reads not-found;
+        no_claim=call names holding equal, compare or verify count."""
+        self.assertEqual(self.one(
+            "import { createHmac } from 'crypto'\nexport async function POST(req) {\n  const body = await req.text()\n"
+            "  const digest = createHmac('sha256', secret).update(body).digest('hex')\n"
+            "  if (!safeEqual(digest, req.headers.get('x-check'))) return new Response('bad', { status: 400 })\n"
+            "  const event = JSON.parse(body)\n  if (event.type === 'invoice.paid') {}\n}\n"), "found")
+
+    # python
+    def test_python_from_package_import_follows_every_name(self):
+        """protects=`from billing import a, b` follows billing/b.py too, not only billing/__init__.py;
+        fails_when=a check in b.py reads not-found;
+        no_claim=names that are functions, not modules, are simply not files."""
+        self.w("billing/__init__.py", "")
+        self.w("billing/a.py", "X = 1\n")
+        self.w("billing/b.py", "import stripe\ndef check(p, s):\n    return stripe.Webhook.construct_event(p, s, K)\n")
+        self.w("main.py", "from flask import Flask, request\nfrom billing import a, b\napp = Flask(__name__)\n"
+               "@app.route('/hook', methods=['POST'])\ndef hook():\n    event = b.check(request.data, sig)\n"
+               "    if event['type'] == 'invoice.paid':\n        pass\n")
+        self.assertEqual(self.hooks(self.pay()), {"main.py": "found"})
+
+    def test_python_module_in_two_places_is_unresolved(self):
+        """protects=when `billing.verify` exists under two folders, the verdict is not guessed;
+        fails_when=one is picked and it reads not-found;
+        no_claim=sys.path order is not modelled."""
+        for base in ("svc/", ""):
+            self.w(base + "billing/__init__.py", "")
+            self.w(base + "billing/verify.py", "def verify(p, s):\n    return p\n")
+        self.w("svc/main.py", "from flask import Flask, request\nfrom billing.verify import verify\napp = Flask(__name__)\n"
+               "@app.route('/hook', methods=['POST'])\ndef hook():\n    event = verify(request.data, sig)\n"
+               "    if event['type'] == 'invoice.paid':\n        pass\n")
+        self.assertEqual(self.hooks(self.pay()), {"svc/main.py": "unresolved"})
+
+
+class LateTests(PayCase):
+    """The short budget after the walk running out part-way never leaves a not-found behind."""
+
+    def in_process(self, late_in):
+        import contextlib
+        import io
+        real = cs._late
+
+        def fake(state):
+            if sys._getframe(1).f_code.co_name == late_in:
+                state.reason("deadline_hit")
+                return True
+            return real(state)
+        cs._late = fake
+        cwd = os.getcwd()
+        out = io.StringIO()
+        try:
+            os.chdir(self.parent)
+            with contextlib.redirect_stdout(out):
+                cs.main(["--repo", "app", "--section", "payment"])
+        finally:
+            os.chdir(cwd)
+            cs._late = real
+        return json.loads(out.getvalue().strip().split("\n")[0])
+
+    def test_late_while_mapping_importers_is_unresolved(self):
+        """protects=a partial map of importers never yields not-found;
+        fails_when=a handler reads not-found after _late fired in importers();
+        no_claim=the timer is forced in-process."""
+        self.w("package.json", NEXT_PKG)
+        self.w("lib/a.ts", "import { b } from './b'\nexport const a = b\n")
+        self.w("lib/b.ts", "export const b = 1\n")
+        self.w("app/api/stripe/route.ts", UNVERIFIED_HOOK.replace("import { supabaseAdmin } from '../../../lib/admin'\n", ""))
+        self.assertEqual(self.hooks(self.in_process("importers")), {"app/api/stripe/route.ts": "unresolved"})
+
+    def test_late_while_following_imports_is_unresolved(self):
+        """protects=a walk of imports cut short by the timer never yields not-found;
+        fails_when=_closure ignores _late;
+        no_claim=as above."""
+        self.w("package.json", NEXT_PKG)
+        self.w("lib/a.ts", "export const a = 1\n")
+        self.w("app/api/stripe/route.ts", "import { a } from '../../../lib/a'\n" + HOOK_BODY)
+        self.assertEqual(self.hooks(self.in_process("_closure")), {"app/api/stripe/route.ts": "unresolved"})
 
 
 class EntryPointTests(PayCase):

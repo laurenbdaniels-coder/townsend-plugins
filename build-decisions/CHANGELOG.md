@@ -2,6 +2,14 @@
 
 The footer of every report names the version that produced it. Up to 0.3.2 this plugin was called decision-census.
 
+## 0.6.0 (2026-10-19)
+
+- **Back: whether payment messages are checked.** A payment handler with no sign of a check that its messages really come from the payment company is an "Also worth a look" line again, ending "Custody Check answers whether a stranger can use this." The "Not checked" line no longer says this is not checked.
+- **Rebuilt so it does not cry wolf.** Imports are followed the way the app's own `tsconfig.json` / `jsconfig.json` says (`paths`, `baseUrl`, local `extends`; comments and trailing commas are fine), and every name is tried as a code file first (`./webhook.utils`, `../lib/stripe.edge`); only stylesheets, images and data files count as non-code. The old guesses (`@/` means the root or `src/`) are gone.
+- **When unsure, it says nothing.** "No check found" needs a sure chain: every import placed on exactly one file this run read. Two possible files, an alias with no settings, settings from an installed package, a config that does not parse, a path in backticks, a comment mark after code that may be a regex (`/[/*]/`), a check in a file that imports the handler (it may guard another route), and the time limit all make the verdict "not determined", which the report never prints.
+- **Also counted as a check:** a hand-made HMAC whose result is compared, whatever its name (`digest !== header`), or passed to a compare call. Python `from pkg import a, b` follows every module named.
+- **Every case from the 0.5.0 review** is a labeled fixture with a main-vs-branch reason; CI fails if a listed exception would ever let a new "no check found" through. The 42 saved 0.5.0 eval reports join the shared corpus.
+
 ## 0.5.0 (2026-10-19)
 
 - **Where your app saves whether someone has paid.** A third helper call, `census_scan.py --section payment`, lists places that save paid status, a plan or credits; Stripe payment handlers; a price written in the app beside a Stripe price id; and screens that save credits, a plan or an order total straight to the database. The agent reads each place before it reports it.

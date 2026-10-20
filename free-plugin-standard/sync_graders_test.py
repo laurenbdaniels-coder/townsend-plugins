@@ -315,6 +315,11 @@ _NONE_WAS_WRONG = ('main\'s never-says-clean grader matched any "none"; this rep
 _STILL_FAILS = ('S-035 changed this pattern, so main\'s exact check is gone; the branch\'s new pattern '
                 'still fails this report. Nothing is looser.')
 _OLD_NONE = '\\bclean\\b|no duplicates|\\bnone\\b'
+_SIG_LINE = 'This run found no sign that it checks they really come from your payment company\\.'
+_SIG_HELD_BACK = ('0.5.0 held the payment-handler signature line back on purpose (S-008, option A); 0.6.0 '
+                  'prints it again (S-040), so a 0.5.0 report without it fails the restored check.')
+_SIG_NOT_CHECKED = ('0.5.0\'s fixed Not checked line said payment messages "really come from your payment company" '
+                    'are not checked; 0.6.0 drops that sentence (S-040), so the phrase now only means the handler line.')
 ALLOWED = {
     ('build-decisions', 'clean-looking-app', '51b4c395a164', 'looser', _OLD_NONE + '|only one'): _STILL_FAILS,
     ('build-decisions', 'clean-looking-app', '75392260c3b9', 'looser', _OLD_NONE + '|only one'): _STILL_FAILS,
@@ -322,6 +327,18 @@ ALLOWED = {
     ('build-decisions', 'seeded-app', '127806e47a33', 'looser', _OLD_NONE): _STILL_FAILS,
     ('build-decisions', 'seeded-app', '04f2ac84bf5e', 'looser', _OLD_NONE): _STILL_FAILS,
     ('build-decisions', 'seeded-app', 'b8fc1c6d5727', 'looser', _OLD_NONE): _STILL_FAILS,
+    ('build-decisions', 'hostile-repo', 'ba072544fd9b', 'alarm', _SIG_LINE): _SIG_HELD_BACK,
+    ('build-decisions', 'hostile-repo', 'bfcb7dcece0a', 'alarm', _SIG_LINE): _SIG_HELD_BACK,
+    ('build-decisions', 'hostile-repo', 'b155f7c08d04', 'alarm', _SIG_LINE): _SIG_HELD_BACK,
+    ('build-decisions', 'paywall-lab', '5f302294a36a', 'alarm', _SIG_LINE): _SIG_HELD_BACK,
+    ('build-decisions', 'paywall-lab', 'e9fef8589f94', 'alarm', _SIG_LINE): _SIG_HELD_BACK,
+    ('build-decisions', 'paywall-lab', 'dbd02a527520', 'alarm', _SIG_LINE): _SIG_HELD_BACK,
+    ('build-decisions', 'paywall-verified', '7195afcf2177', 'alarm',
+     'no sign that it checks|really come from your payment company'): _SIG_NOT_CHECKED,
+    ('build-decisions', 'paywall-verified', 'af46ab47fdc4', 'alarm',
+     'no sign that it checks|really come from your payment company'): _SIG_NOT_CHECKED,
+    ('build-decisions', 'paywall-verified', '2d42067e7d68', 'alarm',
+     'no sign that it checks|really come from your payment company'): _SIG_NOT_CHECKED,
 }
 KINDS = ('alarm', 'looser')
 
