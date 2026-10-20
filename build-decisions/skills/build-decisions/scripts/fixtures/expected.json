@@ -879,6 +879,69 @@
           "why": "an import written in backticks is not followed, so it is never called missing (review round 2, 0.5.0)"
         }
       ]
+    },
+    "payment_more": {
+      "app": "payments-more",
+      "seeded": [
+        {
+          "key": [
+            "webhook",
+            "aliasmount/src/routes/webhook.js",
+            4,
+            "unresolved"
+          ]
+        },
+        {
+          "key": [
+            "webhook",
+            "app/api/dedup-hook/route.ts",
+            7,
+            "not-found"
+          ]
+        },
+        {
+          "key": [
+            "webhook",
+            "syncapp/supabase/functions/stripe-sync/index.ts",
+            4,
+            "unresolved"
+          ]
+        },
+        {
+          "key": [
+            "webhook",
+            "turbo/apps/web/src/app/api/stripe/route.ts",
+            5,
+            "not-found"
+          ]
+        }
+      ],
+      "negatives": [
+        {
+          "kind": "webhook",
+          "path": "aliasmount/src/routes/webhook.js",
+          "signature": "not-found",
+          "why": "app.js mounts the route through a module-alias import this run cannot place, behind a middleware that checks (0.6.0 review round 1)"
+        },
+        {
+          "kind": "webhook",
+          "path": "app/api/dedup-hook/route.ts",
+          "signature": "found",
+          "why": "an HMAC compared with a stored key (dedup) is not a signature check (0.6.0 review round 1)"
+        },
+        {
+          "kind": "webhook",
+          "path": "syncapp/supabase/functions/stripe-sync/index.ts",
+          "signature": "not-found",
+          "why": "the signature is handed to a package that checks it (0.6.0 review round 1)"
+        },
+        {
+          "kind": "webhook",
+          "path": "turbo/apps/web/src/app/api/stripe/route.ts",
+          "signature": "unresolved",
+          "why": "the tsconfig extends the repo's own config package, which is read, so the unchecked handler is still found (0.6.0 review round 1)"
+        }
+      ]
     }
   }
 }

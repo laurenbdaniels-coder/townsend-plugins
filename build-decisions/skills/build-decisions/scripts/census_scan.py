@@ -1266,11 +1266,17 @@ CONFIG_RE = re.compile(r"^[jt]sconfig(?:\.[\w-]+)*\.json$")  # tsconfig.json, js
 MAX_CONFIG_FILES = 200
 MAX_EXTENDS = 5
 JS_TICK_IMPORT_RE = re.compile(r"(?:\bfrom\s*|\brequire\(\s*|\bimport\(\s*)`")
-CHECK_WORD_RE = re.compile(VERIFY_RE.pattern + "|" + HMAC_RE.pattern + r"|sig", re.I)
-HMAC_ASSIGN_RE = re.compile(r"([A-Za-z_$][\w$]*)\s*=(?!=)[^=]*?(?:\bcreateHmac|\bhmac\.new|\bcrypto\.subtle\.sign)\s*\(")
+CHECK_CALL_RE = re.compile(VERIFY_RE.pattern + "|" + HMAC_RE.pattern)  # a check call a comment cut might hide
+NAME_ASSIGN_RE = re.compile(r"(?<![\w$.])([A-Za-z_$][\w$]*)\s*=(?![=>])")
+HEADER_RE = re.compile(r"\bheaders?\b|\bgetHeader\b|\bget_header\b|\bMETA\b")  # a value read from the request headers
 COMPARE_OP_RE = re.compile(r"[=!]==?")
 COMPARE_CALL_RE = re.compile(r"\b\w*(?:equal|compare|verify|match)\w*\s*\(", re.I)
+CALL_RE = re.compile(r"([A-Za-z_$][\w$.]*)\s*\(")
+NOT_A_HANDOFF = frozenset(("get", "getHeader", "header", "get_header", "if", "while", "for", "switch", "return", "catch",
+                           "log", "warn", "error", "info", "debug", "stringify", "parse"))
 NAME_RE = re.compile(r"[A-Za-z_$][\w$]*")
+COMPARE_WINDOW = 80  # characters before a compare operator searched for the compared name
+CALL_ARGS_WINDOW = 200  # characters after a call's "(" searched for its arguments
 OUTSIDE, UNKNOWN = "outside", "unknown"
 
 
@@ -1302,7 +1308,8 @@ def _cut_blocks(line, st):
     A comment marker after code on the same line could be inside a regex literal. A '/*' there that does not
     close on the line is kept as code; a same-line cut whose text holds a check word is kept as cut. Both set
     st.doubt. A comment that starts the line is always a comment."""
-    if not st.block and not st.tmpl and "/*" not in line and "`" not in line and "//" not in line:
+    if not st.block and not st.tmpl and "/*" not in line and "`" not in line and (
+            "//" not in line or CHECK_CALL_RE.search(line) is None):
         return line
     out = []
     q = "`" if st.tmpl else None
@@ -1329,7 +1336,7 @@ def _cut_blocks(line, st):
         if ch in "'\"`":
             q = ch
         elif line.startswith("//", i):
-            if "".join(out).strip() and CHECK_WORD_RE.search(line, i):
+            if "".join(out).strip() and CHECK_CALL_RE.search(line, i):
                 st.doubt = True
             out.append(line[i:])
             break
@@ -1341,7 +1348,7 @@ def _cut_blocks(line, st):
                     out.append("/*")
                     i += 2
                     continue
-                if CHECK_WORD_RE.search(line[i + 2:j]):
+                if CHECK_CALL_RE.search(line[i + 2:j]):
                     st.doubt = True
             st.block = True
             i += 2
@@ -1381,7 +1388,9 @@ class PayState(ArchState):
         self.known = set()  # every file the walk saw
         self.dirs = set()
         self.uncertain = set()  # files where a comment marker after code may hide code
+        self.sig_handoff = set()  # files that hand the payment signature to a call this run does not judge
         self.configs = {}  # rel -> text of a tsconfig*.json / jsconfig*.json this run read
+        self.repo = None
 
     def on_dir(self, parts):
         ArchState.on_dir(self, parts)
@@ -1427,6 +1436,9 @@ class PayState(ArchState):
                         else strip_trailing_comment(line, ext))
         strong = hmac = compared = False
         hmac_names = set()  # names assigned an HMAC result
+        header_names = set()  # names assigned a value read from the request headers
+        sig_names = set()  # names assigned the payment company's signature header
+        handoff = False
         for i, c in enumerate(code):
             if c is None:
                 continue
@@ -1439,11 +1451,18 @@ class PayState(ArchState):
             strong = strong or VERIFY_RE.search(c) is not None
             hmac = hmac or HMAC_RE.search(c) is not None
             compared = compared or SIG_COMPARE_RE.search(c) is not None
-            m = HMAC_ASSIGN_RE.search(c)
+            m = NAME_ASSIGN_RE.search(c)
             if m:
-                hmac_names.add(m.group(1))
+                if HMAC_RE.search(c, m.end()):
+                    hmac_names.add(m.group(1))
+                if HEADER_RE.search(c, m.end()):
+                    header_names.add(m.group(1))
+                if STRIPE_SIG_RE.search(c, m.end()):
+                    sig_names.add(m.group(1))
             if not compared and (hmac_names or HMAC_RE.search(c)):
-                compared = _hmac_compared(c, hmac_names)
+                compared = _hmac_compared(c, hmac_names, header_names)
+            if not handoff and (sig_names or STRIPE_SIG_RE.search(c)):
+                handoff = _sig_handed_off(c, sig_names)
             if ext == ".py":
                 m = PY_FROM_RE.match(c)
                 if m:
@@ -1498,6 +1517,8 @@ class PayState(ArchState):
             self.verified_files.add(rel)
         if blocks is not None and blocks.doubt:
             self.uncertain.add(rel)
+        if handoff:
+            self.sig_handoff.add(rel)
         if imports:
             self.imports[rel] = imports
         if pf.writers or pf.client_writes or pf.event_line:
@@ -1578,19 +1599,36 @@ def _js_candidates(segs):
     return cands
 
 
-def _hmac_compared(c, names):
-    """True when the line compares an HMAC result: a name assigned one, or an HMAC call on the line, beside
-    ==, !=, === or !==, or passed to a call whose name holds equal, compare, verify or match."""
-    if HMAC_RE.search(c) and (COMPARE_OP_RE.search(c) or COMPARE_CALL_RE.search(c)):
-        return True
+def _hmac_compared(c, names, headers):
+    """True when the line compares an HMAC result with a value read from the request headers: an HMAC name or
+    call on one side of ==, !=, === or !== (the call before the operator, in the same statement), or both passed
+    to a call whose name holds equal, compare, verify or match. A dedup key or a lookup is not a check."""
+    from_headers = HEADER_RE.search(c) is not None
+    hm = HMAC_RE.search(c)
     for m in COMPARE_OP_RE.finditer(c):
-        left = NAME_RE.findall(c[max(0, m.start() - 80):m.start()])
+        left = NAME_RE.findall(c[max(0, m.start() - COMPARE_WINDOW):m.start()])
         right = NAME_RE.match(c[m.end():].lstrip())
-        if (left and left[-1] in names) or (right and right.group(0) in names):
+        sides = {left[-1] if left else None, right.group(0) if right else None}
+        inline = hm is not None and hm.start() < m.start() and ";" not in c[hm.start():m.start()]
+        if (inline or sides & names) and (from_headers or sides & headers):
             return True
     for m in COMPARE_CALL_RE.finditer(c):
-        args = c[m.end():m.end() + 200]
-        if any(n in names for n in NAME_RE.findall(args)):
+        args = c[m.end():m.end() + CALL_ARGS_WINDOW]
+        got = set(NAME_RE.findall(args))
+        if (got & names or HMAC_RE.search(args)) and (got & headers or HEADER_RE.search(args)):
+            return True
+    return False
+
+
+def _sig_handed_off(c, sig_names):
+    """True when the payment signature (the header, or a name holding it) is passed to a call other than a header
+    read or a log: a package or helper this run does not judge may check it."""
+    for m in CALL_RE.finditer(c):
+        callee = m.group(1)
+        if callee.rsplit(".", 1)[-1] in NOT_A_HANDOFF or callee.startswith(("console.", "JSON.")):
+            continue
+        args = c[m.end():m.end() + CALL_ARGS_WINDOW]
+        if STRIPE_SIG_RE.search(args) or set(NAME_RE.findall(args)) & sig_names:
             return True
     return False
 
@@ -1624,7 +1662,7 @@ def _jsonc(text):
         i += 1
     try:
         obj = json.loads(re.sub(r",(\s*[}\]])", r"\1", "".join(out)))
-    except ValueError:
+    except (ValueError, RecursionError):  # a config nested thousands deep is unreadable, never a crash
         return None
     return obj if isinstance(obj, dict) else None
 
@@ -1638,7 +1676,7 @@ class _Config:
         self.base, self.paths, self.paths_root = base, paths, paths_root
 
 
-ALL_UNKNOWN = _Config(UNKNOWN, UNKNOWN, UNKNOWN)
+ALL_UNKNOWN = _Config(UNKNOWN, UNKNOWN, UNKNOWN)  # shared: never set fields on a config _load returns
 
 
 def _paths_value(v):
@@ -1675,13 +1713,14 @@ class _Resolver:
         self.cache = {}
         self.dir_cfg = {}
         self.file_cfg = {}
+        self.unplaced = {}  # rel -> last parts of the imports it could not place ("*" for a path in backticks)
 
     def edges(self, rel):
         """(files this run read that rel imports, True when an import could not be placed for sure)."""
         if rel in self.cache:
             return self.cache[rel]
         parts = rel.split("/")
-        found, unknown = set(), rel in self.state.uncertain
+        found, unknown = set(), rel in self.state.uncertain or rel in self.state.sig_handoff
         for imp in self.state.imports.get(rel, ()):
             if _late(self.state):
                 unknown = True
@@ -1694,6 +1733,7 @@ class _Resolver:
                 got = UNKNOWN
             if got == UNKNOWN:
                 unknown = True
+                self.unplaced.setdefault(rel, set()).update(_import_tails(imp))
             elif got != OUTSIDE:
                 found |= got
         self.cache[rel] = (found, unknown)
@@ -1706,6 +1746,8 @@ class _Resolver:
             return self.file_cfg[rel]
         self.file_cfg[rel] = ALL_UNKNOWN  # a loop of extends stays unknown
         text = self.state.configs.get(rel)
+        if text is None:
+            text = self._read_late(rel)
         obj = _jsonc(text) if text is not None else None
         co = obj.get("compilerOptions", {}) if obj is not None else None
         if not isinstance(co, dict):
@@ -1731,14 +1773,38 @@ class _Resolver:
         self.file_cfg[rel] = cfg
         return cfg
 
+    def _read_late(self, rel):
+        """A base config the walk saw but did not read (an extends target such as nextjs.json): read it now, under
+        the same caps. Only .json files the walk listed (never .env or key files, never through a link)."""
+        st = self.state
+        if (not rel.endswith(".json") or rel not in st.known or st.repo is None
+                or len(st.configs) >= MAX_CONFIG_FILES or _late(st)):
+            return None
+        try:
+            data, _ = read_file(os.path.join(st.repo, *rel.split("/")), st, cap=MAX_META_BYTES)
+        except OSError:
+            return None
+        if data is None:
+            return None
+        st.configs[rel] = data.decode("utf-8", errors="replace")
+        return st.configs[rel]
+
     def _parent(self, here, e, depth):
-        if not isinstance(e, str) or not e.startswith(("./", "../")) or depth >= MAX_EXTENDS:
-            return ALL_UNKNOWN  # an installed base config, or too deep: its settings are not read
-        segs = _norm(here + e.split("/"))
+        if not isinstance(e, str) or depth >= MAX_EXTENDS:
+            return ALL_UNKNOWN
+        if e.startswith(("./", "../")):
+            segs = _norm(here + e.split("/"))
+        else:  # a package: followed only when it is one of this repo's own workspace packages
+            parts = e.split("/")
+            n = 2 if e.startswith("@") else 1
+            home = next((list(d) for d, man in self.state.manifests.items() if man.get("name") == "/".join(parts[:n])), None)
+            if home is None:
+                return ALL_UNKNOWN  # an installed base config: its settings are not read
+            segs = _norm(home + (parts[n:] or ["tsconfig.json"]))
         if segs is None:
             return ALL_UNKNOWN
         rel = "/".join(segs)
-        for cand in (rel, rel + ".json"):
+        for cand in (rel, rel + ".json", rel + "/tsconfig.json"):
             if cand in self.state.known:
                 return self._load(cand, depth + 1)
         return ALL_UNKNOWN
@@ -1763,9 +1829,10 @@ class _Resolver:
     def _pick(self, cands):
         """{the one file this run read}, UNKNOWN for several or for a file it saw but did not read, else None."""
         hits = {c for c in cands if c in self.state.scanned}
-        if len(hits) == 1:
+        unread = any(c in self.state.known and c not in self.state.scanned for c in cands)
+        if len(hits) == 1 and not unread:
             return hits
-        if hits or any(c in self.state.known for c in cands):
+        if hits or unread:
             return UNKNOWN
         return None
 
@@ -1863,6 +1930,30 @@ class _Resolver:
         return groups[0]
 
 
+def _import_tails(imp):
+    """The names an import this run could not place might point to: its last path part (or the folder before
+    index), without a code extension. "*" for a path in backticks, which could be anything."""
+    if imp[0] == "js":
+        segs = [x for x in imp[1].split("?")[0].split("/") if x]
+        if not segs:
+            return {"*"}
+        stem, ext = os.path.splitext(segs[-1])
+        name = stem if ext in RESOLVE_EXTS else segs[-1]
+        return {segs[-2] if name == "index" and len(segs) > 1 else name}
+    if imp[0] == "py":
+        return set((imp[2].split(".")[-1:] if imp[2] else [])) | set(imp[3])
+    return {"*"}
+
+
+def _handler_names(rel):
+    parts = rel.split("/")
+    stem = os.path.splitext(parts[-1])[0]
+    names = {stem}
+    if stem in ("index", "__init__") and len(parts) > 1:
+        names.add(parts[-2])
+    return names
+
+
 def _closure(start, depth, res, cap):
     """Files reached from start by imports, up to depth levels. Complete is False when an import could not be
     placed, the timer ran out, or a level or the file cap stopped the walk with files still to read."""
@@ -1898,8 +1989,14 @@ def _signature(rel, state, res, importers):
     seen, complete = _closure(rel, MAX_HOOK_DEPTH, res, MAX_HOOK_FILES)
     if seen & sure:
         return "found"
-    imap, whole = importers()
+    imap, whole, tails = importers()
     complete = complete and whole
+    # A file that imports something this run could not place may be the one that mounts the handler.
+    could = {f for n in _handler_names(rel) for f in tails.get(n, ())}
+    if _file_route(rel.split("/")) is None:
+        could |= tails.get("*", set())
+    if could - {rel}:
+        complete = False
     ups, frontier = set(), [rel]
     for _ in range(MAX_HOOK_DEPTH):
         nxt = []
@@ -1964,16 +2061,19 @@ def pay_findings(state):
     reverse = []
 
     def importers():
-        """(file -> files importing it, True when every file's imports were placed before the timer ran out)."""
+        """(file -> files importing it, True when the timer did not cut the map short, last part of an unplaced
+        import -> files with one)."""
         if not reverse:
-            rev, whole = {}, True
+            rev, whole, tails = {}, True, {}
             for f in sorted(state.imports):
                 if _late(state):
                     whole = False
                     break
                 for t in res.edges(f)[0]:
                     rev.setdefault(t, set()).add(f)
-            reverse.append((rev, whole))
+                for n in res.unplaced.get(f, ()):
+                    tails.setdefault(n, set()).add(f)
+            reverse.append((rev, whole, tails))
         return reverse[0]
 
     writers, hooks, client = [], [], []
@@ -2202,6 +2302,7 @@ def main(argv=None):
         opts = Options(args.max_files, args.max_file_bytes, args.max_total_bytes, args.deadline_s)
         if args.section == "payment":
             state = PayState(opts)
+            state.repo = repo
             walk(repo, state)
             emit(build_payment(state))
             return 0

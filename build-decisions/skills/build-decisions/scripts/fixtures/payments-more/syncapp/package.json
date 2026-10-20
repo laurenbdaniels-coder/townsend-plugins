@@ -1,0 +1,1 @@
+{"name": "paylab-sync", "dependencies": {"@supabase/stripe-sync-engine": "0.39.0"}}

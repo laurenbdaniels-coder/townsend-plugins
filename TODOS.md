@@ -459,6 +459,11 @@ From the 0.6.0 build (S-040, 2026-10-19). Each makes a verdict "not determined" 
 - **Settings from an installed base config** (`"extends": "expo/tsconfig.base"`) make `paths`/`baseUrl` unknown, so alias imports in such apps are "not determined". A list of known base configs that set neither would restore the verdict. P3.
 - **A check in a file that imports the handler never counts** (Express middleware mounted before the router reads "not determined"). Tying the check to the mounted route would restore "found"; the report prints nothing either way. P3.
 - **The 0.6.0 eval reports are not in the corpus yet;** add them in the next PR, as with 0.5.0. P3.
+- **A Web Crypto check spread over a helper** (`hmacHex()` returns hex, compared a few lines later) is not counted as a check; with the signature handed to the helper it is "not determined", otherwise main and 0.6.0 both say no check found. P3.
+- **Route loaders that build paths at run time** (`require(path.join(__dirname, 'routes', f))`) are not seen as imports, so a check in the loader is not linked to the route (main has this too). P3.
+- **A deeply nested `package.json` crashes every section** (`ArchState.on_meta` catches only ValueError; main has this too). Catch RecursionError there as in `_jsonc`. P2.
+- **A huge `paths` map** costs time per import; the post-walk timer bounds it. Cap the number of patterns (e.g. 500, more = unknown) if a real run shows it. P3.
+- **The no-config layout has no differential fixture** (each fixture app has a root tsconfig, so `@/` without settings, now "not determined" where main guessed, is only in the unit tests). Add a third small app if the change needs watching. P3.
 
 From the 0.4.0 review (2026-10-16), below the ship bar:
 - **Two apps on different Supabase projects are linked** because both use the Supabase package (the plan's linking rule). The project URL is in env files the helper never opens. P3.

@@ -293,6 +293,11 @@ _PAY_CHANGED = (
      "main lent a check in a file importing the handler to it; which route it guards is not determined"),
     ("server2/routes/webhook.js", 6, "found", "unresolved",
      "main lent the sibling refunds route's check to the webhook route"),
+    # fixtures/payments-more: 0.6.0 review round 1
+    ("aliasmount/src/routes/webhook.js", 4, "found", "unresolved",
+     "main guessed the module-alias import; a mount this run cannot place may be the one that checks"),
+    ("syncapp/supabase/functions/stripe-sync/index.ts", 4, "not-found", "unresolved",
+     "main called it missing although the signature is handed to a package that checks it"),
 )
 PAY_RECALL_EXCEPTIONS = [{"key": ["webhook", p, n, old], "reason": _R2 + why} for p, n, old, _, why in _PAY_CHANGED]
 PAY_NEW_ALARM_EXCEPTIONS = [{"key": ["webhook", p, n, new], "reason": _R2 + why} for p, n, _, new, why in _PAY_CHANGED] + [
@@ -305,10 +310,12 @@ class PaymentSectionTests(unittest.TestCase):
     """The payment section is new in 0.5.0: gated by seeded positives and labeled negatives on
     fixtures/payments, and by main vs branch once main ships the section."""
 
+    SECTION = "payment"
+
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.mkdtemp(prefix="census-pay-")
-        cls.expected = load_expected()["sections"]["payment"]
+        cls.expected = load_expected()["sections"][cls.SECTION]
         cls.repo = os.path.join(cls.tmp, cls.expected["app"])
         shutil.copytree(os.path.join(FIXTURES, cls.expected["app"]), cls.repo)
         cls.result = scan(SCRIPT, cls.repo, "--section", "payment")
@@ -357,6 +364,11 @@ class PaymentSectionTests(unittest.TestCase):
         self.assertEqual(lost, [], "main lists these and the branch does not: %r" % lost)
         new = sorted(self.listed - main_listed - {tuple(e["key"]) for e in PAY_NEW_ALARM_EXCEPTIONS})
         self.assertEqual(new, [], "the branch lists these and main does not (add each with a reason): %r" % new)
+
+
+class PaymentMoreSectionTests(PaymentSectionTests):
+    """The same gates on fixtures/payments-more (kept apart so each app stays under the 25-per-list output cap)."""
+    SECTION = "payment_more"
 
 
 class PayExceptionTests(unittest.TestCase):

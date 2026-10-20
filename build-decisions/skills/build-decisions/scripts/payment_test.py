@@ -414,6 +414,12 @@ HOOK_BODY = (
     "}\n")
 VERIFY_LIB = ("import Stripe from 'stripe'\nconst stripe = new Stripe(k)\n"
               "export function verify(body, sig) {\n  return stripe.webhooks.constructEvent(body, sig, s)\n}\n")
+PLAIN_BODY = (
+    "export async function POST(req) {\n"
+    "  const event = await req.json()\n"
+    "  if (event.type === 'invoice.paid') {}\n"
+    "  return new Response('ok')\n"
+    "}\n")
 TSCONFIG_ROOT = json.dumps({"compilerOptions": {"baseUrl": ".", "paths": {"@/*": ["./*"], "@lib/*": ["lib/*"]}}})
 
 
@@ -507,7 +513,10 @@ class ResolveTests(PayCase):
         fails_when=a followed alias makes every handler unresolved;
         no_claim=the target is the file the alias names, by the same rule as above."""
         self.w("tsconfig.json", TSCONFIG_ROOT)
-        self.assertEqual(self.hook_with("import { db } from '@/lib/db'", {"lib/db.ts": "export const db = 1\n"}), "not-found")
+        self.w("package.json", NEXT_PKG)
+        self.w("lib/db.ts", "export const db = 1\n")
+        self.w("app/api/stripe/route.ts", "import { db } from '@/lib/db'\n" + PLAIN_BODY)
+        self.assertEqual(self.hooks(self.pay())["app/api/stripe/route.ts"], "not-found")
 
     def test_js_extension_maps_to_ts(self):
         """protects=`./verify.js` written for a .ts file (ESM style) is followed;
@@ -534,8 +543,10 @@ class ResolveTests(PayCase):
         """protects=imports of installed packages and node built-ins do not make a plain handler unresolved;
         fails_when=a handler importing only 'stripe', 'next/server' and 'crypto' reads anything but not-found;
         no_claim=a package from the repo's own workspaces is treated as unresolved."""
-        self.assertEqual(self.hook_with("import Stripe from 'stripe'\nimport { NextResponse } from 'next/server'\n"
-                                        "import crypto from 'node:crypto'\nimport { join } from 'path'", {}), "not-found")
+        self.w("package.json", NEXT_PKG)
+        self.w("app/api/stripe/route.ts", "import Stripe from 'stripe'\nimport { NextResponse } from 'next/server'\n"
+               "import crypto from 'node:crypto'\nimport { join } from 'path'\n" + PLAIN_BODY)
+        self.assertEqual(self.hooks(self.pay())["app/api/stripe/route.ts"], "not-found")
 
     def test_unknown_package_is_unresolved(self):
         """protects=a bare import that is neither a listed package nor a file this run can place is not ignored;
@@ -682,8 +693,10 @@ class Round2Tests(PayCase):
         """protects=a stylesheet or JSON import does not make a plain handler unresolved;
         fails_when=it reads anything but not-found;
         no_claim=the asset list is fixed."""
-        self.assertEqual(self.hook_with("import '../../../styles/x.css'\nimport plans from '../../../data/plans.json'",
-                                        {"data/plans.json": "{}\n"}), "not-found")
+        self.w("package.json", NEXT_PKG)
+        self.w("data/plans.json", "{}\n")
+        self.w("app/api/stripe/route.ts", "import '../../../styles/x.css'\nimport plans from '../../../data/plans.json'\n" + PLAIN_BODY)
+        self.assertEqual(self.hooks(self.pay())["app/api/stripe/route.ts"], "not-found")
 
     def test_two_candidate_files_is_unresolved(self):
         """protects=when an import could name two files this run read, the verdict is not guessed;
@@ -855,6 +868,172 @@ class Round2Tests(PayCase):
         self.assertEqual(self.hooks(self.pay()), {"svc/main.py": "unresolved"})
 
 
+class Round2FixTests(PayCase):
+    """0.6.0 review round 1 (2026-10-20): each case was reproduced on main and the branch."""
+
+    def one(self, body, pkg=NEXT_PKG):
+        self.w("package.json", pkg)
+        self.w("app/api/stripe/route.ts", body)
+        return self.hooks(self.pay())["app/api/stripe/route.ts"]
+
+    def mounted(self, mount_import, extra=None):
+        self.w("package.json", json.dumps({"name": "api", "dependencies": {"express": "4.19.2", "stripe": "16.0.0"}}))
+        for rel, text in (extra or {}).items():
+            self.w(rel, text)
+        self.w("src/middleware/verify.js", "const stripe = require('stripe')(k);\nmodule.exports = (req, res, next) => {\n"
+               "  req.event = stripe.webhooks.constructEvent(req.body, req.headers['stripe-signature'], s); next();\n};\n")
+        self.w("src/app.js", "const express = require('express');\nconst verifyStripe = require('./middleware/verify');\n"
+               + mount_import + "\nconst app = express();\napp.use('/webhook', verifyStripe, webhook);\napp.listen(3000);\n")
+        self.w("src/routes/webhook.js", "const router = require('express').Router();\nrouter.post('/', (req, res) => {\n"
+               "  if (req.event.type === 'checkout.session.completed') {}\n  res.json({ ok: true });\n});\nmodule.exports = router;\n")
+        return self.hooks(self.pay())["src/routes/webhook.js"]
+
+    def test_unplaced_alias_import_of_the_handler_is_unresolved(self):
+        """protects=a file that mounts the handler through an alias this run cannot place still counts as a possible
+        importer, so a checked Express webhook is never printed as missing (Codex + Claude adversarial, round 1);
+        fails_when=it reads not-found;
+        no_claim=only an unplaced import whose last part names the handler's file or folder counts."""
+        self.assertEqual(self.mounted("const webhook = require('@/routes/webhook');"), "unresolved")
+
+    def test_subpath_import_of_the_handler_is_unresolved(self):
+        """protects=Node '#' subpath imports are unplaced, and so a possible importer;
+        fails_when=it reads not-found;
+        no_claim=package.json imports are not read."""
+        self.assertEqual(self.mounted("const webhook = require('#src/routes/webhook');"), "unresolved")
+
+    def test_unplaced_import_of_another_name_keeps_not_found(self):
+        """protects=an unplaced import that cannot name the handler does not hide a real alarm;
+        fails_when=a handler with no importer reads unresolved because some other file imports '@/lib/other';
+        no_claim=names are compared by their last path part."""
+        self.w("lib/other.ts", "import { x } from '@/lib/other2'\nexport const y = x\n")
+        self.assertEqual(self.one(PLAIN_BODY), "not-found")
+
+    def test_hmac_for_dedup_is_not_a_check(self):
+        """protects=an HMAC compared with a stored value (dedup) does not hide an unchecked handler (Codex, round 1);
+        fails_when=it reads found;
+        no_claim=the compared value must come from the request's headers."""
+        self.assertEqual(self.one(
+            "import { createHmac } from 'crypto'\nexport async function POST(req) {\n  const event = await req.json()\n"
+            "  const key = createHmac('sha256', k).update(event.id).digest('hex')\n"
+            "  if (key === (await kv.get('last'))) return new Response('dup')\n"
+            "  if (event.type === 'checkout.session.completed') {}\n  return new Response('ok')\n}\n"), "not-found")
+
+    def test_hmac_used_for_a_lookup_is_not_a_check(self):
+        """protects=an HMAC passed to a query's .match() is not a check (testing specialist, round 1);
+        fails_when=it reads found;
+        no_claim=as above."""
+        self.assertEqual(self.one(
+            "import { createHmac } from 'crypto'\nexport async function POST(req) {\n  const event = await req.json()\n"
+            "  const h = createHmac('sha256', k).update(event.data.object.customer_email).digest('hex')\n"
+            "  await db.from('profiles').select('id').match({ email_hash: h })\n  if (event.type === 'invoice.paid') {}\n}\n"),
+            "not-found")
+
+    def test_hmac_and_an_unrelated_equality_on_one_line_is_not_a_check(self):
+        """protects=`const d = createHmac(...); if (event.type === 'x')` is not a compare of the HMAC (Codex, round 1);
+        fails_when=it reads found;
+        no_claim=as above."""
+        self.assertEqual(self.one(
+            "import { createHmac } from 'crypto'\nexport async function POST(req) {\n  const event = await req.json()\n"
+            "  const d = createHmac('sha256', k).update(event.id).digest('hex'); if (event.type === 'invoice.paid') {}\n}\n"),
+            "not-found")
+        self.assertEqual(self.one(
+            "import { createHmac } from 'crypto'\nexport async function POST(req) {\n  const event = await req.json()\n"
+            "  const d = createHmac('sha256', k).update(event.id).digest('hex'); if (req.headers.get('x-mode') === 'test') {}\n"
+            "  if (event.type === 'invoice.paid') {}\n}\n"), "not-found")
+
+    def test_deeply_nested_config_is_unknown_not_a_crash(self):
+        """protects=a tsconfig nested thousands of levels deep never crashes the payment run (security, round 1);
+        fails_when=ok is false;
+        no_claim=the config is treated as unreadable."""
+        self.w("tsconfig.json", "[" * 20000 + "]" * 20000)
+        self.w("package.json", NEXT_PKG)
+        self.w("app/api/stripe/route.ts", "import { db } from '@/lib/db'\n" + PLAIN_BODY)
+        result = self.pay()
+        self.assertTrue(result["ok"])
+        self.assertEqual(self.hooks(result), {"app/api/stripe/route.ts": "unresolved"})
+
+    def test_extends_a_workspace_package_keeps_not_found(self):
+        """protects=a turbo monorepo whose tsconfig extends the repo's own config package still finds an unchecked
+        handler (testing specialist, round 1);
+        fails_when=it reads unresolved;
+        no_claim=only packages whose package.json sits in this repo are followed."""
+        self.w("package.json", json.dumps({"name": "turbo", "workspaces": ["apps/*", "packages/*"]}))
+        self.w("packages/typescript-config/package.json", json.dumps({"name": "@repo/typescript-config"}))
+        self.w("packages/typescript-config/nextjs.json", json.dumps({"compilerOptions": {"jsx": "preserve"}}))
+        self.w("apps/web/package.json", json.dumps({"name": "web", "dependencies": {"next": "15.0.0"},
+                                                    "devDependencies": {"@repo/typescript-config": "workspace:*"}}))
+        self.w("apps/web/tsconfig.json", json.dumps({"extends": "@repo/typescript-config/nextjs.json",
+                                                     "compilerOptions": {"paths": {"@/*": ["./src/*"]}}}))
+        self.w("apps/web/src/lib/db.ts", "export const db = 1\n")
+        self.w("apps/web/src/app/api/stripe/route.ts", "import { db } from '@/lib/db'\n" + PLAIN_BODY)
+        self.assertEqual(self.hooks(self.pay())["apps/web/src/app/api/stripe/route.ts"], "not-found")
+
+    def test_signature_word_in_a_trailing_comment_keeps_not_found(self):
+        """protects=`// TODO: verify signature later` does not hide the typical unchecked handler (Claude adversarial, round 1);
+        fails_when=it reads unresolved;
+        no_claim=only a check call in a comment cut after code makes the file not determined."""
+        self.assertEqual(self.one(
+            "export async function POST(req) {\n  const sig = req.headers.get('stripe-signature') // TODO: verify signature later\n"
+            "  const event = await req.json() // assign the design\n  if (event.type === 'invoice.paid') {}\n}\n"), "not-found")
+
+    def test_signature_passed_to_a_package_is_unresolved(self):
+        """protects=a handler that hands the signature to a package that checks it (stripe-sync-engine) is never printed
+        as missing (Claude adversarial, round 1);
+        fails_when=it reads not-found;
+        no_claim=any call that receives the signature, other than reading the header, makes the file not determined."""
+        self.assertEqual(self.one(
+            "import { StripeSync } from '@supabase/stripe-sync-engine'\nconst sync = new StripeSync(cfg)\n"
+            "export async function POST(req) {\n  const sig = req.headers.get('stripe-signature')\n"
+            "  await sync.processWebhook(await req.text(), sig)\n  if (e.type === 'invoice.paid') {}\n}\n",
+            pkg=json.dumps({"name": "web", "dependencies": {"next": "15.0.0", "@supabase/stripe-sync-engine": "0.39.0"}})),
+            "unresolved")
+
+    def test_a_read_candidate_beside_an_unread_one_is_unresolved(self):
+        """protects=`./verify` with verify.ts read and an oversized verify.js not read is not certain (Codex P2, round 1);
+        fails_when=it reads not-found;
+        no_claim=which one a bundler would pick is not modelled."""
+        self.w("package.json", NEXT_PKG)
+        self.w("lib/verify.ts", "export const verify = 1\n")
+        self.w("lib/verify.js", "// " + "x" * 2000000 + "\n")
+        self.w("app/api/stripe/route.ts", "import { verify } from '../../../lib/verify'\n" + PLAIN_BODY)
+        self.assertEqual(self.hooks(self.pay())["app/api/stripe/route.ts"], "unresolved")
+
+    def test_config_edge_cases_never_give_a_new_not_found(self):
+        """protects=each unusual config shape ends in found or unresolved, never a guessed not-found (testing, round 1);
+        fails_when=any row reads not-found;
+        no_claim=one row per shape."""
+        rows = {
+            "extends-list": {"tsconfig.json": json.dumps({"extends": ["./a.json", "./b.json"]}),
+                             "a.json": json.dumps({"compilerOptions": {"paths": {"@/*": ["./nope/*"]}}}),
+                             "b.json": json.dumps({"compilerOptions": {"paths": {"@/*": ["./lib/*"]}}})},
+            "extends-loop": {"tsconfig.json": json.dumps({"extends": "./a.json"}),
+                             "a.json": json.dumps({"extends": "./tsconfig.json"})},
+            "bad-baseurl": {"tsconfig.json": json.dumps({"compilerOptions": {"baseUrl": 5}})},
+            "bad-paths": {"tsconfig.json": json.dumps({"compilerOptions": {"paths": {"@/*": "lib/*"}}})},
+        }
+        for name, files in rows.items():
+            with self.subTest(name):
+                shutil.rmtree(self.repo)
+                os.makedirs(self.repo)
+                self.w("package.json", NEXT_PKG)
+                for rel, text in files.items():
+                    self.w(rel, text)
+                self.w("lib/stripe.ts", VERIFY_LIB)
+                self.w("app/api/stripe/route.ts", "import { verify } from '@/stripe'\n" + PLAIN_BODY)
+                self.assertIn(self.hooks(self.pay())["app/api/stripe/route.ts"], ("found", "unresolved"))
+
+    def test_exact_paths_pattern_beats_a_wildcard(self):
+        """protects=an exact paths entry wins over `*`, as in TypeScript;
+        fails_when=the wildcard target (no check) is followed and it reads not-found;
+        no_claim=as above."""
+        self.w("tsconfig.json", json.dumps({"compilerOptions": {"paths": {"*": ["./other/*"], "billing": ["./lib/stripe"]}}}))
+        self.w("other/billing.ts", "export const verify = 1\n")
+        self.w("lib/stripe.ts", VERIFY_LIB)
+        self.w("package.json", NEXT_PKG)
+        self.w("app/api/stripe/route.ts", "import { verify } from 'billing'\n" + PLAIN_BODY)
+        self.assertEqual(self.hooks(self.pay())["app/api/stripe/route.ts"], "found")
+
+
 class LateTests(PayCase):
     """The short budget after the walk running out part-way never leaves a not-found behind."""
 
@@ -862,9 +1041,11 @@ class LateTests(PayCase):
         import contextlib
         import io
         real = cs._late
+        fired = []
 
         def fake(state):
             if sys._getframe(1).f_code.co_name == late_in:
+                fired.append(late_in)
                 state.reason("deadline_hit")
                 return True
             return real(state)
@@ -878,6 +1059,7 @@ class LateTests(PayCase):
         finally:
             os.chdir(cwd)
             cs._late = real
+        self.assertTrue(fired, "the timer was never asked in %s" % late_in)
         return json.loads(out.getvalue().strip().split("\n")[0])
 
     def test_late_while_mapping_importers_is_unresolved(self):
@@ -898,6 +1080,15 @@ class LateTests(PayCase):
         self.w("lib/a.ts", "export const a = 1\n")
         self.w("app/api/stripe/route.ts", "import { a } from '../../../lib/a'\n" + HOOK_BODY)
         self.assertEqual(self.hooks(self.in_process("_closure")), {"app/api/stripe/route.ts": "unresolved"})
+
+    def test_late_while_placing_imports_is_unresolved(self):
+        """protects=edges() stops placing imports when the timer runs out and never yields not-found;
+        fails_when=edges ignores _late;
+        no_claim=as above."""
+        self.w("package.json", NEXT_PKG)
+        self.w("lib/a.ts", "export const a = 1\n")
+        self.w("app/api/stripe/route.ts", "import { a } from '../../../lib/a'\n" + PLAIN_BODY)
+        self.assertEqual(self.hooks(self.in_process("edges")), {"app/api/stripe/route.ts": "unresolved"})
 
 
 class EntryPointTests(PayCase):
