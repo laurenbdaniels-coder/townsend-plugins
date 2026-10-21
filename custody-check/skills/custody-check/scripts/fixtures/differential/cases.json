@@ -1,6 +1,6 @@
 {
- "baseline": "custody-check 0.3.3 (main 6890302)",
- "baseline_sha": "6890302af323bf369250d6675a5f87c6655b24bb",
+ "baseline": "custody-check 0.5.1 (main a828b60)",
+ "baseline_sha": "a828b6073f9b05bd53c3c70536a06486e2225fa1",
  "cases": [
   {
    "files": {
@@ -2647,6 +2647,248 @@
    "main_partial": false,
    "main_pii": [],
    "name": "rls words inside a comment string"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/migrations/20261010000000_a.sql": "create table public.notes (id int);\ncreate table public.tasks (id int);\ndo $$\ndeclare t text;\nbegin\n  foreach t in array array['notes','tasks']\n  loop\n    execute format('alter table public.%I enable row level security', t);\n    execute format('alter table public.%I force row level security', t);\n  end loop;\nend $$;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "rls loop credited"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/migrations/20261010000000_a.sql": "create table public.notes (id int);\ncreate table public.tasks (id int);\ndo $$\ndeclare t text;\nbegin\n  foreach t in array array['notes',\n   'tasks']\n  loop\n    execute format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);\n    execute format('alter table public.%I force row level security', t);\n  end loop;\nend $$;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "rls loop credited across lines without schema"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/migrations/20261010000000_a.sql": "create table public.notes (id int);\ncreate table public.tasks (id int);\n",
+    "supabase/migrations/20261017000000_b.sql": "do $$\ndeclare t text;\nbegin\n  foreach t in array array['notes','tasks']\n  loop\n    execute format('alter table public.%I enable row level security', t);\n    execute format('alter table public.%I force row level security', t);\n  end loop;\nend $$;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "rls loop credited after an earlier create"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/migrations/20261010000000_a.sql": "create table public.notes (id int);\ncreate table public.tasks (id int);\ndo $$\ndeclare t text;\nbegin\n  foreach t in array array['notes']\n  loop\n    execute format('alter table public.%I enable row level security', t);\n    execute format('alter table public.%I force row level security', t);\n  end loop;\nend $$;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "rls loop missing a table"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/migrations/20261010000000_a.sql": "create table public.notes (id int);\ncreate table public.tasks (id int);\ndo $$\ndeclare t text;\nbegin\n  foreach t in array array['notes','tasks']\n  loop\n    execute format('alter table public.%I enable row level security', 'notes');\n    execute format('alter table public.%I force row level security', t);\n  end loop;\nend $$;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "rls loop arg not the loop variable"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/migrations/20261010000000_a.sql": "create table public.notes (id int);\ncreate table public.tasks (id int);\ndo $$\ndeclare t text;\nbegin\n  foreach t in array array['notes','tasks']\n  loop\n    execute format('alter table %I.%I enable row level security', 'public', t);\n    execute format('alter table public.%I force row level security', t);\n  end loop;\nend $$;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "rls loop two placeholders"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/migrations/20261010000000_a.sql": "create table public.notes (id int);\ncreate table public.tasks (id int);\ndo $$\ndeclare t text;\nbegin\n  foreach t in array array['notes','tasks']\n  loop\n    execute 'alter table public.' || quote_ident(t) || ' enable row level security';\n    execute format('alter table public.%I force row level security', t);\n  end loop;\nend $$;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "rls loop quote_ident concatenation"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/migrations/20261010000000_a.sql": "create table public.notes (id int);\ncreate table public.tasks (id int);\ndo $$\ndeclare t text;\nbegin\n  foreach t in array names\n  loop\n    execute format('alter table public.%I enable row level security', t);\n    execute format('alter table public.%I force row level security', t);\n  end loop;\nend $$;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "rls loop array from a variable"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/migrations/20261010000000_a.sql": "create table public.notes (id int);\ncreate table public.tasks (id int);\ndo $$\ndeclare t text;\nbegin\n  foreach t in array (select array_agg(tablename) from pg_tables)\n  loop\n    execute format('alter table public.%I enable row level security', t);\n    execute format('alter table public.%I force row level security', t);\n  end loop;\nend $$;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "rls loop array from a query"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/migrations/20261010000000_a.sql": "create table public.notes (id int);\ncreate table public.tasks (id int);\ndo $$\ndeclare t text;\nbegin\n  foreach t in array array['Notes','Tasks']\n  loop\n    execute format('alter table public.%I enable row level security', t);\n    execute format('alter table public.%I force row level security', t);\n  end loop;\nend $$;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "rls loop mixed-case names"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/migrations/20261010000000_a.sql": "create table public.notes (id int);\ncreate table public.tasks (id int);\ncreate function f() returns void language plpgsql as $$\ndeclare t text;\nbegin\n  foreach t in array array['notes','tasks']\n  loop\n    execute format('alter table public.%I enable row level security', t);\n    execute format('alter table public.%I force row level security', t);\n  end loop;\nend $$;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "rls loop in a function body"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/migrations/20261010000000_a.sql": "create table public.notes (id int);\ncreate table public.tasks (id int);\ncomment on table public.notes is 'do $$\ndeclare t text;\nbegin\n  foreach t in array array[''notes'',''tasks'']\n  loop\n    execute format(''alter table public.%I enable row level security'', t);\n    execute format(''alter table public.%I force row level security'', t);\n  end loop;\nend $$;\n';\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "rls loop inside a string"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/migrations/20261010000000_a.sql": "create table public.notes (id int);\ncreate table public.tasks (id int);\ndo $$\ndeclare t text;\nbegin\n  foreach t in array array['notes','tasks']\n  loop\n    execute format('alter table public.%I enable row level security; select 1', t);\n    execute format('alter table public.%I force row level security', t);\n  end loop;\nend $$;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "rls loop format is not only the enable"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/migrations/20261010000000_a.sql": "create table public.notes (id int);\ncreate table public.tasks (id int);\ndo $$\ndeclare t text;\nbegin\n  foreach t in array array['notes','tasks']\n  loop\n    execute format('alter table public.%I enable row level security', t);\n    execute format('alter table public.%I force row level security', t);\n  end loop;\nend $$;\n",
+    "supabase/migrations/20261017000000_b.sql": "alter table public.notes disable row level security;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "no",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "rls loop then a later disable"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/migrations/20261010000000_a.sql": "create table public.notes (id int);\ncreate table public.tasks (id int);\ndo $$\ndeclare t text;\nbegin\n  foreach t in array array['notes','tasks']\n  loop\n    execute format('alter table public.%I enable row level security', t);\n    execute format('alter table public.%I force row level security', t);\n  end loop;\nend $$;\n",
+    "supabase/migrations/20261017000000_b.sql": "drop table public.notes;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "rls loop then a later drop"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/migrations/20261010000000_a.sql": "create table public.notes (id int);\ncreate table public.tasks (id int);\ndo $$\ndeclare t text;\nbegin\n  foreach t in array array['notes','tasks']\n  loop\n    execute format('alter table public.%I enable row level security', t);\n    execute format('alter table public.%I force row level security', t);\n  end loop;\nend $$;\n",
+    "supabase/migrations/20261017000000_b.sql": "create table public.notes (id int);\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "rls loop then a later create"
+  },
+  {
+   "files": {
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "supabase/migrations/20261010000000_a.sql": "create table public.t0 (id int);\ncreate table public.t1 (id int);\ncreate table public.t2 (id int);\ncreate table public.t3 (id int);\ncreate table public.t4 (id int);\ncreate table public.t5 (id int);\ncreate table public.t6 (id int);\ncreate table public.t7 (id int);\ndo $$\ndeclare t text;\nbegin\n  foreach t in array array['t0','t1','t2']\n  loop\n    execute format('alter table public.%I enable row level security', t);\n    execute format('alter table public.%I force row level security', t);\n  end loop;\nend $$;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "rls loop past the five-table cap"
   }
  ]
 }

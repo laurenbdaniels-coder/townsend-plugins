@@ -10,7 +10,9 @@ Run it from the folder that CONTAINS the app:  python3 -I custody_scan.py --repo
 
 0.3.3 is 0.3.2 plus an overlay. 0.3.2's scanner (custody_scan_0_3_2.py, a byte-for-byte copy of the release,
 checked against RELEASE_SHA256) runs first and alone; the overlay's checks run after it and can only make an
-answer more cautious:
+answer more cautious, with one exception (S-044, 0.6.0): a finished overlay drops 0.3.2's `table-without-rls`
+evidence rows for tables a DO-block loop turns RLS on for (`_credit_loop_tables`), shows the tables past 0.3.2's
+cap of five in their place, and only then lets Q3 reach what 0.3.2 itself would say without those rows:
 
     --repo ──► load_release (sha-pinned, never via sys.path, no .pyc)
                  │
@@ -194,6 +196,17 @@ ENABLE_RLS_RE = re.compile(r"\balter\s+table\s+(?:if\s+exists\s+)?(?:only\s+)?" 
 MAX_DROP_LIST_CHARS = 20000
 DROP_TABLE_RE = re.compile(r"\bdrop\s+table\s+(?:if\s+exists\s+)?([^;]{1,%d})" % MAX_DROP_LIST_CHARS, re.I)
 DROP_ITEM_RE = re.compile(r"\s{0,20}" + _SQL_TABLE)
+DISABLE_RLS_NAMED_RE = re.compile(r"\balter\s+table\s+(?:if\s+exists\s+)?(?:only\s+)?" + _SQL_TABLE + r"\s+disable\s+row\s+level\s+security", re.I)
+# S-044: `foreach t in array array['a','b'] loop execute format('alter table %I enable row level security', t); end loop;`
+# inside a DO block. Matched on the `code` copy (strings blanked), so a loop inside a string or a function body never counts.
+LOOP_HEAD_RE = re.compile(r"\bforeach\s{1,20}([A-Za-z_][A-Za-z0-9_]{0,62})\s{1,20}in\s{1,20}array\s{1,20}array\s{0,20}\[([^\]]{0,4000})\]\s{0,20}loop\b", re.I)
+LOOP_END_RE = re.compile(r"\bend\s{1,20}loop\b", re.I)
+LOOP_EXECUTE_FORMAT_RE = re.compile(r"\bexecute\s{1,20}format\s{0,20}\(", re.I)  # the format string is blanked in `code`: read it from `text`
+SPACES_RE = re.compile(r"\s{0,20}")
+LOOP_FORMAT_ARG_RE = re.compile(r"\s{0,20},\s{0,20}([A-Za-z_][A-Za-z0-9_]{0,62})\s{0,20}\)")
+LOOP_ENABLE_FORMAT_RE = re.compile(r"\s*alter\s+table\s+(?:if\s+exists\s+)?(?:only\s+)?(?:public\s*\.\s*)?%I\s+enable\s+row\s+level\s+security\s*;?\s*", re.I)
+LOOP_ARRAY_ITEM_RE = re.compile(r"\s*'([a-z_][a-z0-9_]{0,62})'\s*")  # %I keeps case, so only lower-case names fold to the same table
+MAX_LOOP_EVENTS = 2000
 CREATE_VIEW_RE = re.compile(r"\bcreate\s+(?:or\s+replace\s+)?(?:recursive\s+)?(materialized\s+)?view\s+(?:if\s+not\s+exists\s+)?" + _SQL_TABLE + r"([^;]{0,400})", re.I)
 # whichever comes first, as Postgres reads it: a dollar tag may use any letter and has no length limit, and a `$`
 # right after a name character is part of that name (`a$b$c`, `x$e'…'` is a name then a plain string). A `$` right
@@ -243,6 +256,20 @@ class Overlay(object):
         self.status = "finished"
         self.stopped_by = None  # "clock" (between files), "tick" (inside a file) or "caps" (where 0.3.2 hit a cap), for the tests
         self.named = {}  # rows per name-only check: five name the files, the gap counts every one
+        # S-044 DO-loop RLS credit: events in migration order, resolved after the walk (overlay_pass)
+        self.loop_events = []  # (path, offset, table) a loop turns RLS on for
+        self.table_events = []  # (kind, path, offset, table or None): create, drop, disable; None = any table
+        self.loop_overflow = False
+        self.loop_credited = set()
+        self.release_open_tables = []  # [(table, path, line)] 0.3.2 would flag, minus credited, in its order and cap
+        self.release_q3_clean = False  # 0.3.2's own Nothing found conditions held, apart from its table rows
+        self.release_q3_rows = None  # (nothing-found row, summary row) as 0.3.2 writes them
+
+    def table_event(self, kind, path, offset, name):
+        if len(self.table_events) >= MAX_LOOP_EVENTS:
+            self.loop_overflow = True
+            return
+        self.table_events.append((kind, path, offset, name))
 
     @property
     def finished(self):
@@ -501,6 +528,65 @@ def _caution(check):
     return "open-rule-unconfirmed" if release.CHECKS.get(check, ("", ""))[1] == "no" else check
 
 
+def _loop_credits(sf, ov, text, code):
+    """S-044: record each table a DO-block loop turns RLS on for (see LOOP_HEAD_RE). Only the exact shape counts:
+    array literals of plain lower-case names, and `execute format('alter table [public.]%I enable row level
+    security', <the loop variable>)` inside the loop. Credit is decided later, in migration order."""
+    for m in LOOP_HEAD_RE.finditer(code):
+        ov.tick()
+        var = m.group(1).lower()
+        names = []
+        for item in text[m.start(2):m.end(2)].split(","):
+            t = LOOP_ARRAY_ITEM_RE.fullmatch(item)
+            if t:
+                names.append(t.group(1))
+        end = LOOP_END_RE.search(code, m.end())
+        if not names or not end:
+            continue
+        enables = False
+        for e in LOOP_EXECUTE_FORMAT_RE.finditer(code, m.end(), end.start()):
+            start = SPACES_RE.match(text, e.end()).end()
+            if text[start:start + 1] != "'":
+                continue  # a plain '…' string only: no E'…', no $tag$, no variable
+            body = SQL_PLAIN_BODY_RE.match(text, start + 1)
+            if not body or body.end() > end.start():
+                continue
+            fmt = text[start + 1:body.end() - 1].replace("''", "'")
+            arg = LOOP_FORMAT_ARG_RE.match(code, body.end())
+            if arg and arg.group(1).lower() == var and LOOP_ENABLE_FORMAT_RE.fullmatch(fmt):
+                enables = True
+        if not enables:
+            continue
+        for name in names:
+            if len(ov.loop_events) >= MAX_LOOP_EVENTS:
+                ov.loop_overflow = True
+                return
+            ov.loop_events.append((sf.rel, m.start(), name))
+
+
+def _resolve_loop_credits(ov):
+    """A loop's credit holds unless the same table (or any table, for an unnamed statement) is disabled or dropped
+    anywhere else or later in the same file, or created again later in migration order (files by name)."""
+    if ov.loop_overflow:
+        return set()
+    credited = set()
+    for path, offset, name in ov.loop_events:
+        here = (path, offset)
+        ok = True
+        for kind, epath, eoffset, ename in ov.table_events:
+            if ename is not None and ename != name:
+                continue
+            if kind == "create":
+                ok = (epath, eoffset) < here
+            else:
+                ok = epath == path and eoffset < offset
+            if not ok:
+                break
+        if ok:
+            credited.add(name)
+    return credited
+
+
 def detect_sql(sf, ov, rel_state):
     counter = {}
     text, code, bare, unclosed = _lex_sql(sf.text, tick=ov.tick)
@@ -510,8 +596,10 @@ def detect_sql(sf, ov, rel_state):
         ov.gap("rules-not-read-whole", sf.rel, 0, "a quote or $tag$ that never closes")
     low = bare.translate(ASCII_LOWER)
     closes, budget = None, {"left": len(text) + MAX_PREDICATE_CHARS}
+    named_disables = dict((m.end(), release._public_table(m.group(1))) for m in DISABLE_RLS_NAMED_RE.finditer(text))
     for m in RLS_DISABLED_RE.finditer(text):
         ov.tick()
+        ov.table_event("disable", sf.rel, m.start(), named_disables.get(m.end()))  # unnamed (`%I`, a string) = any table
         check = "open-rule-unconfirmed" if _in_code(m, bare) else "open-rule-in-string"
         if release._cap(counter, check):
             ov.add(check, sf.rel, release.line_of(text, m.start()), SNIPPET_LABELS["rls-disabled" if check != "open-rule-in-string" else "rule-in-string"], source="sql")
@@ -545,6 +633,8 @@ def detect_sql(sf, ov, rel_state):
         line += text.count("\n", pos, m.start())
         pos = m.start()
         name = release._public_table(m.group(1))
+        if name:
+            ov.table_event("create", sf.rel, m.start(), name)
         if name and code[m.start():m.end()] == m.group(0) and len(ov.code_tables) < release.MAX_SEEN:
             ov.code_tables.add(name)
         if name and name not in rel_state.tables and name not in ov.tables and len(ov.tables) < release.MAX_SEEN:
@@ -578,6 +668,7 @@ def detect_sql(sf, ov, rel_state):
             ov.tick()
             t = DROP_ITEM_RE.match(part)
             name = release._public_table(t.group(1)) if t else None
+            ov.table_event("drop", sf.rel, m.start(), name)  # a list it cannot name drops "any table"
             # a table dropped and made again loses its RLS; unless this file turns it back on afterwards, migration
             # order across files decides, and the scanner does not replay migrations
             if name and enabled_at.get(name, -1) < m.start():
@@ -586,6 +677,7 @@ def detect_sql(sf, ov, rel_state):
                 else:
                     for q in OVERLAY_CHECKS["table-dropped"]:
                         ov.gaps[q] += 1  # named five times per file; every one still keeps Q3 off Nothing found
+    _loop_credits(sf, ov, text, code)
     counter_views = {}
     for m in CREATE_VIEW_RE.finditer(text):
         ov.tick()
@@ -1009,13 +1101,20 @@ def overlay_walk(repo, opts, ov, rel_state, caps, clock, end):
 def overlay_pass(repo, opts, ov, rel_state, result, clock, end):
     caps = bool(result.get("partial")) or result["stats"].get("max_files_hit") or result["stats"].get("max_total_bytes_hit")
     overlay_walk(repo, opts, ov, rel_state, caps, clock, end)
+    ov.loop_credited = _resolve_loop_credits(ov) & (set(ov.tables) | set(rel_state.tables))
+    open_release = sorted(set(rel_state.tables) - rel_state.rls_enabled - ov.loop_credited)
+    ov.release_open_tables = [(n,) + tuple(rel_state.tables[n]) for n in open_release[:release.MAX_TABLE_WITHOUT_RLS_ROWS]]
+    ov.release_q3_clean = not caps and bool(rel_state.rule_files) and not rel_state.gaps["q3"]
+    ov.release_q3_rows = (
+        release._row("nothing-found-rules", "%s read: no RLS disabled, no using (true) policy, no if-true Firebase rule" % release._n(rel_state.rule_files, "rule file")),
+        release._summary_row(rel_state.files_scanned, "" if rel_state.rule_files else "; no SQL or security-rules file among them"))
     counter = {}
-    for name in sorted(set(ov.tables) - set(rel_state.tables) - rel_state.rls_enabled - ov.rls_enabled):
+    for name in sorted(set(ov.tables) - set(rel_state.tables) - rel_state.rls_enabled - ov.rls_enabled - ov.loop_credited):
         if release._cap(counter, "table-without-rls"):
             path, line = ov.tables[name]
             ov.add("table-without-rls", path, line, _name("table", name in ov.code_tables), source="sql")
     # text inside a string or comment never turns RLS on: a table 0.3.2 credited from such an enable alone
-    for name in sorted(set(rel_state.tables) & rel_state.rls_enabled - ov.rls_enabled):
+    for name in sorted(set(rel_state.tables) & rel_state.rls_enabled - ov.rls_enabled - ov.loop_credited):
         if release._cap(counter, "table-without-rls"):
             path, line = rel_state.tables[name]
             ov.add("table-without-rls", path, line, _name("table", name in ov.code_tables), source="sql")
@@ -1052,11 +1151,11 @@ class _Plan(object):
     """One question's merged state: 0.3.2's rows (after the nothing-found row is gone), the overlay's rows after
     them, and the answer. 0.3.2's Q1 evidence-only rows are withheld only
     while overlay No rows are shown in their place (_shown_base), so a No the size loop trims gives its row back."""
-    __slots__ = ("base_answer", "answer", "base_rows", "ov_rows", "unfinished_row", "extra")
+    __slots__ = ("base_answer", "answer", "base_rows", "ov_rows", "unfinished_row", "extra", "rows_changed")
 
 
 def _changed(p):
-    return p.answer != p.base_answer or bool(p.ov_rows) or p.unfinished_row is not None
+    return p.answer != p.base_answer or bool(p.ov_rows) or p.unfinished_row is not None or p.rows_changed
 
 
 def _shown_base(p):
@@ -1094,10 +1193,14 @@ def _plans(result, ov):
         rows.sort(key=lambda r: 0 if r["_no"] else 1)
         want = "no" if any(r["_no"] for r in rows) else ("dont-know" if rows or ov.gaps[q] or not ov.finished else "nothing-found")
         p = _Plan()
-        p.base_answer, p.extra = qd["answer"], 0
-        p.answer = want if RANK[want] > RANK[qd["answer"]] else qd["answer"]
-        if p.answer != p.base_answer and p.base_answer == "nothing-found":
+        p.base_answer, p.extra, p.rows_changed = qd["answer"], 0, False
+        base = qd["answer"]
+        if q == "q3" and ov.finished and ov.loop_credited:
+            base, base_rows, p.rows_changed = _credit_loop_tables(ov, base, base_rows)
+        p.answer = want if RANK[want] > RANK[base] else base
+        if p.answer != base and base == "nothing-found":
             base_rows = [r for r in base_rows if not r["check"].startswith("nothing-found-")]
+            p.rows_changed = True
         p.base_rows = base_rows
         p.unfinished_row = _unfinished_row(ov.status) if not ov.finished and p.base_answer == "nothing-found" else None
         # Nos first: each takes one evidence-only 0.3.2 slot when Q1 is full; cautions only take free slots
@@ -1107,6 +1210,28 @@ def _plans(result, ov):
         p.ov_rows = nos + [r for r in rows if not r["_no"]][:max(0, free - len(nos))]
         plans[q] = p
     return plans
+
+
+def _credit_loop_tables(ov, answer, rows):
+    """S-044, the one place the overlay removes a 0.3.2 row: 0.3.2's `table-without-rls` rows for tables a DO-block
+    loop turned RLS on for go; tables past 0.3.2's cap of five take their places, in 0.3.2's order. The answer
+    moves only when 0.3.2's Don't know rested on those rows alone, and then only to what 0.3.2 itself would say."""
+    credited = set(release.sanitize(n) for n in ov.loop_credited)
+    kept = [r for r in rows if not (r["check"] == "table-without-rls" and r["snippet"] in credited)]
+    if len(kept) == len(rows):
+        return answer, rows, False
+    shown = set(r["snippet"] for r in kept if r["check"] == "table-without-rls")
+    n_tables = len(shown)
+    for name, path, line in ov.release_open_tables:
+        if n_tables >= release.MAX_TABLE_WITHOUT_RLS_ROWS or len(kept) >= release.MAX_EVIDENCE:
+            break
+        if release.sanitize(name) not in shown:
+            kept.append({"path": release.sanitize_path(path), "line": int(line), "snippet": release.sanitize(name), "check": "table-without-rls"})
+            n_tables += 1
+    if answer == "dont-know" and not kept:
+        found, summary = ov.release_q3_rows
+        return ("nothing-found", [found], True) if ov.release_q3_clean else ("dont-know", [summary], True)
+    return answer, kept, True
 
 
 def _assemble(result, plans):
@@ -1209,7 +1334,8 @@ def fallback(result, status):
 
 def merge(result, ov):
     """0.3.2's result (deep-copied) and the overlay's findings -> the 0.3.3 result. Answers only move toward
-    caution; 0.3.2's rows stay first; partial, stats and every other question are 0.3.2's."""
+    caution, except the S-044 DO-loop credit on Q3 (`_credit_loop_tables`); 0.3.2's rows stay first; partial,
+    stats and every other question are 0.3.2's."""
     for q in QS:
         for r in ov.rows[q]:
             if r["check"] not in OVERLAY_CHECKS and r["check"] not in release.CHECKS:

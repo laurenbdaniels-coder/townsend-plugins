@@ -5894,7 +5894,11 @@ class NeverWorseThanMainTests(unittest.TestCase):
             "{PEM}": "-----BEGIN " + "PRIVATE KEY-----\\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\\n-----END " + "PRIVATE KEY-----\\n",
             "{PEM_BODY}": "-----BEGIN " + "PRIVATE KEY-----\n" + "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7" * 3 + "\n-----END " + "PRIVATE KEY-----\n"}
     # (case, question) -> (the answer allowed, why the baseline's more cautious answer was wrong)
-    ALLOW_SOFTER = {}
+    ALLOW_SOFTER = {
+        ('rls loop credited', "q3"): ("nothing-found", "0.3.2 cannot read a DO-block loop of execute format('alter table %I enable row level security', t): RLS is on for each named table (S-044)"),
+        ('rls loop credited across lines without schema', "q3"): ("nothing-found", "0.3.2 cannot read a DO-block loop of execute format('alter table %I enable row level security', t): RLS is on for each named table (S-044)"),
+        ('rls loop credited after an earlier create', "q3"): ("nothing-found", "0.3.2 cannot read a DO-block loop of execute format('alter table %I enable row level security', t): RLS is on for each named table (S-044)"),
+    }
     # (case, question) -> why a No the baseline did not give is right
     ALLOW_NEW_NO = {}
 
@@ -6295,6 +6299,7 @@ class OverlayContractTests(ScanCase):
                 root = tempfile.mkdtemp(prefix="custody overlay on ", dir=self.tmp)
                 _materialize(root, c)
                 got = cs.scan(root, **c.get("args", {}))
+                credited = set(cs.scan_with_overlay.last.loop_credited)
                 want = cs.release.scan(root, **c.get("args", {}))
                 for key in ("partial", "files_scanned", "stats", "warnings", "git", "ok"):
                     self.assertEqual(got[key], want[key], key)
@@ -6303,8 +6308,12 @@ class OverlayContractTests(ScanCase):
                 self.assertLessEqual(_json_bytes(got), cs.release.MAX_OUTPUT_BYTES)
                 for q in self.QS:
                     g, w = got["questions"][q], want["questions"][q]
-                    self.assertGreaterEqual(cs.RANK[g["answer"]], cs.RANK[w["answer"]], q)
-                    kept = [r for r in w["evidence"] if not (r["check"].startswith("nothing-found-") and g["answer"] != w["answer"])]
+                    # S-044, the one exception: a table a DO-block loop turns RLS on for loses its 0.3.2 row, and
+                    # Q3 may then fall to what 0.3.2 would say without it (listed in ALLOW_SOFTER per case)
+                    loop_rows = [r for r in w["evidence"] if q == "q3" and r["check"] == "table-without-rls" and r["snippet"] in credited]
+                    if not loop_rows:
+                        self.assertGreaterEqual(cs.RANK[g["answer"]], cs.RANK[w["answer"]], q)
+                    kept = [r for r in w["evidence"] if r not in loop_rows and not (r["check"].startswith("nothing-found-") and g["answer"] != w["answer"])]
                     it = iter(g["evidence"])
                     missing = [r for r in kept if not any(r == x for x in it)]
                     if q == "q1" and g["answer"] == "no" and w["answer"] != "no":
@@ -7231,6 +7240,162 @@ class OverlayContractTests(ScanCase):
         _, code, _, _ = cs._lex_sql("select 1; /* a /* b */ c */ select 2;\n")
         self.assertIn("select 2", code, "control: a closed nest ends where Postgres ends it")
         self.assertNotIn(" c ", code)
+
+
+
+class DoLoopRlsCreditTests(ScanCase):
+    """S-044: a DO block that turns row level security on in a `foreach … in array array[…] loop` with
+    `execute format('alter table %I enable row level security', <loop variable>)` credits each table named as a
+    literal in the array. Anything else stays uncredited, so the alarm stays (never kinder than 0.3.2 by guess)."""
+
+    def q3_of(self, files):
+        if os.path.isdir(self.repo):
+            shutil.rmtree(self.repo)
+        os.makedirs(self.repo)
+        for rel, body in files.items():
+            self.write(rel, body)
+        return self.scan()["questions"]["q3"]
+
+    TABLES = "create table public.notes (id int);\ncreate table public.tasks (id int);\n"
+
+    @staticmethod
+    def loop(names="'notes','tasks'", fmt="'alter table public.%I enable row level security'", arg="t", head="do $$", tail="end $$;"):
+        return ("%s\ndeclare t text;\nbegin\n  foreach t in array array[%s]\n  loop\n    execute format(%s, %s);\n"
+                "    execute format('alter table public.%%I force row level security', t);\n  end loop;\n%s\n" % (head, names, fmt, arg, tail))
+
+    def tables_flagged(self, q3):
+        return [r for r in q3["evidence"] if r["check"] == "table-without-rls"]
+
+    def test_the_loop_form_is_credited(self):
+        q3 = self.q3_of({"supabase/migrations/1_init.sql": self.TABLES + self.loop()})
+        self.assertEqual(self.tables_flagged(q3), [])
+        self.assertEqual(q3["answer"], "nothing-found")
+
+    def test_credit_works_across_lines_and_without_the_schema(self):
+        body = self.TABLES + self.loop(names="'notes',\n                 'tasks'", fmt="'ALTER TABLE %I ENABLE ROW LEVEL SECURITY'")
+        self.assertEqual(self.q3_of({"supabase/migrations/1.sql": body})["answer"], "nothing-found")
+
+    def test_a_table_missing_from_the_array_is_still_flagged(self):
+        q3 = self.q3_of({"supabase/migrations/1.sql": self.TABLES + self.loop(names="'notes'")})
+        self.assertEqual([r["snippet"] for r in self.tables_flagged(q3)], ["tasks"])
+        self.assertEqual(q3["answer"], "dont-know")
+
+    def test_shapes_that_are_not_credited(self):
+        cases = {
+            "format arg is not the loop variable": self.loop(arg="'notes'"),
+            "two placeholders": self.loop(fmt="'alter table %I.%I enable row level security'", arg="'public', t"),
+            "quote_ident concatenation": self.loop().replace("execute format('alter table public.%I enable row level security', t)",
+                                                             "execute 'alter table public.' || quote_ident(t) || ' enable row level security'"),
+            "array from a variable": self.loop(names="").replace("array array[]", "array names"),
+            "array from a query": self.loop(names="").replace("array array[]", "array (select array_agg(tablename) from pg_tables)"),
+            "mixed-case name folds differently under %I": self.loop(names="'Notes','Tasks'"),
+            "a function body is a string": self.loop(head="create function f() returns void language plpgsql as $$", tail="end $$;"),
+            "the whole loop inside a string": "comment on table public.notes is '" + self.loop().replace("'", "''") + "';\n",
+            "enable is not the statement": self.loop(fmt="'alter table public.%I enable row level security; select 1'"),
+        }
+        for why, body in cases.items():
+            with self.subTest(why=why):
+                q3 = self.q3_of({"supabase/migrations/1.sql": self.TABLES + body})
+                self.assertNotEqual(q3["answer"], "nothing-found", why)
+                self.assertTrue(self.tables_flagged(q3), why)
+
+    def test_later_disable_drop_or_recreate_removes_the_credit(self):
+        later = {
+            "disable later": "alter table public.notes disable row level security;\n",
+            "drop later": "drop table public.notes;\n",
+            "recreate later": "drop table if exists public.notes;\ncreate table public.notes (id int);\n",
+        }
+        for why, stmt in later.items():
+            with self.subTest(why=why):
+                q3 = self.q3_of({"supabase/migrations/1.sql": self.TABLES + self.loop(),
+                                 "supabase/migrations/2.sql": stmt})
+                self.assertNotEqual(q3["answer"], "nothing-found", why)
+        q3 = self.q3_of({"supabase/migrations/1.sql": self.TABLES + self.loop(),
+                         "supabase/migrations/2.sql": "create table public.notes (id int);\n"})
+        self.assertNotEqual(q3["answer"], "nothing-found", "a create after the loop is a new table")
+
+    def test_a_create_in_an_earlier_migration_is_fine(self):
+        q3 = self.q3_of({"supabase/migrations/1.sql": self.TABLES, "supabase/migrations/2.sql": self.loop()})
+        self.assertEqual(q3["answer"], "nothing-found")
+
+    def test_tables_past_the_five_row_cap_come_back(self):
+        names = ["t%d" % i for i in range(8)]
+        body = "".join("create table public.%s (id int);\n" % n for n in names) + self.loop(names="'t0','t1','t2'")
+        q3 = self.q3_of({"supabase/migrations/1.sql": body})
+        self.assertEqual([r["snippet"] for r in self.tables_flagged(q3)], ["t3", "t4", "t5", "t6", "t7"])
+        self.assertEqual(q3["answer"], "dont-know")
+
+    def credited(self, files, **kw):
+        self.q3_of(files) if not kw else None
+        return set(cs.scan_with_overlay.last.loop_credited)
+
+    def test_credit_is_per_table_and_order_decides(self):
+        base = {"supabase/migrations/1.sql": self.TABLES + self.loop()}
+        self.assertEqual(self.credited(base), {"notes", "tasks"})
+        for why, stmt in (("disable in another file", "alter table public.notes disable row level security;\n"),
+                          ("drop in another file", "drop table public.notes;\n"),
+                          ("disable in an earlier file", "alter table public.notes disable row level security;\n")):
+            with self.subTest(why=why):
+                path = "supabase/migrations/0.sql" if "earlier" in why else "supabase/migrations/2.sql"
+                self.assertEqual(self.credited(dict(base, **{path: stmt})), {"tasks"}, why)
+        self.assertEqual(self.credited({"supabase/migrations/1.sql": self.TABLES + self.loop() + "alter table public.%s disable row level security;\n" % "tasks"}), {"notes"})
+        self.assertEqual(self.credited({"supabase/migrations/1.sql": self.TABLES + "alter table public.tasks disable row level security;\n" + self.loop()}), {"notes", "tasks"},
+                         "a disable before the loop in the same file is undone by it")
+        self.assertEqual(self.credited({"supabase/migrations/1.sql": self.TABLES + self.loop(fmt="'alter table %I disable row level security'") + self.loop()}), {"notes", "tasks"},
+                         "an unnamed disable before the loop is undone by it")
+        self.assertEqual(self.credited({"supabase/migrations/1.sql": self.TABLES + self.loop() + self.loop(fmt="'alter table %I disable row level security'")}), set(),
+                         "an unnamed disable after the loop may be any table")
+
+    def test_the_format_argument_must_be_the_loop_variable(self):
+        self.assertEqual(self.credited({"supabase/migrations/1.sql": self.TABLES + self.loop(arg="other")}), set())
+
+    def test_quoted_mixed_case_names_are_not_credited(self):
+        # %I would quote 'Notes' to "Notes", which is right for a quoted table, but the scanner keeps to lower case
+        body = 'create table public."Notes" (id int);\n' + self.loop(names="'Notes'")
+        self.assertEqual(self.credited({"supabase/migrations/1.sql": body}), set())
+
+    def test_too_many_statements_credit_nothing(self):
+        with mock.patch.object(cs, "MAX_LOOP_EVENTS", 1):
+            self.assertEqual(self.credited({"supabase/migrations/1.sql": self.TABLES + self.loop()}), set())
+
+    def test_a_partial_scan_never_reaches_nothing_found(self):
+        files = {"supabase/migrations/1.sql": self.TABLES + self.loop()}
+        files.update(("src/f%d.ts" % i, "export const x%d = %d;\n" % (i, i)) for i in range(6))
+        self.q3_of(files)
+        q3 = self.scan(max_files=3)["questions"]["q3"]
+        self.assertNotEqual(q3["answer"], "nothing-found")
+
+    def test_release_clean_needs_its_own_conditions(self):
+        ov = cs.Overlay(0)
+        ov.loop_credited = {"notes"}
+        ov.release_q3_clean = False
+        ov.release_q3_rows = ({"path": "", "line": 0, "snippet": "found", "check": "nothing-found-rules"},
+                              {"path": "", "line": 0, "snippet": "summary", "check": "scan-summary"})
+        rows = [{"path": "a.sql", "line": 1, "snippet": "notes", "check": "table-without-rls"}]
+        self.assertEqual(cs._credit_loop_tables(ov, "dont-know", rows), ("dont-know", [ov.release_q3_rows[1]], True))
+        ov.release_q3_clean = True
+        self.assertEqual(cs._credit_loop_tables(ov, "dont-know", rows), ("nothing-found", [ov.release_q3_rows[0]], True))
+        self.assertEqual(cs._credit_loop_tables(ov, "no", rows)[0], "no", "a No never moves")
+
+    def test_without_the_overlay_the_release_alarm_stays(self):
+        os.environ["CUSTODY_CHECK_OVERLAY"] = "0"
+        try:
+            q3 = self.q3_of({"supabase/migrations/1.sql": self.TABLES + self.loop()})
+        finally:
+            del os.environ["CUSTODY_CHECK_OVERLAY"]
+        self.assertEqual(len(self.tables_flagged(q3)), 2)
+        self.assertEqual(q3["answer"], "dont-know")
+
+    def test_an_unfinished_overlay_keeps_the_alarm(self):
+        ov = cs.Overlay(0)
+        ov.status = "unfinished"
+        ov.loop_credited = {"notes", "tasks"}
+        self.q3_of({"supabase/migrations/1.sql": self.TABLES + self.loop()})
+        state = cs.release.ScanState()
+        cs.release.run_scan(self.repo, state, cs.release.Options())
+        result = cs.release.build_result(state, self.repo)
+        out = cs.merge(result, ov)
+        self.assertEqual(len(self.tables_flagged(out["questions"]["q3"])), 2)
 
 
 if __name__ == "__main__":
