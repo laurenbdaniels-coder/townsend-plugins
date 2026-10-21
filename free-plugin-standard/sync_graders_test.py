@@ -327,20 +327,30 @@ ALLOWED = {
 }
 KINDS = ('alarm', 'looser')
 
-# A check a release adds (or a fixed line it rewords), named by grader: (plugin, grader name) ->
-# (since_version, reason). Saved reports printed by an older version could not carry the new line, so
-# the branch failing that check on them is expected and is not a new alarm. On reports at or after
-# since_version the check counts as usual, and an entry never excuses a looser check. An entry is
-# stale only when it excuses nothing (no older saved report fails its check on the branch) or its
-# grader is gone from the branch; once the release merges, older reports still fail the check, so
-# the entry stays needed and main stays green (S-039). One line per check, not one per report.
+# A check a release adds (or a fixed line it rewords), one line per check in one case:
+# (plugin, case, grader name) -> (since_version, reason). Saved reports from an older version could not
+# carry the new line, so the branch failing exactly that check (same pattern, flags and match) on them
+# is not a new alarm. Reports at or after since_version count as usual, and an entry never excuses a
+# looser check or any other check. Each entry must hold all of these, or the test fails:
+#   - well formed: a reason, and since_version a dotted number;
+#   - proven: at least one saved report in that case at or after since_version passes the check, so a
+#     broken check (or a mistyped, too-high version) cannot hide behind the entry;
+#   - needed: at least one older saved report in that case fails the check. Once the release merges,
+#     those reports still fail it, so the entry stays needed and main stays green (S-039);
+#   - resolved: the case on the branch has a regex grader with that name.
 NEW_GRADERS = {}
+NEW_GRADER_PROBLEMS = ('malformed', 'unproven', 'not needed')
 
 
 def _version(v):
-    """'0.10.0' -> (0, 10, 0); None when it is not a dotted number."""
-    parts = str(v).split('.')
-    return tuple(int(p) for p in parts) if v and all(p.isdigit() for p in parts) else None
+    """'0.10.0' -> (0, 10); trailing zeros dropped so '0.6' == '0.6.0'. None when not a dotted number."""
+    parts = str(v).split('.') if v else []
+    if not parts or not all(p.isdigit() and p.isascii() for p in parts):
+        return None
+    out = [int(p) for p in parts]
+    while len(out) > 1 and out[-1] == 0:
+        out.pop()
+    return tuple(out)
 
 
 def judge(reports_by_plugin, main_checks, branch_checks, allowed, main_prints=None, new_graders=None):
@@ -348,23 +358,21 @@ def judge(reports_by_plugin, main_checks, branch_checks, allowed, main_prints=No
 
     main_checks / branch_checks map (plugin, case) -> [(pattern, flags, match)]; a case missing on
     either side has no baseline and is skipped. main_prints(plugin, text) is the text main's graders
-    score (default: the saved text). new_graders maps (plugin, branch pattern) -> (since_version,
-    reason), resolved from NEW_GRADERS. Each problem is (kind, key, detail) with kind 'looser',
-    'alarm' or 'stale'; key is the ALLOWED key that would excuse it (for 'stale', the entry itself,
-    or ('new_grader', plugin, pattern) for a NEW_GRADERS entry).
+    score (default: the saved text). new_graders maps (plugin, case, (pattern, flags, match)) ->
+    (since_version, reason), resolved from NEW_GRADERS. Each problem is (kind, key, detail) with kind
+    'looser', 'alarm' or 'stale'; key is the ALLOWED key that would excuse it (for 'stale', the entry
+    itself, or ('new_grader', plugin, case, pattern) for a NEW_GRADERS entry).
     """
     new_graders = new_graders or {}
 
     def valid(k):
         return k in allowed and k[3] in KINDS and bool(allowed[k])
 
-    def new_since(plugin, pattern):
-        entry = new_graders.get((plugin, pattern))
-        if not entry or not entry[1]:
-            return None
-        return _version(entry[0])
+    def since_of(key):
+        entry = new_graders[key]
+        return _version(entry[0]) if entry[1] else None
 
-    problems, compared, seen, needed = [], 0, {}, set()
+    problems, compared, seen, needed, proven = [], 0, {}, set(), set()
     for plugin, reports in sorted(reports_by_plugin.items()):
         for r in reports:
             case, text = r['case'], r['text']
@@ -376,25 +384,42 @@ def judge(reports_by_plugin, main_checks, branch_checks, allowed, main_prints=No
             main_failing = {as_renamed(plugin, c) for c in main_checks[(plugin, case)] if _fails(c, main_text)}
             branch_failing = {c for c in branch_checks[(plugin, case)] if _fails(c, as_branch_prints(plugin, text))}
             seen[rkey] = {c[0] for c in branch_failing}
-            older = _version(r.get('version'))
-            excused = set()
-            for c in branch_failing:
-                since = new_since(plugin, c[0])
-                if since is not None and older is not None and older < since:
+            printed = _version(r.get('version'))
+            excused, unbased = set(), set()
+            for key in new_graders:
+                if key[:2] != (plugin, case):
+                    continue
+                since, c = since_of(key), key[2]
+                if since is None or printed is None:
+                    continue
+                if printed < since and c in branch_failing:
                     excused.add(c)
-                    needed.add((plugin, c[0]))
-            for c in sorted(main_failing - branch_failing):
+                    needed.add(key)
+                elif printed >= since:
+                    # main never printed this version, so its (older) wording of this one check is no
+                    # baseline here: a reworded line the new report carries is not "looser".
+                    unbased.add(c)
+                    if c in branch_checks[(plugin, case)] and c not in branch_failing:
+                        proven.add(key)
+            for c in sorted(main_failing - branch_failing - unbased):
                 if not valid(rkey + ('looser', c[0])):
                     problems.append(('looser', rkey + ('looser', c[0]), 'more permissive on %s' % r['version']))
             if not main_failing:
                 for c in sorted(branch_failing - excused):
                     if not valid(rkey + ('alarm', c[0])):
                         problems.append(('alarm', rkey + ('alarm', c[0]), 'new alarm on %s' % r['version']))
-    for plugin, pattern in sorted(new_graders):
-        if (plugin, pattern) not in needed:
-            problems.append(('stale', ('new_grader', plugin, pattern),
-                             'NEW_GRADERS entry excuses nothing (no older report fails it, its grader is '
-                             'gone, or it lacks a version or a reason); drop or fix it'))
+    for key in sorted(new_graders, key=str):
+        name = ('new_grader',) + key[:2] + (key[2][0],)
+        if since_of(key) is None:
+            why = 'malformed: it needs a reason and since_version as a dotted number'
+        elif key not in proven:
+            why = ('unproven: no saved report in this case at or after %s passes the check; add the '
+                   'release\'s eval reports to the corpus' % new_graders[key][0])
+        elif key not in needed:
+            why = 'not needed: no older saved report in this case fails the check; drop the entry'
+        else:
+            continue
+        problems.append(('stale', name, 'NEW_GRADERS entry %s' % why))
     for k in sorted(allowed, key=str):
         branch_fails = seen.get(k[:3])
         if not valid(k):
@@ -430,25 +455,23 @@ def _regex_checks(text):
 
 
 def resolve_new_graders(entries, case_texts):
-    """NEW_GRADERS names graders; return ({(plugin, pattern): entry}, [unresolved (plugin, name)]).
+    """NEW_GRADERS names graders; return ({(plugin, case, check): entry}, [unresolved keys]).
 
-    case_texts maps (plugin, case) -> the branch's case.yaml text. A name resolves to every regex
-    pattern that grader has in that plugin's cases (one per pattern, so a reworded grader keeps its
-    entry on each pattern it uses)."""
+    case_texts maps (plugin, case) -> the branch's case.yaml text. Each (plugin, case, name) resolves
+    to that case's regex grader of that name, as the exact (pattern, flags, match) check judge()
+    compares, so an entry never reaches another grader or another case."""
     import yaml
+    graders = {}
+    for (plugin, case), text in case_texts.items():
+        for g in (yaml.safe_load(text) or {}).get('graders') or []:
+            if g.get('type') == 'regex':
+                graders[(plugin, case, g.get('name'))] = (g['pattern'], g.get('flags', ''), g.get('match', 'contains'))
     out, missing = {}, []
-    for (plugin, name), entry in sorted(entries.items()):
-        patterns = set()
-        for (p, _case), text in case_texts.items():
-            if p != plugin:
-                continue
-            for g in (yaml.safe_load(text) or {}).get('graders') or []:
-                if g.get('type') == 'regex' and g.get('name') == name:
-                    patterns.add(g['pattern'])
-        if not patterns:
-            missing.append((plugin, name))
-        for pattern in sorted(patterns):
-            out[(plugin, pattern)] = entry
+    for key, entry in sorted(entries.items(), key=str):
+        if key in graders:
+            out[key[:2] + (graders[key],)] = entry
+        else:
+            missing.append(key)
     return out, missing
 
 
@@ -657,64 +680,117 @@ class JudgeTest(unittest.TestCase):
         self.assertEqual(_toy('alpha beta', [A], [A, B], {}), set())
 
 
-def _toy_new(text, version, main, branch, new_graders):
-    """judge() on one demo report with NEW_GRADERS entries; returns {(kind, key)}."""
-    reports = {'demo': [{'case': 'c', 'version': version, 'text': text}]}
-    problems, _ = judge(reports, {('demo', 'c'): main}, {('demo', 'c'): branch}, {},
-                        new_graders=new_graders)
+def _toy_new(reports, main, branch, new_graders):
+    """judge() on demo reports [(text, version)] in case 'c', with NEW_GRADERS entries; {(kind, key)}."""
+    reports = {'demo': [{'case': 'c', 'version': v, 'text': t} for t, v in reports]}
+    problems, _ = judge(reports, {('demo', 'c'): main}, {('demo', 'c'): branch}, {}, new_graders=new_graders)
     return {(p[0], p[1]) for p in problems}
 
 
-class NewGradersTest(unittest.TestCase):
-    """NEW_GRADERS: a check added (or reworded) by a release excuses its alarm on saved reports printed by
-    an older version, and only those. Mutating any guard in judge()'s new-grader path fails one of these.
-    protects=a new grader can't hide a real alarm; fails_when=the version, check or staleness guard is
-    removed or inverted; why_new=judge() had only per-report ALLOWED entries; seam=none (judge's own
-    parameter, used by the real test); no_claim=report quality."""
+def _alarm(text, check):
+    return ('alarm', ('demo', 'c', _h(text), 'alarm', check[0]))
 
-    def entry(self, check, since='0.6.0', reason='new check in 0.6.0'):
-        return {('demo', check[0]): (since, reason)}
+
+def _stale(check, case='c'):
+    return ('stale', ('new_grader', 'demo', case, check[0]))
+
+
+class NewGradersTest(unittest.TestCase):
+    """NEW_GRADERS: a check a release adds (or rewords) excuses its alarm on saved reports from older
+    versions, in its own case, and only for that exact check; the entry must be well formed, proven by a
+    passing report at or after its version, and needed. Mutating any guard fails one of these.
+    protects=a new grader can't hide a real alarm or a broken check; fails_when=the version, case,
+    check, proof or staleness guard is removed or inverted; why_new=judge() had only per-report
+    ALLOWED entries; seam=none (judge's own parameter, used by the real test); no_claim=report quality."""
+
+    NEW = 'gamma'                                   # a report from the new version carries the new line
+    G = ('gamma', 'i', 'contains')                  # the new check: fails a report without "gamma"
+
+    def entry(self, check=None, since='0.6.0', reason='new check in 0.6.0', case='c'):
+        return {('demo', case, check or self.G): (since, reason)}
 
     def test_excuses_its_alarm_on_an_older_report(self):
-        self.assertEqual(_toy_new('alpha', '0.5.1', [], [A], self.entry(A)), set())
+        self.assertEqual(_toy_new([('alpha', '0.5.1'), (self.NEW, '0.6.0')], [], [self.G], self.entry()), set())
 
-    def test_does_not_excuse_a_report_at_its_version(self):
-        got = _toy_new('alpha', '0.6.0', [], [A], self.entry(A))
-        self.assertEqual({k for k, _ in got}, {'alarm', 'stale'})
+    def test_counts_a_report_at_or_after_its_version(self):
+        for v in ('0.6.0', '0.6', '0.10.0'):
+            got = _toy_new([('beta', v), (self.NEW, '0.6.0')], [], [self.G], self.entry())
+            self.assertIn(_alarm('beta', self.G), got, v)
 
-    def test_does_not_excuse_a_report_after_its_version(self):
-        self.assertIn('alarm', {k for k, _ in _toy_new('alpha', '0.10.0', [], [A], self.entry(A))})
+    def test_versions_compare_as_numbers_and_ignore_trailing_zeros(self):
+        self.assertEqual(_version('0.10.0'), (0, 10))
+        self.assertEqual(_version('0.6'), _version('0.6.0'))
+        self.assertLess(_version('0.6.0'), _version('0.10.0'))
 
-    def test_versions_compare_as_numbers_not_text(self):
-        # '0.10.0' sorts before '0.6.0' as text; as numbers it is newer, so it is not excused.
-        self.assertIn(('alarm', ('demo', 'c', _h('alpha'), 'alarm', 'alpha')),
-                      _toy_new('alpha', '0.10.0', [], [A], self.entry(A)))
+    def test_report_with_no_usable_version_is_never_excused(self):
+        for v in (None, '', '0.5.0-rc1', 'new', '١.0'):
+            got = _toy_new([('beta', v), (self.NEW, '0.6.0')], [], [self.G], self.entry())
+            self.assertIn(_alarm('beta', self.G), got, v)
 
     def test_excuses_only_its_own_check(self):
-        got = _toy_new('alpha beta', '0.5.0', [], [A, B], self.entry(A))
-        self.assertEqual(got, {('alarm', ('demo', 'c', _h('alpha beta'), 'alarm', 'beta'))})
+        other = ('delta', 'i', 'contains')
+        got = _toy_new([('alpha', '0.5.0'), ('gamma delta', '0.6.0')], [], [self.G, other], self.entry())
+        self.assertEqual(got, {_alarm('alpha', other)})
+
+    def test_same_pattern_with_other_flags_or_match_is_not_excused(self):
+        for twin in (('gamma', '', 'contains'), ('gamma', 'i', 'not_contains')):
+            got = _toy_new([('gamma' if twin[2] == 'not_contains' else 'x', '0.5.0'), ('gamma', '0.6.0')],
+                           [], [twin], self.entry())
+            self.assertIn('alarm', {k for k, _ in got}, twin)
+
+    def test_entry_reaches_only_its_own_case(self):
+        reports = {'demo': [{'case': 'd', 'version': '0.5.0', 'text': 'alpha'},
+                            {'case': 'c', 'version': '0.6.0', 'text': self.NEW},
+                            {'case': 'c', 'version': '0.5.0', 'text': 'alpha'}]}
+        checks = {('demo', 'c'): [self.G], ('demo', 'd'): [self.G]}
+        problems, _ = judge(reports, {('demo', 'c'): [], ('demo', 'd'): []}, checks, {}, new_graders=self.entry())
+        self.assertEqual({p[1][:2] for p in problems if p[0] == 'alarm'}, {('demo', 'd')})
 
     def test_never_excuses_a_looser_check(self):
-        got = _toy_new('alpha', '0.5.0', [A], [], self.entry(A))
-        self.assertIn(('looser', ('demo', 'c', _h('alpha'), 'looser', 'alpha')), got)
+        got = _toy_new([('alpha', '0.5.0'), (self.NEW, '0.6.0')], [self.G], [], self.entry())
+        self.assertIn(('looser', ('demo', 'c', _h('alpha'), 'looser', 'gamma')), got)
+
+    def test_unproven_when_no_newer_report_passes(self):
+        # a broken check (fails every report) or a mistyped, too-high version: nothing newer passes it
+        for reports, entry in (([('alpha', '0.5.0'), ('beta', '0.6.0')], self.entry()),
+                               ([('alpha', '0.5.0'), (self.NEW, '0.6.0')], self.entry(since='0.60.0'))):
+            got = _toy_new(reports, [], [self.G], entry)
+            self.assertIn(_stale(self.G), got)
 
     def test_after_merge_the_entry_is_not_stale(self):
-        # S-039: main gains the same check once this merges; the old report fails on both sides, so
-        # there is no alarm to excuse, and the entry must still count as needed.
-        self.assertEqual(_toy_new('alpha', '0.5.0', [A], [A], self.entry(A)), set())
+        # S-039: main gains the same check once this merges; older reports still fail it on both sides.
+        self.assertEqual(_toy_new([('alpha', '0.5.0'), (self.NEW, '0.6.0')], [self.G], [self.G], self.entry()), set())
 
-    def test_stale_when_no_older_report_fails_its_check(self):
-        got = _toy_new('gamma', '0.5.0', [], [A], self.entry(A))
-        self.assertEqual(got, {('stale', ('new_grader', 'demo', 'alpha'))})
+    def test_not_needed_when_no_older_report_fails(self):
+        got = _toy_new([('gamma old', '0.5.0'), (self.NEW, '0.6.0')], [], [self.G], self.entry())
+        self.assertEqual(got, {_stale(self.G)})
 
-    def test_stale_when_the_check_is_gone_from_the_branch(self):
-        got = _toy_new('alpha', '0.5.0', [], [], self.entry(A))
-        self.assertEqual(got, {('stale', ('new_grader', 'demo', 'alpha'))})
+    def test_malformed_without_a_reason_or_a_version(self):
+        for bad in (self.entry(reason=''), self.entry(since=''), self.entry(since='new')):
+            got = _toy_new([('alpha', '0.5.0'), (self.NEW, '0.6.0')], [], [self.G], bad)
+            self.assertIn(_stale(self.G), got)
+            self.assertIn(_alarm('alpha', self.G), got)
 
-    def test_stale_without_a_reason_or_a_version(self):
-        for bad in (self.entry(A, reason=''), self.entry(A, since=''), self.entry(A, since='new')):
-            self.assertIn(('stale', ('new_grader', 'demo', 'alpha')),
-                          _toy_new('alpha', '0.5.0', [], [A], bad))
+    def test_reworded_line_is_excused_on_older_reports(self):
+        REWORDED['demo'] = (('alpha', 'gamma', 'toy reword'),)
+        try:
+            old = ('alpha', 'i', 'contains')
+            # 0.5.0 printed the old line: main passes, the branch fails the reworded check -> excused
+            self.assertEqual(_toy_new([('alpha', '0.5.0'), (self.NEW, '0.6.0')], [old], [self.G], self.entry()), set())
+        finally:
+            REWORDED.pop('demo', None)
+
+    def test_newer_report_still_catches_another_looser_check(self):
+        # only the entry's own check loses main's baseline on a newer report; any other check main
+        # fails and the branch drops is still looser
+        newer = self.NEW + ' beta'                  # fails B ("beta" present) on main; the branch dropped B
+        got = _toy_new([('alpha', '0.5.0'), (newer, '0.6.0')], [self.G, B], [self.G], self.entry())
+        self.assertIn(('looser', ('demo', 'c', _h(newer), 'looser', 'beta')), got)
+
+    def test_older_report_keeps_mains_baseline_for_the_entry_check(self):
+        # on a report older than the entry, main failing the check and the branch passing it is looser
+        got = _toy_new([('beta', '0.5.0'), (self.NEW, '0.6.0'), ('alpha', '0.5.0')], [self.G], [], self.entry())
+        self.assertIn(('looser', ('demo', 'c', _h('beta'), 'looser', 'gamma')), got)
 
     def test_no_entries_match_the_released_rule(self):
         for version in ('0.1.0', '0.6.0'):
@@ -725,29 +801,33 @@ class NewGradersTest(unittest.TestCase):
 
 
 class ResolveNewGradersTest(unittest.TestCase):
-    """NEW_GRADERS names graders; the real test resolves each name to the branch's pattern(s)."""
+    """NEW_GRADERS names one grader in one case; the real test resolves it to that exact check."""
 
     CASE = ('graders:\n'
-            '  - name: coverage-line\n    type: regex\n    pattern: "Read \\\\d+ code files"\n'
-            '  - name: other\n    type: regex\n    pattern: "x"\n')
+            '  - name: coverage-line\n    type: regex\n    pattern: "Read \\\\d+ code files"\n    flags: i\n'
+            '  - name: twin\n    type: regex\n    pattern: "Read \\\\d+ code files"\n    match: not_contains\n')
 
     def setUp(self):
         try:
             import yaml  # noqa: F401
         except ImportError:
+            if os.environ.get('CI'):
+                raise
             self.skipTest('PyYAML not installed (CI installs it)')
 
-    def test_name_resolves_to_its_pattern(self):
-        got, missing = resolve_new_graders({('p', 'coverage-line'): ('0.6.0', 'why')}, {('p', 'c'): self.CASE})
-        self.assertEqual(got, {('p', r'Read \d+ code files'): ('0.6.0', 'why')})
+    def test_name_resolves_to_its_exact_check_in_its_case(self):
+        got, missing = resolve_new_graders({('p', 'c', 'coverage-line'): ('0.6.0', 'why')},
+                                           {('p', 'c'): self.CASE, ('p', 'd'): self.CASE})
+        self.assertEqual(got, {('p', 'c', (r'Read \d+ code files', 'i', 'contains')): ('0.6.0', 'why')})
         self.assertEqual(missing, [])
 
-    def test_unknown_name_is_reported_missing(self):
-        got, missing = resolve_new_graders({('p', 'nope'): ('0.6.0', 'why')}, {('p', 'c'): self.CASE})
-        self.assertEqual((got, missing), ({}, [('p', 'nope')]))
+    def test_unknown_name_or_case_is_reported_missing(self):
+        for key in (('p', 'c', 'nope'), ('p', 'e', 'coverage-line')):
+            got, missing = resolve_new_graders({key: ('0.6.0', 'why')}, {('p', 'c'): self.CASE})
+            self.assertEqual((got, missing), ({}, [key]))
 
     def test_listed_entries_name_branch_graders(self):
-        """protects=every real NEW_GRADERS entry names a grader the branch has."""
+        """protects=every real NEW_GRADERS entry names a grader the branch has in that case."""
         _, missing = resolve_new_graders(NEW_GRADERS, _branch_case_texts())
         self.assertEqual(missing, [])
 
