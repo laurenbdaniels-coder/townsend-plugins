@@ -8,9 +8,11 @@ on:
 permissions:
   contents: read
 
+# Linux jobs pin ubuntu-24.04: ubuntu-latest moved to 26.04, which has no Python 3.9, the oldest
+# Python the plugins support. Revisit before GitHub retires 24.04.
 jobs:
   custody-check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -96,7 +98,7 @@ jobs:
         run: python -m unittest discover -s custody-check/skills/custody-check/scripts -p "*_test.py"
 
   free-plugin-standard:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -113,7 +115,7 @@ jobs:
         run: python3 -m unittest discover -s free-plugin-standard -p '*_test.py' -v
 
   build-decisions:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
