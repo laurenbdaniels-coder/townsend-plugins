@@ -2,6 +2,15 @@
 
 ## custody-check
 
+### Deferred by the 2026-10-21 /autoplan (readable report + Full read)
+
+**What:** Items the plan review deferred (plan: `~/.claude/plans/crystalline-singing-snail.md`).
+- **Quick/Full question in build-decisions (E3).** Why: its 40-call read has the same coverage gap. Depends on: custody-check 0.7.0 spike numbers. Effort: M (human) / S (CC).
+- **Calibrate the Full-read time and cost estimates (CEO S8).** Why: printed ranges come from 3–5 spike apps. Context: collect 5 real runs after the Oct 26 talk, then tighten the ranges. Effort: S / S.
+- **Per-helper call caps in evals (Eng E-P3-12).** Why: `claude plugin eval` pools main and helper tool calls, so ≤60 calls per helper and slice-only reads are not graded. Start: have helpers echo their slice id and grade per slice if the log allows. Effort: M / S.
+
+**Why:** each is a weakness main shares, an optional surface, or needs data that does not exist yet.
+
 ### Leftovers from the 0.5.0 review (free-plugin standard, 2026-10-18)
 
 **What:** Findings from the 0.5.0 review that missed the ship bar.
