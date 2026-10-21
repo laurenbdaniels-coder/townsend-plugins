@@ -1121,6 +1121,194 @@ def overlay_pass(repo, opts, ov, rel_state, result, clock, end):
     if ov.rule_files == 0 and result["questions"]["q3"]["answer"] == "nothing-found":
         ov.add("no-rule-statements", "", 0, "no SQL file creates a table or policy; no rules file")
 
+# ------------------------------------------------------------------ the code inventory (--inventory, 0.6.0)
+# One JSON line: every code file the agent may Read, with its line count and two marks, server files and
+# handler files first. Paths and counts only, never content. The scan's own output does not change.
+
+INVENTORY_EXTS = {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts", ".vue", ".svelte", ".astro", ".html", ".py", ".rb",
+                  ".go", ".java", ".kt", ".php", ".cs", ".swift", ".dart", ".sql", ".prisma", ".graphql"}  # SKILL.md rule 2's list
+INVENTORY_KEYS = ("ok", "version", "code_files", "files", "truncated")
+INVENTORY_HINT = "Could not list the app's code files. The check still runs; the report says how many files it read."
+SERVER_DIR_SEGMENTS = {"api", "server", "functions", "workers"}  # at any depth: app/api, pages/api, src/app/api, supabase/functions, server
+SUPABASE_FROM_LINES = 8  # a `.from('t')` reaches a write verb this many lines below it (a chain split across lines)
+_WRITE_VERB = r"(?:POST|PUT|PATCH|DELETE)"
+_HTTP_VERB = r"(?:GET|HEAD|OPTIONS|POST|PUT|PATCH|DELETE)"
+_NOT_A_MODEL = r"(?!(?:Object|Array|Promise|Reflect|Map|Set|WeakMap|Date|JSON|Math|Response|Request|URL|Buffer|String|Number|Symbol|Error)\.)"
+# Each pattern reads one line, with bounded repeats only, so a 1 MB line costs one linear pass per pattern.
+HANDLER_LINE_RES = (
+    re.compile(r"\.rpc\(\s{0,5}['\"`]"),  # Supabase
+    re.compile(r"\bprisma\.\w{1,60}\.(?:create|createMany|update|updateMany|upsert|delete|deleteMany)\("),  # Prisma
+    re.compile(r"\b(?:db|tx|trx)\.(?:insert|update|delete)\("),  # Drizzle
+    re.compile(r"\b(?:db|tx)\.\w{1,60}\.(?:insert|insertOne|insertMany|update|updateOne|updateMany|upsert|delete|deleteOne|deleteMany|create)\("),  # db.<table>.
+    re.compile(r"\b" + _NOT_A_MODEL + r"[A-Z]\w{0,60}\.(?:create|insertMany|bulkCreate|updateOne|updateMany|findByIdAndUpdate|findOneAndUpdate"
+               r"|findByIdAndDelete|findOneAndDelete|findByIdAndRemove|deleteOne|deleteMany|destroy|upsert)\("),  # Mongoose, Sequelize
+    re.compile(r"\b(?:knex|db|trx)\(\s{0,5}['\"`][\w.]{1,60}['\"`]\s{0,5}\)\s{0,5}\.(?:insert|update|upsert|del|delete)\("),  # Knex
+    re.compile(r"['\"`]\s{0,5}(?:insert\s{1,5}into|delete\s{1,5}from|update\s{1,5}[\w.\"]{1,60}\s{1,5}set)\b", re.I),  # SQL in a string, sql``
+    re.compile(r"\b(?:setDoc|updateDoc|deleteDoc|addDoc)\("),  # Firebase
+    re.compile(r"\bstripe\.[\w.]{1,60}\.(?:create|update|del)\(|\bstripe\.refunds\."),  # payments
+    re.compile(r"^\s{0,40}export\s{1,5}(?:async\s{1,5})?function\s{1,5}" + _WRITE_VERB + r"\b"),  # Next.js route handlers
+    re.compile(r"^\s{0,40}export\s{1,5}(?:const|let|var)\s{1,5}" + _WRITE_VERB + r"\s{0,5}="),
+    re.compile(r"^\s{0,40}export\s{0,5}\{[^}\n]{0,300}\bas\s{1,5}" + _WRITE_VERB + r"\b"),
+    re.compile(r"\b(?:app|router|server|fastify)\.(?:post|put|patch|delete)\s{0,5}\("),  # Express, Fastify, Hono
+    re.compile(r"^\s{0,40}@[\w.]{1,60}\.(?:post|put|patch|delete)\("),  # FastAPI, Flask
+)
+SERVER_LINE_RES = (
+    re.compile(r"^\s{0,40}['\"]use server['\"]"),  # a server action is both
+    re.compile(r"^\s{0,40}import\b[^\n]{0,200}['\"](?:next/(?:headers|server|cache)|server-only)['\"]"),
+    re.compile(r"^\s{0,40}export\s{1,5}(?:async\s{1,5})?function\s{1,5}" + _HTTP_VERB + r"\b"),
+    re.compile(r"^\s{0,40}export\s{1,5}(?:const|let|var)\s{1,5}" + _HTTP_VERB + r"\s{0,5}="),
+    re.compile(r"^\s{0,40}export\s{0,5}\{[^}\n]{0,300}\bas\s{1,5}" + _HTTP_VERB + r"\b"),
+    re.compile(r"\b(?:app|router|server|fastify)\.(?:get|post|put|patch|delete|all|use)\s{0,5}\("),
+    re.compile(r"^\s{0,40}@[\w.]{1,60}\.(?:get|post|put|patch|delete|route|api_route)\("),
+)
+USE_SERVER_RE = SERVER_LINE_RES[0]
+SUPABASE_FROM_RE = re.compile(r"\.from\(\s{0,5}['\"`]")
+SUPABASE_WRITE_RE = re.compile(r"\.(?:insert|update|upsert|delete)\(")
+
+
+class InventoryTimeout(Exception):
+    """The inventory ran past --deadline-s (the scan's own deadline)."""
+
+
+def _server_path(rel):
+    parts = rel.lower().split("/")
+    return bool(SERVER_DIR_SEGMENTS.intersection(parts[:-1])) or bool(release.SERVER_FILE_RE.search(parts[-1]))
+
+
+def _marks(text, clock, end):
+    """(server, handler) from the text, one line at a time."""
+    server = handler = False
+    from_line = None
+    for i, line in enumerate(text.split("\n")):
+        if i % 1000 == 999 and clock() > end:
+            raise InventoryTimeout()
+        if not handler:
+            if SUPABASE_FROM_RE.search(line):
+                from_line = i
+                handler = bool(SUPABASE_WRITE_RE.search(line, SUPABASE_FROM_RE.search(line).end()))
+            elif from_line is not None and i - from_line <= SUPABASE_FROM_LINES and SUPABASE_WRITE_RE.search(line):
+                handler = True
+            if not handler and any(r.search(line) for r in HANDLER_LINE_RES):
+                handler = True
+        if not server and any(r.search(line) for r in SERVER_LINE_RES):
+            server = True
+        if USE_SERVER_RE.search(line):
+            handler = True
+        if server and handler:
+            break
+    return server, handler
+
+
+def _line_count(data):
+    return data.count(b"\n") + (1 if data and not data.endswith(b"\n") else 0)
+
+
+def _listable(rel):
+    """A path is printed only whole, as the agent can Read it: no control or format characters, not clipped, and no
+    named key or JWT in it (that file is counted, not listed). Long plain names stay listed: the scan's token-run
+    redaction would hide every timestamped migration, and the agent's own file tools show these names anyway."""
+    return (len(rel) <= release.MAX_PATH_CHARS and not release.CONTROL_RE.search(rel) and release._drop_format_chars(rel) == rel
+            and not release.NAMED_KEY_FULL_RE.search(rel) and not any(release.find_jwts(rel))
+            and not release.PRIVATE_KEY_RE.search(rel))
+
+
+def inventory_walk(real_repo, opts, clock, end):
+    """Yield (rel, full) for each code file, with the overlay walk's rules: realpath containment, linked folders
+    and files skipped, never-open folders and files skipped (not even named), EXCLUDED_DIRS plus --exclude-dir,
+    hard links and special files skipped, generated and precompressed files skipped, MAX_DIR_ENTRIES."""
+    for dirpath, dirnames, filenames in os.walk(real_repo, topdown=True, followlinks=False, onerror=lambda e: None):
+        if clock() > end:
+            raise InventoryTimeout()
+        rel_dir = os.path.relpath(dirpath, real_repo).replace(os.sep, "/")
+        rel_dir = "" if rel_dir == "." else rel_dir
+        real_dir = os.path.realpath(dirpath)
+        if real_dir != real_repo and not real_dir.startswith(real_repo + os.sep):
+            dirnames[:] = []
+            continue
+        parent_name = os.path.basename(dirpath)
+        if len(dirnames) + len(filenames) > release.MAX_DIR_ENTRIES:
+            dirnames[:] = sorted(dirnames, key=release._walk_key)[:release.MAX_DIR_ENTRIES]
+            filenames = sorted(filenames)[:max(0, release.MAX_DIR_ENTRIES - len(dirnames))]
+        keep = []
+        for d in sorted(dirnames, key=release._walk_key):
+            low = d.lower()
+            if low in release.EXCLUDED_DIRS or low in opts.excluded or release.is_never_open_dir(d, parent_name):
+                continue
+            try:
+                if os.path.islink(os.path.join(dirpath, d)):
+                    continue
+            except OSError:
+                continue
+            keep.append(d)
+        dirnames[:] = keep
+        for name in sorted(filenames):
+            ext = os.path.splitext(name)[1].lower()
+            if ext not in INVENTORY_EXTS or name == ".git" or release.is_never_open_file(name) or NEVER_OPEN_SECRET_FILE_RE.match(name):
+                continue
+            if release.is_generated(name):
+                continue
+            full = os.path.join(dirpath, name)
+            try:
+                st = os.lstat(full)
+            except OSError:
+                continue
+            if not stat.S_ISREG(st.st_mode) or st.st_nlink > 1:
+                continue
+            yield (rel_dir + "/" + name) if rel_dir else name, full, st.st_size
+
+
+def inventory(repo, opts, clock=time.monotonic):
+    """The --inventory result: code_files counts every code file; files lists [path, lines, server, handler]
+    (lines None when the file was not read: over --max-file-bytes or past the scan's file or byte caps), server
+    or handler files first, then path order, cut from the end to fit MAX_OUTPUT_BYTES (truncated true)."""
+    end = clock() + opts.deadline_s
+    real_repo = os.path.realpath(repo)
+    rows = []
+    count = 0
+    read_files = 0
+    read_bytes = 0
+    for rel, full, size in inventory_walk(real_repo, opts, clock, end):
+        count += 1
+        if not _listable(rel):
+            continue
+        server_path = _server_path(rel)
+        lines, server, handler = None, server_path, False
+        if size <= opts.max_file_bytes and read_files < opts.max_files and read_bytes + size <= opts.max_total_bytes:
+            opened = release.open_regular(full)
+            if opened is not None:
+                fd, real_size = opened
+                try:
+                    data = release.read_bytes(fd, real_size) if real_size <= opts.max_file_bytes else None
+                finally:
+                    os.close(fd)
+                if data is not None:
+                    read_files += 1
+                    read_bytes += len(data)
+                    lines = _line_count(data)
+                    if not rel.lower().endswith(".sql"):  # a migration's insert is not a request handler
+                        s, handler = _marks(data.decode("utf-8", "replace"), clock, end)
+                        server = server or s
+        rows.append([rel, lines, int(server), int(handler)])
+    rows.sort(key=lambda r: (0 if (r[2] or r[3]) else 1, r[0]))
+    out = collections.OrderedDict([("ok", True), ("version", __version__), ("code_files", count), ("files", rows), ("truncated", False)])
+    size = len(inventory_json(out))
+    if size > release.MAX_OUTPUT_BYTES:
+        out["truncated"] = True
+        size += len("true") - len("false")
+        while rows and size > release.MAX_OUTPUT_BYTES:
+            size -= len(json.dumps(rows.pop(), ensure_ascii=True, separators=(",", ":"))) + (1 if rows else 0)
+    return dict(out)
+
+
+def inventory_json(inv):
+    return json.dumps(inv, ensure_ascii=True, separators=(",", ":"))
+
+
+def inventory_envelope(code):
+    if code.split(":", 1)[0] == "inventory-error":
+        return {"ok": False, "error": code, "hint": INVENTORY_HINT, "docs": _DOCS, "partial": True}
+    return release.envelope(code)
+
 # ------------------------------------------------------------------ merge
 
 def _size(result):
@@ -1323,6 +1511,7 @@ def _fit(result, plans):
 def fallback(result, status):
     """0.3.2's result with Q1/Q3/Q9 Nothing found withheld: the overlay's answer when it could not run or merge."""
     out = copy.deepcopy(result)
+    out["stats"]["overlay_fallback"] = status if status in UNFINISHED_SNIPPETS else "error"
     for q in QS:
         qd = out["questions"][q]
         if qd["answer"] == "nothing-found":
@@ -1362,8 +1551,11 @@ def scan_with_overlay(repo, opts, clock=time.monotonic):
     release.run_scan(repo, state, opts)
     result = copy.deepcopy(release.build_result(state, repo))
     result["version"] = __version__
+    result["stats"]["overlay_fallback"] = None  # X5: why the overlay's result was not used; sized in from the start
     if os.environ.get("CUSTODY_CHECK_OVERLAY") == "0":
-        return result, state, "skipped", 0
+        result["stats"]["overlay_fallback"] = "skipped"
+        return _under_cap(result), state, "skipped", 0
+    _under_cap(result)
     now = clock()
     end = overlay_budget_end(started, now, opts)
     ov = Overlay(end)
@@ -1385,8 +1577,15 @@ def scan_with_overlay(repo, opts, clock=time.monotonic):
     except Exception:
         ov.status = "error"
         out = fallback(result, "error")
+    if not ov.finished:
+        out["stats"]["overlay_fallback"] = ov.status  # unfinished or error: no DO-loop credit, some tables may show as open
     scan_with_overlay.last = ov  # for the tests: how the pass ended and what it found
-    return out, state, ov.status, int((clock() - now) * 1000)
+    return _under_cap(out), state, ov.status, int((clock() - now) * 1000)
+
+
+def _under_cap(result):
+    """The X5 stat adds a few bytes to 0.3.2's output; past the cap, 0.3.2's own trim runs (rows go, never a No first)."""
+    return release._fit_output(result) if _size(result) > release.MAX_OUTPUT_BYTES else result
 
 
 def scan(repo, **kwargs):
@@ -1402,11 +1601,13 @@ def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     pretty = "--pretty" in argv
     exit_code = "--exit-code" in argv
+    listing = "--inventory" in argv  # a failed inventory always exits non-zero: the SKILL then takes the degraded line
+    fail = 2 if (exit_code or listing) else 0
     if release is None:
         out = release_envelope(RELEASE_ERROR)
         sys.stdout.write((json.dumps(out, ensure_ascii=True, indent=2) if pretty else json.dumps(out, ensure_ascii=True, separators=(",", ":"))) + "\n")
         sys.stdout.flush()
-        return 2 if exit_code else 0
+        return fail
     r = release
     parser = r._Parser(prog="custody_scan.py", add_help=True, description="Read-only evidence gatherer for the eleven custody questions.")
     parser.add_argument("--repo", help="the app folder (run from the folder that contains it)")
@@ -1419,6 +1620,7 @@ def main(argv=None):
     parser.add_argument("--pretty", action="store_true")
     parser.add_argument("--exit-code", action="store_true")
     parser.add_argument("--version", action="store_true")
+    parser.add_argument("--inventory", action="store_true", help="list the code files instead of scanning")
     started = time.monotonic()
     try:
         args = parser.parse_args(argv)
@@ -1434,26 +1636,42 @@ def main(argv=None):
         raw_repo = os.path.expanduser(args.repo.rstrip("/") or "/")
         if os.path.islink(raw_repo):
             r.emit(r.envelope("repo-is-symlink"), pretty)
-            return 2 if exit_code else 0
+            return fail
         repo = os.path.realpath(raw_repo)
         if not os.path.exists(repo):
             r.emit(r.envelope("repo-not-found"), pretty)
-            return 2 if exit_code else 0
+            return fail
         if not os.path.isdir(repo):
             r.emit(r.envelope("repo-not-a-directory"), pretty)
-            return 2 if exit_code else 0
+            return fail
         if not os.access(repo, os.R_OK | os.X_OK):
             r.emit(r.envelope("repo-unreadable"), pretty)
-            return 2 if exit_code else 0
+            return fail
         try:
             real_cwd = os.path.realpath(os.getcwd())
         except OSError:
             real_cwd = ""
         if real_cwd and real_cwd != repo and real_cwd.startswith(repo + os.sep):
             r.emit(r.envelope("repo-contains-cwd"), pretty)  # `..` from inside the app would walk everything above it
-            return 2 if exit_code else 0
+            return fail
         opts = r.Options(max_files=args.max_files, max_file_bytes=args.max_file_bytes, max_total_bytes=args.max_total_bytes,
                          deadline_s=args.deadline_s, exclude_dirs=args.exclude_dir, browser_prefixes=args.browser_prefix)
+        if args.inventory:
+            try:
+                inv = inventory(repo, opts)
+            except InventoryTimeout:
+                r.emit(inventory_envelope("inventory-error:deadline"), pretty)
+                return fail
+            except (KeyboardInterrupt, SystemExit):
+                raise
+            except Exception as exc:
+                r.emit(inventory_envelope("inventory-error:" + type(exc).__name__), pretty)
+                return fail
+            sys.stdout.write((json.dumps(inv, ensure_ascii=True, indent=2) if pretty else inventory_json(inv)) + "\n")
+            sys.stdout.flush()
+            sys.stderr.write("custody-check v%s: inventory %d code files, %d listed%s, %d ms\n" % (
+                __version__, inv["code_files"], len(inv["files"]), " (truncated)" if inv["truncated"] else "", int((time.monotonic() - started) * 1000)))
+            return 0
         result, state, status, overlay_ms = scan_with_overlay(repo, opts)
         r.emit(result, pretty)
         skipped = sum(state.stats[k] for k in ("files_skipped_oversize", "files_skipped_binary", "files_skipped_generated", "files_never_open", "files_skipped_special"))
@@ -1462,7 +1680,7 @@ def main(argv=None):
         return 3 if (exit_code and result["partial"]) else 0
     except r.UsageError:
         r.emit(r.envelope("usage"), pretty)
-        return 2 if exit_code else 0
+        return fail
     except SystemExit:
         raise
     except Exception as exc:  # last resort: never a traceback, never a path
@@ -1470,7 +1688,7 @@ def main(argv=None):
             r.emit(r.envelope("internal:" + type(exc).__name__), pretty)
         except Exception:
             pass
-        return 2 if exit_code else 0
+        return fail
 
 
 if __name__ == "__main__":
