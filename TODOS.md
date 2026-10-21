@@ -495,6 +495,21 @@ From the v0.1.0 review (2026-10-15). None met the ship bar; each is a one-line f
 
 ## free-plugin-standard
 
+### Leftovers from the NEW_GRADERS review (free-plugin-standard, 2026-10-21)
+
+**What:** Findings from the review of PR "NEW_GRADERS" that missed the ship bar (each needs a future entry or only affects messages).
+- A release that rewords a line AND loosens it is not caught on its own newer reports (`unbased` drops main's old-wording baseline for that check). Main could not judge new wording honestly either. Consider: a REWORDED-backed entry must come with at least one newer report that fails the new check, or a stated reason why none does.
+- Two entries whose graders share one (pattern, flags, match) in one case collapse into one key; the last wins silently. Report duplicates in `resolve_new_graders`.
+- A wrongly shaped entry value (`('0.6.0',)`, `None`, a bare string) crashes or reads as "not needed" instead of "malformed". Validate the shape first.
+- An entry put on a check main already has counts as needed and is never flagged; it changes no verdict, only clutters the list.
+- STANDARD.md says an entry "never excuses a looser check"; on reports at or after its version, main has no baseline for a reworded check, so a vacuous new pattern plus a REWORDED line passes there. Say so in STANDARD.md (a reworded pattern needs a human read), or require newer reports to pass every other check main had.
+- A reason that is only spaces counts as well formed. Use `str(reason).strip()`.
+- `NEW_GRADER_PROBLEMS` is defined and never used. Use it in the stale message or drop it.
+- "Proven" trusts each saved report's `version` field. Corpus edits are reviewed, so a mislabelled report is contrived.
+- Test gaps from the /ship coverage audit (all fail closed): the real-test wiring of NEW_GRADERS (`NeverWorseThanMainTest`, the after-merge test, `_branch_case_texts`) first runs end to end with release 1's first entry; `_version`'s ascii guard is untested (`'١.0'` parses newer anyway, `'٠.5'` would test it); `resolve_new_graders`'s flags default and non-regex filter have no fixture.
+
+**Why:** None makes the gate more permissive than main with the entries a release would write; three affect only messages.
+
 Review findings on the shared grader pack (S-032 review, 2026-10-16) that did not meet the ship bar. One line each.
 
 - **Probe set for pattern alternatives.** Many `std-no-fix-prompt` alternatives and code words match none of the saved reports, so the differential cannot see them dropped one at a time. Add one synthetic positive string per alternative. P3.
