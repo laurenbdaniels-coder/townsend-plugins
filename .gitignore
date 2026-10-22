@@ -3,5 +3,6 @@ __pycache__/
 .DS_Store
 .context/
 build-decisions/evals/results/
+build-decisions/evals-no-search/results/
 decision-census/evals/results/
 custody-check/evals/results/

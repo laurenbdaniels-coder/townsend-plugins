@@ -83,7 +83,9 @@ class ContractTests(TreeCase):
         no_claim=says nothing about which candidates are found."""
         self.copy_corpus()
         result, line, _ = self.scan()
-        self.assertEqual(set(result), TOP_KEYS)
+        demo = {"demo_keys", "demo_keys_trimmed"}
+        self.assertEqual(set(result) - demo, TOP_KEYS)
+        self.assertIn(len(demo & set(result)), (0, 2))  # both sample-key fields, or neither (no room)
         self.assertTrue(result["ok"])
         self.assertEqual(result["version"], cs.__version__)
         self.assertLessEqual(len(line.encode("utf-8")), 30000)

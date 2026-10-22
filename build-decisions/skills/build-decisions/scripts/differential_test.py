@@ -179,6 +179,9 @@ class DifferentialTests(unittest.TestCase):
         for app in apps:
             theirs_line, mine_line = scan(script, app), scan(SCRIPT, app)
             theirs_line.pop("version"), mine_line.pop("version")
+            # 0.5.1 adds the sample-key places after the findings are trimmed; everything else stays main's.
+            for line in (theirs_line, mine_line):
+                line.pop("demo_keys", None), line.pop("demo_keys_trimmed", None)
             self.assertEqual(dumps(mine_line), dumps(theirs_line), "census line differs from main on %s" % os.path.basename(app))
         hints = lambda r: {(h["path"], h["line"], h["field"]) for h in r["stopline_hints"]}
         lost_hints = sorted(hints(main_result) - hints(self.uncapped) - {(e["path"], e["line"], e["field"]) for e in HINT_EXCEPTIONS})

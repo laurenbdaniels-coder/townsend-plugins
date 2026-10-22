@@ -2,6 +2,14 @@
 
 The footer of every report names the version that produced it. Up to 0.3.2 this plugin was called decision-census.
 
+## 0.5.1 (2026-10-22)
+
+- **Supabase's public sample key is no longer called exposed.** Supabase's local test setup ships sample keys that are public by design. The helper now lists their places (`demo_keys`, path and line only) when a key is signed with Supabase's published sample secret and says it comes from that setup; a key that only claims it is still reported. A line that also holds any other key is never listed. The report says once that it left these keys out, and when they are unsafe.
+- **Rules that already disagree come first.** Places that give different answers today (two prices for one thing) lead, with the line "These places give different answers today."; copies of one rule that agree, or can't be told apart, follow. Places are followed in a fixed order, so two runs read the same places.
+- **No search tool needed.** The skill follows each rule by reading files, and uses a search tool only when the host has one. A run that used none says so in one fixed sentence.
+- **Unchanged:** the census findings, the architecture line and the payment line are the same as 0.5.0's (CI compares them with the release, minus the two new fields). The new fields only use room the findings leave.
+- **Evals:** a ranked app run five times (same rules, same order), the same app with search tools removed, a sample-key app and the same app with real-looking keys (the key line must still print). The 42 saved 0.5.0 reports join the never-worse corpus.
+
 ## 0.5.0 (2026-10-19)
 
 - **Where your app saves whether someone has paid.** A third helper call, `census_scan.py --section payment`, lists places that save paid status, a plan or credits; Stripe payment handlers; a price written in the app beside a Stripe price id; and screens that save credits, a plan or an order total straight to the database. The agent reads each place before it reports it.

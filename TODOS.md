@@ -464,6 +464,18 @@
 
 ## build-decisions (decision-census until 0.4.0)
 
+### From the build-decisions 0.5.1 plan review (2026-10-22, /autoplan)
+
+- **Stability eval for custody-check (X2).** Why: 0.5.1 measures repeat-run stability for build-decisions only. Context: same ranked-fixture approach; custody's report shape did not change. Effort: M / S. P3.
+- **A Supabase project still on the sample setup (X6).** Why: a key signed with the public local-dev secret is public, but a live self-hosted database still on that secret is open to anyone. Neither plugin checks server settings. Context: 0.5.1 skips sample keys and prints one Not checked line about this. Effort: M / M. P3.
+- **Extract the sample-key rule when a second plugin needs it.** Why: if custody-check does not take the rule in 0.5.1, it lives inline in census_scan.py only. Start: move the sample-key block (SAMPLE_JWT_SECRET through line_has_only_sample_keys in census_scan.py) to free-plugin-standard/helpers/ and add a sync check. Effort: S / S. P3.
+- **Rank line decoy (0.5.1 review, red team).** Why: "These places give different answers today." is a new claim; two places that agree in different units (1999 cents vs 19.99 dollars, monthly vs yearly) could get it. stable-ranked has no decoy. Start: add a cents/dollars pair to a sibling fixture and assert no rank line on its block. P2.
+- **Sample service key next to a production address (0.5.1 review, F4).** Why: a sample service_role key in `createClient("https://<real host>", ...)` is listed and skipped; the Not checked line names the risk. Option: never list service_role sample keys, or only list them beside localhost. P3.
+- **The two plugins disagree on Supabase sample keys.** Why: build-decisions leaves them out; custody-check 0.6.0 still calls a sample service key in browser code exposed (Lauren chose 10/22 to leave custody unchanged; STACK S-051). P3.
+- **Shared token maker for the keyshop evals.** Why: demo-key/scaffold.sh and real-key/scaffold.sh repeat the same 20 lines but the mode. Start: one evals/fixtures/make_keys.py taking the mode (advisory from the 0.5.1 review). P3.
+- **Sample-key line check, round-2 leftovers (0.5.1 review, below the ship bar).** Each is a crafted or rare shape; SKILL rule 5 still tells the agent to report any other secret on a listed line. (1) `SECRET_VALUE_RE`'s `\w*` goes quadratic on a long word run after a secret-like name (crafted 512 KB file with a sample key on every line: 6.2 s vs 0.4 s on main); bound it to `\w{0,40}`. (2) Unquoted (`PGPASSWORD=Hunter2`), comment (`# password: hunter2`) and query-string (`?password=Hunter2`) passwords, all-lowercase 20+ values without a secret-like name, and 64-character hex made only of letters or only of digits still leave a line listed. (3) The stricter check now leaves some plain sample-key lines unlisted (`supabaseServiceRoleKey`, `/storage/v1/object`), so those keys are reported as on main. P2.
+- **Codex outside voice fails inside the sandbox.** Why: /autoplan's Codex passes failed 4/4 on 10/22 with "workspace routing discovery failed", even with chatgpt.com allowed; the same calls run outside the sandbox completed (the /review passes the same day). Start: run gstack's Codex calls unsandboxed, or find which host the sandbox still blocks. Effort: S / S. P2.
+
 ### Drop "which door" from the paired custody-check line (found 2026-10-21, custody-check 0.6.0)
 
 **What:** `build-decisions/README.md` (lines 5 and 97) and `build-decisions/skills/build-decisions/SKILL.md` (description) still say "Custody Check answers what a stranger can do and which door your next change takes."
@@ -497,7 +509,6 @@ From the 0.5.0 review round 2 (2026-10-19). The "no signature check found" repor
 - **A payment word earlier on a line makes `status: 'done'` a writer:** the status context includes the line's prefix. P3.
 - **Backtick import paths are never followed.** P3.
 - **SvelteKit, Remix, Nuxt, Fastify autoload and Django handlers are not entry points,** so they are silently not listed. P3.
-- **The 42 eval reports from 0.5.0 are not in `free-plugin-standard/corpus/` yet.** Each one carries the reworded "Not checked" line, so main's 0.4.0 check fails it and the never-worse test calls it "looser" (the REWORDED map renames the check, but main still scores the old text). Saved at `townsend-ai-studio-workspace/plugins-internal/build-decisions/reports-0.5.0-evals.jsonl`; add them in the first PR after 0.5.0 merges (S-040), when main prints the same line; 0.3.2 and 0.4.0 reports are missing for the same reason. P2.
 
 From the 0.4.0 review (2026-10-16), below the ship bar:
 - **Two apps on different Supabase projects are linked** because both use the Supabase package (the plan's linking rule). The project URL is in env files the helper never opens. P3.
