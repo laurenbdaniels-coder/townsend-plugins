@@ -28,11 +28,6 @@ def read(*parts):
         return fh.read()
 
 
-def template_block():
-    t = read("custody-check", "skills", "custody-check", "assets", "verdict-template.md")
-    return t.split("```markdown", 1)[1].split("```", 1)[0]
-
-
 class ScopeDocTests(unittest.TestCase):
     def test_scope_names_both_plugins_and_its_rules(self):
         scope = read("free-plugin-standard", "SCOPE.md")
@@ -81,19 +76,8 @@ class NoRecommendationInCopyTests(unittest.TestCase):
 
 
 # SCOPE.md's "no other service, offer or price" rule is checked by .githooks/pre-push against the private terms
-# list kept outside this repo: a public test would have to print the words it bans.
-
-
-class CustodyReportScopeTests(unittest.TestCase):
-    def test_report_has_no_advice_link_or_pointer(self):
-        block = template_block()
-        for gone in ("Check it", "ask your AI tool", "Before you change", "build-decisions", "townsendaistudio",
-                     "## Door", "## The eleven", "Ship it", "Patch it", "Get a person"):
-            self.assertNotIn(gone, block, gone)
-
-    def test_skill_never_asks_what_the_code_should_show(self):
-        skill = read("custody-check", "skills", "custody-check", "SKILL.md")
-        self.assertIn("**Never ask** Q1 (keys), Q2 (browser or server), Q3 (who can read), Q4 (who can change)", skill)
+# list kept outside this repo: a public test would have to print the words it bans. The custody report's banned
+# lines and its question rule are pinned in plain_english_test.py.
 
 
 if __name__ == "__main__":

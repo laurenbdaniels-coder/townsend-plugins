@@ -202,7 +202,6 @@ DISABLE_RLS_NAMED_RE = re.compile(r"\balter\s+table\s+(?:if\s+exists\s+)?(?:only
 LOOP_HEAD_RE = re.compile(r"\bforeach\s{1,20}([A-Za-z_][A-Za-z0-9_]{0,62})\s{1,20}in\s{1,20}array\s{1,20}array\s{0,20}\[([^\]]{0,4000})\]\s{0,20}loop\b", re.I)
 LOOP_END_RE = re.compile(r"\bend\s{1,20}loop\b", re.I)
 LOOP_EXECUTE_FORMAT_RE = re.compile(r"\bexecute\s{1,20}format\s{0,20}\(", re.I)  # the format string is blanked in `code`: read it from `text`
-SPACES_RE = re.compile(r"\s{0,20}")
 LOOP_FORMAT_ARG_RE = re.compile(r"\s{0,20},\s{0,20}([A-Za-z_][A-Za-z0-9_]{0,62})\s{0,20}\)")
 LOOP_ENABLE_FORMAT_RE = re.compile(r"\s*alter\s+table\s+(?:if\s+exists\s+)?(?:only\s+)?(?:public\s*\.\s*)?%I\s+enable\s+row\s+level\s+security\s*;?\s*", re.I)
 LOOP_ARRAY_ITEM_RE = re.compile(r"\s*'([a-z_][a-z0-9_]{0,62})'\s*")  # %I keeps case, so only lower-case names fold to the same table
@@ -545,7 +544,7 @@ def _loop_credits(sf, ov, text, code):
             continue
         enables = False
         for e in LOOP_EXECUTE_FORMAT_RE.finditer(code, m.end(), end.start()):
-            start = SPACES_RE.match(text, e.end()).end()
+            start = re.compile(r"\s{0,20}").match(text, e.end()).end()
             if text[start:start + 1] != "'":
                 continue  # a plain '…' string only: no E'…', no $tag$, no variable
             body = SQL_PLAIN_BODY_RE.match(text, start + 1)
@@ -1127,7 +1126,6 @@ def overlay_pass(repo, opts, ov, rel_state, result, clock, end):
 
 INVENTORY_EXTS = {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts", ".vue", ".svelte", ".astro", ".html", ".py", ".rb",
                   ".go", ".java", ".kt", ".php", ".cs", ".swift", ".dart", ".sql", ".prisma", ".graphql"}  # SKILL.md rule 2's list
-INVENTORY_KEYS = ("ok", "version", "code_files", "files", "truncated")
 INVENTORY_HINT = "Could not list the app's code files. The check still runs; the report says how many files it read."
 SERVER_DIR_SEGMENTS = {"api", "server", "functions", "workers"}  # at any depth: app/api, pages/api, src/app/api, supabase/functions, server
 SUPABASE_FROM_LINES = 8  # a `.from('t')` reaches a write verb this many lines below it (a chain split across lines)
@@ -1183,9 +1181,10 @@ def _marks(text, clock, end):
         if i % 1000 == 999 and clock() > end:
             raise InventoryTimeout()
         if not handler:
-            if SUPABASE_FROM_RE.search(line):
+            m = SUPABASE_FROM_RE.search(line)
+            if m:
                 from_line = i
-                handler = bool(SUPABASE_WRITE_RE.search(line, SUPABASE_FROM_RE.search(line).end()))
+                handler = bool(SUPABASE_WRITE_RE.search(line, m.end()))
             elif from_line is not None and i - from_line <= SUPABASE_FROM_LINES and SUPABASE_WRITE_RE.search(line):
                 handler = True
             if not handler and any(r.search(line) for r in HANDLER_LINE_RES):
@@ -1290,14 +1289,14 @@ def inventory(repo, opts, clock=time.monotonic):
                         server = server or s
         rows.append([rel, lines, int(server), int(handler)])
     rows.sort(key=lambda r: (0 if (r[2] or r[3]) else 1, r[0]))
-    out = collections.OrderedDict([("ok", True), ("version", __version__), ("code_files", count), ("files", rows), ("truncated", False)])
+    out = {"ok": True, "version": __version__, "code_files": count, "files": rows, "truncated": False}
     size = len(inventory_json(out))
     if size > release.MAX_OUTPUT_BYTES:
         out["truncated"] = True
         size += len("true") - len("false")
         while rows and size > release.MAX_OUTPUT_BYTES:
             size -= len(json.dumps(rows.pop(), ensure_ascii=True, separators=(",", ":"))) + (1 if rows else 0)
-    return dict(out)
+    return out
 
 
 def inventory_json(inv):
@@ -1305,9 +1304,7 @@ def inventory_json(inv):
 
 
 def inventory_envelope(code):
-    if code.split(":", 1)[0] == "inventory-error":
-        return {"ok": False, "error": code, "hint": INVENTORY_HINT, "docs": _DOCS, "partial": True}
-    return release.envelope(code)
+    return {"ok": False, "error": code, "hint": INVENTORY_HINT, "docs": _DOCS, "partial": True}
 
 # ------------------------------------------------------------------ merge
 
