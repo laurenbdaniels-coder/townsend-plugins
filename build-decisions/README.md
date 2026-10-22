@@ -54,7 +54,13 @@ Codex: the skill looks for its helper at `~/.codex/skills/build-decisions/script
 
 ## Step 2: run it
 
-From the folder that contains your app, start Claude Code and say:
+From the folder that contains your app, start Claude Code with this line:
+
+```
+claude --permission-mode plan --tools Skill,Bash,Read,Grep,Glob
+```
+
+`--permission-mode plan` means nothing can be edited, even by accident. `--tools` gives Build Decisions its code search back: the native installs of Claude Code 2.1.117 and later on macOS and Linux leave out the Grep and Glob tools unless you list them (npm and Windows installs keep them), and without them it can only read files, so the report sees less. The list also leaves out the Edit and Write tools. Verified on Claude Code 2.1.306: with this line Build Decisions used Grep. Then say:
 
 ```
 run build decisions on ./my-app
