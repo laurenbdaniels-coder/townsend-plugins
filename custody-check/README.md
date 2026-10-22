@@ -64,7 +64,13 @@ That phrase works in Claude Code. In Codex the phrase that worked in my own run 
 
 The agent runs three commands. First the scanner (retried only per script location, or once with `py -3`; `python3 -I custody_scan.py --repo ./my-app`; your host will ask you to allow it once). Then the inventory, the same script with `--inventory`, which lists your code files by name and line count and opens nothing it would not scan. Then it reads your code (search and read only, at most 40 calls), starting with the files that run on your server or save data. Then it asks you the questions it still cannot answer, one at a time. Then it runs the verdict script, which scans again and applies its written rule to the scan and your answers (`python3 -I custody_verdict.py --repo ./my-app --answers … --read … --expect …`). Then it prints the report. If the verdict script can't run, the agent says so and applies the written rule itself. Four to five minutes once the code is local.
 
-Recommended: start Claude Code with `claude --permission-mode plan` so nothing can be edited even by accident, and never run it with `--dangerously-skip-permissions` for this check. Verified on Claude Code 2.1.273: plan mode allowed the scanner's read-only command and the run left the app untouched (`git status` unchanged, no newer files). If your version refuses it, run without plan mode and approve each `python3` prompt when it appears, or pass the narrowest rules your host accepts, anchored on the script and its flags. For a marketplace install that is three rules:
+Recommended: start Claude Code with this line, and never run it with `--dangerously-skip-permissions` for this check:
+
+```
+claude --permission-mode plan --tools Skill,Bash,Read,Grep,Glob
+```
+
+`--permission-mode plan` means nothing can be edited, even by accident. `--tools` gives the check its code search back: the native installs of Claude Code 2.1.117 and later on macOS and Linux leave out the Grep and Glob tools unless you list them (npm and Windows installs keep them), and without them the check can only read files, so the report sees less. The list also leaves out the Edit and Write tools. Verified on Claude Code 2.1.306: with this line the check used Grep. Plan mode alone was verified on 2.1.273: it allowed the scanner's read-only command and the run left the app untouched (`git status` unchanged, no newer files). If your version refuses it, run without plan mode and approve each `python3` prompt when it appears, or pass the narrowest rules your host accepts, anchored on the script and its flags. For a marketplace install that is three rules:
 
 ```
 --allowedTools "Bash(python3 -I ~/.claude/plugins/*/custody-check/skills/custody-check/scripts/custody_scan.py --repo *)" \
