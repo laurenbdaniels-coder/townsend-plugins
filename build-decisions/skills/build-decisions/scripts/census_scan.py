@@ -12,7 +12,7 @@ paid (whether someone has paid), rounding (how money rounds).
 file that shows each, facts, one advice id) and census decisions found inside a second app that uses
 the same data. Same rule: only safe paths and fixed words.
 """
-__version__ = "0.5.0"
+__version__ = "0.5.1"
 
 import sys
 
@@ -42,7 +42,11 @@ if _guard is not None and __name__ == "__main__":
     sys.exit(0)
 
 import argparse
+import base64
+import binascii
 import fnmatch
+import hashlib
+import hmac
 import json
 import os
 import re
@@ -79,6 +83,7 @@ MAX_PER_FILE_PER_TYPE = 5
 MAX_PER_TYPE = 40
 MAX_STOPLINE_HINTS = 12
 MAX_OUTPUT_BYTES = 30000
+MAX_DEMO_KEYS = 20  # census line only: places of Supabase's public sample keys
 DEFAULT_MAX_FILES = 20000
 DEFAULT_MAX_FILE_BYTES = 524288
 DEFAULT_MAX_TOTAL_BYTES = 268435456
@@ -157,6 +162,72 @@ PATTERNS = {
 }
 STOPLINE_RE = re.compile(r"(?<![a-z0-9])(ssn|social_security|dob|date_of_birth|birthdate|birth_date|birthday|medical|diagnosis|credit_card|card_number|cc_number|iban|passport)(?![a-z0-9])", re.I)
 CAMEL_SPLIT_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
+
+# Supabase's local development setup ships sample keys that are public by design: they are signed with a
+# secret printed in Supabase's own docs and carry iss "supabase-demo". A token counts as a sample key only when
+# BOTH hold: the label alone can be copied onto any key, the public signature cannot. A line is listed only when
+# every token on it is a sample key and nothing else on it looks like a key, so a real key is never quieted.
+# JWT_RE is custody-check's pattern, text for text (a test compares them).
+SAMPLE_JWT_SECRET = b"super-secret-jwt-token-with-at-least-32-characters-long"
+SAMPLE_JWT_ISS = "supabase-demo"
+MAX_JWT_PAYLOAD = 4096
+JWT_RE = re.compile(r"(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}(?![A-Za-z0-9_-])")
+OTHER_KEY_RE = re.compile(
+    r"sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|sb_secret_[A-Za-z0-9_-]{10,}"
+    r"|(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{22,}|gh[ousr]_[A-Za-z0-9]{36}"
+    r"|xox[baprs]-|xapp-|eyJ|-----BEGIN")
+LONG_RUN_RE = re.compile(r"[A-Za-z0-9_\-+/=]{32,}")
+
+
+def _b64(part):
+    return base64.urlsafe_b64decode(part + "=" * (-len(part) % 4))
+
+
+def is_sample_key(token):
+    """True only for a JWT signed with Supabase's public sample secret whose payload says iss supabase-demo."""
+    try:
+        if not isinstance(token, str) or not JWT_RE.fullmatch(token):
+            return False
+        head, body, sig = token.split(".")
+        if len(body) > MAX_JWT_PAYLOAD:
+            return False
+        want = hmac.new(SAMPLE_JWT_SECRET, (head + "." + body).encode("ascii"), hashlib.sha256).digest()
+        if not hmac.compare_digest(want, _b64(sig)):
+            return False
+        claims = json.loads(_b64(body).decode("utf-8"))
+        return isinstance(claims, dict) and claims.get("iss") == SAMPLE_JWT_ISS
+    except Exception:  # any odd token is "not a sample key": the key is then reported as before
+        return False
+
+
+def _looks_like_key(text):
+    if OTHER_KEY_RE.search(text):
+        return True
+    for m in LONG_RUN_RE.finditer(text):
+        run = m.group(0)
+        kinds = sum(1 for test in (str.islower, str.isupper, str.isdigit) if any(test(c) for c in run))
+        if kinds >= 3:
+            return True
+    return False
+
+
+def line_has_only_sample_keys(line):
+    """A line is listed only when it holds at least one token, every token is a sample key, and nothing else
+    on it looks like a key. Anything unsure stays unlisted, so the skill reports it as before."""
+    if "eyJ" not in line:
+        return False
+    rest = []
+    pos = 0
+    found = False
+    for m in JWT_RE.finditer(line):
+        if not is_sample_key(m.group(0)):
+            return False
+        found = True
+        rest.append(line[pos:m.start()])
+        pos = m.end()
+    rest.append(line[pos:])
+    return found and not _looks_like_key(" ".join(rest))
+
 
 WARNINGS = ("stopline-hints-capped",)
 PARTIAL_REASONS = ("max_files_hit", "max_total_bytes_hit", "deadline_hit", "files_errored", "files_skipped_oversize",
@@ -331,6 +402,9 @@ class State:
         self.hints = []
         self.hints_capped = False
         self.stopped = False
+        self.collect_demo_keys = True  # census only; the section scans turn it off
+        self.demo_keys = []
+        self.demo_keys_capped = False
 
     def reason(self, r):
         if r not in self.reasons:
@@ -433,6 +507,7 @@ def scan_file(path, parts, ext, state):
     is_schema = ext in SQL_EXTS or ext in SCHEMA_EXTS or SCHEMA_NAME_RE.search(parts[-1]) is not None
     found = []
     hints = []
+    demo_lines = []
     where_open = 0
     for i, line in enumerate(lines, 1):
         if line.endswith("\r"):
@@ -441,6 +516,8 @@ def scan_file(path, parts, ext, state):
             line = line[:LINE_CLIP_CHARS]
         if (i % DEADLINE_LINE_TICK == 0 or len(line) > 512) and state.over_deadline():
             break
+        if state.collect_demo_keys and line_has_only_sample_keys(line):
+            demo_lines.append(i)
         for typ, pid, strength in classify_line(line, ext, where_open > 0):
             found.append((typ, 0 if strength == "strong" else 1, i, pid))
         where_open = 3 if WHERE_OPEN_RE.search(line) else max(0, where_open - 1)
@@ -453,6 +530,12 @@ def scan_file(path, parts, ext, state):
                 if field in STOPLINE_FIELDS and field not in seen:
                     seen.add(field)
                     hints.append((i, field))
+    if rel is not None:
+        for line_no in demo_lines:
+            if len(state.demo_keys) >= MAX_DEMO_KEYS:
+                state.demo_keys_capped = True
+                break
+            state.demo_keys.append({"path": rel, "line": line_no})
     if not found and not hints:
         return
     if rel is None:
@@ -654,6 +737,7 @@ class ArchState(State):
 
     def __init__(self, opts):
         State.__init__(self, opts)
+        self.collect_demo_keys = False
         self.stats.update({"manifests_read": 0, "manifests_unreadable": 0})
         self.files = []
         self.manifests = {}  # dir parts tuple -> parsed package.json dict
@@ -1891,7 +1975,7 @@ def build(state, uncapped):
 
     result = render()
     if uncapped:
-        return result
+        return dict(result, demo_keys=list(state.demo_keys), demo_keys_trimmed=state.demo_keys_capped)
     while len(dumps(result).encode("utf-8")) > MAX_OUTPUT_BYTES:
         biggest = max(reversed(TYPES), key=lambda t: len(candidates[t]))
         if not candidates[biggest]:
@@ -1901,7 +1985,25 @@ def build(state, uncapped):
         totals[biggest]["not_listed"] += 1
         state.reason("output_trimmed")
         result = render()
-    return result
+    return add_demo_keys(result, state)
+
+
+def add_demo_keys(result, state):
+    """Add the sample-key places only in the room the findings leave: the findings are trimmed exactly as
+    before, then the list shrinks to fit, and with no room at all both fields are left out (the skill then
+    reports keys as it always did)."""
+    keys = list(state.demo_keys)
+    trimmed = state.demo_keys_capped
+    while True:
+        out = dict(result)
+        out["demo_keys"] = keys
+        out["demo_keys_trimmed"] = trimmed
+        if len(dumps(out).encode("utf-8")) <= MAX_OUTPUT_BYTES:
+            return out
+        if not keys:
+            return result
+        keys = keys[:-1]
+        trimmed = True
 
 
 def dumps(obj):
