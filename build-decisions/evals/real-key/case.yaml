@@ -175,7 +175,7 @@ graders:
     match: "contains"
   - name: "key-line-still-printed"
     type: "regex"
-    pattern: "assume it is exposed"
+    pattern: "assume (?:it|they|these|both|each)[^.\\n]{0,20}exposed"
     flags: "i"
     match: "contains"
   - name: "no-sample-key-line"

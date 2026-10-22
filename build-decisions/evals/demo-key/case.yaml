@@ -175,7 +175,7 @@ graders:
     match: "contains"
   - name: "no-exposed-key-line"
     type: "regex"
-    pattern: "assume it is exposed|rotate it|change it at the provider"
+    pattern: "assume (?:it|they|these|both|each)[^.\\n]{0,20}exposed|rotate (?:it|them)|change (?:it|them) at the provider"
     flags: "i"
     match: "not_contains"
   - name: "no-key-line-at-a-listed-place"
