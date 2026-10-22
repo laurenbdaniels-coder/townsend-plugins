@@ -43,7 +43,6 @@ if _guard is not None and __name__ == "__main__":
 
 import argparse
 import base64
-import binascii
 import fnmatch
 import hashlib
 import hmac
@@ -218,15 +217,13 @@ def line_has_only_sample_keys(line):
         return False
     rest = []
     pos = 0
-    found = False
     for m in JWT_RE.finditer(line):
         if not is_sample_key(m.group(0)):
             return False
-        found = True
         rest.append(line[pos:m.start()])
         pos = m.end()
     rest.append(line[pos:])
-    return found and not _looks_like_key(" ".join(rest))
+    return len(rest) > 1 and not _looks_like_key(" ".join(rest))
 
 
 WARNINGS = ("stopline-hints-capped",)

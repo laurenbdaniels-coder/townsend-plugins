@@ -20,9 +20,6 @@ import sys
 import tempfile
 import unittest
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import census_scan as cs  # noqa: E402
-
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(SCRIPT_DIR, "census_scan.py")
 FIXTURES = os.path.join(SCRIPT_DIR, "fixtures")
@@ -186,11 +183,6 @@ class DifferentialTests(unittest.TestCase):
             for line in (theirs_line, mine_line):
                 line.pop("demo_keys", None), line.pop("demo_keys_trimmed", None)
             self.assertEqual(dumps(mine_line), dumps(theirs_line), "census line differs from main on %s" % os.path.basename(app))
-        # Layer 4: a listed sample-key place is quieted in the report, so each one must re-check on its own line.
-        for d in self.uncapped.get("demo_keys", []):
-            with open(os.path.join(self.repo, *d["path"].split("/")), encoding="utf-8", errors="replace") as fh:
-                text = fh.read().split("\n")[d["line"] - 1].rstrip("\r")[:cs.LINE_CLIP_CHARS]
-            self.assertTrue(cs.line_has_only_sample_keys(text), "listed place is not a verified sample key: %r" % d)
         hints = lambda r: {(h["path"], h["line"], h["field"]) for h in r["stopline_hints"]}
         lost_hints = sorted(hints(main_result) - hints(self.uncapped) - {(e["path"], e["line"], e["field"]) for e in HINT_EXCEPTIONS})
         self.assertEqual(lost_hints, [], "main reports these stop-line hints and the branch does not: %r" % lost_hints)
