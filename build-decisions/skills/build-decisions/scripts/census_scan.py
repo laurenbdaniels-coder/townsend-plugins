@@ -12,7 +12,7 @@ paid (whether someone has paid), rounding (how money rounds).
 file that shows each, facts, one advice id) and census decisions found inside a second app that uses
 the same data. Same rule: only safe paths and fixed words.
 """
-__version__ = "0.5.1"
+__version__ = "0.6.0"
 
 import sys
 

@@ -464,6 +464,18 @@
 
 ## build-decisions (decision-census until 0.4.0)
 
+### From the build-decisions 0.6.0 plan review (2026-10-22)
+
+**What:** below this release's scope, collected by /autoplan (CEO, DX, Eng):
+- A "What your code can't tell us" section for build-decisions (SCOPE "Both plugins: say what the code can't tell, as open questions"); 0.6.0 carries it in Worth a look + Not checked. Only if Lauren OKs the deferral at the gate (T4).
+- "The browser chooses it" for Supabase edge functions (`Deno.serve`) and Python handlers: today they are not starting places (`shape` lists routes and "use server" only), and the report says which forms it checks.
+- Helper failure channel: `census_scan.py` exits 0 with a JSON `ok:false` for usage and folder errors; add recovery categories and bounded, redacted context (version, section, limits). Pre-existing.
+- One enforced call budget: SKILL says 40 Read+Grep+Glob calls in all; eval graders allow 40 Reads and 40 Greps separately. Add a combined-count grader when the eval grader types allow it. Pre-existing.
+- Collapse case-level text pins into the shared pack where they repeat across cases, so wording changes stop touching ~40 graders.
+- Limits read from one data source by the graders (today the SKILL limits table and the graders repeat the numbers).
+**Why:** each is a weakness main shares, or work outside this release's scope (fix PRs stay in scope).
+**Effort:** S-M each.
+
 ### From the build-decisions 0.5.1 plan review (2026-10-22, /autoplan)
 
 - **Stability eval for custody-check (X2).** Why: 0.5.1 measures repeat-run stability for build-decisions only. Context: same ranked-fixture approach; custody's report shape did not change. Effort: M / S. P3.
@@ -475,13 +487,6 @@
 - **Shared token maker for the keyshop evals.** Why: demo-key/scaffold.sh and real-key/scaffold.sh repeat the same 20 lines but the mode. Start: one evals/fixtures/make_keys.py taking the mode (advisory from the 0.5.1 review). P3.
 - **Sample-key line check, round-2 leftovers (0.5.1 review, below the ship bar).** Each is a crafted or rare shape; SKILL rule 5 still tells the agent to report any other secret on a listed line. (1) `SECRET_VALUE_RE`'s `\w*` goes quadratic on a long word run after a secret-like name (crafted 512 KB file with a sample key on every line: 6.2 s vs 0.4 s on main); bound it to `\w{0,40}`. (2) Unquoted (`PGPASSWORD=Hunter2`), comment (`# password: hunter2`) and query-string (`?password=Hunter2`) passwords, all-lowercase 20+ values without a secret-like name, and 64-character hex made only of letters or only of digits still leave a line listed. (3) The stricter check now leaves some plain sample-key lines unlisted (`supabaseServiceRoleKey`, `/storage/v1/object`), so those keys are reported as on main. P2.
 - **Codex outside voice fails inside the sandbox.** Why: /autoplan's Codex passes failed 4/4 on 10/22 with "workspace routing discovery failed", even with chatgpt.com allowed; the same calls run outside the sandbox completed (the /review passes the same day). Start: run gstack's Codex calls unsandboxed, or find which host the sandbox still blocks. Effort: S / S. P2.
-
-### Drop "which door" from the paired custody-check line (found 2026-10-21, custody-check 0.6.0)
-
-**What:** `build-decisions/README.md` (lines 5 and 97) and `build-decisions/skills/build-decisions/SKILL.md` (description) still say "Custody Check answers what a stranger can do and which door your next change takes."
-**Why:** custody-check 0.6.0's report has no door, and copy about the free plugins never says a plugin recommends anything (Lauren, 2026-10-21). custody-check now uses the /free card line: "Custody Check shows what a stranger could see or do in your app, and what your code can't tell it."
-**Where:** build-decisions 0.6.0. The SKILL.md description is trigger text, so it ships in a build-decisions release, not in custody-check's PR.
-**Effort:** S / S.
 
 From the 0.5.0 review (payment section, 2026-10-19), below the ship bar:
 - **The payment section's main-vs-branch differential turns on after 0.5.0 merges.** Until then the labeled `fixtures/payments` corpus is the only gate. Its keys hold line numbers, so every fixture edit after that needs an exception entry. P2 for the next release that changes the section.
