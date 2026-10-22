@@ -1,10 +1,10 @@
 # custody-check
 
-I built this for the people who came to "It Said It Was Fine" at Seattle AI Week. It is the paper worksheet from that hour, made runnable: eleven questions about the app you vibe-coded, answered read-only from your own files plus what you tell it, and a verdict at the end: ship it, patch it, or shelve it. "Don't know" is an answer here. It is the useful one.
+I built this for the people who came to "It Said It Was Fine" at Seattle AI Week. It is the paper worksheet from that hour, made runnable: eleven questions about the app you vibe-coded, answered read-only from your own files plus what you tell it, and a plain report at the end: what is broken, what it means for you, and what your code can't tell. "Don't know" is an answer here. It is the useful one.
 
 It runs inside Claude Code or Codex. It never changes your app, and the scanner makes no network calls; what does leave your machine is the redacted scan, the parts of your code the agent reads, and your answers, sent to the AI provider your host already uses (see What leaves the machine).
 
-Build Decisions shows where your app decides each thing and in how many places. Custody Check answers what a stranger can do and which door your next change takes. Both are free and read-only.
+Build Decisions shows where your app decides who sees what and what things cost, and which rules it wrote more than once. Custody Check shows what a stranger could see or do in your app, and what your code can't tell it. Both are free and read-only.
 
 ## Step 0: get your code onto your machine
 
@@ -16,7 +16,7 @@ The check reads a folder on your laptop. If your app lives in a browser tab, get
 - **v0:** the GitHub button on the project pushes it; then `git clone <URL> my-app`.
 - **Cursor / Claude Code / anything local:** you already have the folder.
 
-A zip export is fine. The check tells you what it cannot see without git history (Q5's code half) and how to answer it by hand.
+A zip export is fine. Without git history the check cannot tell whether you can get your code back, and the report lists that as an open question.
 
 Now open a terminal **in the folder that contains `my-app`**, not inside `my-app`. This matters (see "Why the parent folder" below).
 
@@ -62,35 +62,56 @@ run custody-check on ./my-app
 
 That phrase works in Claude Code. In Codex the phrase that worked in my own run was `use the custody-check skill on ./my-app` (the shorter "run X on ./my-app" made Codex step into the app folder first, which is what we are avoiding). If Codex does not find the skill, say `use the skill at ~/.codex/skills/custody-check on ./my-app`.
 
-The agent runs two commands. First the scanner (retried only per script location, or once with `py -3`; `python3 -I custody_scan.py --repo ./my-app`; your host will ask you to allow it once). Then it reads your code (search and read only, at most 40 calls) for Q1 to Q4 and the stop-line. Then it asks you the questions it still cannot answer, one at a time. Then it runs the verdict script, which scans again and applies the door rule to the scan and your answers (`python3 -I custody_verdict.py --repo ./my-app --answers … --read … --expect …`). Then it prints the verdict. If the verdict script can't run, the agent says so and applies the written door rule itself. Four to five minutes once the code is local. Recommended: start Claude Code with `claude --permission-mode plan` so nothing can be edited even by accident, and never run it with `--dangerously-skip-permissions` for this check. Verified on Claude Code 2.1.273: plan mode allowed the scanner's read-only command and the run left the app untouched (`git status` unchanged, no newer files). If your version refuses it, run without plan mode and approve the single `python3` prompt when it appears, or pass the narrowest rule your host accepts, anchored on the script and its flag: `--allowedTools "Bash(python3 -I ~/.claude/plugins/*/custody-check/skills/custody-check/scripts/custody_scan.py --repo *)"` for a marketplace install, or the same rule with the absolute path of your clone (`~/townsend-plugins/custody-check/skills/custody-check/scripts/custody_scan.py`), plus the same rule again with `custody_verdict.py` in place of `custody_scan.py`. Anchor the rule on the plugin's own path, never on a bare `*custody_scan.py`, so a file of that name inside the app can never match; it is a permission-prompt scope, not a sandbox, and never use a bare substring rule like `Bash(python3 *)`.
+The agent runs three commands. First the scanner (retried only per script location, or once with `py -3`; `python3 -I custody_scan.py --repo ./my-app`; your host will ask you to allow it once). Then the inventory, the same script with `--inventory`, which lists your code files by name and line count and opens nothing it would not scan. Then it reads your code (search and read only, at most 40 calls), starting with the files that run on your server or save data. Then it asks you the questions it still cannot answer, one at a time. Then it runs the verdict script, which scans again and applies its written rule to the scan and your answers (`python3 -I custody_verdict.py --repo ./my-app --answers … --read … --expect …`). Then it prints the report. If the verdict script can't run, the agent says so and applies the written rule itself. Four to five minutes once the code is local.
+
+Recommended: start Claude Code with `claude --permission-mode plan` so nothing can be edited even by accident, and never run it with `--dangerously-skip-permissions` for this check. Verified on Claude Code 2.1.273: plan mode allowed the scanner's read-only command and the run left the app untouched (`git status` unchanged, no newer files). If your version refuses it, run without plan mode and approve each `python3` prompt when it appears, or pass the narrowest rules your host accepts, anchored on the script and its flags. For a marketplace install that is three rules:
+
+```
+--allowedTools "Bash(python3 -I ~/.claude/plugins/*/custody-check/skills/custody-check/scripts/custody_scan.py --repo *)" \
+  "Bash(python3 -I ~/.claude/plugins/*/custody-check/skills/custody-check/scripts/custody_scan.py --inventory --repo *)" \
+  "Bash(python3 -I ~/.claude/plugins/*/custody-check/skills/custody-check/scripts/custody_verdict.py --repo *)"
+```
+
+For a clone, use the same three rules with the absolute path of your clone (`~/townsend-plugins/custody-check/skills/custody-check/scripts/`). Anchor each rule on the plugin's own path, never on a bare `*custody_scan.py`, so a file of that name inside the app can never match; it is a permission-prompt scope, not a sandbox, and never use a bare substring rule like `Bash(python3 *)`.
 
 You can answer the questions up front instead of one at a time: paste a `Founder answers` block (the shape is in `skills/custody-check/assets/founder-answers-example.md`).
 
 ### What "done" looks like
 
-Three rows of a real verdict:
+The start of a real report, and one part of each section:
 
 ```
-| 1 | Secrets out of the browser | no | high | `src/lib/config.ts:12` · `browser-prefix-service-or-secret-name` |
-| 3 | Who can read this | nothing found | med | 3 rule files read: no RLS disabled, no using (true) policy, no if-true Firebase rule |
-| 9 | How I'd find out it's broken | don't know | low | (you: "I'd hear it from a user") |
+**We found 2 problems in your code, and 4 things your code can't tell us.**
+Why this matters: a stranger can reach what your app does not protect. ...
+We read all 6 of your code files.
+
+**Do today:** replace 2 secret keys with new ones. Treat the old ones as already stolen.
+
+## What we found in your code
+**1. Anyone who visits your site can see your secret keys.**
+What it means for you: a stranger can copy them, run up your bills on paid services, and read your whole database.
+Where: `src/components/Config.tsx:2`, `src/lib/supabaseAdmin.ts:2`
+
+## What your code can't tell us
+These are not problems we found. The code can't answer them, so they are still open.
+- **Whether you'd hear about it if your app broke.**
 ```
 
-"Nothing found" means the scanner read the files that could hold the answer and every check came back empty; it still carries a by-hand test, because files cannot show the running app. A row ending in `unevaluated` means the scanner saw `true` in a rule but could not work out whether it opens your data (for example, a condition nested too deeply to evaluate), so check that rule by hand; these limits are fixed on purpose so every scan finishes. The verdict opens with a count ("Your app has 4 answers that are No or Don't know.") and one line on why that matters. Then come the door ("Patch it: Q1, then Q9"), a short block for each Patch list item (what could go wrong, and a one-minute check), the eleven and whether one place decides who is allowed, the five-if-only-five list, and the Don't-know list with a sixty-second test for each. Then come what to ask your AI tool before you change anything, what the run did not check, and a pointer to build-decisions. The footer with the version and file count is the last line.
+A problem is an answer the files, your code or you showed to be No. Everything the code can't settle is an open question, not a problem: it is the next thing to find out. "We read the files that could show it and found nothing" still leaves the live site open, because files cannot show the running app. When your app keeps sensitive data or handles money for other people, the report opens with a short block that says so and what a mistake there costs. The report says what is broken and what it means; it does not say what to do, except to replace a key that may be exposed. The last line is the version.
 
 ## What it never does
 
-- It never edits, deletes, or creates anything in your app. It is free, so it finds and checks; it never gives fix steps or a prompt that changes your app. If you ask it to fix something, it gives the verdict and says so. Choosing the fix and making it safely is what a Free Assessment is for. One safety step stays: a key that may be exposed is one to rotate now.
-- After Q4 it asks one more question: is there one place in your app that decides who is allowed to do this? It never changes the door. On no or don't know, it points you to build-decisions, the other free plugin, which lists each place your app decides who can see a record, what something costs, and whether someone has paid.
+- It never edits, deletes, or creates anything in your app. It finds issues and says what they mean. It does not fix anything or suggest fixes, even if you ask: no fix steps, and no prompt that changes your app. One safety step stays: a key that may be exposed is one to replace now.
+- It never asks what your code should show: keys, what runs in the browser or on your server, who can read your data, who can change it. It reports what it found, and what it could not settle is an open question. It asks only what code can't show (backups, costs, alerts, whether it calls an AI model, and the extra-risk facts when the code doesn't show them), each with a one-minute test you can run to find the answer. The full scope is `free-plugin-standard/SCOPE.md`.
 - The agent reads your code before it asks you anything, because the code can answer questions you may not know, such as who is allowed to delete a record. It reads only code files inside the app folder, at most 120 lines at a time and at most 40 searches and reads in all. It never opens `.env` files, key files, lockfiles, build folders or the instruction files below, and it never quotes a key or a line of your code: evidence is a path and a line number. The scanner prints redacted evidence (`sk-ab…43`, a path, a line number), never a key.
 - The scanner never opens your AI instruction files: `CLAUDE.md`, `AGENTS.md`, `AGENT.md`, `GEMINI.md`, `CONVENTIONS.md`, `copilot-instructions.md`, any `*.prompt.md`, `*.agent.md`, `*.instructions.md` or `*.mdc`, `.cursorrules`, `.windsurfrules`, `.clinerules`, `.rules`, `.roomodes`, `opencode.json`, `.aider*`, the folders `.agents/`, `.aider/`, `.amazonq/`, `.augment/`, `.claude/`, `.clinerules/`, `.codex/`, `.continue/`, `.gemini/`, `.junie/`, `.kiro/`, `.opencode/`, `.roo/`, `.trae/`, `.windsurf/`, plus `.cursor/rules/`, `.github/instructions/`, `.github/prompts/` and `.github/agents/`. The list lives in the scanner (`NEVER_OPEN_DIRS`, `NEVER_OPEN_FILES`, `NEVER_OPEN_FILE_RE`) and no flag can shorten it. Under `.cursor/`, the `rules/` folder is never opened and `mcp.json` is read as an MCP config. An MCP config inside one of those never-opened folders (any file or folder with `mcp` in its name, except notes and instruction folders such as `skills/mcp-builder/`, `.kiro/settings/mcp.json`, `.gemini/settings.json` and the like), `opencode.json` or an `.aider*.yml` stays unopened too; `opencode.jsonc` is read as text like any other file, but its MCP servers are not checked. Each could hold a token, so it keeps Q1 at Don't know with an `mcp-config-not-opened` row.
-- If AI drives part of your product, the check asks six more questions after the eleven, about keeping it on rails: how slow is too slow, where your prompts live, whether production is running what you tested, whether a change made things better rather than different, what a user sees when the model is wrong, and whether you would notice the model or your own product moving underneath. They are interview questions, not scanner ones, and they never change the door.
+- If AI drives part of your product, the check asks six more questions after the eleven, about keeping it on rails: how slow is too slow, where your prompts live, whether production is running what you tested, whether a change made things better rather than different, what a user sees when the model is wrong, and whether you would notice the model or your own product moving underneath. They are interview questions, not scanner ones. In the report, each one answered No is a problem and each Don't know is an open question.
 - The scanner never follows a symlink (and refuses an app path that is one), never reads a lockfile, a source map, or a minified bundle, never reads a file over 512 KB, and stops at 20,000 files or 256 MB or two minutes and says so (`partial: yes`). A folder it could not read also makes the result partial rather than silently clean. The agent does not follow a symlink either: if your app folder itself is a shortcut, it asks before it reads anything there.
 - On the line where it found a key it masks every other quoted string too, so a password sitting next to a key is not echoed either. Unquoted values on that line can still appear; the evidence rows are the only place app text reaches the chat.
 
 ## What leaves the machine
 
-Nothing from the scanner: it makes no network calls. What the agent sees (the redacted JSON, the parts of your code it reads, and your answers) goes to your AI provider, like anything else you type into it. A key written into a code file it reads goes too, so a key the check finds in code is a key to rotate. The link in the footer is a plain string you can click or not; it is not a beacon.
+Nothing from the scanner: it makes no network calls. What the agent sees (the redacted JSON, the parts of your code it reads, and your answers) goes to your AI provider, like anything else you type into it. A key written into a code file it reads goes too, so a key the check finds in code is a key to replace. The report carries no link.
 
 ## Why the parent folder
 
@@ -102,17 +123,54 @@ Claude Code and Codex read the instruction files in the folder they start in (`C
 - **`repo-not-found` / `repo-not-a-directory`.** The path after `on` is not a folder from where you are. Run `ls` and use the name you see.
 - **`repo-unreadable`.** The folder's permissions block reading. Copy the app somewhere you own.
 - **`python-too-old` / python not found.** The check reads your code, asks you the rest, and tells you it did not scan. Install python 3.9 or newer for the scan (macOS: Command Line Tools; Windows: `py -3`).
-- **`partial: yes`.** The scanner stopped early; the footer says why (file limit, byte budget, time limit, unreadable files). Point it at the app subfolder or re-run with `--max-files 50000` if you asked the agent to pass flags.
+- **"The check stopped early: …"** The scanner stopped early (file limit, size limit, time limit, unreadable files); the line says why. When that leaves keys or open data unread, the next line gives the rerun: `run custody-check on ./my-app with --max-files 50000`. Or point it at the app subfolder.
 - **`checks-not-finished` ("time ran out; rerun with --deadline-s 600").** 0.3.3 runs 0.3.2's checks first, then its own extra checks within a time budget. When those did not finish, Q1, Q3 and Q9 say Don't know instead of Nothing found. Ask the agent to rerun with `--deadline-s 600` (a longer limit gives the extra checks more time too). "an error; please report it" means the extra checks hit a bug: open an issue with that check name; 0.3.2's own answers above it still stand. "more found than the output can hold" means the checks finished but their rows did not fit the output; the answer is Don't know for the same reason.
 - **`internal:release-missing` / `internal:release-modified`.** The scanner is two files (`custody_scan.py` and `custody_scan_0_3_2.py`) and one is missing or changed. Reinstall: in Claude Code, update the plugin; in Codex, re-run the `cp -R` command above, which copies the whole folder.
 - **Is 0.3.3 being too cautious?** `CUSTODY_CHECK_OVERLAY=0` runs 0.3.2's checks alone (the output is 0.3.2's, labelled 0.3.3). The scanner's stderr line ends with `checks 0.3.3: finished|unfinished|error|skipped, N ms`; the skill does not show stderr, so this is for running the script by hand.
-- **`git-not-a-repo`.** A zip export, or an export folder that is not tracked by git. Q5's code half stays "don't know"; the by-hand test is in the Don't-know list.
+- **`git-not-a-repo`.** A zip export, or an export folder that is not tracked by git. Whether you can get your code back stays an open question.
 - **`git-subdir`.** Your app folder is a tracked part of a larger repository (a monorepo). The commit and tag counts belong to the whole repository.
 - **`repo-is-symlink`.** The app path is a symbolic link (a shortcut to another folder). Pass the real folder for the full check. Or say read it anyway: the agent then reads your code there without the scanner.
 - **A git worktree.** The scanner treats a `.git` file that points outside the app folder as "not a repository", on purpose; run it on the main checkout instead.
 - **`git-unavailable` / `git-timeout`.** Install git (macOS: Command Line Tools) or try again.
-- **"I think a `no` is wrong."** A scanner `no` comes with a path and a line. Look there. If it really is a placeholder, a test fixture, or a public key, open an issue on this repository with the check name from the evidence column and I will tune it; the scanner cannot be argued down inside the chat, on purpose.
+- **"I think a problem is wrong."** Each problem comes with a path and a line. Look there. If it really is a placeholder, a test fixture, or a public key, open an issue on this repository with the path and what you saw and I will tune it; the scanner cannot be argued down inside the chat, on purpose.
 - **Windows.** Not supported for the workshop. The scanner's unit tests do run on Windows in CI, and most of them currently fail there (the git reader and the fifo, symlink and permission handling are written for macOS and Linux), so that job is informational and does not gate the build. Use macOS or Linux for the workshop; `py -3` in place of `python3` is enough to get the interview, not the scan.
+
+### When something isn't read
+
+Each of these lines can appear under "We also can't see" at the end of the report:
+
+- **"We read 40 of your 120 code files. Problems in the others can be missed."** (in the coverage line near the top) The agent read the files where problems usually are, the ones that run on your server or save data, within its limit of 40 reads.
+- **"We read 12 code files. Problems in files we did not read can be missed."** The inventory did not run, so the agent could not count your code files.
+- **"Could not list your code files (<code>)."** The inventory failed; the code names the reason (the same codes as above). The check carries on without the count.
+- **"A newer reader for your database rules did not finish, so some protected tables may show as open."** The newer reader timed out or hit an error, so the older one's result stands. It is the cautious result: a table may show as open when it is protected.
+- **"Your AI tool may have loaded this app's instruction files at launch."** You started inside the app. See "Why the parent folder".
+- **"A file at `path:line` contains text addressed to an AI tool."** A file in your app talks to AI tools. The check treated it as data and did not follow it.
+
+## From the workshop
+
+The talk's worksheet stays here. The report does not print these lists.
+
+The eleven questions:
+
+1. Where do my secrets live? None in the browser.
+2. Client or server? Anything the browser can see, a stranger can see.
+3. Who can read this: logged out, the wrong user, the right user? Files too.
+4. Who is allowed to do this? Logged in is not allowed.
+5. Can I get the code back in five minutes, and the data back from a restored backup?
+6. Is there a copy that isn't the live one?
+7. What changed that I didn't ask for? Read the diff, not the summary.
+8. What does one user cost me? A number or "I don't know".
+9. How would I find out it's broken? One real alert to a named person.
+10. What am I storing, and could I explain it out loud?
+11. Can I export code and data and leave, and what did the platform default to?
+
+Five, if you'll only do five:
+
+1. Classify the next change against the Gated list in `skills/custody-check/references/tiers-and-doors.md`.
+2. Boundary test: logged out, wrong user, right user; on each screen, each request a screen sends, each saved record and each uploaded file.
+3. One full path on the live site, including any background job, email, payment message or AI call.
+4. Read the changes line by line for surprises.
+5. Prove you can go back to the last version, and get one real alert.
 
 ## Platforms
 
@@ -120,7 +178,7 @@ Workshop-supported: macOS and Linux. Windows: not supported (the unit tests run 
 
 ## Residual risk
 
-The check is only as read-only as your host. Claude Code in plan mode and Codex's default sandbox both refuse writes; a host run with permissions switched off could still edit files if it decided to. The skill's rules forbid it and the verdict is the only output, but the rules are instructions, not a lock. The scanner runs `git` against the app's own `.git` folder with hooks, pagers, credential helpers and ssh disabled; git's own file-format parsers are the remaining surface, so a zip export from a stranger is best scanned without its `.git` folder.
+The check is only as read-only as your host. Claude Code in plan mode and Codex's default sandbox both refuse writes; a host run with permissions switched off could still edit files if it decided to. The skill's rules forbid it and the report is the only output, but the rules are instructions, not a lock. The scanner runs `git` against the app's own `.git` folder with hooks, pagers, credential helpers and ssh disabled; git's own file-format parsers are the remaining surface, so a zip export from a stranger is best scanned without its `.git` folder.
 
 ## Why a scanner at all
 
@@ -128,6 +186,6 @@ Because the alternative is asking the agent to look for keys itself, and an agen
 
 ## Credits
 
-Three detection patterns (the browser-exposed prefixes, "verify `.env` is in `.gitignore`", and the `USING (true)` row-security smells) are borrowed from [raroque/vibe-security-skill](https://github.com/raroque/vibe-security-skill), MIT. The verdict is written in ASD-STE100 Simplified Technical English. Everything else is the workshop handout.
+Three detection patterns (the browser-exposed prefixes, "verify `.env` is in `.gitignore`", and the `USING (true)` row-security smells) are borrowed from [raroque/vibe-security-skill](https://github.com/raroque/vibe-security-skill), MIT. The report is written in ASD-STE100 Simplified Technical English. Everything else is the workshop handout.
 
-MIT licensed. Want a second pair of eyes? Bring your verdict to a Free Assessment, one per company: townsendaistudio.com/assessment?src=custody-check (or write to hello@townsendaistudio.com).
+MIT licensed. Want a second pair of eyes? Bring your report to a Free Assessment, one per company: townsendaistudio.com/assessment?src=custody-check (or write to hello@townsendaistudio.com).

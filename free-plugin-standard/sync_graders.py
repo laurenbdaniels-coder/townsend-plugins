@@ -11,7 +11,9 @@ pack between two marker lines at the end of its `graders:` list:
 Groups come from pack.json: `always` for every case that renders a report, `issues` when the case
 expects at least one issue. Every case of a plugin listed in pack.json carries a block or is
 exempt there with a reason. A plugin may give its own words (`words`) only for the graders listed
-in `plugin_words` (the per-issue risk line), as a plain label ending in a colon.
+in `plugin_words`: the per-issue risk line as a plain label ending in a colon, the count line as one
+bold line that starts with a word. A plugin may leave out (`omit`, with a reason) only a grader
+listed in `omittable`; the no-fix line (no fix prompt, no code words) is never on that list.
 
   python3 free-plugin-standard/sync_graders.py           rewrite the blocks from pack.json
   python3 free-plugin-standard/sync_graders.py --check   exit 1 if any block is missing or stale
@@ -30,6 +32,34 @@ END = '  # <<< free-plugin-standard\n'
 KEYS = ('name', 'type', 'pattern', 'flags', 'match')
 REQUIRED_GROUP = 'always'
 LABEL = re.compile(r"[A-Z][A-Za-z' ]{0,58}:")
+# A count line is one bold line: the pack's own start and end, and a literal capitalised word first,
+# so a plugin can change its words but not turn the line into a pattern that matches anything.
+BOLD_START = r'(?:^|\n)\*\*'
+BOLD_END = r'\.\*\*[ \t]*(?=\n|$)'
+BOLD_WORD = re.compile(r'[A-Z][a-z]+ ')
+
+
+def _label(value):
+    return isinstance(value, str) and LABEL.fullmatch(value) is not None
+
+
+def _bold_line(value):
+    if not isinstance(value, str) or not value.startswith(BOLD_START) or not value.endswith(BOLD_END):
+        return False
+    if not BOLD_WORD.match(value[len(BOLD_START):]):
+        return False
+    try:
+        re.compile(value)
+    except re.error:
+        return False
+    return True
+
+
+# Each grader a plugin may reword, and the shape its words must have.
+SHAPES = {
+    'std-out-of-sync': (_label, 'a plain label ending in a colon'),
+    'std-count-line': (_bold_line, 'one bold line that starts with a capitalised word and ends with a full stop'),
+}
 
 
 def load_pack(root):
@@ -38,10 +68,13 @@ def load_pack(root):
 
 
 def render(groups, pack, plugin=None):
-    words = pack['plugins'].get(plugin, {}).get('words', {}) if plugin else {}
+    conf = pack['plugins'].get(plugin, {}) if plugin else {}
+    words, omit = conf.get('words', {}), conf.get('omit', {})
     lines = []
     for group in groups:
         for grader in pack['groups'][group]:
+            if grader['name'] in omit:
+                continue
             grader = dict(grader, pattern=words.get(grader['name'], grader['pattern']))
             lines.append('  - name: %s\n' % json.dumps(grader['name']))
             for key in KEYS[1:]:
@@ -55,8 +88,17 @@ def words_problems(plugin, conf, pack):
         if name not in allowed:
             yield '%s: words for %s, which plugins may not reword (only %s)' % (
                 plugin, name, ', '.join(sorted(allowed)) or 'none')
-        elif not isinstance(label, str) or not LABEL.fullmatch(label):
-            yield '%s: words for %s must be a plain label ending in a colon, got %r' % (plugin, name, label)
+        elif name not in SHAPES:
+            yield '%s: words for %s, which has no shape rule in sync_graders.py' % (plugin, name)
+        elif not SHAPES[name][0](label):
+            yield '%s: words for %s must be %s, got %r' % (plugin, name, SHAPES[name][1], label)
+    omittable = set(pack.get('omittable', []))
+    for name, reason in sorted(conf.get('omit', {}).items()):
+        if name not in omittable:
+            yield '%s: omit %s, which plugins may not leave out (only %s)' % (
+                plugin, name, ', '.join(sorted(omittable)) or 'none')
+        elif not isinstance(reason, str) or not reason.strip():
+            yield '%s: omit %s needs a reason' % (plugin, name)
 
 
 def case_files(root, plugin):

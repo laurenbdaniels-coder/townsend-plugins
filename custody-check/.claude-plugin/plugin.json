@@ -1,7 +1,7 @@
 {
   "name": "custody-check",
-  "version": "0.5.1",
-  "description": "Run the eleven gut-check questions from 'It Said It Was Fine' on your own AI-built app, read-only, and get a verdict: what you can prove, what you can't, and whether to ship it, patch it, or shelve it. Works in Claude Code and Codex.",
+  "version": "0.6.0",
+  "description": "Run the eleven gut-check questions from 'It Said It Was Fine' on your own AI-built app, read-only, and get a plain report: what is broken, what it means for you, and what your code can't tell. Works in Claude Code and Codex.",
   "author": {
     "name": "Lauren Townsend"
   },
@@ -9,7 +9,7 @@
   "keywords": [
     "vibe-coding",
     "custody",
-    "verdict",
+    "report",
     "audit",
     "founders",
     "read-only"

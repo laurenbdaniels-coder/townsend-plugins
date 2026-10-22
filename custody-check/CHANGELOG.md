@@ -2,6 +2,19 @@
 
 The footer of every verdict names the version that produced it. Later entries carry a "What changed since the workshop" line so an attendee can tell whether an answer would come out differently today.
 
+## 0.6.0 (2026-10-21)
+
+What changed since the workshop build: the report is new. It says what is broken in your app and what it means for you, and lists what your code can't tell. It no longer prints the door, the eleven, the tier, the five, a one-minute check, a question for your AI tool, a pointer or a link. One database false alarm is gone (Q3). The rule that decides is otherwise the same.
+
+- **A plain report.** It opens with "We found N problems in your code, and M things your code can't tell us." A problem is an answer that is No; a Don't know is never counted as one. Each problem is a short block: a plain title, "What it means for you:" and "Where:" with at most two places. Open questions are one line each, with no instruction. When the app keeps sensitive data or handles money for other people, a short block says so and what a mistake there costs. "Do today: replace N secret keys" stays when a key was seen: it is the one safety step.
+- **Says what is broken, never what to do.** The "Check it" lines, the questions for your AI tool, "Before you change any of these", the Free Assessment line and the build-decisions pointer are gone from the report. The README keeps the link.
+- **It says how much it read.** A new inventory (`custody_scan.py --inventory`) lists the app's code files by name and line count, and opens nothing the scan would not. The report says "We read all 6 of your code files." or how many of how many, and the agent reads files that run on the server or save data first. The skill now runs three commands.
+- **Q3: one fewer false alarm.** A table whose row security is turned on in a `DO` block loop over a fixed list (`foreach … loop execute format('alter table %I enable row level security', …)`) now counts as protected. Any other shape still counts as open, and a later disable or drop takes the credit away. This is the first time the newer reader removes a row the 0.3.2 scanner printed.
+- **When the newer reader for database rules does not finish**, the report says so ("some protected tables may show as open"), and the scan JSON names the reason in `stats.overlay_fallback`.
+- **It asks only what your code can't show.** It never asks about keys, what runs in the browser or on your server, who can read your data, who can change it, or whether one place decides who is allowed: it reports what it found, and the rest is an open question. It asks the extra-risk question only when the code doesn't already show the answer. Each question it does ask comes with a one-minute test you can run to find the answer, in the chat only. `free-plugin-standard/SCOPE.md` now writes down what both free plugins do and don't do.
+- **The workshop lists stay in the README** ("From the workshop": the eleven questions and the five). The report does not print them.
+- **Tested.** Every eval case's report checks were rewritten for the new shape; the shared free-plugin standard now lets a plugin word its own count line and leave out "Check it" with a written reason. The no-fix and no-code-words checks can never be changed or dropped.
+
 ## 0.5.1 (2026-10-19)
 
 What changed since the workshop build: nothing in the verdict. One line in the description and README says how custody-check and build-decisions split the work: "Build Decisions shows where your app decides each thing and in how many places. Custody Check answers what a stranger can do and which door your next change takes." Only the version number moved in the scanners and the verdict script.

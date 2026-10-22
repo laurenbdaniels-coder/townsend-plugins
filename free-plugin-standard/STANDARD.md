@@ -1,38 +1,40 @@
 # The free-plugin report standard
 
+What each free plugin does and doesn't do is decided in `SCOPE.md`; this file is the report shape. When the two disagree, SCOPE.md wins.
+
 Every free Townsend plugin that checks an app reports to this standard (spell-it-out, which only changes how Claude asks questions, is outside it). Reference implementation: build-decisions 0.4.0 (decision-census 0.3.1 and later before the rename), `build-decisions/skills/build-decisions/SKILL.md` Step 5.
 
 ## The reader
 
 The reader built their app by prompting an AI tool. They are an ordinary adult who does not read or write code. They know the app by its screens, buttons, plans and prices. Every sentence must make sense to them without a programmer next to them.
 
-## The free/paid line
+## The no-fix line
 
-A free plugin **diagnoses and verifies**. It finds the issue, says what goes wrong, and gives a check the reader can run in a minute.
+A free plugin **diagnoses and verifies**. It finds the issue, says what goes wrong, and gives a check the reader can run in a minute. custody-check 0.6.0 and later stops at the diagnosis: its report says what is broken and what it means for the reader, and gives no check (Lauren, 2026-10-21).
 
 It never gives fix steps, code, a prompt that changes the app, or an offer to make changes, now or in another conversation. That holds even when the reader asks for a fix. Every prompt it gives for the reader's AI tool ends "Change nothing."
 
-Choosing the fix and making it safely is the paid work. A generic fix prompt both gives that judgment away and is unsafe: an AI tool can drop the server's copy of an access rule.
+A generic fix prompt is unsafe: an AI tool can drop the server's copy of an access rule.
 
 ## The report, in order
 
 1. **Title.** Nothing comes before it.
-2. **The count**, one bold line: `**Your app has N <issues> ...**`. When nothing is found, one plain line says so ("This run found no ...").
+2. **The count**, one bold line: `**Your app has N <issues> ...**`. When nothing is found, one plain line says so ("This run found no ..."). custody-check words it `**We found N problems in your code, and M things your code can't tell us.**`, with "no" for zero.
 3. **Why this matters:** one fixed line, the risk in everyday terms (what breaks, what the user sees).
 4. **Each issue** (at most 4, then "And N more"):
    - a numbered bold title in plain words, with how many places;
    - each place as one plain sentence about what it does in the app, then `path:line` at the end;
-   - the plugin's risk line: what the reader would see go wrong. build-decisions says `If they get out of sync:`; custody-check says `What could go wrong:`;
-   - `Check it (1 min):` short steps in the running app, or a plain question for their AI tool ending "Change nothing."
-5. **Before you change any of these:** ask your AI tool "... Change nothing.", then the Free Assessment link. When the stop-line is ticked, there is no link: tell the reader to get a person who does this for a living first.
+   - the plugin's risk line: what the reader would see go wrong. build-decisions says `If they get out of sync:`; custody-check says `What it means for you:`;
+   - `Check it (1 min):` short steps in the running app, or a plain question for their AI tool ending "Change nothing." custody-check leaves it out.
+5. **Before you change any of these:** ask your AI tool "... Change nothing.", then the Free Assessment link. When the stop-line is ticked, there is no link: tell the reader to get a person who does this for a living first. custody-check leaves out this line and the link.
 6. **Also worth a look:** at most 2 short lines, or nothing.
 7. **Not checked:** one fixed line that names what the run did not look at and ends "Not found does not mean it isn't there." A free plugin never says the app is clean.
-8. **Pointer** to the other free plugin: build-decisions points to custody-check (keys, data access and who can call what); custody-check points to build-decisions (a rule decided in more than one place).
+8. **Pointer** to the other free plugin: build-decisions points to custody-check (keys, data access and who can call what). custody-check has no pointer.
 9. **Footer:** plugin name and version, what was read, "read-only", "a review, not an audit".
 
-The per-issue lines use these exact words. The risk line is the one exception: each plugin names its own in `pack.json` (`words`), because "out of sync" fits copies of a rule and not an open key. Only the graders listed in `plugin_words` can be reworded, and only to a plain label ending in a colon. A plugin whose issues need other words changes this standard, and the shared graders, in a pull request. It does not loosen its own graders.
+The per-issue lines use these exact words, with two kinds of exception in `pack.json`. A plugin may give its own `words` for a grader listed in `plugin_words`: the risk line, as a plain label ending in a colon ("out of sync" fits copies of a rule and not an open key), and the count line, as one bold line that starts with a word. A plugin may `omit`, with a reason, a grader listed in `omittable` (only Check it). The no-fix line (no fix prompt, no code words) can never be reworded or left out. `sync_graders.py` checks each shape. A plugin whose issues need other words changes this standard, and the shared graders, in a pull request. It does not loosen its own graders.
 
-custody-check keeps its verdict's own shape around these parts (the door, the eleven, the tier and the five, which the workshop handout uses): its Patch list items are the issue blocks, and the Free Assessment line closes its "Before you change any of these" line.
+custody-check 0.6.0 and later has its own plain shape: count, why, a coverage line, an extra-risk block when its stop-line is ticked, a Do today line when a key was seen, the issue blocks under "What we found in your code" (bold title, What it means for you, Where), the open questions under "What your code can't tell us", a not-checked line, the footer. The door, the eleven, the tier and the five stay in the workshop and its README, not in the report.
 
 ## Plain English
 
@@ -47,7 +49,7 @@ custody-check keeps its verdict's own shape around these parts (the door, the el
 `claude plugin eval` has no include for `case.yaml`, so the shared graders live in `pack.json` and are copied into each case:
 
 - `always`: no fix prompt, no code words. Every case that renders a report carries it.
-- `issues`: the count line, the why line, the risk line (`std-out-of-sync`, in the plugin's own words), the check-it line. Every case that expects at least one issue carries it.
+- `issues`: the count line and the risk line (both in the plugin's own words when it has them), the why line, the check-it line (unless the plugin omits it). Every case that expects at least one issue carries it.
 
 To add a free plugin, list it under `plugins` in `pack.json`. Then end each case's `graders:` list with:
 

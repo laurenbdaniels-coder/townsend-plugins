@@ -567,7 +567,7 @@ class LinearityTests(TreeCase):
 
 
 class EvalFixtureTests(unittest.TestCase):
-    """The paid evals assume the helper lists their planted places; this checks it for free in CI."""
+    """The model-run evals assume the helper lists their planted places; this checks it in CI without a model."""
     EVAL_APPS = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(SCRIPT_DIR))), "evals", "fixtures")
     PAIRS = {
         "cartwheel": [("src/app/api/projects/route.ts", "visibility"), ("src/components/ProjectList.tsx", "visibility"),
@@ -585,7 +585,7 @@ class EvalFixtureTests(unittest.TestCase):
     def test_eval_pairs_are_listed(self):
         """protects=every place a paid eval grades for is listed by the capped helper, as the skill runs it;
         fails_when=a helper change stops listing a planted place, or the clean-looking app gains a second place;
-        no_claim=the model's reading and cards are only checked by the paid evals."""
+        no_claim=the model's reading and cards are only checked by the model-run evals."""
         apps = self.EVAL_APPS
         self.assertTrue(os.path.isdir(os.path.join(apps, "cartwheel")), apps)
         for app, pairs in self.PAIRS.items():

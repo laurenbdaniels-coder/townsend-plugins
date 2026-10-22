@@ -2,6 +2,21 @@
 
 ## custody-check
 
+### An eval case for the question rule (2026-10-21)
+
+**What:** every custody-check eval case pastes its answers and says "don't ask more questions", so no case checks SCOPE.md's question rule (never ask about keys, browser or server, who can read, who can change; ask the stop-line only when the code doesn't show it). Add a case with no answers block whose prompt answers "don't know" to anything asked, and grade the chat for questions about Q1 to Q4.
+**Why:** the rule is pinned only in SKILL.md text today (plain_english_test, scope_test).
+**Effort:** S / S.
+
+### Deferred by the 2026-10-21 /autoplan (readable report + Full read)
+
+**What:** Items the plan review deferred (plan: `~/.claude/plans/crystalline-singing-snail.md`).
+- **Quick/Full question in build-decisions (E3).** Why: its 40-call read has the same coverage gap. Depends on: custody-check 0.7.0 spike numbers. Effort: M (human) / S (CC).
+- **Calibrate the Full-read time and cost estimates (CEO S8).** Why: printed ranges come from 3–5 spike apps. Context: collect 5 real runs after the Oct 26 talk, then tighten the ranges. Effort: S / S.
+- **Per-helper call caps in evals (Eng E-P3-12).** Why: `claude plugin eval` pools main and helper tool calls, so ≤60 calls per helper and slice-only reads are not graded. Start: have helpers echo their slice id and grade per slice if the log allows. Effort: M / S.
+
+**Why:** each is a weakness main shares, an optional surface, or needs data that does not exist yet.
+
 ### Leftovers from the 0.5.0 review (free-plugin standard, 2026-10-18)
 
 **What:** Findings from the 0.5.0 review that missed the ship bar.
@@ -435,6 +450,13 @@
 **Depends on:** None
 
 ## build-decisions (decision-census until 0.4.0)
+
+### Drop "which door" from the paired custody-check line (found 2026-10-21, custody-check 0.6.0)
+
+**What:** `build-decisions/README.md` (lines 5 and 97) and `build-decisions/skills/build-decisions/SKILL.md` (description) still say "Custody Check answers what a stranger can do and which door your next change takes."
+**Why:** custody-check 0.6.0's report has no door, and copy about the free plugins never says a plugin recommends anything (Lauren, 2026-10-21). custody-check now uses the /free card line: "Custody Check shows what a stranger could see or do in your app, and what your code can't tell it."
+**Where:** build-decisions 0.6.0. The SKILL.md description is trigger text, so it ships in a build-decisions release, not in custody-check's PR.
+**Effort:** S / S.
 
 From the 0.5.0 review (payment section, 2026-10-19), below the ship bar:
 - **The payment section's main-vs-branch differential turns on after 0.5.0 merges.** Until then the labeled `fixtures/payments` corpus is the only gate. Its keys hold line numbers, so every fixture edit after that needs an exception entry. P2 for the next release that changes the section.

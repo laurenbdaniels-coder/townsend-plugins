@@ -311,6 +311,32 @@ case("rls words inside a comment string",{"db/1.sql": RLS + "comment on table pu
                                            "comment on column public.notes.id is 'doc says using (((((true))))) is bad';\n"})
 
 
+# S-044: a DO-block loop that turns RLS on. Credited shapes are softer than 0.3.2 on purpose (ALLOW_SOFTER);
+# every near miss must stay flagged.
+LOOP_TABLES = "create table public.notes (id int);\ncreate table public.tasks (id int);\n"
+def _loop(names="'notes','tasks'", fmt="'alter table public.%I enable row level security'", arg="t", head="do $$", tail="end $$;"):
+    return ("%s\ndeclare t text;\nbegin\n  foreach t in array array[%s]\n  loop\n    execute format(%s, %s);\n"
+            "    execute format('alter table public.%%I force row level security', t);\n  end loop;\n%s\n" % (head, names, fmt, arg, tail))
+LOOP_A, LOOP_B = "supabase/migrations/20261010000000_a.sql", "supabase/migrations/20261017000000_b.sql"
+case("rls loop credited", {LOOP_A: LOOP_TABLES + _loop()})
+case("rls loop credited across lines without schema", {LOOP_A: LOOP_TABLES + _loop(names="'notes',\n   'tasks'", fmt="'ALTER TABLE %I ENABLE ROW LEVEL SECURITY'")})
+case("rls loop credited after an earlier create", {LOOP_A: LOOP_TABLES, LOOP_B: _loop()})
+case("rls loop missing a table", {LOOP_A: LOOP_TABLES + _loop(names="'notes'")})
+case("rls loop arg not the loop variable", {LOOP_A: LOOP_TABLES + _loop(arg="'notes'")})
+case("rls loop two placeholders", {LOOP_A: LOOP_TABLES + _loop(fmt="'alter table %I.%I enable row level security'", arg="'public', t")})
+case("rls loop quote_ident concatenation", {LOOP_A: LOOP_TABLES + _loop().replace("execute format('alter table public.%I enable row level security', t)", "execute 'alter table public.' || quote_ident(t) || ' enable row level security'")})
+case("rls loop array from a variable", {LOOP_A: LOOP_TABLES + _loop(names="").replace("array array[]", "array names")})
+case("rls loop array from a query", {LOOP_A: LOOP_TABLES + _loop(names="").replace("array array[]", "array (select array_agg(tablename) from pg_tables)")})
+case("rls loop mixed-case names", {LOOP_A: LOOP_TABLES + _loop(names="'Notes','Tasks'")})
+case("rls loop in a function body", {LOOP_A: LOOP_TABLES + _loop(head="create function f() returns void language plpgsql as $$")})
+case("rls loop inside a string", {LOOP_A: LOOP_TABLES + "comment on table public.notes is '" + _loop().replace("'", "''") + "';\n"})
+case("rls loop format is not only the enable", {LOOP_A: LOOP_TABLES + _loop(fmt="'alter table public.%I enable row level security; select 1'")})
+case("rls loop then a later disable", {LOOP_A: LOOP_TABLES + _loop(), LOOP_B: "alter table public.notes disable row level security;\n"})
+case("rls loop then a later drop", {LOOP_A: LOOP_TABLES + _loop(), LOOP_B: "drop table public.notes;\n"})
+case("rls loop then a later create", {LOOP_A: LOOP_TABLES + _loop(), LOOP_B: "create table public.notes (id int);\n"})
+case("rls loop past the five-table cap", {LOOP_A: "".join("create table public.t%d (id int);\n" % i for i in range(8)) + _loop(names="'t0','t1','t2'")})
+
+
 def answers(scanner, c):
     tmp = tempfile.mkdtemp()
     try:
