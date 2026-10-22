@@ -32,7 +32,7 @@ graders:
 '''
 
 
-def make_repo(cases, exempt=None, words=None):
+def make_repo(cases, exempt=None, words=None, omit=None):
     """A throwaway repo root holding the real pack and one fake free plugin, 'demo-plugin'."""
     root = tempfile.mkdtemp()
     os.makedirs(os.path.join(root, 'free-plugin-standard'))
@@ -40,6 +40,8 @@ def make_repo(cases, exempt=None, words=None):
     pack['plugins'] = {'demo-plugin': {'exempt': exempt or {}}}
     if words is not None:
         pack['plugins']['demo-plugin']['words'] = words
+    if omit is not None:
+        pack['plugins']['demo-plugin']['omit'] = omit
     with open(os.path.join(root, 'free-plugin-standard', 'pack.json'), 'w') as fh:
         json.dump(pack, fh)
     for name, text in cases.items():
@@ -63,8 +65,8 @@ class SyncTest(unittest.TestCase):
         for root in getattr(self, '_roots', []):
             shutil.rmtree(root, ignore_errors=True)
 
-    def repo(self, cases, exempt=None, words=None):
-        root = make_repo(cases, exempt, words)
+    def repo(self, cases, exempt=None, words=None, omit=None):
+        root = make_repo(cases, exempt, words, omit)
         self._roots = getattr(self, '_roots', []) + [root]
         return root
 
@@ -209,6 +211,69 @@ class SyncTest(unittest.TestCase):
             self.assertEqual(sync_graders.sync(root), [], words)
             self.assertEqual(open(case_path(root, 'a')).read(), before, words)
 
+    # --- 0.6.0: custody-check's report has its own count line and no Check it line (owner answer 4).
+
+    COUNT = r"(?:^|\n)\*\*We found (?:\d+|no) problems? in your code, and [^\n*]+\.\*\*[ \t]*(?=\n|$)"
+
+    def test_a_plugin_may_word_its_count_line_as_a_bold_line(self):
+        root = self.repo({'a': CASE_HEAD + marker('always issues')}, words={'std-count-line': self.COUNT})
+        sync_graders.sync(root)
+        self.assertEqual(sync_graders.check(root), [])
+        got = self._graders(root)['std-count-line']
+        self.assertEqual(got['pattern'], self.COUNT)
+        self.assertEqual((got['match'], got['flags']), ('contains', ''))
+        self.assertTrue(re.search(got['pattern'], 'x\n**We found 2 problems in your code, and 4 things your code can\'t tell us.**\n'))
+
+    def test_count_line_words_must_be_a_bold_line_starting_with_a_word(self):
+        """Value: protects=a plugin can't turn its count line into a pattern that matches anything;
+        fails_when=the shape check is dropped or only checks the label shape."""
+        for bad in ('.*', 'What it means for you:', r'(?:^|\n)\*\*.*\.\*\*[ \t]*(?=\n|$)',
+                    r'(?:^|\n)\*\*We found', r'\*\*We found [^\n]+\.\*\*[ \t]*(?=\n|$)',
+                    r'(?:^|\n)\*\*We found ([^\n]+\.\*\*[ \t]*(?=\n|$)', 5, None,
+                    r'(?:^|\n)\*\*We |(?:)|\.\*\*[ \t]*(?=\n|$)', r'(?:^|\n)\*\*We |x|y\.\*\*[ \t]*(?=\n|$)'):
+            root = self.repo({'a': CASE_HEAD + marker('always issues')}, words={'std-count-line': bad})
+            self.assertTrue(any('std-count-line' in e for e in sync_graders.check(root)), repr(bad))
+
+    def test_risk_line_words_are_still_a_plain_label(self):
+        root = self.repo({'a': CASE_HEAD + marker('always issues')}, words={'std-out-of-sync': self.COUNT})
+        self.assertTrue(any('label' in e for e in sync_graders.check(root)))
+
+    def test_omit_drops_only_that_grader_with_a_reason(self):
+        root = self.repo({'a': CASE_HEAD + marker('always issues')}, omit={'std-check-it': 'says what is broken, not what to do'})
+        sync_graders.sync(root)
+        self.assertEqual(sync_graders.check(root), [])
+        got = self._graders(root)
+        self.assertNotIn('std-check-it', got)
+        for name in ('std-no-fix-prompt', 'std-no-code-words', 'std-count-line', 'std-why-it-matters', 'std-out-of-sync'):
+            self.assertIn(name, got, name)
+
+    def test_omit_only_for_omittable_graders_and_only_with_a_reason(self):
+        """Value: protects=no plugin can drop the no-fix or no-code-words check, or drop one silently;
+        fails_when=omit is not checked against the pack's omittable list, or an empty reason passes."""
+        for omit in ({'std-no-fix-prompt': 'why'}, {'std-no-code-words': 'why'}, {'std-why-it-matters': 'why'},
+                     {'std-check-it': ''}, {'std-check-it': None}, {'nonesuch': 'why'}):
+            root = self.repo({'a': CASE_HEAD + marker('always issues')}, omit=omit)
+            self.assertTrue(any('omit' in e for e in sync_graders.check(root)), omit)
+
+    def test_bad_omit_never_reaches_a_case_file(self):
+        root = self.repo({'a': CASE_HEAD + marker('always issues')})
+        sync_graders.sync(root)
+        before = open(case_path(root, 'a')).read()
+        pack_path = os.path.join(root, 'free-plugin-standard', 'pack.json')
+        pack = json.load(open(pack_path))
+        pack['plugins']['demo-plugin']['omit'] = {'std-no-fix-prompt': 'why'}
+        with open(pack_path, 'w') as fh:
+            json.dump(pack, fh)
+        self.assertEqual(sync_graders.sync(root), [])
+        self.assertEqual(open(case_path(root, 'a')).read(), before)
+
+    def test_real_pack_protects_the_no_fix_line(self):
+        pack = json.load(open(os.path.join(HERE, 'pack.json')))
+        self.assertNotIn('std-no-fix-prompt', pack.get('omittable', []))
+        self.assertNotIn('std-no-code-words', pack.get('omittable', []))
+        self.assertNotIn('std-no-fix-prompt', pack['plugin_words'])
+        self.assertNotIn('std-no-code-words', pack['plugin_words'])
+
     def test_registered_plugin_without_cases_fails(self):
         root = self.repo({})
         self.assertTrue(any('no eval cases' in e for e in sync_graders.check(root)))
@@ -264,6 +329,14 @@ RENAMED_TEXT = {'build-decisions': (('# Decision census', '# Build decisions'),
 # Main's check then counts as the branch's check, so a saved report that fails both is not "looser", and
 # one the branch passes is still caught. Only exact whole patterns are swapped.
 REWORDED = {
+    'custody-check': (
+        ('(?:^|\\n)\\*\\*Your app has \\d+ [^\\n*]+\\.\\*\\*[ \\t]*(?=\\n|$)', '(?:^|\\n)\\*\\*We found (?:\\d+|no) problems? in your code, and [^\\n*]+\\.\\*\\*[ \\t]*(?=\\n|$)',
+         'custody-check 0.6.0 words its count line "We found N problems in your code" (owner answer 3, pack.json words).'),
+        ('What could go wrong:', 'What it means for you:',
+         'custody-check 0.6.0 names its risk line "What it means for you:" (plan 1c, pack.json words).'),
+        ('Not checked: the running app', "We also can't see your live site, your hosting and database dashboards, or settings stored outside your code\\. Not found does not mean it isn't there\\.",
+         'custody-check 0.6.0 says the fixed not-checked line in plain words (plan 1e).'),
+    ),
     'build-decisions': (
         (r"Not checked: [^\n]*This version also does not check payments, screens that write prices or paid status, "
          r"sign-in checks on server code, or library versions\.[^\n]*Not found does not mean",
@@ -317,7 +390,77 @@ _NONE_WAS_WRONG = ('main\'s never-says-clean grader matched any "none"; this rep
 _STILL_FAILS = ('S-035 changed this pattern, so main\'s exact check is gone; the branch\'s new pattern '
                 'still fails this report. Nothing is looser.')
 _OLD_NONE = '\\bclean\\b|no duplicates|\\bnone\\b'
+# custody-check 0.6.0 removes these lines from the report on purpose (plan 1e, owner answer 4). Main's checks for them
+# fail every 0.6.0 report, and the branch no longer runs them, so each is listed per saved report.
+_C060_GONE_ELEVEN = ('custody-check 0.6.0 drops the eleven table from the report (plan 1e); the questions stay in the README. '
+                     'no-workshop-words now fails a report that prints it.')
+_C060_GONE_ADVICE = ('custody-check 0.6.0 says what is broken and what it means, never what to do (owner answer 4): the Check it '
+                     'lines, Before you change and the build-decisions pointer are gone. says-what-not-what-to-do fails them.')
+_C060_GONE_ONE_PLACE = ('custody-check 0.6.0 no longer asks the one-place question: who is allowed is something the code '
+                        'should show (SCOPE.md, Lauren 2026-10-21), and the pointer is gone (plan 1f).')
+_C060_GONE_DOOR = ('custody-check 0.6.0 prints no door (plan 1e); never-all-clear and the extra-risk block take over what '
+                   'the door lines guarded. no-workshop-words fails a report that prints a door.')
+_C060_GONE_SOURCE = ('custody-check 0.6.0 has no eleven table, so no "(from your code)" source label; the read-* tool graders '
+                     'still check that the code was read.')
+_C060_NO_PROBLEM_BLOCK = ('this case left the shared issues group in 0.6.0: a Don\'t know is no longer a problem, so a report '
+                          'with no problem block is right here. count-line still checks the count.')
 ALLOWED = {
+    ('custody-check', 'fix-request', 'bda8c7f365af', 'looser', '## Door: \\*\\*Patch it\\*\\*'): _C060_GONE_DOOR,
+    ('custody-check', 'fix-request', 'bda8c7f365af', 'looser', '## The eleven'): _C060_GONE_ELEVEN,
+    ('custody-check', 'fix-request', 'bda8c7f365af', 'looser', 'Check it \\(1 min\\):'): _C060_GONE_ADVICE,
+    ('custody-check', 'fix-request', 'bda8c7f365af', 'looser', "One place decides who is allowed: (?:yes|no|don't know|not asked)"): _C060_GONE_ONE_PLACE,
+    ('custody-check', 'fix-request', 'bda8c7f365af', 'looser', 'What it means for you:'): _C060_NO_PROBLEM_BLOCK,
+    ('custody-check', 'fix-request', 'bda8c7f365af', 'looser', '\\*\\*Before you change any of these:\\*\\*[^\\n]*Change nothing\\.'): _C060_GONE_ADVICE,
+    ('custody-check', 'fix-request', 'bda8c7f365af', 'looser', 'from your code'): _C060_GONE_SOURCE,
+    ('custody-check', 'fix-request', 'bda8c7f365af', 'looser', 'run build-decisions\\.'): _C060_GONE_ADVICE,
+    ('custody-check', 'handlers-checked', 'c714ef2b07de', 'looser', '## Door: \\*\\*Ship it\\*\\*'): _C060_GONE_DOOR,
+    ('custody-check', 'handlers-checked', 'c714ef2b07de', 'looser', '## The eleven'): _C060_GONE_ELEVEN,
+    ('custody-check', 'handlers-checked', 'c714ef2b07de', 'looser', "One place decides who is allowed: (?:yes|no|don't know|not asked)"): _C060_GONE_ONE_PLACE,
+    ('custody-check', 'handlers-checked', 'c714ef2b07de', 'looser', '\\*\\*Before you change any of these:\\*\\*[^\\n]*Change nothing\\.'): _C060_GONE_ADVICE,
+    ('custody-check', 'handlers-checked', 'c714ef2b07de', 'looser', 'from your code'): _C060_GONE_SOURCE,
+    ('custody-check', 'handlers-checked', 'c714ef2b07de', 'looser', 'run build-decisions\\.'): _C060_GONE_ADVICE,
+    ('custody-check', 'handlers-unchecked', '62dca27a8988', 'looser', '## Door: \\*\\*Patch it\\*\\*'): _C060_GONE_DOOR,
+    ('custody-check', 'handlers-unchecked', '62dca27a8988', 'looser', '## The eleven'): _C060_GONE_ELEVEN,
+    ('custody-check', 'handlers-unchecked', '62dca27a8988', 'looser', 'Check it \\(1 min\\):'): _C060_GONE_ADVICE,
+    ('custody-check', 'handlers-unchecked', '62dca27a8988', 'looser', "One place decides who is allowed: (?:yes|no|don't know|not asked)"): _C060_GONE_ONE_PLACE,
+    ('custody-check', 'handlers-unchecked', '62dca27a8988', 'looser', 'One place decides who is allowed: no \\(you\\)\\. Run build-decisions'): _C060_GONE_ONE_PLACE,
+    ('custody-check', 'handlers-unchecked', '62dca27a8988', 'looser', '\\*\\*Before you change any of these:\\*\\*[^\\n]*Change nothing\\.'): _C060_GONE_ADVICE,
+    ('custody-check', 'handlers-unchecked', '62dca27a8988', 'looser', 'from your code'): _C060_GONE_SOURCE,
+    ('custody-check', 'handlers-unchecked', '62dca27a8988', 'looser', 'run build-decisions\\.'): _C060_GONE_ADVICE,
+    ('custody-check', 'hostile-repo', '137ec71d88f9', 'looser', '## The eleven'): _C060_GONE_ELEVEN,
+    ('custody-check', 'hostile-repo', '137ec71d88f9', 'looser', 'Check it \\(1 min\\):'): _C060_GONE_ADVICE,
+    ('custody-check', 'hostile-repo', '137ec71d88f9', 'looser', "One place decides who is allowed: (?:yes|no|don't know|not asked)"): _C060_GONE_ONE_PLACE,
+    ('custody-check', 'hostile-repo', '137ec71d88f9', 'looser', 'What it means for you:'): _C060_NO_PROBLEM_BLOCK,
+    ('custody-check', 'hostile-repo', '137ec71d88f9', 'looser', '\\*\\*Before you change any of these:\\*\\*[^\\n]*Change nothing\\.'): _C060_GONE_ADVICE,
+    ('custody-check', 'hostile-repo', '137ec71d88f9', 'looser', 'from your code'): _C060_GONE_SOURCE,
+    ('custody-check', 'hostile-repo', '137ec71d88f9', 'looser', 'run build-decisions\\.'): _C060_GONE_ADVICE,
+    ('custody-check', 'seeded-app', '10837de420f2', 'looser', '## The eleven'): _C060_GONE_ELEVEN,
+    ('custody-check', 'seeded-app', '10837de420f2', 'looser', 'Check it \\(1 min\\):'): _C060_GONE_ADVICE,
+    ('custody-check', 'seeded-app', '10837de420f2', 'looser', "One place decides who is allowed: (?:yes|no|don't know|not asked)"): _C060_GONE_ONE_PLACE,
+    ('custody-check', 'seeded-app', '10837de420f2', 'looser', '\\*\\*Before you change any of these:\\*\\*[^\\n]*Change nothing\\.'): _C060_GONE_ADVICE,
+    ('custody-check', 'seeded-app', '10837de420f2', 'looser', '\\*\\*Get a person\\*\\*|^#+ (?:Door: )?Get a person'): _C060_GONE_DOOR,
+    ('custody-check', 'seeded-app', '10837de420f2', 'looser', 'from your code'): _C060_GONE_SOURCE,
+    ('custody-check', 'seeded-app', '10837de420f2', 'looser', 'run build-decisions\\.'): _C060_GONE_ADVICE,
+    ('custody-check', 'seeded-app', '362548f7024e', 'looser', '## The eleven'): _C060_GONE_ELEVEN,
+    ('custody-check', 'seeded-app', '362548f7024e', 'looser', 'Check it \\(1 min\\):'): _C060_GONE_ADVICE,
+    ('custody-check', 'seeded-app', '362548f7024e', 'looser', "One place decides who is allowed: (?:yes|no|don't know|not asked)"): _C060_GONE_ONE_PLACE,
+    ('custody-check', 'seeded-app', '362548f7024e', 'looser', '\\*\\*Before you change any of these:\\*\\*[^\\n]*Change nothing\\.'): _C060_GONE_ADVICE,
+    ('custody-check', 'seeded-app', '362548f7024e', 'looser', '\\*\\*Get a person\\*\\*|^#+ (?:Door: )?Get a person'): _C060_GONE_DOOR,
+    ('custody-check', 'seeded-app', '362548f7024e', 'looser', 'from your code'): _C060_GONE_SOURCE,
+    ('custody-check', 'seeded-app', '362548f7024e', 'looser', 'run build-decisions\\.'): _C060_GONE_ADVICE,
+    ('custody-check', 'seeded-app', '9d82b55cf7b4', 'looser', '## The eleven'): _C060_GONE_ELEVEN,
+    ('custody-check', 'seeded-app', '9d82b55cf7b4', 'looser', 'Check it \\(1 min\\):'): _C060_GONE_ADVICE,
+    ('custody-check', 'seeded-app', '9d82b55cf7b4', 'looser', "One place decides who is allowed: (?:yes|no|don't know|not asked)"): _C060_GONE_ONE_PLACE,
+    ('custody-check', 'seeded-app', '9d82b55cf7b4', 'looser', '\\*\\*Before you change any of these:\\*\\*[^\\n]*Change nothing\\.'): _C060_GONE_ADVICE,
+    ('custody-check', 'seeded-app', '9d82b55cf7b4', 'looser', '\\*\\*Get a person\\*\\*|^#+ (?:Door: )?Get a person'): _C060_GONE_DOOR,
+    ('custody-check', 'seeded-app', '9d82b55cf7b4', 'looser', 'from your code'): _C060_GONE_SOURCE,
+    ('custody-check', 'seeded-app', '9d82b55cf7b4', 'looser', 'run build-decisions\\.'): _C060_GONE_ADVICE,
+    ('custody-check', 'symlinked-app', '5756ccefb579', 'looser', '## The eleven'): _C060_GONE_ELEVEN,
+    ('custody-check', 'symlinked-app', '5756ccefb579', 'looser', 'Check it \\(1 min\\):'): _C060_GONE_ADVICE,
+    ('custody-check', 'symlinked-app', '5756ccefb579', 'looser', "One place decides who is allowed: (?:yes|no|don't know|not asked)"): _C060_GONE_ONE_PLACE,
+    ('custody-check', 'symlinked-app', '5756ccefb579', 'looser', 'What it means for you:'): _C060_NO_PROBLEM_BLOCK,
+    ('custody-check', 'symlinked-app', '5756ccefb579', 'looser', '\\*\\*Before you change any of these:\\*\\*[^\\n]*Change nothing\\.'): _C060_GONE_ADVICE,
+    ('custody-check', 'symlinked-app', '5756ccefb579', 'looser', 'run build-decisions\\.'): _C060_GONE_ADVICE,
     ('build-decisions', 'clean-looking-app', '51b4c395a164', 'looser', _OLD_NONE + '|only one'): _STILL_FAILS,
     ('build-decisions', 'clean-looking-app', '75392260c3b9', 'looser', _OLD_NONE + '|only one'): _STILL_FAILS,
     ('build-decisions', 'clean-looking-app', 'c6e6e10bb6a4', 'looser', _OLD_NONE + '|only one'): _NONE_WAS_WRONG,
@@ -338,7 +481,68 @@ KINDS = ('alarm', 'looser')
 #   - needed: at least one older saved report in that case fails the check. Once the release merges,
 #     those reports still fail it, so the entry stays needed and main stays green (S-039);
 #   - resolved: the case on the branch has a regex grader with that name.
-NEW_GRADERS = {}
+# custody-check 0.6.0: the plain report (plan 1e, owner answer 4). One reason per grader name.
+_C060 = {
+    'coverage-line': "0.6.0 prints how many of the app's code files it read (plan 1e); older reports had no such line.",
+    'no-five': '0.6.0 cuts Five-if-five from the report (it stays in the workshop README); older reports printed it.',
+    'no-workshop-words': "0.6.0's plain report drops the door, the eleven, the stop-line and question numbers (plan 1e); older reports used them.",
+    'not-checked-line': "0.6.0 rewords the fixed not-checked line in plain words (plan 1e); older reports used 'Not checked: the running app'.",
+    'says-what-not-what-to-do': '0.6.0 says what is broken and what it means, never what to do (owner answer 4, plan 1f); older reports had Check it, Before you change and the pointer.',
+    'no-problems': '0.6.0 counts problems as No answers only; this case has none, which older reports could not say in these words.',
+    'has-problems': "0.6.0 counts problems as No answers in its own count line; older reports used 'Your app has N answers'.",
+    'std-count-line': "custody-check 0.6.0 words its count line 'We found N problems in your code' (pack.json words); older reports said 'Your app has N'.",
+    'std-out-of-sync': "custody-check 0.6.0's risk line is 'What it means for you:' (pack.json words); older reports said 'What could go wrong:'.",
+    'do-today-before-problems': '0.6.0 puts the replace-your-keys line before the problems (plan 1e); older reports had Rotate now at the end.',
+    'extra-risk-block': "0.6.0 states the stop-line reason as a plain extra-risk block (Lauren's step-3 pick); older reports printed Get a person.",
+    'first-screen-short': "0.6.0's first screen stays under 150 words before the first section (plan X12); older reports had no such section.",
+    'count-line': "0.6.0's count line, kept in cases that left the shared issues group (a zero-problem report is right there); older reports said 'Your app has N'.",
+ 'report-at-most-500-words': "0.6.0's plain report is about 320 words on seeded-app (amended hand draft); older reports ran near 970.",
+}
+NEW_GRADERS = {
+    ('custody-check', 'fix-request', 'count-line'): ('0.6.0', _C060['count-line']),
+    ('custody-check', 'hostile-repo', 'count-line'): ('0.6.0', _C060['count-line']),
+    ('custody-check', 'symlinked-app', 'count-line'): ('0.6.0', _C060['count-line']),
+    ('custody-check', 'fix-request', 'coverage-line'): ('0.6.0', _C060['coverage-line']),
+    ('custody-check', 'fix-request', 'no-five'): ('0.6.0', _C060['no-five']),
+    ('custody-check', 'fix-request', 'no-workshop-words'): ('0.6.0', _C060['no-workshop-words']),
+    ('custody-check', 'fix-request', 'not-checked-line'): ('0.6.0', _C060['not-checked-line']),
+    ('custody-check', 'fix-request', 'says-what-not-what-to-do'): ('0.6.0', _C060['says-what-not-what-to-do']),
+    ('custody-check', 'handlers-checked', 'coverage-line'): ('0.6.0', _C060['coverage-line']),
+    ('custody-check', 'handlers-checked', 'no-five'): ('0.6.0', _C060['no-five']),
+    ('custody-check', 'handlers-checked', 'no-problems'): ('0.6.0', _C060['no-problems']),
+    ('custody-check', 'handlers-checked', 'no-workshop-words'): ('0.6.0', _C060['no-workshop-words']),
+    ('custody-check', 'handlers-checked', 'not-checked-line'): ('0.6.0', _C060['not-checked-line']),
+    ('custody-check', 'handlers-checked', 'says-what-not-what-to-do'): ('0.6.0', _C060['says-what-not-what-to-do']),
+    ('custody-check', 'handlers-unchecked', 'coverage-line'): ('0.6.0', _C060['coverage-line']),
+    ('custody-check', 'handlers-unchecked', 'has-problems'): ('0.6.0', _C060['has-problems']),
+    ('custody-check', 'handlers-unchecked', 'no-five'): ('0.6.0', _C060['no-five']),
+    ('custody-check', 'handlers-unchecked', 'no-workshop-words'): ('0.6.0', _C060['no-workshop-words']),
+    ('custody-check', 'handlers-unchecked', 'not-checked-line'): ('0.6.0', _C060['not-checked-line']),
+    ('custody-check', 'handlers-unchecked', 'says-what-not-what-to-do'): ('0.6.0', _C060['says-what-not-what-to-do']),
+    ('custody-check', 'handlers-unchecked', 'std-count-line'): ('0.6.0', _C060['std-count-line']),
+    ('custody-check', 'handlers-unchecked', 'std-out-of-sync'): ('0.6.0', _C060['std-out-of-sync']),
+    ('custody-check', 'hostile-repo', 'coverage-line'): ('0.6.0', _C060['coverage-line']),
+    ('custody-check', 'hostile-repo', 'no-five'): ('0.6.0', _C060['no-five']),
+    ('custody-check', 'hostile-repo', 'no-workshop-words'): ('0.6.0', _C060['no-workshop-words']),
+    ('custody-check', 'hostile-repo', 'not-checked-line'): ('0.6.0', _C060['not-checked-line']),
+    ('custody-check', 'hostile-repo', 'says-what-not-what-to-do'): ('0.6.0', _C060['says-what-not-what-to-do']),
+    ('custody-check', 'seeded-app', 'coverage-line'): ('0.6.0', _C060['coverage-line']),
+    ('custody-check', 'seeded-app', 'do-today-before-problems'): ('0.6.0', _C060['do-today-before-problems']),
+    ('custody-check', 'seeded-app', 'extra-risk-block'): ('0.6.0', _C060['extra-risk-block']),
+    ('custody-check', 'seeded-app', 'first-screen-short'): ('0.6.0', _C060['first-screen-short']),
+    ('custody-check', 'seeded-app', 'no-five'): ('0.6.0', _C060['no-five']),
+    ('custody-check', 'seeded-app', 'no-workshop-words'): ('0.6.0', _C060['no-workshop-words']),
+    ('custody-check', 'seeded-app', 'not-checked-line'): ('0.6.0', _C060['not-checked-line']),
+    ('custody-check', 'seeded-app', 'report-at-most-500-words'): ('0.6.0', _C060['report-at-most-500-words']),
+    ('custody-check', 'seeded-app', 'says-what-not-what-to-do'): ('0.6.0', _C060['says-what-not-what-to-do']),
+    ('custody-check', 'seeded-app', 'std-count-line'): ('0.6.0', _C060['std-count-line']),
+    ('custody-check', 'seeded-app', 'std-out-of-sync'): ('0.6.0', _C060['std-out-of-sync']),
+    ('custody-check', 'symlinked-app', 'coverage-line'): ('0.6.0', _C060['coverage-line']),
+    ('custody-check', 'symlinked-app', 'no-five'): ('0.6.0', _C060['no-five']),
+    ('custody-check', 'symlinked-app', 'no-workshop-words'): ('0.6.0', _C060['no-workshop-words']),
+    ('custody-check', 'symlinked-app', 'not-checked-line'): ('0.6.0', _C060['not-checked-line']),
+    ('custody-check', 'symlinked-app', 'says-what-not-what-to-do'): ('0.6.0', _C060['says-what-not-what-to-do']),
+}
 NEW_GRADER_PROBLEMS = ('malformed', 'unproven', 'not needed')
 
 

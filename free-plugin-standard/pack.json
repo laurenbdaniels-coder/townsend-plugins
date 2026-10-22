@@ -49,7 +49,11 @@
     ]
   },
   "plugin_words": [
-    "std-out-of-sync"
+    "std-out-of-sync",
+    "std-count-line"
+  ],
+  "omittable": [
+    "std-check-it"
   ],
   "plugins": {
     "build-decisions": {
@@ -60,9 +64,13 @@
     },
     "custody-check": {
       "words": {
-        "std-out-of-sync": "What could go wrong:"
+        "std-out-of-sync": "What it means for you:",
+        "std-count-line": "(?:^|\\n)\\*\\*We found (?:\\d+|no) problems? in your code, and [^\\n*]+\\.\\*\\*[ \\t]*(?=\\n|$)"
       },
-      "exempt": {}
+      "exempt": {},
+      "omit": {
+        "std-check-it": "0.6.0 (owner answer 4): the report says what is broken and what it means, never what to do, so its blocks carry no Check it line."
+      }
     }
   }
 }

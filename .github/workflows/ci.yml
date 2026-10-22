@@ -28,7 +28,7 @@ jobs:
           CUSTODY_PERF_BUDGET_S: "60"
           CUSTODY_TIME_SLACK: "3"   # shared runners are loaded; the linearity bounds still catch quadratic paths
         run: python3 -m unittest discover -s custody-check/skills/custody-check/scripts -p '*_test.py' -v
-      - name: IP grep (the giveaways must contain nothing from the paid method)
+      - name: IP grep (the free plugins carry none of the studio's private vocabulary)
         # giveaway-only terms (custody-check, build-decisions, the decision-census pointer); the repo-wide paid-method words are the Method grep below.
         # The last three are the consolidation method, which stays paid: build-decisions diagnoses, it never teaches the fix.
         run: |
@@ -37,7 +37,7 @@ jobs:
                "routing table|office-hours|three-pillar|/review|/ship|map file|plan-before-build|decisions log" custody-check/ build-decisions/ decision-census/; then
             echo "paid-method vocabulary found in a giveaway plugin"; exit 1
           fi
-      - name: Method grep (no published file ships the paid method's vocabulary)
+      - name: Method grep (no published file carries the studio's private vocabulary)
         run: |
           # every tracked file except this one, which has to spell the words; the custody-check-only
           # terms stay in the IP grep above (prompt-coach's evals legitimately name /review).

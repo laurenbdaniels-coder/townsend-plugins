@@ -1,6 +1,8 @@
 # Tiers, the stop-line, the doors
 
-Everything here is on the handout. Nothing here decides which gates run for you in what order; that is the routing the studio keeps.
+Everything here is on the handout. Nothing here decides which gates run for you in what order.
+
+The report (0.6.0 on) prints none of this: no tier, no door, no stop-line word. The verdict script still applies the door rule, and the report uses its stop-line and rerun fields. The tiers and the doors stay in the workshop and in this file. The eleven questions and the five stay in the README's "From the workshop".
 
 ## Tier of the next change
 
@@ -20,13 +22,13 @@ The nine gates, names only: Define, Audit, Plan, Plan review, Build, Verify, Dif
 
 Six more failure modes live in `questions.md` (A1 to A6): the latency budget, where prompts live, whether production is running what was actually tested, whether a change made things better rather than different, what the user sees when the model is wrong, and whether the provider is about to move them off their model version. They bite at Plan, Diff review, Verify, Verify, Build and Watch respectively, and each one ends with a check the founder can run in the room.
 
-They do not change the tier and they do not change the door. The door is the eleven. What they change is the Don't-know list, which is the part the founder leaves with.
+They do not change the tier and they do not change the door. The door is the eleven. What they change is the report's problem blocks and open-question bullets.
 
 Three have a training-shaped version for the rare founder who trains or fine-tunes: skew, leakage, and stale labels. The concern is the same either way. A model is a moving part inside the product, and nothing turns red when it wanders. A seventh note covers the twin of the eval question, which is what happens when the product moves and the examples do not.
 
 ## The stop-line
 
-Any of these ticked means: get a person who does this for a living before the next change ships. The tool prints "Get a person" above the doors and chooses no door.
+Any of these ticked means: get a person who does this for a living before the next change ships. The verdict script chooses no door, and the report opens with the extra-risk block, a plain fact about what carries the risk and what a mistake costs.
 
 - the app stores or handles card numbers or other card details itself
 - the app holds or moves money for other people (payouts, Connect, escrow, stored balances, wallets)
@@ -48,31 +50,19 @@ The founder ticks the stop-line in the answers block (`stop_line:`). Scanner evi
 
 The skill's verdict script (`custody_verdict.py`) applies these steps; when it cannot run, the agent applies them by hand.
 
-1. Stop-line ticked → print **Get a person** above the doors; choose no door.
+1. Stop-line ticked → **Get a person**; choose no door (the report shows the extra-risk block instead).
 2. Q1 = no, Q2 = no, or Q3 = no → **Patch it** (a founder who says the browser calls the database or the AI provider with a privileged key has answered Q1's question).
-3. The scan was partial and Q1 or Q3 is still Don't know → never **Ship it**; the verdict prints the rerun recipe above the doors and the door is **Patch it**.
+3. The scan was partial and Q1 or Q3 is still Don't know → never **Ship it**; the report prints the rerun line and the door is **Patch it**.
 4. Two or more of Q4, Q5, Q6, Q9 are no or Don't know → **Patch it**.
 5. Otherwise → **Ship it**.
 
 Nothing found counts as Don't know in every step above: it says the scanner looked properly, not that the running app is safe.
 
-Shelve it is never chosen by the tool; it is the founder's call, and the verdict says so when the Patch list would be longer than three items.
+Shelve it is never chosen by the tool; it is the founder's call, and the report never mentions it.
 
 ### Patch-list order
 
-At most three items, in this order: Q1, then Q2, then Q3, then whichever of Q4, Q5, Q6, Q9 failed, in that order. When the scan was partial and Q1 or Q3 is still Don't know, the door is never Ship it: the verdict prints the rerun recipe (`--max-files 50000`, or point at the app subfolder) above the doors instead. Each item is one sentence naming the by-hand test from `questions.md` and, for Q1, the words "rotate it now".
-
-## Five, if you'll only do five
-
-| # | The five | Mapped questions | Dropped only when |
-|---|---|---|---|
-| 1 | Classify the change against the Gated list | (tier step) | never |
-| 2 | Boundary test: logged out, wrong user, right user; on each screen, each request a screen sends, each saved record and each uploaded file | Q3, Q4 | both yes, any confidence |
-| 3 | One full path on the live site, including any background job, email, payment message or AI call | (always kept) | never |
-| 4 | Read the changes line by line for surprises | Q7 | yes, any confidence |
-| 5 | Prove you can go back to the last version, and get one real alert | Q5, Q9 | both yes, any confidence |
-
-Items 1 and 3 are always printed. The others print unless every mapped question is yes.
+At most three items, in this order: Q1, then Q2, then Q3, then whichever of Q4, Q5, Q6, Q9 failed, in that order. When the scan was partial and Q1 or Q3 is still Don't know, the door is never Ship it, and the report prints the rerun line (`--max-files 50000`). In the report this order only decides which problem blocks come first.
 
 ## Why a scanner no cannot be argued down, and a scanner yes can be raised
 
