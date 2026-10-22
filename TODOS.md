@@ -11,6 +11,8 @@
 - `inventory_walk` repeats about 20 lines of `overlay_walk`'s directory rules; a shared generator would keep them from drifting (advisory).
 - hostile-repo's `app/api/projects/[id]/route.ts` lets any signed-in user delete any project; whether the agent should answer Q4 No there needs an eval look.
 - Main credits a plain `alter table … enable row level security` inside `if false then` in a DO block; the 0.6.0 loop credit no longer does, the plain statement still does.
+- Round 2: the loop credit anchors on the nearest `do` before the loop head, so an `on conflict do nothing` or a quoted `"do"` inside an enclosing `if` hides that `if`; and an `exception when others` handler after the loop in the same block is not checked. One structural fix closes both: find the DO body from its dollar tags and run the control-word check over the whole body.
+- Round 2: `_bold_line` probes with an all-lower-case plain line, so a pack.json count-line pattern with a top-level `|[A-Z]|` still passes; reject a top-level `|` instead (maintainer-only input).
 **Effort:** S each.
 
 ### An eval case for the question rule (2026-10-21)
