@@ -229,7 +229,8 @@ class SyncTest(unittest.TestCase):
         fails_when=the shape check is dropped or only checks the label shape."""
         for bad in ('.*', 'What it means for you:', r'(?:^|\n)\*\*.*\.\*\*[ \t]*(?=\n|$)',
                     r'(?:^|\n)\*\*We found', r'\*\*We found [^\n]+\.\*\*[ \t]*(?=\n|$)',
-                    r'(?:^|\n)\*\*We found ([^\n]+\.\*\*[ \t]*(?=\n|$)', 5, None):
+                    r'(?:^|\n)\*\*We found ([^\n]+\.\*\*[ \t]*(?=\n|$)', 5, None,
+                    r'(?:^|\n)\*\*We |(?:)|\.\*\*[ \t]*(?=\n|$)', r'(?:^|\n)\*\*We |x|y\.\*\*[ \t]*(?=\n|$)'):
             root = self.repo({'a': CASE_HEAD + marker('always issues')}, words={'std-count-line': bad})
             self.assertTrue(any('std-count-line' in e for e in sync_graders.check(root)), repr(bad))
 

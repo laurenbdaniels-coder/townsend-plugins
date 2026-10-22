@@ -7271,6 +7271,7 @@ class DoLoopRlsCreditTests(ScanCase):
             "a function body is a string": self.loop(head="create function f() returns void language plpgsql as $$", tail="end $$;"),
             "the whole loop inside a string": "comment on table public.notes is '" + self.loop().replace("'", "''") + "';\n",
             "enable is not the statement": self.loop(fmt="'alter table public.%I enable row level security; select 1'"),
+            "no DO block around the loop": self.loop(head="", tail="end;"),
         }
         for why, body in cases.items():
             with self.subTest(why=why):
@@ -7324,6 +7325,46 @@ class DoLoopRlsCreditTests(ScanCase):
                          "an unnamed disable before the loop is undone by it")
         self.assertEqual(self.credited({"supabase/migrations/1.sql": self.TABLES + self.loop() + self.loop(fmt="'alter table %I disable row level security'")}), set(),
                          "an unnamed disable after the loop may be any table")
+
+    def test_a_loop_that_might_not_run_is_not_credited(self):
+        """Review round 1 (Codex P1, red team P2-6, security): the credit trusts a loop only when nothing in the DO
+        block can skip it or cut it short. Each of these left RLS off on main's input and the branch said Nothing
+        found. Not crediting is the cautious direction: the table shows as open, as on main."""
+        def do(body):
+            return "do $$\ndeclare t text;\nbegin\n%s\nend $$;\n" % body
+        loop = ("foreach t in array array['notes','tasks'] loop\n  %s\n"
+                "  execute format('alter table public.%%I enable row level security', t);\n  %s\nend loop;")
+        cases = {
+            "IF around the loop": do("if current_setting('app.rls', true) = 'on' then\n" + loop % ("", "") + "\nend if;"),
+            "IF inside the loop": do(loop % ("if t <> 'notes' then", "end if;")),
+            "EXIT after the first table": do(loop % ("", "exit;")),
+            "CONTINUE before the execute": do(loop % ("continue when t = 'notes';", "")),
+            "RETURN before the loop": do("return;\n" + loop % ("", "")),
+            "CASE around the loop": do("case when true then\n" + loop % ("", "") + "\nend case;"),
+        }
+        for why, body in cases.items():
+            with self.subTest(why=why):
+                self.assertEqual(self.credited({"supabase/migrations/1.sql": self.TABLES + body}), set(), why)
+        plain = do(loop % ("", ""))
+        self.assertEqual(self.credited({"supabase/migrations/1.sql": self.TABLES + plain}), {"notes", "tasks"},
+                         "control: the same loop with nothing around it is credited")
+
+    def test_a_scan_that_skipped_a_migration_credits_nothing(self):
+        """Review round 1 (state machines, testing): a later migration the scan could not read may turn RLS off,
+        so a capped or partial scan keeps 0.3.2's rows and its Don't know."""
+        files = {"supabase/migrations/1.sql": self.TABLES + self.loop(),
+                 "supabase/migrations/2.sql": "alter table public.notes disable row level security;\n" + "-- pad\n" * 120000}
+        q3 = self.q3_of(files)
+        self.assertEqual(set(cs.scan_with_overlay.last.loop_credited), set())
+        self.assertEqual(sorted(r["snippet"] for r in self.tables_flagged(q3)), ["notes", "tasks"])
+        self.assertEqual(q3["answer"], "dont-know")
+
+    def test_too_many_table_statements_alone_credit_nothing(self):
+        """Review round 1 (testing): the table-event cap must stop the credit even when loop events fit."""
+        files = {"supabase/migrations/1.sql": self.TABLES + self.loop(names="'notes'"),
+                 "supabase/migrations/2.sql": "drop table public.tasks;\ndrop table public.tasks;\n"}
+        with mock.patch.object(cs, "MAX_LOOP_EVENTS", 3):
+            self.assertEqual(self.credited(files), set())
 
     def test_the_format_argument_must_be_the_loop_variable(self):
         self.assertEqual(self.credited({"supabase/migrations/1.sql": self.TABLES + self.loop(arg="other")}), set())

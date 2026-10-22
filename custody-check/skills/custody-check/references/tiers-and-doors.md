@@ -1,6 +1,6 @@
 # Tiers, the stop-line, the doors
 
-Everything here is on the handout. Nothing here decides which gates run for you in what order; that is the routing the studio keeps.
+Everything here is on the handout. Nothing here decides which gates run for you in what order.
 
 The report (0.6.0 on) prints none of this: no tier, no door, no stop-line word. The verdict script still applies the door rule, and the report uses its stop-line and rerun fields. The tiers, the doors and the five stay in the workshop and the README.
 
@@ -50,7 +50,7 @@ The founder ticks the stop-line in the answers block (`stop_line:`). Scanner evi
 
 The skill's verdict script (`custody_verdict.py`) applies these steps; when it cannot run, the agent applies them by hand.
 
-1. Stop-line ticked → print **Get a person** above the doors; choose no door.
+1. Stop-line ticked → **Get a person**; choose no door (the report shows the extra-risk block instead).
 2. Q1 = no, Q2 = no, or Q3 = no → **Patch it** (a founder who says the browser calls the database or the AI provider with a privileged key has answered Q1's question).
 3. The scan was partial and Q1 or Q3 is still Don't know → never **Ship it**; the report prints the rerun line and the door is **Patch it**.
 4. Two or more of Q4, Q5, Q6, Q9 are no or Don't know → **Patch it**.
@@ -58,7 +58,7 @@ The skill's verdict script (`custody_verdict.py`) applies these steps; when it c
 
 Nothing found counts as Don't know in every step above: it says the scanner looked properly, not that the running app is safe.
 
-Shelve it is never chosen by the tool; it is the founder's call, and the verdict says so when the Patch list would be longer than three items.
+Shelve it is never chosen by the tool; it is the founder's call, and the report never mentions it.
 
 ### Patch-list order
 

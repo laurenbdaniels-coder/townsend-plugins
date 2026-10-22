@@ -110,6 +110,7 @@ Two halves, scored separately; the verdict shows the lower one.
 - **No** only from you: the platform holds the only copy of either.
 - Scanner evidence: `code-history-local` says the code is on this machine with its git history, which is the code half; the data half is yours. `builder-file`, `builder-dependency`, `builder-readme`, `container-config` name the platform; the defaults are the question.
 - **By hand (60 s):** find the export or download button for both the code and the data. Click the data one and open the file.
+- **In the report:** a No is the problem "Your platform holds the only copy of your code or your data." What it means for you: "If the platform changes its terms or closes, you can lose your app." Still open, it is the bullet "Whether you can take your code and your data and leave your platform."
 
 # If AI drives part of your product: keeping it on rails
 
@@ -118,7 +119,6 @@ Ask these **only when the app calls a model**, and ask the founder that question
 The eleven already cover the ones that are really software questions wearing an AI hat: rollback is Q5, the bill is Q8, would-you-notice-it-is-down is Q9, and who-can-read-this is Q1, Q3, Q4 and Q10. These six are what is left.
 
 Two rules of thumb when you ask them. **The founder's own AI tool can run most of these tests** (it can search their project, print what their code actually sends, and find a model name faster than they can), so offer that phrasing first. And **every one ends with a check**, not a fix.
-- **In the report:** a No is the problem "Your platform holds the only copy of your code or your data." What it means for you: "If the platform changes its terms or closes, you can lose your app." Still open, it is the bullet "Whether you can take your code and your data and leave your platform."
 
 ## A1. How slow is too slow, and what happens then? (Plan)
 

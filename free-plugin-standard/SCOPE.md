@@ -51,8 +51,10 @@ Asks about, only when the code doesn't already show it: the stop-line (the app h
 or moves other people's money, keeps health data or other people's sensitive data, or runs at real scale or under
 a contract that needs it up). (2026-10-21)
 
-Asks about: backups, a copy that isn't live, reading changes before they go live, what one user costs, alerts when
-it breaks, exporting code and data, and whether the app calls an AI model (then the six AI questions).
+Asks about, when still open: backups, reading changes before they go live, what one user costs, alerts when it
+breaks, what personal data the app keeps and why, exporting code and data, and whether the app calls an AI model
+(then the six AI questions). When the scan could not run, it also asks whether the code can be got back and
+whether there is a copy that isn't live. (2026-10-21)
 
 The report, in order: the count ("We found N problems in your code, and M things your code can't tell us."), why
 it matters, how much code it read, the extra-risk block when the stop-line is ticked (a plain fact, never advice),

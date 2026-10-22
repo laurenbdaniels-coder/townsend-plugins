@@ -206,6 +206,10 @@ LOOP_FORMAT_ARG_RE = re.compile(r"\s{0,20},\s{0,20}([A-Za-z_][A-Za-z0-9_]{0,62})
 LOOP_ENABLE_FORMAT_RE = re.compile(r"\s*alter\s+table\s+(?:if\s+exists\s+)?(?:only\s+)?(?:public\s*\.\s*)?%I\s+enable\s+row\s+level\s+security\s*;?\s*", re.I)
 LOOP_ARRAY_ITEM_RE = re.compile(r"\s*'([a-z_][a-z0-9_]{0,62})'\s*")  # %I keeps case, so only lower-case names fold to the same table
 MAX_LOOP_EVENTS = 2000
+# Anything that can skip the loop or cut it short voids the credit (review round 1): checked between the DO block's
+# `do` and the loop head, and inside the loop body, on the `code` copy so words inside strings never count.
+LOOP_DO_RE = re.compile(r"\bdo\b", re.I)
+LOOP_CONTROL_RE = re.compile(r"\b(?:if|case|when|exit|continue|return|raise|loop|while|for|exception|goto)\b", re.I)
 CREATE_VIEW_RE = re.compile(r"\bcreate\s+(?:or\s+replace\s+)?(?:recursive\s+)?(materialized\s+)?view\s+(?:if\s+not\s+exists\s+)?" + _SQL_TABLE + r"([^;]{0,400})", re.I)
 # whichever comes first, as Postgres reads it: a dollar tag may use any letter and has no length limit, and a `$`
 # right after a name character is part of that name (`a$b$c`, `x$e'…'` is a name then a plain string). A `$` right
@@ -531,7 +535,12 @@ def _loop_credits(sf, ov, text, code):
     """S-044: record each table a DO-block loop turns RLS on for (see LOOP_HEAD_RE). Only the exact shape counts:
     array literals of plain lower-case names, and `execute format('alter table [public.]%I enable row level
     security', <the loop variable>)` inside the loop. Credit is decided later, in migration order."""
-    for m in LOOP_HEAD_RE.finditer(code):
+    heads = list(LOOP_HEAD_RE.finditer(code))
+    if not heads:
+        return
+    dos = [d.start() for d in LOOP_DO_RE.finditer(code)]
+    ends = [(e.start(), e.end()) for e in LOOP_END_RE.finditer(code)]  # found once per file, then bisected
+    for m in heads:
         ov.tick()
         var = m.group(1).lower()
         names = []
@@ -539,16 +548,21 @@ def _loop_credits(sf, ov, text, code):
             t = LOOP_ARRAY_ITEM_RE.fullmatch(item)
             if t:
                 names.append(t.group(1))
-        end = LOOP_END_RE.search(code, m.end())
-        if not names or not end:
+        i = bisect.bisect_left(ends, (m.end(), 0))
+        d = bisect.bisect_left(dos, m.start()) - 1
+        if not names or i == len(ends) or d < 0:
             continue
+        end_start = ends[i][0]
+        if LOOP_CONTROL_RE.search(code, dos[d] + 2, m.start()) or LOOP_CONTROL_RE.search(code, m.end(), end_start):
+            continue  # the loop might not run, or might stop before every name
         enables = False
-        for e in LOOP_EXECUTE_FORMAT_RE.finditer(code, m.end(), end.start()):
+        for e in LOOP_EXECUTE_FORMAT_RE.finditer(code, m.end(), end_start):
+            ov.tick()
             start = re.compile(r"\s{0,20}").match(text, e.end()).end()
             if text[start:start + 1] != "'":
                 continue  # a plain '…' string only: no E'…', no $tag$, no variable
             body = SQL_PLAIN_BODY_RE.match(text, start + 1)
-            if not body or body.end() > end.start():
+            if not body or body.end() > end_start:
                 continue
             fmt = text[start + 1:body.end() - 1].replace("''", "'")
             arg = LOOP_FORMAT_ARG_RE.match(code, body.end())
@@ -1100,7 +1114,8 @@ def overlay_walk(repo, opts, ov, rel_state, caps, clock, end):
 def overlay_pass(repo, opts, ov, rel_state, result, clock, end):
     caps = bool(result.get("partial")) or result["stats"].get("max_files_hit") or result["stats"].get("max_total_bytes_hit")
     overlay_walk(repo, opts, ov, rel_state, caps, clock, end)
-    ov.loop_credited = _resolve_loop_credits(ov) & (set(ov.tables) | set(rel_state.tables))
+    # a capped or partial scan may have missed a later migration that turns RLS off: no credit (review round 1)
+    ov.loop_credited = set() if caps else _resolve_loop_credits(ov) & (set(ov.tables) | set(rel_state.tables))
     open_release = sorted(set(rel_state.tables) - rel_state.rls_enabled - ov.loop_credited)
     ov.release_open_tables = [(n,) + tuple(rel_state.tables[n]) for n in open_release[:release.MAX_TABLE_WITHOUT_RLS_ROWS]]
     ov.release_q3_clean = not caps and bool(rel_state.rule_files) and not rel_state.gaps["q3"]
@@ -1212,7 +1227,7 @@ def _listable(rel):
 
 
 def inventory_walk(real_repo, opts, clock, end):
-    """Yield (rel, full) for each code file, with the overlay walk's rules: realpath containment, linked folders
+    """Yield (rel, full, size) for each code file, with the overlay walk's rules: realpath containment, linked folders
     and files skipped, never-open folders and files skipped (not even named), EXCLUDED_DIRS plus --exclude-dir,
     hard links and special files skipped, generated and precompressed files skipped, MAX_DIR_ENTRIES."""
     for dirpath, dirnames, filenames in os.walk(real_repo, topdown=True, followlinks=False, onerror=lambda e: None):
@@ -1664,8 +1679,7 @@ def main(argv=None):
             except Exception as exc:
                 r.emit(inventory_envelope("inventory-error:" + type(exc).__name__), pretty)
                 return fail
-            sys.stdout.write((json.dumps(inv, ensure_ascii=True, indent=2) if pretty else inventory_json(inv)) + "\n")
-            sys.stdout.flush()
+            r.emit(inv, pretty)
             sys.stderr.write("custody-check v%s: inventory %d code files, %d listed%s, %d ms\n" % (
                 __version__, inv["code_files"], len(inv["files"]), " (truncated)" if inv["truncated"] else "", int((time.monotonic() - started) * 1000)))
             return 0

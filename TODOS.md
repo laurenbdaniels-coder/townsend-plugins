@@ -2,6 +2,17 @@
 
 ## custody-check
 
+### Leftovers from the custody-check 0.6.0 review (2026-10-21)
+
+**What:** below the ship bar (contrived inputs or weaknesses main shares), from the round-1 specialists, red team and Codex:
+- No CLI test for `--inventory` timing out (`inventory-error:deadline`, exit 2); the code path is read, not run.
+- When 0.3.2's own output is already over the cap and the overlay adds no row, `merge()` returns early: the S-044 credit is not applied but `stats.overlay_fallback` stays null.
+- The overlay drops its own `table-without-rls` rows for credited tables before knowing whether the walk finished (the answer stays Don't know; a name can leave Where).
+- `inventory_walk` repeats about 20 lines of `overlay_walk`'s directory rules; a shared generator would keep them from drifting (advisory).
+- hostile-repo's `app/api/projects/[id]/route.ts` lets any signed-in user delete any project; whether the agent should answer Q4 No there needs an eval look.
+- Main credits a plain `alter table … enable row level security` inside `if false then` in a DO block; the 0.6.0 loop credit no longer does, the plain statement still does.
+**Effort:** S each.
+
 ### An eval case for the question rule (2026-10-21)
 
 **What:** every custody-check eval case pastes its answers and says "don't ask more questions", so no case checks SCOPE.md's question rule (never ask about keys, browser or server, who can read, who can change; ask the stop-line only when the code doesn't show it). Add a case with no answers block whose prompt answers "don't know" to anything asked, and grade the chat for questions about Q1 to Q4.

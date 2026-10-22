@@ -334,6 +334,11 @@ case("rls loop format is not only the enable", {LOOP_A: LOOP_TABLES + _loop(fmt=
 case("rls loop then a later disable", {LOOP_A: LOOP_TABLES + _loop(), LOOP_B: "alter table public.notes disable row level security;\n"})
 case("rls loop then a later drop", {LOOP_A: LOOP_TABLES + _loop(), LOOP_B: "drop table public.notes;\n"})
 case("rls loop then a later create", {LOOP_A: LOOP_TABLES + _loop(), LOOP_B: "create table public.notes (id int);\n"})
+# Review round 1 (Codex P1, state machines): a loop that might not run, or a scan that may have missed a later
+# disable, gets no credit. Not in ALLOW_SOFTER: these must equal the release.
+case("rls loop inside an if", {LOOP_A: LOOP_TABLES + _loop().replace("begin\n", "begin\nif current_setting('app.rls', true) = 'on' then\n", 1).replace("  end loop;\n", "  end loop;\nend if;\n", 1)})
+case("rls loop with an exit", {LOOP_A: LOOP_TABLES + _loop().replace("  end loop;", "    exit;\n  end loop;", 1)})
+case("rls loop plus an unread larger migration", {LOOP_A: LOOP_TABLES + _loop(), LOOP_B: "alter table public.notes disable row level security;\n" + "-- pad\n" * 2000}, args={"max_file_bytes": 8192})
 case("rls loop past the five-table cap", {LOOP_A: "".join("create table public.t%d (id int);\n" % i for i in range(8)) + _loop(names="'t0','t1','t2'")})
 
 

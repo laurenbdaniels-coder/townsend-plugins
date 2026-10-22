@@ -49,10 +49,11 @@ def _bold_line(value):
     if not BOLD_WORD.match(value[len(BOLD_START):]):
         return False
     try:
-        re.compile(value)
+        compiled = re.compile(value)
     except re.error:
         return False
-    return True
+    # a top-level `|` (or any other trick) that lets it match a plain line or nothing would match any report
+    return not compiled.search("\nplain text\n") and not compiled.search("")
 
 
 # Each grader a plugin may reword, and the shape its words must have.

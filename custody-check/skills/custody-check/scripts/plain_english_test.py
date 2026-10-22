@@ -253,6 +253,18 @@ class FreePluginStandardTests(unittest.TestCase):
         self.assertIn("nothing after the footer", rules)
         self.assertIn("end the message with its footer: nothing after it", read("SKILL.md"))
 
+    def test_review_round_1_rules(self):
+        """Review round 1: the inventory marks are hints; a founder's No never joins away; the fallback line only on a
+        scan that finished; rule 1's fix reply may follow the footer."""
+        skill = read("SKILL.md")
+        self.assertIn("The `s` and `h` marks are hints from paths and patterns, never proof.", skill)
+        self.assertIn("Never answer Q2 or Q4 from the marks", skill)
+        rules = read("assets", "verdict-template.md").split("Rules for filling it in:", 1)[1]
+        self.assertIn("A row with no places (a No from the founder's answers) never joins", rules)
+        self.assertIn("`stats.overlay_fallback` is not null and `partial` is false", rules)
+        self.assertIn("when the founder asked for a fix, SKILL.md rule 1's sentence follows the footer", rules)
+        self.assertIn("except rule 1's sentence when the founder asked for a fix", skill)
+
     def test_extra_risk_meaning_is_two_sentences_and_do_today_counts_no_rows(self):
         """Step 6 eval runs: an 80-word risk block pushed the first screen past 150 words, and Do today counted
         settings files on disk as keys."""
@@ -302,7 +314,7 @@ class FreePluginStandardTests(unittest.TestCase):
         texts += [body for _, body in by_hand_blocks()]
         texts += report_lines()
         texts += quoted_lines(read("assets", "verdict-template.md")) + skill_founder_lines()
-        # the tier line names the escalation trigger that fired, so the trigger list is founder text too
+        # the chat may name the escalation trigger that fired (tiers stay in the chat, never the report), so it is founder text too
         texts += [read("references", "tiers-and-doors.md").split("**Escalation triggers", 1)[1].split("\n", 1)[0]]
         for t in texts:
             for line in t.splitlines():
@@ -340,7 +352,7 @@ class ReportLinesTests(unittest.TestCase):
     def test_every_question_has_a_report_line(self):
         q = read("references", "questions.md")
         for head in ["Q%d" % n for n in range(1, 12)] + ["A%d" % n for n in range(1, 7)]:
-            section = q.split("## %s. " % head, 1)[1].split("\n## ", 1)[0]
+            section = re.split(r"\n#{1,2} ", q.split("## %s. " % head, 1)[1], maxsplit=1)[0]
             self.assertEqual(section.count("- **In the report:** a No is the problem \""), 1, head)
 
     def test_report_lines_are_plain_and_never_say_what_to_do(self):

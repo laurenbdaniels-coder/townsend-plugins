@@ -95,6 +95,10 @@ class SeededAppGraderTests(unittest.TestCase):
                      "This change is Gated."):
             self.assertTrue(fails(self.graders["no-workshop-words"], self.draft + "\n" + line), line)
 
+    def test_never_all_clear_bites(self):
+        line = "**We found no problems in your code, and your code and your answers settled every question we ask.**"
+        self.assertTrue(fails(self.graders["never-all-clear"], self.draft + "\n" + line))
+
     def test_count_line_forms_all_pass(self):
         check = self.graders["std-count-line"]
         for line in ("**We found 1 problem in your code, and 1 thing your code can't tell us.**",
