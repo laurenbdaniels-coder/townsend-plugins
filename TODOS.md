@@ -464,6 +464,13 @@
 
 ## build-decisions (decision-census until 0.4.0)
 
+### From the build-decisions 0.5.1 plan review (2026-10-22, /autoplan)
+
+- **Stability eval for custody-check (X2).** Why: 0.5.1 measures repeat-run stability for build-decisions only. Context: same ranked-fixture approach; custody's report shape did not change in 0.6.1. Effort: M / S. P3.
+- **A Supabase project still on the sample setup (X6).** Why: a key signed with the public local-dev secret is public, but a live self-hosted database still on that secret is open to anyone. Neither plugin checks server settings. Context: 0.5.1 skips sample keys and prints one Not checked line about this. Effort: M / M. P3.
+- **Extract the sample-key rule when a second plugin needs it.** Why: if custody-check does not take the rule in 0.5.1, it lives inline in census_scan.py only. Start: move the marked block to free-plugin-standard/helpers/ and add the sync check. Effort: S / S. P3.
+- **Codex outside voice fails in this environment.** Why: /autoplan's Codex passes failed 4/4 on 10/22 with "workspace routing discovery failed", even with chatgpt.com allowed (same as 10/20). Plan reviews run single-model. Start: run `codex exec` outside the sandbox once to see whether the sandbox or the account is the cause. Effort: S / S. P2.
+
 ### Drop "which door" from the paired custody-check line (found 2026-10-21, custody-check 0.6.0)
 
 **What:** `build-decisions/README.md` (lines 5 and 97) and `build-decisions/skills/build-decisions/SKILL.md` (description) still say "Custody Check answers what a stranger can do and which door your next change takes."
@@ -497,7 +504,6 @@ From the 0.5.0 review round 2 (2026-10-19). The "no signature check found" repor
 - **A payment word earlier on a line makes `status: 'done'` a writer:** the status context includes the line's prefix. P3.
 - **Backtick import paths are never followed.** P3.
 - **SvelteKit, Remix, Nuxt, Fastify autoload and Django handlers are not entry points,** so they are silently not listed. P3.
-- **The 42 eval reports from 0.5.0 are not in `free-plugin-standard/corpus/` yet.** Each one carries the reworded "Not checked" line, so main's 0.4.0 check fails it and the never-worse test calls it "looser" (the REWORDED map renames the check, but main still scores the old text). Saved at `townsend-ai-studio-workspace/plugins-internal/build-decisions/reports-0.5.0-evals.jsonl`; add them in the first PR after 0.5.0 merges (S-040), when main prints the same line; 0.3.2 and 0.4.0 reports are missing for the same reason. P2.
 
 From the 0.4.0 review (2026-10-16), below the ship bar:
 - **Two apps on different Supabase projects are linked** because both use the Supabase package (the plan's linking rule). The project URL is in env files the helper never opens. P3.
