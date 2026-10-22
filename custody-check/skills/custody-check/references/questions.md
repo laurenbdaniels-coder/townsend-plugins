@@ -52,7 +52,7 @@ How 0.3.3 reads on top of 0.3.2: 0.3.2's scanner runs first, unchanged (its file
 
 ## Q5. Can I get the code back in five minutes, and the data back from a restored backup? (Before build)
 
-Two halves, scored separately; the verdict shows the lower one.
+Two halves, scored separately; the report uses the lower one.
 
 - **Code half.** Scanner **yes (medium)** when the repository has real history (a tag or ten or more commits), is not a shallow clone, and a deploy configuration exists (`vercel.json`, `netlify.toml`, `fly.toml`, `render.yaml`, `railway.json`, `Dockerfile`, `Procfile`, or a GitHub workflow). That proves a previous version exists and a redeploy path exists, not that you have rehearsed a rollback. **High** only from you, after you have rolled back once.
   - `git-not-a-repo`: the folder is not a git repository (a zip export, for example). Nothing to do here; answer from what your platform offers.

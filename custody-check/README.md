@@ -97,7 +97,7 @@ These are not problems we found. The code can't answer them, so they are still o
 - **Whether you'd hear about it if your app broke.**
 ```
 
-A problem is an answer the files, your code or you showed to be No. Everything the code can't settle is an open question, not a problem: it is the next thing to find out. "We read the files that could show it and found nothing" still leaves the live site open, because files cannot show the running app. When your app keeps sensitive data or handles money for other people, the report opens with a short block that says so and what a mistake there costs. The report says what is broken and what it means; it does not say what to do, except to replace a key that may be exposed. The last line is the version.
+A problem is an answer the files, your code or you showed to be No. Everything the code can't settle is an open question, not a problem: it is the next thing to find out. "We read the files that could show it and found nothing" still leaves the live site open, because files cannot show the running app. Some apps carry extra risk: they handle card details themselves, hold other people's money, keep health or other sensitive data, or run at real scale. For those, a short block near the top says so and what a mistake there costs. The report says what is broken and what it means; it does not say what to do, except to replace a key that may be exposed. The last line is the version.
 
 ## What it never does
 

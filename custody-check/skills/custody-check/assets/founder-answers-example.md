@@ -24,7 +24,7 @@ stop_line: none
 
 Field notes:
 
-- `q5_code` and `q5_data` replace `q5:`; the verdict shows the lower of the two.
+- `q5_code` and `q5_data` replace `q5:`; the report uses the lower of the two.
 - `stores:` is free text: what the app keeps about people.
 - `users:` is free text: who uses it and roughly how many.
 - `next_change:` is the change you are about to make. The report has no tier; the check reads it only for stop-line words.
@@ -32,4 +32,4 @@ Field notes:
 - `card-numbers` means the app stores or handles card numbers or other card details itself. `moves-money` means it holds or moves money for other people (payouts, Connect, escrow, stored balances, wallets).
 - Payments your payment company runs, like the Stripe subscriptions above (or its invoices and refunds), are not a stop-line item when that is all the app does with money.
 - `payments` is the old word. The agent asks one question about it, or about any other money handling, and it still ticks the stop-line if the answer is unclear.
-- You cannot turn a scanner `no`, or a `no` from your code, into a `yes`. Fix the thing, then run the check again.
+- You cannot turn a scanner `no`, or a `no` from your code, into a `yes`. Only a new run of the check, after the thing has changed, can change it.

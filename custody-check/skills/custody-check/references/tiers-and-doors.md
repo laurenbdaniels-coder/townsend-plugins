@@ -2,7 +2,7 @@
 
 Everything here is on the handout. Nothing here decides which gates run for you in what order.
 
-The report (0.6.0 on) prints none of this: no tier, no door, no stop-line word. The verdict script still applies the door rule, and the report uses its stop-line and rerun fields. The tiers, the doors and the five stay in the workshop and the README.
+The report (0.6.0 on) prints none of this: no tier, no door, no stop-line word. The verdict script still applies the door rule, and the report uses its stop-line and rerun fields. The tiers and the doors stay in the workshop and in this file. The eleven questions and the five stay in the README's "From the workshop".
 
 ## Tier of the next change
 
