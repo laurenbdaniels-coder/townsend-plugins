@@ -1,0 +1,73 @@
+schema_version: "1.1"
+name: empty-app
+# A folder with no code files the scan reads: the report says so, uses the unknown-denominator coverage
+# form and never says the app is clean (plan D4, A2).
+execution:
+  prompt: "run build decisions on ./notes-only"
+  max_turns: 40
+  timeout_seconds: 600
+  allowed_tools: ["Read", "Grep", "Glob", "Skill"]
+context:
+  scaffold_script: scaffold.sh
+graders:
+  - name: "skill-fired"
+    type: "tool_used"
+    tool: "Skill"
+    input_match: "build-decisions"
+    min: 1
+  - name: "scan-found-no-code-line"
+    type: "regex"
+    pattern: "The file scan found no code files it reads\\."
+    flags: ""
+    match: "contains"
+  - name: "coverage-unknown-form"
+    type: "regex"
+    pattern: "We read 0 code files\\. Problems in files we did not read can be missed\\."
+    flags: ""
+    match: "contains"
+  - name: "never-says-clean"
+    type: "regex"
+    pattern: "\\bclean\\b|no duplicates"
+    flags: "i"
+    match: "not_contains"
+  - name: "footer-plain"
+    type: "regex"
+    pattern: "\\n---\\nbuild-decisions v\\d+\\.\\d+\\.\\d+ · read-only · a review, not an audit"
+    flags: ""
+    match: "contains"
+  - name: "says-what-not-what-to-do"
+    type: "regex"
+    pattern: "^(?:(?!\\n---\\nbuild-decisions v)[\\s\\S])*?(?:Before you change|Check it \\(1 min\\)|ask your AI tool|townsendaistudio|run custody-check|Custody Check answers|Free Assessment|write to the studio|get a person|Change nothing\\.)"
+    flags: "i"
+    match: "not_contains"
+  - name: "never-asks-what-code-shows"
+    type: "regex"
+    pattern: "who can (?:read|see|open|change|edit)[^\\n?]{0,80}\\?|(?:keep|store|hold)s? (?:any )?(?:keys|secrets)[^\\n?]{0,40}\\?|runs? in the browser or on the server[^\\n?]{0,40}\\?"
+    flags: "i"
+    match: "not_contains"
+  - name: "one-stopped-early-line"
+    type: "regex"
+    pattern: "The scan stopped early[\\s\\S]*The scan stopped early"
+    flags: ""
+    match: "not_contains"
+  - name: "no-write"
+    type: "tool_used"
+    tool: "Write"
+    max: 0
+  # >>> free-plugin-standard: always
+  - name: "std-no-fix-prompt"
+    type: "regex"
+    pattern: "To fix:|make every other place use it|in one place and make|Put the rule for|Put each (?:decision|rule) in one place|here is (?:the|a) fix|change (?:line|the code)|start a new conversation|make the fixes|move the rule into|consolidat|here'?s (?:the|a) fix|want me to fix|I can (?:fix|make)|(?:new|follow-up) (?:chat|conversation)|merge the two|replace line"
+    flags: "i"
+    match: "not_contains"
+  - name: "std-no-code-words"
+    type: "regex"
+    pattern: "(?:^|\\n)(?:[^`\\n]*`[^`\\n]*`)*[^`\\n]*?\\b(?:function|functions|helper|helpers|constant|constants|variable|variables|import|imports|imported|endpoint|endpoints|api|apis|route|routes|boolean|enum|schema|migration|migrations|query|queries|sql|console|terminal|codebase|hard-?coded|allow-?list|allowlist|refactor|component|components|middleware|owner test|regex|config|null|array|string|props|backend|frontend)\\b"
+    flags: "i"
+    match: "not_contains"
+  - name: "std-coverage-line"
+    type: "regex"
+    pattern: "(?:^|\\n)(?:We read all \\d+ of your code files\\.|We read \\d+ of your \\d+ code files\\. Problems in the others can be missed\\.|We read \\d+ code files\\. Problems in files we did not read can be missed\\.)"
+    flags: ""
+    match: "contains"
+  # <<< free-plugin-standard

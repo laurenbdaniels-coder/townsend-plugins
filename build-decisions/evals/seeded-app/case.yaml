@@ -271,6 +271,11 @@ graders:
     pattern: "(?:[\\s\\S]*?What it means for you:){4}"
     flags: ""
     match: "contains"
+  - name: "did-not-ask-line"
+    type: "regex"
+    pattern: "This run did not ask whether your app handles card details, other people's money or sensitive data\\."
+    flags: ""
+    match: "contains"
   # >>> free-plugin-standard: always issues
   - name: "std-no-fix-prompt"
     type: "regex"
