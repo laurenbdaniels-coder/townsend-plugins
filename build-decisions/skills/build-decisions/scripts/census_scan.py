@@ -174,8 +174,10 @@ JWT_RE = re.compile(r"(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\
 OTHER_KEY_RE = re.compile(
     r"sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|sb_secret_[A-Za-z0-9_-]{10,}"
     r"|(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{22,}|gh[ousr]_[A-Za-z0-9]{36}"
-    r"|xox[baprs]-|xapp-|eyJ|-----BEGIN")
-LONG_RUN_RE = re.compile(r"[A-Za-z0-9_\-+/=]{32,}")
+    r"|xox[baprs]-|xapp-|whsec_|eyJ|-----BEGIN")
+LONG_RUN_RE = re.compile(r"[A-Za-z0-9_\-+/=]{20,}")
+CRED_URL_RE = re.compile(r"://[^\s/:@'\"`]+:[^\s/@'\"`]+@")  # a password inside a URL
+SECRET_VALUE_RE = re.compile(r"(?:pass(?:word|wd)?|pwd|pw|secret|token|api[_-]?key|private[_-]?key)\w*['\"]?\s*[:=]\s*['\"`][^'\"`\s]{4,}", re.I)
 
 
 def _b64(part):
@@ -200,12 +202,14 @@ def is_sample_key(token):
 
 
 def _looks_like_key(text):
-    if OTHER_KEY_RE.search(text):
+    """Anything that could be a secret counts: known key shapes, a password in a URL or after a secret-like
+    name, and any long run that mixes two kinds of characters (hex secrets included). Unsure means key-like."""
+    if OTHER_KEY_RE.search(text) or CRED_URL_RE.search(text) or SECRET_VALUE_RE.search(text):
         return True
     for m in LONG_RUN_RE.finditer(text):
         run = m.group(0)
         kinds = sum(1 for test in (str.islower, str.isupper, str.isdigit) if any(test(c) for c in run))
-        if kinds >= 3:
+        if kinds >= 2:
             return True
     return False
 
@@ -509,11 +513,12 @@ def scan_file(path, parts, ext, state):
     for i, line in enumerate(lines, 1):
         if line.endswith("\r"):
             line = line[:-1]
-        if len(line) > LINE_CLIP_CHARS:
+        clipped = len(line) > LINE_CLIP_CHARS
+        if clipped:
             line = line[:LINE_CLIP_CHARS]
         if (i % DEADLINE_LINE_TICK == 0 or len(line) > 512) and state.over_deadline():
             break
-        if state.collect_demo_keys and line_has_only_sample_keys(line):
+        if state.collect_demo_keys and not clipped and line_has_only_sample_keys(line):  # a cut line is never listed
             demo_lines.append(i)
         for typ, pid, strength in classify_line(line, ext, where_open > 0):
             found.append((typ, 0 if strength == "strong" else 1, i, pid))

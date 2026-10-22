@@ -77,10 +77,44 @@ class SampleKeyRuleTests(unittest.TestCase):
     def test_jwt_shape_matches_custody_release_text(self):
         """protects=the census finds the same token shape custody-check does; fails_when=the copied pattern
         drifts from the pinned release; no_claim=custody's other key checks are not compared"""
+        line_re = re.compile(r"^JWT_RE = re\.compile\(.*\)$", re.M)
         with open(CUSTODY_RELEASE, encoding="utf-8") as fh:
-            m = re.search(r'^JWT_RE = (re\.compile\(.*\))$', fh.read(), re.M)
-        self.assertIsNotNone(m, "custody release JWT_RE line not found")
-        self.assertEqual(cs.JWT_RE.pattern, eval(m.group(1), {"re": re}).pattern)  # noqa: S307 (our own file)
+            theirs = line_re.search(fh.read())
+        with open(os.path.join(SCRIPT_DIR, "census_scan.py"), encoding="utf-8") as fh:
+            mine = line_re.search(fh.read())
+        self.assertIsNotNone(theirs, "custody release JWT_RE line not found")
+        self.assertIsNotNone(mine, "census JWT_RE line not found")
+        self.assertEqual(mine.group(0), theirs.group(0))
+
+    def test_review_corpus_lines_are_never_listed(self):
+        """protects=never worse than main: anything key-like beside a sample key keeps the line unlisted, so
+        it is reported as before; fails_when=a review-found secret shape slips past the line check;
+        no_claim=only the shapes listed (each found by the 10/22 review)"""
+        for name, line in REVIEW_CORPUS.items():
+            self.assertFalse(cs.line_has_only_sample_keys(line), name)
+
+    def test_plain_sample_key_lines_are_still_listed(self):
+        """protects=the stricter check still lets the ordinary sample-key lines through (S-048); fails_when=
+        the key-like check catches a URL or a variable name; no_claim=the shapes listed"""
+        for line in ("  service_role_key TEXT := '%s'; -- full access needed for http request to storage" % SAMPLE_SERVICE,
+                     'export const supabase = createClient("http://127.0.0.1:54321", "%s");' % SAMPLE_ANON,
+                     'NEXT_PUBLIC_SUPABASE_ANON_KEY="%s"' % SAMPLE_ANON):
+            self.assertTrue(cs.line_has_only_sample_keys(line), line[:40])
+
+
+# Every input a review found (2026-10-22 round 1). Each must stay unlisted: a line that also holds anything
+# key-like, or that the census cut short, is reported as before.
+SELF_HOSTED = token({"iss": "supabase-demo", "role": "service_role", "exp": 1983812996},
+                    secret=b"your-super-secret-jwt-token-with-at-least-32-characters-long")
+REVIEW_CORPUS = {
+    "hex secret": "k='%s'; enc='%s'" % (SAMPLE_ANON, "a3f9" * 16),
+    "lowercase hex 32": "k='%s'; t='%s'" % (SAMPLE_ANON, "0f1e2d3c4b5a69788796a5b4c3d2e1f0"),
+    "short password": 'createClient(url, "%s", {pw: "Hunter2Hunter2xyz"})' % SAMPLE_ANON,
+    "password field": 'const c = {anon: "%s", password: "hunter2"};' % SAMPLE_ANON,
+    "postgres url": '{ anonKey: "%s", db: "postgresql://postgres:Tr0ub4dor3xyz@db.example.supabase.co:5432/postgres" }' % SAMPLE_ANON,
+    "stripe webhook secret": 'const k = "%s"; const w = "whsec_abc123def456ghi789";' % SAMPLE_ANON,
+    "self-hosted default secret": "const k = '%s';" % SELF_HOSTED,
+}
 
 
 class DemoKeysOutputTests(unittest.TestCase):
@@ -130,6 +164,14 @@ class DemoKeysOutputTests(unittest.TestCase):
         data, _ = self.scan()
         self.assertEqual(data["demo_keys"], [])
         self.assertIs(data["demo_keys_trimmed"], False)
+
+    def test_a_line_cut_short_is_never_listed(self):
+        """protects=a key past the census's line cut is never quieted; fails_when=the check reads only the
+        first 2048 characters; no_claim=none beyond protects"""
+        write(self.repo, "supabase/seed.sql", "insert into cfg values ('%s', '%s', '%s');\n"
+              % (SAMPLE_SERVICE, "-" * (cs.LINE_CLIP_CHARS + 50), NAMED_KEY))
+        data, _ = self.scan()
+        self.assertEqual(data["demo_keys"], [])
 
     def test_list_is_capped_at_twenty_and_says_so(self):
         """protects=a long list is cut with a signal, never silently; fails_when=the 21st entry is dropped

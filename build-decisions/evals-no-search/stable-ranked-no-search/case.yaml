@@ -5,7 +5,7 @@ execution:
   prompt: "run build decisions on ./rankly"
   max_turns: 60
   timeout_seconds: 900
-  allowed_tools: ["Read", "Grep", "Glob", "Skill"]
+  allowed_tools: ["Read", "Skill"]
 context:
   scaffold_script: scaffold.sh
 graders:
@@ -196,7 +196,7 @@ graders:
     match: "not_contains"
   - name: "no-search-sentence"
     type: "regex"
-    pattern: "This run had no search tool, so it followed each rule by reading files only\\."
+    pattern: "This run used no search tool, so it followed each rule by reading files only\\."
     flags: ""
     match: "contains"
   # >>> free-plugin-standard: always issues
