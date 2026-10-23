@@ -104,8 +104,7 @@ def words_problems(plugin, conf, pack):
 
 def case_files(root, plugin):
     # evals/ holds the usual cases; evals-<name>/ folders hold cases run on their own (e.g. evals-no-search).
-    return sorted(glob.glob(os.path.join(root, plugin, 'evals', '*', 'case.yaml')) +
-                  glob.glob(os.path.join(root, plugin, 'evals-*', '*', 'case.yaml')))
+    return sorted(glob.glob(os.path.join(root, plugin, 'evals*', '*', 'case.yaml')))
 
 
 def _parse(text, pack):
@@ -135,8 +134,7 @@ def _parse(text, pack):
 def _scan(root):
     """Yield (path, problem or None, new_text or None) for every case of every registered plugin."""
     pack = load_pack(root)
-    for path in sorted(glob.glob(os.path.join(root, '*', 'evals', '*', 'case.yaml')) +
-                       glob.glob(os.path.join(root, '*', 'evals-*', '*', 'case.yaml'))):
+    for path in sorted(glob.glob(os.path.join(root, '*', 'evals*', '*', 'case.yaml'))):
         plugin = os.path.basename(os.path.dirname(os.path.dirname(os.path.dirname(path))))
         if plugin not in pack['plugins'] and START.search(open(path, encoding='utf-8').read()):
             yield path, 'carries a free-plugin-standard block but %s is not registered in pack.json' % plugin, None

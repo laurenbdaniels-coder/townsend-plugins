@@ -157,3 +157,29 @@ class ReadLimitGraderTests(unittest.TestCase):
                 if "read-at-most-120-lines" in g:
                     self.assertEqual((g["read-at-most-120-lines"], g.get("read-at-most-401-lines")),
                                      (self.at_120, self.at_401), case)
+
+
+class CaseAppNameTests(unittest.TestCase):
+    def test_path_graders_name_the_case_own_app(self):
+        """protects=a case's stays-in-app graders name the folder its prompt runs on; fails_when=a case copied
+        from another keeps that case's folder name, so every Read of the real app counts as outside it."""
+        try:
+            import yaml
+        except ImportError:
+            self.skipTest("PyYAML not installed (CI installs it)")
+        fixtures = set(os.listdir(os.path.join(PLUGIN, "evals", "fixtures")))
+        for root in ("evals", "evals-no-search"):
+            for case in sorted(os.listdir(os.path.join(PLUGIN, root))):
+                path = os.path.join(PLUGIN, root, case, "case.yaml")
+                if not os.path.isfile(path):
+                    continue
+                with open(path, encoding="utf-8") as fh:
+                    doc = yaml.safe_load(fh)
+                m = re.search(r"\./([A-Za-z0-9_-]+)", doc["execution"]["prompt"])
+                if not m:
+                    continue
+                app = m.group(1)
+                for g in doc["graders"]:
+                    text = str(g.get("input_match", ""))
+                    for other in fixtures - {app}:
+                        self.assertNotIn("/%s/" % other, text, (case, g["name"], other))

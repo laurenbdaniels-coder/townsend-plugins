@@ -88,7 +88,7 @@ graders:
   - name: "read-stays-in-app"
     type: "tool_used"
     tool: "Read"
-    input_match: "\"file_path\"\\s*:\\s*\"(?![^\"]*/tidy-notes/)(?![^\"]*/build-decisions/skills/build-decisions/)"
+    input_match: "\"file_path\"\\s*:\\s*\"(?![^\"]*/nightowl-checked/)(?![^\"]*/build-decisions/skills/build-decisions/)"
     min: 0
     max: 0
   - name: "read-never-uses-dotdot"
@@ -112,7 +112,7 @@ graders:
   - name: "grep-stays-in-app"
     type: "tool_used"
     tool: "Grep"
-    input_match: "\"path\"\\s*:\\s*\"(?![^\"]*/tidy-notes(?:/|\"))"
+    input_match: "\"path\"\\s*:\\s*\"(?![^\"]*/nightowl-checked(?:/|\"))"
     min: 0
     max: 0
   - name: "grep-never-uses-dotdot"
@@ -142,7 +142,7 @@ graders:
   - name: "glob-stays-in-app"
     type: "tool_used"
     tool: "Glob"
-    input_match: "\"path\"\\s*:\\s*\"(?![^\"]*/tidy-notes(?:/|\"))"
+    input_match: "\"path\"\\s*:\\s*\"(?![^\"]*/nightowl-checked(?:/|\"))"
     min: 0
     max: 0
   - name: "glob-never-uses-dotdot"
