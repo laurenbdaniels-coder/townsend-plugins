@@ -170,7 +170,7 @@ A yes ticks the stop-line (rule 7). "No" and "Don't know" render with no extra-r
 
 ### Count what you read
 
-Count only app files the census also counts: files ending in a code, SQL or schema extension from rule 2's list, outside folders named `test`, `tests`, `__tests__`, `__mocks__`, `spec`, `e2e`, `cypress` or `playwright`, and whose names do not end in `.test.`, `-test.`, `_test.`, `.spec.`, `-spec.` or `_spec.` before the extension. n is the number of such files whose Reads together cover line 1 to the file's last line (a Read that returns fewer lines than its limit has reached the end); several Reads of one file count once. m is the census output's `files_read`. Never print n larger than m. The coverage line is exactly one of:
+Count only app files the census also counts: files ending in a code, SQL or schema extension from rule 2's list, outside folders named `test`, `tests`, `__tests__`, `__mocks__`, `spec`, `e2e`, `cypress` or `playwright`, and whose names do not end in `.test.`, `-test.`, `_test.`, `.spec.`, `-spec.` or `_spec.` before the extension, in any mix of capitals. n is the number of such files whose Reads together cover line 1 to the file's last line (a Read that returns fewer lines than its limit has reached the end); several Reads of one file count once. m is the census output's `files_read`. Never print n larger than m. The coverage line is exactly one of:
 - the census is complete (`partial` false) and n equals m: "We read all <m> of your code files."
 - the census is complete and n is less than m: "We read <n> of your <m> code files. Problems in the others can be missed."
 - the census is partial, did not run, or read 0 files: "We read <n> code files. Problems in files we did not read can be missed."
@@ -243,6 +243,7 @@ Rules for filling it in:
   - the scan line: when the census output was not accepted or `ok` is false, "The file scan did not run."; when `files_read` is 0, "The file scan found no code files it reads."
   - the long-files line, when a file in Step 3b came back with 401 lines: "Some long server files were read in part."
   - the read-whole line, when you ran out of calls before Step 3b read every listed file: "<k> server files were not read whole, because this run reached its read limit. Running it again reads the same files."
+  - the not-listed line, when your app has more server files than Step 3b reads (the second output's `totals.shape` shows `not_listed` above 0 for `own-api-routes` or `server-actions`, or `shape` lists more than 10 such paths) and the read-whole line does not print: "Some of your server files were not checked for values the browser chooses. This run reads at most 10 of them whole."
   - the did-not-ask line, when you could not ask the stop-line question: "This run did not ask whether your app handles card details, other people's money or sensitive data."
   - the no-search line, when this run used no search tool: "This run used no search tool, so it followed each rule by reading files only."
   - the sample-key lines: when `demo_keys` lists at least one place, "Some keys were left out because they are the public sample key of a local test database. They are only unsafe if your live database still uses that sample setup."; when `demo_keys_trimmed` is true, "Some sample keys may not be listed here, so a key above may still be one."

@@ -94,6 +94,17 @@ class RoomRuleTests(unittest.TestCase):
         legacy = self.big(cs.MAX_OUTPUT_BYTES - 40)
         self.assertNotIn("value_handlers", cs.add_value_handlers(legacy, ["a"]))
 
+    def test_room_for_an_empty_list_only_leaves_the_key_out(self):
+        """protects=an app whose legacy output has room for `"value_handlers": []` but not for one path gets no
+        key, so the skill reads in the shape order; fails_when=the n == 0 guard goes and the skill gets an empty
+        list, reading no server file whole on a large app."""
+        path = "app/api/%s/route.ts" % ("x" * 60)
+        base = len(cs.dumps(self.big(0)).encode("utf-8"))
+        legacy = self.big(cs.MAX_OUTPUT_BYTES - base - 40)
+        self.assertLessEqual(len(cs.dumps(dict(legacy, value_handlers=[])).encode("utf-8")), cs.MAX_OUTPUT_BYTES)
+        self.assertGreater(len(cs.dumps(dict(legacy, value_handlers=[path])).encode("utf-8")), cs.MAX_OUTPUT_BYTES)
+        self.assertNotIn("value_handlers", cs.add_value_handlers(legacy, [path]))
+
 
 if __name__ == "__main__":
     unittest.main()

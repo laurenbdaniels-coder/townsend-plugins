@@ -9,7 +9,7 @@
 # Needs: the sandbox off (claude plugin eval runs agents), python3 3.9+. Run from anywhere; it cds to the
 # repo root's parent (~/Documents), which is where the evals have always run from.
 # Resume: a case with <out-dir>/<case>.added (written once its reports joined the corpus) is skipped;
-# a failed case runs again (its earlier file is kept as <case>.<time>.json). A case's reports join
+# a failed case runs again (its earlier file is kept as <case>.try<N>.json). A case's reports join
 # free-plugin-standard/corpus/build-decisions-reports.jsonl only when every run of it passed.
 set -euo pipefail
 
@@ -33,7 +33,7 @@ for spec in "$@"; do
   json="$OUT/$name.json"; log="$OUT/$name.log"
   if [[ -e $OUT/$name.added ]]; then echo "skip $name (done)"; continue; fi
   # A failed earlier try keeps its file under a new name, so its cost still counts toward the ceiling.
-  if [[ -e $json ]]; then mv "$json" "$OUT/$name.$(date +%s).json"; fi
+  if [[ -e $json ]]; then k=1; while [[ -e $OUT/$name.try$k.json ]]; do (( k++ )); done; mv "$json" "$OUT/$name.try$k.json"; fi
   total=$(spent)
   if (( $(python3 -c 'import sys; print(1 if float(sys.argv[1]) >= float(sys.argv[2]) else 0)' "$total" "$CEILING") )); then
     echo "stop: spent \$$total, ceiling \$$CEILING; not starting $name" >&2; exit 3

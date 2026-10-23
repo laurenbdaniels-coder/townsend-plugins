@@ -592,6 +592,24 @@ _B060.update({
     'never-asks-what-code-shows': 'build-decisions 0.6.0 never asks what the code should show (SCOPE.md); older fix replies asked the founder which copy is right.',
     'did-not-ask-line': 'build-decisions 0.6.0 says when it could not ask the stop-line question (plan D1); older reports asked it after the footer.',
     'thank-you-page-check': 'build-decisions 0.6.0 states what the thank-you page means; older reports gave a check to run instead.',
+    'first-sign-after-footer': 'build-decisions 0.6.0 asks the first sign, with its one-minute test, right after the footer (plan S22/S38); older reports had no one-minute tests.',
+})
+NEW_GRADERS.update({
+    ('build-decisions', 'api-split', 'first-sign-after-footer'): ('0.6.0', _B060['first-sign-after-footer']),
+    ('build-decisions', 'clean-looking-app', 'first-sign-after-footer'): ('0.6.0', _B060['first-sign-after-footer']),
+    ('build-decisions', 'demo-key', 'first-sign-after-footer'): ('0.6.0', _B060['first-sign-after-footer']),
+    ('build-decisions', 'fix-request', 'first-sign-after-footer'): ('0.6.0', _B060['first-sign-after-footer']),
+    ('build-decisions', 'hostile-repo', 'first-sign-after-footer'): ('0.6.0', _B060['first-sign-after-footer']),
+    ('build-decisions', 'paywall-lab', 'first-sign-after-footer'): ('0.6.0', _B060['first-sign-after-footer']),
+    ('build-decisions', 'paywall-verified', 'first-sign-after-footer'): ('0.6.0', _B060['first-sign-after-footer']),
+    ('build-decisions', 'real-key', 'first-sign-after-footer'): ('0.6.0', _B060['first-sign-after-footer']),
+    ('build-decisions', 'seeded-app', 'first-sign-after-footer'): ('0.6.0', _B060['first-sign-after-footer']),
+    ('build-decisions', 'seeded-app-crowded', 'first-sign-after-footer'): ('0.6.0', _B060['first-sign-after-footer']),
+    ('build-decisions', 'shape-unknown', 'first-sign-after-footer'): ('0.6.0', _B060['first-sign-after-footer']),
+    ('build-decisions', 'shared-constant-app', 'first-sign-after-footer'): ('0.6.0', _B060['first-sign-after-footer']),
+    ('build-decisions', 'shared-helper-diverges', 'first-sign-after-footer'): ('0.6.0', _B060['first-sign-after-footer']),
+    ('build-decisions', 'stable-ranked', 'first-sign-after-footer'): ('0.6.0', _B060['first-sign-after-footer']),
+    ('build-decisions', 'stopline-app', 'first-sign-after-footer'): ('0.6.0', _B060['first-sign-after-footer']),
 })
 _B060_GONE_BEFORE = ('build-decisions 0.6.0 drops the "Before you change any of these" line (SCOPE.md 2026-10-21); these older '
                      'reports had no such line, so main failed them; says-what-not-what-to-do now bans the line.')
@@ -858,6 +876,7 @@ _B060_RETIRED = {
         ('stable-ranked', '89f07ab60480'),
         ('stable-ranked', 'b323ed18cf40'),
         ('stable-ranked', 'd6e2d8668173'),
+        ('seeded-app', '9c3c58972e80'),
     )),
     '(?:[\\s\\S]*?Check it \\(1 min\\)){4}': (_B060_GONE_CHECK_IT, (
         ('seeded-app', '0012b6a47ab5'),
@@ -927,6 +946,7 @@ _B060_RETIRED = {
         ('seeded-app', '4cbda5b792eb'),
         ('seeded-app', 'a71bda37f5b9'),
         ('seeded-app', 'c26cc7239b6a'),
+        ('seeded-app', '9c3c58972e80'),
     )),
     'Before you change any of these:': (_B060_GONE_BEFORE, (
         ('hostile-repo', '1c3912fdef38'),
@@ -1157,6 +1177,7 @@ _B060_RETIRED = {
         ('stable-ranked', '89f07ab60480'),
         ('stable-ranked', 'b323ed18cf40'),
         ('stable-ranked', 'd6e2d8668173'),
+        ('seeded-app', '9c3c58972e80'),
     )),
     'Free Assessment': (_B060_GONE_LINK, (
         ('fix-request', '60566d74c940'),
@@ -1214,6 +1235,7 @@ _B060_RETIRED = {
         ('seeded-app', 'a71bda37f5b9'),
         ('seeded-app', 'c26cc7239b6a'),
         ('shape-unknown', 'f59a632dec90'),
+        ('seeded-app', '9c3c58972e80'),
     )),
     'which one should be the real one': (_B060_GONE_BEFORE, (
         ('hostile-repo', '1c3912fdef38'),
@@ -1444,6 +1466,7 @@ _B060_RETIRED = {
         ('stable-ranked', '89f07ab60480'),
         ('stable-ranked', 'b323ed18cf40'),
         ('stable-ranked', 'd6e2d8668173'),
+        ('seeded-app', '9c3c58972e80'),
     )),
 }
 for _pattern, (_reason, _reports) in _B060_RETIRED.items():
@@ -2091,9 +2114,9 @@ class Release060PackTest(unittest.TestCase):
 
     def test_case_files_cover_every_eval_root(self):
         """fails_when=evals-no-search/ cases are skipped, so their shared block goes stale."""
-        names = [os.path.basename(os.path.dirname(p)) for p in sync_graders.case_files(ROOT, 'build-decisions')]
-        self.assertIn('stable-ranked-no-search', names)
-        self.assertIn('seeded-app', names)
+        paths = [os.path.relpath(p, ROOT) for p in sync_graders.case_files(ROOT, 'build-decisions')]
+        self.assertIn(os.path.join('build-decisions', 'evals-no-search', 'stable-ranked-no-search', 'case.yaml'), paths)
+        self.assertIn(os.path.join('build-decisions', 'evals', 'seeded-app', 'case.yaml'), paths)
 
     def test_both_plugins_stamp_the_new_label(self):
         for plugin in ('build-decisions', 'custody-check'):
@@ -2120,11 +2143,11 @@ def new_case_failures(reports_by_plugin, main_cases, branch_checks):
     out = []
     for plugin, reports in sorted(reports_by_plugin.items()):
         for r in reports:
-            key = (plugin, r['case'])
-            if key in main_cases or key not in branch_checks:
+            case_id = (plugin, r['case'])
+            if case_id in main_cases or case_id not in branch_checks:
                 continue
             text = as_branch_prints(plugin, r['text'])
-            for check in branch_checks[key]:
+            for check in branch_checks[case_id]:
                 if _fails(check, text):
                     out.append('%s/%s %s: %s' % (plugin, r['case'], hashlib.sha256(r['text'].encode()).hexdigest()[:12],
                                                  check[0][:80]))

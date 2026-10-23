@@ -16,11 +16,12 @@ ROOT = os.path.dirname(PLUGIN)
 DRAFT = os.path.join(HERE, "fixtures", "report", "seeded-app-0.6.0-hand-draft.md")
 CORPUS = os.path.join(ROOT, "free-plugin-standard", "corpus", "build-decisions-reports.jsonl")
 
-NEW_COMMON = ("footer-plain", "says-what-not-what-to-do", "never-asks-what-code-shows", "one-stopped-early-line")
+NEW_COMMON = ("footer-plain", "says-what-not-what-to-do", "never-asks-what-code-shows", "one-stopped-early-line",
+              "first-sign-after-footer", "one-sign-at-a-time", "nothing-of-the-report-after-footer")
 # New in 0.6.0 that a saved 0.5.1 seeded-app report really breaks (it had the old footer, a check line, the old
 # label and no coverage line). The other new graders guard things 0.5.1 already did right.
 OLD_REPORT_BREAKS = ("footer-plain", "says-what-not-what-to-do", "what-it-means-per-block", "std-coverage-line",
-                     "std-out-of-sync")
+                     "std-out-of-sync", "first-sign-after-footer")
 
 FOOTER = "\\n---\\nbuild-decisions v\\d+\\.\\d+\\.\\d+ · read-only · a review, not an audit"
 
@@ -30,6 +31,11 @@ BAD = {
     "never-asks-what-code-shows": "# Build decisions: x\n\nWho can read your customers' records?\n",
     "one-stopped-early-line": "The scan stopped early: it reached its file limit.\nThe scan stopped early, so there may be more.\n",
     "what-it-means-per-block": "**1. A**\nWhat it means for you: x.\n**2. B**\nWhat it means for you: y.\n",
+    "first-sign-after-footer": "# Build decisions: x\n\n---\nbuild-decisions v0.6.0 \u00b7 read-only \u00b7 a review, not an audit\n",
+    "one-sign-at-a-time": ("# Build decisions: x\n\n---\nbuild-decisions v0.6.0 \u00b7 read-only \u00b7 a review, not an audit\n"
+                           "1. Pick one thing you fixed.\n2. Open two screens it did not mean to touch.\n"),
+    "nothing-of-the-report-after-footer": ("# Build decisions: x\n\n---\nbuild-decisions v0.6.0 \u00b7 read-only \u00b7 a "
+                                           "review, not an audit\nNot checked: the rest.\nPick one thing you fixed.\n"),
 }
 
 
@@ -81,7 +87,8 @@ class SeededAppGraderTests(unittest.TestCase):
         old = old_report()
         for name in OLD_REPORT_BREAKS:
             self.assertTrue(fails(self.g[name], old), name)
-        for name in ("never-asks-what-code-shows", "one-stopped-early-line"):
+        for name in ("never-asks-what-code-shows", "one-stopped-early-line", "one-sign-at-a-time",
+                     "nothing-of-the-report-after-footer"):
             self.assertFalse(fails(self.g[name], old), name)
 
     def test_one_minute_test_after_the_footer_is_allowed(self):
@@ -153,6 +160,28 @@ class ReadLimitGraderTests(unittest.TestCase):
         tool = os.path.join(PLUGIN, "evals", "whole_read_paths.py")
         proc = subprocess.run([sys.executable, tool], capture_output=True, text=True)
         self.assertEqual(proc.returncode, 0, proc.stdout[-500:])
+
+    def test_a_stale_case_fails_the_stamp_check(self):
+        """protects=CI goes red when a case's 401-line grader no longer matches what the helper lists;
+        fails_when=whole_read_paths.py stops returning 1 on a stale case, so the check above passes anyway."""
+        import shutil
+        import subprocess
+        import sys
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            copy = os.path.join(tmp, "build-decisions")
+            shutil.copytree(PLUGIN, copy, ignore=shutil.ignore_patterns("results", "__pycache__"))
+            case = os.path.join(copy, "evals", "browser-decides", "case.yaml")
+            with open(case, encoding="utf-8") as fh:
+                text = fh.read()
+            stale = text.replace("app/api/coach/route\\\\.ts", "app/api/gone/route\\\\.ts")
+            self.assertNotEqual(stale, text)
+            with open(case, "w", encoding="utf-8") as fh:
+                fh.write(stale)
+            proc = subprocess.run([sys.executable, os.path.join(copy, "evals", "whole_read_paths.py")],
+                                  capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 1, proc.stdout[-500:])
+        self.assertIn("stale: browser-decides", proc.stdout)
 
 
 class CaseAppNameTests(unittest.TestCase):

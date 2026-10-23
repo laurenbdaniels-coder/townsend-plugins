@@ -53,7 +53,7 @@ What it means for you: a person can give themselves any number of credits.
 Also worth a look:
 - A screen seems to save credits straight to the database (`components/Buy.tsx:30`). If it does, a person using the app could change it.
 
-Not checked: database settings, dashboards, other projects, names this run does not know, and code it did not search. It checks values the browser chooses only in your app's own server code, not in code that runs inside your database service. Not found does not mean it isn't there.
+Not checked: database settings, dashboards, other projects, names this run does not know, and code it did not search. This version also does not check sign-in checks on server code, or library versions. Payment places are found from the files, not tested in the app. This version does not check whether payment messages really come from your payment company. It checks values the browser chooses only in your app's own server code, not in code that runs inside your database service. Not found does not mean it isn't there.
 
 ---
 build-decisions v0.6.0 · read-only · a review, not an audit
@@ -145,7 +145,7 @@ Build Decisions shows where your app decides who sees what and what things cost,
 
 ## Evals
 
-Before each release, `claude plugin eval` runs every case under `evals/` (23 in 0.6.0) and the one in `evals-no-search/`, on synthetic apps under `evals/fixtures/`; `evals/run-evals.sh` runs them one at a time:
+Before each release, `claude plugin eval` runs every case under `evals/` (24 in 0.6.0) and the one in `evals-no-search/`, on synthetic apps under `evals/fixtures/`; `evals/run-evals.sh` runs them one at a time:
 - a seeded app with one planted two-place decision per type, all of which must be reported, in a short report
 - a crowded app with many look-alike places, where the planted pairs must still be found
 - an app where two places read one shared list (one source, so no card) beside a real duplicated price (a card)
@@ -165,10 +165,11 @@ Before each release, `claude plugin eval` runs every case under `evals/` (23 in 
 - the seeded app's four rules plus one value the browser chooses: all of them must show
 - an app whose server code runs inside the database service: no block, and the Not checked line says which code this version checks
 - a folder with no code files the scan reads: it must never say the app is clean
+- an app with more server files than a run reads whole: the report must say some were not checked, and still find the one value the screen chooses
 
 Every case that renders a report also checks the "How your app is built" line, three helper calls at most, that no internal id is printed, and the "Not checked" line. The `decision-census` pointer has its own case: it prints the switch text and runs nothing.
 
-Run the helper tests locally (python 3.9+, no installs):
+Run the helper tests locally (python 3.9+, no installs; the report grader tests skip unless PyYAML is installed, and CI installs it):
 
 ```
 CENSUS_SLOW=1 python3 -m unittest discover -s build-decisions/skills/build-decisions/scripts -p '*_test.py' -v
@@ -195,6 +196,7 @@ Claude Code reads the instruction files in the folder it starts in. If you start
 - **`python-too-old` / python not found.** The census says nothing was read and still asks the four signs. Install python 3.9 or newer (macOS: Command Line Tools).
 - **"The scan stopped early: …"** The helper stopped early (file limit, size limit, time limit, unreadable files). The report says whether a rerun helps; when it does, say the line it gives (`--max-files 50000` or `--max-file-bytes 5242880`).
 - **"This run did not ask whether your app handles card details…"** Your tool had no way to ask the stop-line question (for example Codex, or a launch line without AskUserQuestion). Start your request with `stop_line: none`, or say what applies, to settle it.
+- **"Some of your server files were not checked for values the browser chooses."** Your app has more than 10 server files, and a run reads at most 10 of them whole, starting with the ones that take a value from the screen.
 - **A card looks wrong.** Two places that look alike can decide different things. Open both lines; if they don't make the same decision, ignore the card, and open an issue on this repository with the pattern names from the census so I can tune the helper.
 
 ## Updating
