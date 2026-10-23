@@ -464,6 +464,25 @@
 
 ## build-decisions (decision-census until 0.4.0)
 
+### From the build-decisions 0.6.1 /review (2026-10-23)
+
+**What:** found in review, below the ship bar (nothing shown worse than main), so not fixed in the PR:
+- **A bare "yes" names no risk** (Codex P2). The stop-line question lists four risks in one question; after a plain "yes", the extra-risk block needs one category. Ask which applies, or use a neutral meaning. 0.6.0's ask-before-the-report path asks the same question, so main shares it.
+- **The founder's answer turn has no grader.** Evals are single-turn: nothing checks the block alone after a yes (no Where line, no re-render), the first sign after No / Don't know, or a "we take Stripe payments" yes (a no). The 2026-10-23 interactive runs (plugins-internal/build-decisions/release-0.6.1-2026-10-23/) passed by hand. Add a 2-turn eval when the runner allows a follow-up.
+- No eval starts with `stop_line: none` (the question must be skipped, the first sign must follow the footer).
+- `waits-after-stopline-question` misses sign 1's title ("A fix that didn't take"); `stopline-question-after-footer` matches only the question's first six words. Widen and anchor both, with BAD examples in report_graders_test.py.
+- never-says-clean exempts the tip `stop_line: none` anywhere in the text; exempt it only after "start your request with: " (the 0.6.1 PR pins the tip and two near misses).
+- SKILL rule 7 says a yes means "the report carries the extra-risk block"; on the after-report path the block prints alone (Step 5 says so). Align rule 7 in the next release that reruns evals.
+- The degraded path (no footer) does not say whether a host that can't ask asks the stop-line question; the one empty-app run asked the first sign (n=1).
+- `claude -p` with AskUserQuestion listed: the skill takes the ask-first path and gets no answer. Main shares the tool-presence test. Say what to do when the call errors or returns nothing; the README could say how to answer in `claude -p` (resume the session).
+- The never-worse test reads only `<plugin>/evals/`, so `evals-no-search/` grader changes get no main-vs-branch comparison (pre-existing).
+- The eval suite assumes a host with no AskUserQuestion; if the runner ever offers it, every case fails at once. Pin or note the host's tool list.
+- Answers pasted up front for the signs but not the stop-line: order unclear.
+- sync_graders_test.py: the 0.6.1 retired lists repeat two regex literals in two ALLOWED paths (merge into _B061_RETIRED; Lauren chose skip for this PR); per-release patch layers could be built from case.yaml grader names.
+- Pre-existing slow regexes on main: `(?:[\s\S]*?What it means for you:){4}` (21-105 s on 100 KB) and never-says-clean's `make sure none` branch. Real reports run in ms.
+**Why:** the ship bar: weaknesses main shares, coverage gaps of new checks, and style become TODOs.
+**Effort:** S each; the 2-turn eval is M.
+
 ### From the build-decisions 0.6.0 /review round 1 (2026-10-23)
 
 **What:** found in review, below the ship bar (not shown worse than main on a realistic input), so not fixed in the PR:
