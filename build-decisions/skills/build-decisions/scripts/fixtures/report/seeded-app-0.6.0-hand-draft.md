@@ -32,7 +32,7 @@ What it means for you: a paying person can use reports but not export, or the ot
 
 What it means for you: the total on screen and the amount charged can differ by one cent.
 
-Not checked: database settings, dashboards, other projects, names this run does not know, and code it did not search. This version also does not check sign-in checks on server code, or library versions. Payment places are found from the files, not tested in the app. This version does not check whether payment messages really come from your payment company. Not found does not mean it isn't there.
+Not checked: database settings, dashboards, other projects, names this run does not know, and code it did not search. This version also does not check sign-in checks on server code, or library versions. Payment places are found from the files, not tested in the app. This version does not check whether payment messages really come from your payment company. It checks values the browser chooses only in your app's own server code, not in code that runs inside your database service. Not found does not mean it isn't there.
 This run did not ask whether your app handles card details, other people's money or sensitive data.
 This run used no search tool, so it followed each rule by reading files only.
 

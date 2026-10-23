@@ -11,6 +11,8 @@ It looks for the places where your AI-built app decides four things:
 - **whether someone has paid**
 - **how money rounds**
 
+It also finds **values the browser chooses**: a number, date, plan or role the screen sends that your server saves or counts by without checking it against its own record (for example points or credits a person can set for themselves). It reads up to 10 of your server files whole for this.
+
 It also says, in one or two plain sentences, **how your app is built**: whether its screens read and save data straight to the database, whether it runs some of its own code on a server, and whether there are signs of a second app (a phone app, a second website) that uses the same data. A rule written into both apps can give two answers.
 
 And it says **where your app saves whether someone has paid**: when two places do it (say, the payment company's message and a thank-you page), that is a rule written in more than one place. It points out a price written in your app that the payment company also charges, and a screen that seems to save credits, a plan or a total straight to the database.
@@ -22,9 +24,10 @@ An example (a made-up app):
 ```
 # Build decisions: my-app
 
-**Your app has 2 rules that are written in more than one place.**
+**Your app has 2 rules that are written in more than one place, and 1 value the browser chooses.**
 
 Why this matters: when you or your AI tool change one of these rules, the change may land in one place and miss the others. Then the copies stop agreeing, and your app does things you don't expect. A button shows but fails, two screens show different prices, or something breaks.
+When the browser chooses a value, a person using your app can change it before your server saves it.
 We read 9 of your 41 code files. Problems in the others can be missed.
 
 **How your app is built:** This run found that your app runs some of its own code on a server. It saw this in `app/api/checkout/route.ts`.
@@ -42,10 +45,15 @@ What it means for you: your pricing page shows one price, and checkout charges a
 
 What it means for you: a person can open a project that the dashboard hides from them.
 
+**3. Bonus credits: the browser chooses it.**
+What it means for you: a person can give themselves any number of credits.
+- Takes the number of credits from the screen. `app/api/bonus/route.ts:5`
+- Adds that number to the person's account. `app/api/bonus/route.ts:6`
+
 Also worth a look:
 - A screen seems to save credits straight to the database (`components/Buy.tsx:30`). If it does, a person using the app could change it.
 
-Not checked: database settings, dashboards, other projects, names this run does not know, and code it did not search. Not found does not mean it isn't there.
+Not checked: database settings, dashboards, other projects, names this run does not know, and code it did not search. It checks values the browser chooses only in your app's own server code, not in code that runs inside your database service. Not found does not mean it isn't there.
 
 ---
 build-decisions v0.6.0 · read-only · a review, not an audit

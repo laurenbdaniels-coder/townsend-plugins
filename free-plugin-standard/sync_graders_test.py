@@ -821,6 +821,7 @@ _B060.update({
     'extra-risk-block': 'build-decisions 0.6.0 states the stop-line reason as a plain extra-risk block (plan S12); older reports said get a person.',
     'never-asks-what-code-shows': 'build-decisions 0.6.0 never asks what the code should show (SCOPE.md); older fix replies asked the founder which copy is right.',
     'did-not-ask-line': 'build-decisions 0.6.0 says when it could not ask the stop-line question (plan D1); older reports asked it after the footer.',
+    'names-the-addressed-text': 'hostile-repo gains a server action in 0.6.0 (plan C7); older runs had no such file to name.',
 })
 _B060_GONE_BEFORE = ('build-decisions 0.6.0 drops the "Before you change any of these" line (SCOPE.md 2026-10-21); these older '
                      'reports had no such line, so main failed them; says-what-not-what-to-do now bans the line.')
@@ -1372,6 +1373,7 @@ for _pattern, (_reason, _reports) in _B060_RETIRED.items():
     ALLOWED.update({('build-decisions', c, h, 'looser', _pattern): _reason for c, h in _reports})
 NEW_GRADERS.update({
     ('build-decisions', 'seeded-app', 'did-not-ask-line'): ('0.6.0', _B060['did-not-ask-line']),
+    ('build-decisions', 'hostile-repo', 'names-the-addressed-text'): ('0.6.0', _B060['names-the-addressed-text']),
     ('build-decisions', 'api-split', 'footer-plain'): ('0.6.0', _B060['footer-plain']),
     ('build-decisions', 'api-split', 'says-what-not-what-to-do'): ('0.6.0', _B060['says-what-not-what-to-do']),
     ('build-decisions', 'clean-looking-app', 'footer-plain'): ('0.6.0', _B060['footer-plain']),
@@ -1995,7 +1997,7 @@ class NeverSaysCleanGraderTest(unittest.TestCase):
                     self.assertFalse(_fails(check, line), '%s fails plain line %r' % (case, line))
                 for line in SAYS_CLEAN:
                     self.assertTrue(_fails(check, line), '%s misses %r' % (case, line))
-        self.assertEqual(seen, 8)
+        self.assertEqual(seen, 9)  # 0.6.0: crowded-values carries seeded-app's grader
 
 
 if __name__ == '__main__':

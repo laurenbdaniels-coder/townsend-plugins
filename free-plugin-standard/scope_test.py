@@ -30,7 +30,8 @@ class ScopeDocTests(unittest.TestCase):
         scope = read("free-plugin-standard", "SCOPE.md")
         for line in ("## Custody Check", "## Build Decisions", "Never ask what the code should show.",
                      "Say what is broken and what it means for the founder.",
-                     "Recommend anything", "Decided by Lauren Townsend."):
+                     "Recommend anything", "Decided by Lauren Townsend.",
+                     "It also shows values your screens choose that your server saves or counts without checking. (Lauren, 2026-10-21; recorded 2026-10-22)"):
             self.assertIn(line, scope, line)
         self.assertRegex(scope, r"Last change: \d{4}-\d{2}-\d{2}\.")
 

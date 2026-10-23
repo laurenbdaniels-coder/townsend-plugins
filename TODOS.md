@@ -471,6 +471,8 @@
 - "The browser chooses it" for Supabase edge functions (`Deno.serve`) and Python handlers: today they are not starting places (`shape` lists routes and "use server" only), and the report says which forms it checks.
 - Helper failure channel: `census_scan.py` exits 0 with a JSON `ok:false` for usage and folder errors; add recovery categories and bounded, redacted context (version, section, limits). Pre-existing.
 - One enforced call budget: SKILL says 40 Read+Grep+Glob calls in all; eval graders allow 40 Reads and 40 Greps separately. Add a combined-count grader when the eval grader types allow it. Pre-existing.
+- "Promises with no code behind them" (S-046) did not ship: the 2026-10-22 sample (plugins-internal/build-decisions/f6-sample-2026-10-22-browser-promises.md) flagged 7 of 26 clean apps (27%); disabled buttons were honest in all 5 apps that had them. A version needs a far narrower signal and a new sample.
+- "The browser chooses it" read order: the F-6 sample missed a credits bug ranked #17 of 25 in the old order; `value_handlers` now ranks request-reading files first. Re-sample after the talk with more PROBLEM apps (only 6 in the first sample, so one more miss would have failed it).
 - Collapse case-level text pins into the shared pack where they repeat across cases, so wording changes stop touching ~40 graders.
 - Limits read from one data source by the graders (today the SKILL limits table and the graders repeat the numbers).
 **Why:** each is a weakness main shares, or work outside this release's scope (fix PRs stay in scope).

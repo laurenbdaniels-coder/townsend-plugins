@@ -136,6 +136,7 @@ class ShippedCopyTests(unittest.TestCase):
         at = [example.find(s) for s in ORDER]
         self.assertNotIn(-1, at, dict(zip(ORDER, at)))
         self.assertEqual(at, sorted(at))
+        self.assertIn(": the browser chooses it.**", example)
 
     def test_standard_has_no_banned_line(self):
         self.assertEqual(found(read(ROOT, "free-plugin-standard", "STANDARD.md")), [])
