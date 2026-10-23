@@ -2066,7 +2066,9 @@ class GateNeverWorseThanReleasedTest(unittest.TestCase):
 # every other "none" fails as on main, including the card note (TODOS: the plugin should drop it).
 PLAIN_NONE = ["make sure none of the first user's reports show",   # seeded-app-crowded run, 0.3.1
               "Make sure none of them can open the export.",
-              "It scanned 5 files and skipped none, so the result is complete."]
+              "It scanned 5 files and skipped none, so the result is complete.",
+              # 0.6.1: the stop-line question's own tip, asked after the footer
+              "To skip this next time, start your request with: stop_line: none"]
 SAYS_CLEAN = ["Duplicates: none", "**Duplicates:** none", "**Rules written in more than one place:** None.",
               "Rules written in more than one place \u2014 none.", "None found.", "I found none.",
               "There are none in this app.", "There is none.", "None. The app decides each rule once.",
@@ -2074,7 +2076,8 @@ SAYS_CLEAN = ["Duplicates: none", "**Duplicates:** none", "**Rules written in mo
               "None of your app's rules are written in more than one place.",
               "No duplicates.", "The app looks clean.", "Each was found once, so none gets a card.",
               "We make sure none of your app's rules are duplicated.",          # Codex review, 2026-10-17
-              "Make sure none of the decisions are made in two places."]
+              "Make sure none of the decisions are made in two places.",
+              "Stop-line: none.", "Rules in more than one place: none."]  # near misses of the 0.6.1 tip
 
 
 class NeverSaysCleanGraderTest(unittest.TestCase):
@@ -2284,8 +2287,7 @@ _B061_RETIRED = {
         ('paywall-lab', 'e9fef8589f94'),
         ('paywall-verified', '2d42067e7d68'),
         ('paywall-verified', '59192748112c'),
-        ('paywall-verified', '7151c7cfe5c3'),
-        ('paywall-verified', '7151c7cfe5c3'),
+        ('paywall-verified', '7151c7cfe5c3'),  # the corpus holds two identical copies
         ('paywall-verified', '7195afcf2177'),
         ('paywall-verified', 'af46ab47fdc4'),
         ('real-key', '455b78a8f75a'),

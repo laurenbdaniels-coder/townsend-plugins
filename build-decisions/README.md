@@ -123,7 +123,7 @@ The agent runs three commands, all the same helper (`python3 -I census_scan.py -
 
 ## What this version checks
 
-| Checked in 0.6.0 | Partly | Not yet |
+| Checked in 0.6.1 | Partly | Not yet |
 |---|---|---|
 | Rules written in more than one place (who can see a record, prices, paid status, money rounding) | Places that save paid status: listed from the files, read by the agent, not tested in the app | Whether payment messages really come from the payment company (next); sign-in checks on each part that runs on a server (planned) |
 | Values the browser chooses that your own server code saves or counts by | | Values chosen in code that runs inside your database service (planned) |
@@ -145,7 +145,7 @@ Build Decisions shows where your app decides who sees what and what things cost,
 
 ## Evals
 
-Before each release, `claude plugin eval` runs every case under `evals/` (24 in 0.6.0) and the one in `evals-no-search/`, on synthetic apps under `evals/fixtures/`; `evals/run-evals.sh` runs them one at a time:
+Before each release, `claude plugin eval` runs every case under `evals/` (24 in 0.6.1) and the one in `evals-no-search/`, on synthetic apps under `evals/fixtures/`; `evals/run-evals.sh` runs them one at a time:
 - a seeded app with one planted two-place decision per type, all of which must be reported, in a short report
 - a crowded app with many look-alike places, where the planted pairs must still be found
 - an app where two places read one shared list (one source, so no card) beside a real duplicated price (a card)
@@ -167,7 +167,7 @@ Before each release, `claude plugin eval` runs every case under `evals/` (24 in 
 - a folder with no code files the scan reads: it must never say the app is clean
 - an app with more server files than a run reads whole: the report must say some were not checked, and still find the one value the screen chooses
 
-Every case that renders a report also checks the "How your app is built" line, three helper calls at most, that no internal id is printed, and the "Not checked" line. After the footer, it checks that the first of the four signs comes next, that the signs come one at a time, and that no part of the report follows the footer. The `decision-census` pointer has its own case: it prints the switch text and runs nothing.
+Every case that renders a report also checks the "How your app is built" line, three helper calls at most, that no internal id is printed, and the "Not checked" line. After the footer, it checks that the stop-line question comes after the footer and that the run then waits (the eval host cannot show a question before the report; in the stop-line app, whose code already answers it, the first of the four signs comes next instead), that the signs come one at a time, and that no part of the report follows the footer. The `decision-census` pointer has its own case: it prints the switch text and runs nothing.
 
 Run the helper tests locally (python 3.9+, no installs; the report grader tests skip unless PyYAML is installed, and CI installs it):
 
@@ -195,7 +195,7 @@ Claude Code reads the instruction files in the folder it starts in. If you start
 - **`repo-is-symlink` / `repo-unreadable`.** Pass the real folder, or copy the app somewhere you own.
 - **`python-too-old` / python not found.** The census says nothing was read and still asks the four signs. Install python 3.9 or newer (macOS: Command Line Tools).
 - **"The scan stopped early: …"** The helper stopped early (file limit, size limit, time limit, unreadable files). The report says whether a rerun helps; when it does, say the line it gives (`--max-files 50000` or `--max-file-bytes 5242880`).
-- **The stop-line question comes after the report.** Your tool has no way to show a question before the report (for example Codex, or a launch line without AskUserQuestion), so it asks in plain text after the footer. Answer in your own words. A yes adds a short extra-risk note before the four signs. To skip the question, start your request with `stop_line: none`.
+- **The stop-line question comes after the report.** Your tool has no way to show a question before the report (for example Codex, `claude -p`, or a launch line without AskUserQuestion), so it asks in plain text after the footer. Answer in your own words. A yes adds a short extra-risk note before the four signs. To skip the question, start your request with `stop_line: none`.
 - **"Some of your server files were not checked for values the browser chooses."** Your app has more than 10 server files, and a run reads at most 10 of them whole, starting with the ones that take a value from the screen.
 - **A card looks wrong.** Two places that look alike can decide different things. Open both lines; if they don't make the same decision, ignore the card, and open an issue on this repository with the pattern names from the census so I can tune the helper.
 

@@ -85,7 +85,7 @@ class SeededAppGraderTests(unittest.TestCase):
         self.g = graders("seeded-app")
 
     def test_every_regex_grader_passes_the_hand_draft(self):
-        """protects=a correct 0.6.0 report passes its own case; fails_when=a grader pins a line 0.6.0 removed."""
+        """protects=a correct 0.6.1 report passes its own case; fails_when=a grader pins a line 0.6.x removed."""
         failing = [n for n, c in self.g.items() if fails(c, draft())]
         self.assertEqual(failing, [])
 
@@ -107,6 +107,30 @@ class SeededAppGraderTests(unittest.TestCase):
         """The chat-only test after the footer may say "ask your AI tool"; only the report above it is graded."""
         text = draft() + 'Test: "Ask your AI tool where your app decides one price."\n'
         self.assertFalse(fails(self.g["says-what-not-what-to-do"], text))
+
+
+class StoplineAppGraderTests(unittest.TestCase):
+    """protects=the stop-line app, whose code already answers the stop-line question, never asks it after the
+    footer and goes straight to the first sign; fails_when=no-stopline-question's pattern stops matching the
+    question (a typo), so a run that asks it anyway passes."""
+
+    def setUp(self):
+        try:
+            import yaml  # noqa: F401
+        except ImportError:
+            if os.environ.get("CI"):
+                raise
+            self.skipTest("PyYAML not installed (CI installs it)")
+        self.g = graders("stopline-app")
+
+    def test_no_stopline_question_bites(self):
+        footer = "# Build decisions: x\n\n---\nbuild-decisions v0.6.1 \u00b7 read-only \u00b7 a review, not an audit\n\n"
+        asks = footer + "Does this app do any of these? Store or handle card details itself.\n"
+        signs = footer + "First, a question: did a fix ever not take? Pick one thing you fixed.\n"
+        self.assertTrue(fails(self.g["no-stopline-question"], asks))
+        self.assertFalse(fails(self.g["no-stopline-question"], signs))
+        self.assertFalse(fails(self.g["first-sign-after-footer"], signs))
+        self.assertTrue(fails(self.g["first-sign-after-footer"], asks))
 
 
 class AllCasesTests(unittest.TestCase):
