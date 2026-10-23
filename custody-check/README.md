@@ -67,10 +67,10 @@ The agent runs three commands. First the scanner (retried only per script locati
 Recommended: start Claude Code with this line, and never run it with `--dangerously-skip-permissions` for this check:
 
 ```
-claude --permission-mode plan --tools Skill,Bash,Read,Grep,Glob
+claude --permission-mode plan --tools Skill,Bash,Read,Grep,Glob,AskUserQuestion
 ```
 
-`--permission-mode plan` means nothing can be edited, even by accident. `--tools` gives the check its code search back: the native installs of Claude Code 2.1.117 and later on macOS and Linux leave out the Grep and Glob tools unless you list them (npm and Windows installs keep them), and without them the check can only read files, so the report sees less. The list also leaves out the Edit and Write tools. Verified on Claude Code 2.1.306: with this line the check used Grep. Plan mode alone was verified on 2.1.273: it allowed the scanner's read-only command and the run left the app untouched (`git status` unchanged, no newer files). If your version refuses it, run without plan mode and approve each `python3` prompt when it appears, or pass the narrowest rules your host accepts, anchored on the script and its flags. For a marketplace install that is three rules:
+`--permission-mode plan` means nothing can be edited, even by accident. `--tools` gives the check its code search back: the native installs of Claude Code 2.1.117 and later on macOS and Linux leave out the Grep and Glob tools unless you list them (npm and Windows installs keep them), and without them the check can only read files, so the report sees less. AskUserQuestion lets the host show the check's questions as a pick-list (seen for its stop-line question on Claude Code 2.1.309), and lets Build Decisions, run from the same session, ask its stop-line question before its report. The list also leaves out the Edit and Write tools. Verified on Claude Code 2.1.306: with this line the check used Grep. Plan mode alone was verified on 2.1.273: it allowed the scanner's read-only command and the run left the app untouched (`git status` unchanged, no newer files). If your version refuses it, run without plan mode and approve each `python3` prompt when it appears, or pass the narrowest rules your host accepts, anchored on the script and its flags. For a marketplace install that is three rules:
 
 ```
 --allowedTools "Bash(python3 -I ~/.claude/plugins/*/custody-check/skills/custody-check/scripts/custody_scan.py --repo *)" \

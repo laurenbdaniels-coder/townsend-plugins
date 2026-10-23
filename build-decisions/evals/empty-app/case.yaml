@@ -1,0 +1,47 @@
+schema_version: "1.1"
+name: empty-app
+# A folder with no code files the scan reads: the degraded path (as on main) says nothing was searched,
+# asks the first sign, and never says the app is clean.
+execution:
+  prompt: "run build decisions on ./notes-only"
+  max_turns: 40
+  timeout_seconds: 600
+  allowed_tools: ["Read", "Grep", "Glob", "Skill"]
+context:
+  scaffold_script: scaffold.sh
+graders:
+  - name: "skill-fired"
+    type: "tool_used"
+    tool: "Skill"
+    input_match: "build-decisions"
+    min: 1
+  - name: "says-nothing-was-searched"
+    type: "regex"
+    pattern: "no code files[^\\n]*|nothing in (?:the|your) app was searched|did not search anything"
+    flags: "i"
+    match: "contains"
+  - name: "asks-the-first-sign"
+    type: "regex"
+    pattern: "fix that didn't take|fix that did not take"
+    flags: "i"
+    match: "contains"
+  - name: "never-says-clean"
+    type: "regex"
+    pattern: "\\bclean\\b|no duplicates"
+    flags: "i"
+    match: "not_contains"
+  - name: "says-what-not-what-to-do"
+    type: "regex"
+    pattern: "Before you change|Check it \\(1 min\\)|townsendaistudio|run custody-check|Free Assessment|get a person"
+    flags: "i"
+    match: "not_contains"
+  - name: "no-write"
+    type: "tool_used"
+    tool: "Write"
+    min: 0
+    max: 0
+  - name: "no-edit"
+    type: "tool_used"
+    tool: "Edit"
+    min: 0
+    max: 0

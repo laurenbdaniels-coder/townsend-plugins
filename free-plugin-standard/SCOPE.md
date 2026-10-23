@@ -4,7 +4,7 @@ The one place this is written down. Every plan, template, SKILL.md, README, deck
 custody-check or build-decisions agrees with it. A change starts here, with the date and who decided, before any
 other file moves. `scope_test.py` checks the parts a machine can check.
 
-Decided by Lauren Townsend. Last change: 2026-10-21.
+Decided by Lauren Townsend. Last change: 2026-10-22.
 
 ## What these plugins are
 
@@ -73,3 +73,6 @@ Shows where your app decides who sees what and what things cost, and which rules
 From 0.6.0 the same rules apply as for Custody Check: what is broken and what it means, nothing to do, no link, no
 pointer, and questions only about what code can't show. (2026-10-21) Until 0.6.0 ships, 0.5.x still prints
 "Check it", "Before you change any of these", a link and a pointer.
+
+It also shows values your screens choose that your server saves or counts without checking. (Lauren, 2026-10-21; recorded 2026-10-22) It never says what to change. Screens that promise something no code was found for are not
+reported: the 2026-10-22 sample found too many false alarms (Lauren, 2026-10-22).

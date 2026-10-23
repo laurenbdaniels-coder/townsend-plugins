@@ -15,6 +15,13 @@
         "pattern": "(?:^|\\n)(?:[^`\\n]*`[^`\\n]*`)*[^`\\n]*?\\b(?:function|functions|helper|helpers|constant|constants|variable|variables|import|imports|imported|endpoint|endpoints|api|apis|route|routes|boolean|enum|schema|migration|migrations|query|queries|sql|console|terminal|codebase|hard-?coded|allow-?list|allowlist|refactor|component|components|middleware|owner test|regex|config|null|array|string|props|backend|frontend)\\b",
         "flags": "i",
         "match": "not_contains"
+      },
+      {
+        "name": "std-coverage-line",
+        "type": "regex",
+        "pattern": "(?:^|\\n)(?:We read all \\d+ of your code files\\.|We read \\d+ of your \\d+ code files\\. Problems in the others can be missed\\.|We read \\d+ code files\\. Problems in files we did not read can be missed\\.)",
+        "flags": "",
+        "match": "contains"
       }
     ],
     "issues": [
@@ -35,7 +42,7 @@
       {
         "name": "std-out-of-sync",
         "type": "regex",
-        "pattern": "If they get out of sync:",
+        "pattern": "What it means for you:",
         "flags": "",
         "match": "contains"
       },
@@ -59,12 +66,15 @@
     "build-decisions": {
       "exempt": {
         "inside-app": "stops before any report: it only tells the founder to run the census from the folder above the app",
-        "near-miss": "the census does not run: the prompt asks for a code review, so no report is rendered"
+        "near-miss": "the census does not run: the prompt asks for a code review, so no report is rendered",
+        "empty-app": "no code files: the skill takes the degraded path (one sentence, then the four signs) and renders no report, as main does"
+      },
+      "omit": {
+        "std-check-it": "0.6.0 (SCOPE.md, Lauren 2026-10-21): the report says what is broken and what it means, never what to do, so its blocks carry no check line."
       }
     },
     "custody-check": {
       "words": {
-        "std-out-of-sync": "What it means for you:",
         "std-count-line": "(?:^|\\n)\\*\\*We found (?:\\d+|no) problems? in your code, and [^\\n*]+\\.\\*\\*[ \\t]*(?=\\n|$)"
       },
       "exempt": {},

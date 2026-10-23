@@ -17,10 +17,7 @@ RECOMMENDS = re.compile(r"ship it|patch it|shelve it|get a person|which door|\br
 
 # Copy that SCOPE.md says must change and that ships in a later release. Each entry names the file, why it is
 # still here, and the release that removes it. The test fails when an entry is no longer needed.
-NOT_YET = {
-    "build-decisions/README.md": "build-decisions 0.6.0 (TODOS: drop \"which door\" from the paired line)",
-    "build-decisions/skills/build-decisions/SKILL.md": "build-decisions 0.6.0 (same TODOS entry; description is trigger text)",
-}
+NOT_YET = {}  # build-decisions 0.6.0 dropped "which door" (TODOS 2026-10-21); add a file here only while its fix is scheduled
 
 
 def read(*parts):
@@ -33,7 +30,8 @@ class ScopeDocTests(unittest.TestCase):
         scope = read("free-plugin-standard", "SCOPE.md")
         for line in ("## Custody Check", "## Build Decisions", "Never ask what the code should show.",
                      "Say what is broken and what it means for the founder.",
-                     "Recommend anything", "Decided by Lauren Townsend."):
+                     "Recommend anything", "Decided by Lauren Townsend.",
+                     "It also shows values your screens choose that your server saves or counts without checking. (Lauren, 2026-10-21; recorded 2026-10-22)"):
             self.assertIn(line, scope, line)
         self.assertRegex(scope, r"Last change: \d{4}-\d{2}-\d{2}\.")
 

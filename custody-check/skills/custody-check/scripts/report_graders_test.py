@@ -20,7 +20,7 @@ DRAFT = os.path.join(SCRIPT_DIR, "fixtures", "report", "seeded-app-0.6.0-hand-dr
 CORPUS = os.path.join(REPO_ROOT, "free-plugin-standard", "corpus", "custody-check-reports.jsonl")
 
 # Added or reworded in 0.6.0 (the shared ones in custody-check's own words).
-NEW_IN_0_6_0 = ("coverage-line", "no-workshop-words", "says-what-not-what-to-do", "no-five", "never-all-clear",
+NEW_IN_0_6_0 = ("std-coverage-line", "no-workshop-words", "says-what-not-what-to-do", "no-five", "never-all-clear",
                 "extra-risk-block", "do-today-before-problems", "first-screen-short", "report-at-most-500-words",
                 "not-checked-line", "std-count-line", "std-out-of-sync")
 
@@ -114,7 +114,7 @@ class AllCasesTests(unittest.TestCase):
     def test_every_case_carries_the_plain_report_graders(self):
         for case in self.CASES:
             g = regex_graders(case)
-            for name in ("coverage-line", "no-workshop-words", "says-what-not-what-to-do", "no-five", "not-checked-line"):
+            for name in ("std-coverage-line", "no-workshop-words", "says-what-not-what-to-do", "no-five", "not-checked-line"):
                 self.assertIn(name, g, "%s: %s" % (case, name))
             for gone in ("renders-the-eleven", "door-patch-it", "door-ship-it", "before-you-change-line",
                          "points-to-build-decisions", "one-place-line", "never-ship-it", "std-check-it"):

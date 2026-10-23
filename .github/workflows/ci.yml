@@ -124,6 +124,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.9"
+      - name: PyYAML for the report grader tests (they parse case.yaml)
+        run: python3 -m pip install pyyaml==6.0.2
       - name: Helper unit tests and never-worse-than-main differential (python 3.9)
         env:
           CENSUS_SLOW: "1"

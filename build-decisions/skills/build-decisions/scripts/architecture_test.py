@@ -71,7 +71,10 @@ class ContractTests(ArchCase):
         self.w("server/index.js", "const express = require('express')\napp.get('/api/projects', h)\n")
         self.w("app/api/api-keys/route.ts", ROUTE)
         result = self.arch()
-        self.assertEqual(set(result), ARCH_KEYS)
+        # 0.6.0: value_handlers, when there is room, lists only server paths the shape already lists.
+        self.assertEqual(set(result) - {"value_handlers"}, ARCH_KEYS)
+        listed = {s["path"] for s in result["shape"] if s["signal"] in ("own-api-routes", "server-actions")}
+        self.assertTrue(set(result.get("value_handlers", [])) <= listed)
         self.assertEqual(result["section"], "architecture")
         self.assertEqual(result["version"], cs.__version__)
         self.assertLessEqual(len(self.line.encode("utf-8")), 30000)
@@ -88,7 +91,7 @@ class ContractTests(ArchCase):
                 yield key, obj
 
         for key, s in strings(result):
-            if key == "path":
+            if key in ("path", "value_handlers"):
                 self.assertTrue(os.path.isfile(os.path.join(self.repo, *s.split("/"))), s)
             else:
                 self.assertIn(s, cs.VOCABULARY, "%s=%r is not fixed vocabulary" % (key, s))

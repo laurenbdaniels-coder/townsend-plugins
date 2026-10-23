@@ -12,7 +12,7 @@ paid (whether someone has paid), rounding (how money rounds).
 file that shows each, facts, one advice id) and census decisions found inside a second app that uses
 the same data. Same rule: only safe paths and fixed words.
 """
-__version__ = "0.5.1"
+__version__ = "0.6.0"
 
 import sys
 
@@ -723,7 +723,7 @@ def _not_app(parts):
 
 class FileFacts:
     __slots__ = ("rel", "parts", "ext", "use_client", "use_server", "baas", "baas_call", "browser_client",
-                 "routes", "links", "node_server", "py_server")
+                 "routes", "links", "node_server", "py_server", "value_score")
 
     def __init__(self, rel, parts, ext):
         self.rel, self.parts, self.ext = rel, parts, ext
@@ -732,6 +732,16 @@ class FileFacts:
         self.baas = set()
         self.routes = []
         self.links = []
+        self.value_score = 0  # 2: one line reads the request and names a value; 1: both, on different lines
+
+
+# "The browser chooses it" read order (0.6.0): server files that take a value from the request come first.
+VALUE_NAME_RE = re.compile(r"\b(?:amount|points?|price|total|credits?|quantity|qty|night|date|limit|role|plan|tier|"
+                           r"balance|score|reward|coins?)\b", re.I)
+REQUEST_READ_RE = re.compile(r"formData\.get\(|\breq(?:uest)?\.(?:body|json\(|query|params|form|args|get_json)|"
+                             r"searchParams|await\s+\w+\.json\(\)|\bbody\.\w")
+ACTION_PARAMS_RE = re.compile(r"\bexport\s+(?:async\s+)?function\s+\w+\s*\(")
+MAX_VALUE_HANDLERS = 10
 
 
 class ArchState(State):
@@ -842,6 +852,7 @@ class ArchState(State):
         receivers = set()  # names a .from('x') / .rpc('x') call was made on
         clients = set()  # names the file assigns from a Supabase client factory
         prev_tail = None  # the last name on the previous code line, for chains split over lines
+        seen_value = seen_read = False
         for line in lines:
             if len(line) > LINE_CLIP_CHARS:
                 line = line[:LINE_CLIP_CHARS]
@@ -855,6 +866,12 @@ class ArchState(State):
             if comment_body(stripped, ext) is not None:
                 continue
             seen_code += 1
+            names_value = VALUE_NAME_RE.search(line) is not None
+            reads = REQUEST_READ_RE.search(line) is not None or (ff.use_server and ACTION_PARAMS_RE.search(line))
+            seen_value |= names_value
+            seen_read |= bool(reads)
+            if names_value and reads:
+                ff.value_score = 2
             if expo_cfg and EXPO_CONFIG_RE.search(line):
                 self.expo_dirs.add(tuple(parts[:-1]))
             if ext in JS_EXTS:
@@ -893,6 +910,8 @@ class ArchState(State):
                 ff.baas.add("supabase" if "upabase" in line else "firebase")
             for m in API_URL_RE.finditer(line):
                 ff.links.append(m.group(1))
+        if ff.value_score < 2 and seen_value and seen_read:
+            ff.value_score = 1
         # A data call counts only with evidence of which database: .from('x') needs a Supabase client as its
         # receiver; a Firestore-named call needs a Firestore import or a collection()/doc() argument.
         if any("supabase" in r.lower() or r in clients for r in receivers):
@@ -1280,6 +1299,29 @@ def build_architecture(state):
         biggest.pop()
         state.reason("output_trimmed")
         result = render()
+    return add_value_handlers(result, value_handler_order(result, state))
+
+
+def value_handler_order(result, state):
+    """The listed server files, those that read the request and name a value first, then the listed order."""
+    score = {ff.rel: ff.value_score for ff in state.files}
+    listed = []
+    for s in result["shape"]:
+        if s["signal"] in ("own-api-routes", "server-actions") and s["path"] not in listed:
+            listed.append(s["path"])
+    return sorted(listed, key=lambda p: -score.get(p, 0))[:MAX_VALUE_HANDLERS]  # stable: ties keep listed order
+
+
+def add_value_handlers(result, paths):
+    """Add value_handlers only in the room the legacy output leaves: nothing main prints changes. With no room
+    for even one path the key is left out (the skill then reads in the listed order)."""
+    for n in range(len(paths), -1, -1):
+        if n == 0 and paths:
+            return result
+        out = dict(result)
+        out["value_handlers"] = list(paths[:n])
+        if len(dumps(out).encode("utf-8")) <= MAX_OUTPUT_BYTES:
+            return out
     return result
 
 

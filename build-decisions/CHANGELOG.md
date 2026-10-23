@@ -2,6 +2,18 @@
 
 The footer of every report names the version that produced it. Up to 0.3.2 this plugin was called decision-census.
 
+## 0.6.0 (2026-10-23)
+
+- **The report says what is broken and what it means, and nothing to do** (SCOPE.md, settled 2026-10-21). Gone from the report: every "Check it (1 min)" line, the "Before you change any of these" line, the assessment link and the "Next" line, the pointer to the other free plugin, the closing prompt for your AI tool, and the stop-line "get a person" line.
+- **Each block says "What it means for you:"**, the same label custody-check uses (it was "If they get out of sync:").
+- **A coverage line** under "Why this matters" says how many of your code files the run read to the end ("We read 4 of your 60 code files. Problems in the others can be missed.").
+- **An extra-risk block** replaces the stop-line line: a plain fact (what the app keeps or does, and what a mistake costs), never advice. The stop-line question is asked before the report, only when the code and your message don't already answer it and your tool can ask; otherwise the report says it did not ask. The launch line in the README now lists AskUserQuestion so Claude Code can ask it. Tools without it (Codex, `claude -p`, an older launch line) get the did-not-ask line; 0.5.1 asked in plain text after the report, and that fallback returns in 0.6.1.
+- **Shorter footer:** `build-decisions v0.6.0 · read-only · a review, not an audit`. Stopped-early reasons move to a Not checked line, with a rerun line when a rerun can help.
+- **A key that may be exposed** now gets "replace it now", the one safety step both free plugins keep.
+- **New: values the browser chooses.** The skill reads up to 10 of your server files whole (the helper's new `value_handlers` list puts files that take a value from the request first) and reports each value the screen sends that the server saves or counts by without checking, for example points or credits a person can set for themselves. Its own count clause and its own blocks (at most 2) come after the rules, so they never push a rule out. Settings, filters, admin-only actions and look-alike names are fine to trust and never reported. A sample of 28 public apps (2026-10-22) caught 4 of 6 such apps with no false alarm. Not checked says it looks only at the app's own server code. When your app has more server files than a run reads whole (10), Not checked says so.
+- **Not shipped: promises with no code behind them.** The same sample flagged 27% of clean apps, so it stays out (SCOPE.md 2026-10-22).
+- **After the report**, the four signs are still asked, each with a one-minute test you can run; the tests stay in the chat.
+
 ## 0.5.1 (2026-10-22)
 
 - **Supabase's public sample key is no longer called exposed.** Supabase's local test setup ships sample keys that are public by design. The helper now lists their places (`demo_keys`, path and line only) when a key is signed with Supabase's published sample secret and says it comes from that setup; a key that only claims it is still reported. A line that also holds any other key is never listed. The report says once that it left these keys out, and when they are unsafe.

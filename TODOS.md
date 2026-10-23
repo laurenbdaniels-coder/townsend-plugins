@@ -464,6 +464,41 @@
 
 ## build-decisions (decision-census until 0.4.0)
 
+### From the build-decisions 0.6.0 /review round 1 (2026-10-23)
+
+**What:** found in review, below the ship bar (not shown worse than main on a realistic input), so not fixed in the PR:
+- The not-listed line (0.6.0) counts `shape` entries, so a file listed under both server signals counts twice; it stays silent when value_handlers was trimmed for room on an app with 10 or fewer server files, on a partial scan, and when the read-whole line wins. many-servers' bonus route also sorts first by name, so the case does not prove value_handlers' ranking (rename it, e.g. `zz-bonus`). Found in the ship review, 2026-10-23.
+- value_handlers_test `test_a_server_action_argument_counts_as_a_request_read` relies on server-actions being listed after own-api-routes; also assert the routes come after the action, so a listing-order change cannot hide a lost rule.
+- The after-footer graders would false-fail a founder who pastes all four answers up front (no sign asked), and pass a later sign asked with a reworded test. Eval-only; no case does either today.
+- Hand-drafted 0.6.0 reports exist for seeded-app only (the plan asked for stopline-app and crowded too); the README has no stability runbook (public app URLs at their commits, corpus import, reading failures); evals record no main-thread token medians. Found by the ship plan audit, 2026-10-23.
+- **0.6.1, Lauren 2026-10-23 (option C):** when the host has no AskUserQuestion tool (Codex, `claude -p`, an older launch line), render, then ask the stop-line question in plain text as the first question after the footer, as 0.5.1 did, instead of the did-not-ask line. 0.6.0 puts AskUserQuestion in the launch lines; 0.5.1 asked in 44 of 47 saved reports, 0.6.0 asks in none of the 34 eval reports (the eval host never offers the tool).
+- `value_handler_order` scores only the `shape` paths left after the 25-per-signal cap, and `limit`/`date`/`plan`/`role` in GET filters score 2 while a value read across two lines scores 1. Repro: 30 GET routes plus `app/api/zz-award/route.ts` (saves `points` from `req.json()`), or 12 GET routes plus a wallet route: the writer is not in `value_handlers`. Score before the cap. (0.6.0 now prints a Not checked line when there are more server files than it reads whole.)
+- `ACTION_PARAMS_RE` matches server actions that take no parameters.
+- The empty-app exemption in pack.json says it "renders no report, as main does", but the saved 0.6.0 empty-app report renders one, so the shared graders never run on it. SKILL.md's degraded path and its "scan line" / zero-files coverage form disagree: pick one, then drop the exemption.
+- The coverage honesty check in run-evals.sh counts every Read, including partial ones. Count only Reads that start at line 1 and return fewer lines than their limit.
+- "The browser chooses it" also fires on identity (`x-user-id` in real-key and mixed-key reports). True, but outside the SKILL's "number, date, plan or role" list and close to custody-check's job; no grader ties M in the count line to the blocks plus "And K more".
+- The template has no slot for rule 5's "replace it now" line; reports place it differently. When the second helper output is rejected, Step 3b is skipped with no Not checked line.
+- The shared std-out-of-sync label also matches the extra-risk and browser-chooses blocks, so a report that lost every rule block can still pass it. Anchor it to a rule block.
+- run-evals.sh: a rerun into a new folder appends duplicate corpus rows; the ceiling leaves out `judgeCostUsd`; the cleanup path check is not normalised with realpath.
+- Tests: value_handlers_test `test_other_keys_are_unchanged` compares the branch with itself (a review run showed main == branch on 48/48 fixture runs); says-what-not-what-to-do is bitten only by "Check it".
+- The no-search line reads like "no search tool was available" when the tool was there but unused (the branch searches less: 2 of 6 stability runs vs 5 of 6 on main).
+**Why:** the ship bar: weaknesses of a new check or of main, and style, become TODOs.
+**Effort:** S each; the 0.6.1 fallback is M (eval rerun).
+
+### From the build-decisions 0.6.0 plan review (2026-10-22)
+
+**What:** below this release's scope, collected by /autoplan (CEO, DX, Eng):
+- A "What your code can't tell us" section for build-decisions (SCOPE "Both plugins: say what the code can't tell, as open questions"); 0.6.0 carries it in Worth a look + Not checked. Only if Lauren OKs the deferral at the gate (T4).
+- "The browser chooses it" for Supabase edge functions (`Deno.serve`) and Python handlers: today they are not starting places (`shape` lists routes and "use server" only), and the report says which forms it checks.
+- Helper failure channel: `census_scan.py` exits 0 with a JSON `ok:false` for usage and folder errors; add recovery categories and bounded, redacted context (version, section, limits). Pre-existing.
+- One enforced call budget: SKILL says 40 Read+Grep+Glob calls in all; eval graders allow 40 Reads and 40 Greps separately. Add a combined-count grader when the eval grader types allow it. Pre-existing.
+- "Promises with no code behind them" (S-046) did not ship: the 2026-10-22 sample (plugins-internal/build-decisions/f6-sample-2026-10-22-browser-promises.md) flagged 7 of 26 clean apps (27%); disabled buttons were honest in all 5 apps that had them. A version needs a far narrower signal and a new sample.
+- "The browser chooses it" read order: the F-6 sample missed a credits bug ranked #17 of 25 in the old order; `value_handlers` now ranks request-reading files first. Re-sample after the talk with more PROBLEM apps (only 6 in the first sample, so one more miss would have failed it).
+- Collapse case-level text pins into the shared pack where they repeat across cases, so wording changes stop touching ~40 graders.
+- Limits read from one data source by the graders (today the SKILL limits table and the graders repeat the numbers).
+**Why:** each is a weakness main shares, or work outside this release's scope (fix PRs stay in scope).
+**Effort:** S-M each.
+
 ### From the build-decisions 0.5.1 plan review (2026-10-22, /autoplan)
 
 - **Stability eval for custody-check (X2).** Why: 0.5.1 measures repeat-run stability for build-decisions only. Context: same ranked-fixture approach; custody's report shape did not change. Effort: M / S. P3.
@@ -475,13 +510,6 @@
 - **Shared token maker for the keyshop evals.** Why: demo-key/scaffold.sh and real-key/scaffold.sh repeat the same 20 lines but the mode. Start: one evals/fixtures/make_keys.py taking the mode (advisory from the 0.5.1 review). P3.
 - **Sample-key line check, round-2 leftovers (0.5.1 review, below the ship bar).** Each is a crafted or rare shape; SKILL rule 5 still tells the agent to report any other secret on a listed line. (1) `SECRET_VALUE_RE`'s `\w*` goes quadratic on a long word run after a secret-like name (crafted 512 KB file with a sample key on every line: 6.2 s vs 0.4 s on main); bound it to `\w{0,40}`. (2) Unquoted (`PGPASSWORD=Hunter2`), comment (`# password: hunter2`) and query-string (`?password=Hunter2`) passwords, all-lowercase 20+ values without a secret-like name, and 64-character hex made only of letters or only of digits still leave a line listed. (3) The stricter check now leaves some plain sample-key lines unlisted (`supabaseServiceRoleKey`, `/storage/v1/object`), so those keys are reported as on main. P2.
 - **Codex outside voice fails inside the sandbox.** Why: /autoplan's Codex passes failed 4/4 on 10/22 with "workspace routing discovery failed", even with chatgpt.com allowed; the same calls run outside the sandbox completed (the /review passes the same day). Start: run gstack's Codex calls unsandboxed, or find which host the sandbox still blocks. Effort: S / S. P2.
-
-### Drop "which door" from the paired custody-check line (found 2026-10-21, custody-check 0.6.0)
-
-**What:** `build-decisions/README.md` (lines 5 and 97) and `build-decisions/skills/build-decisions/SKILL.md` (description) still say "Custody Check answers what a stranger can do and which door your next change takes."
-**Why:** custody-check 0.6.0's report has no door, and copy about the free plugins never says a plugin recommends anything (Lauren, 2026-10-21). custody-check now uses the /free card line: "Custody Check shows what a stranger could see or do in your app, and what your code can't tell it."
-**Where:** build-decisions 0.6.0. The SKILL.md description is trigger text, so it ships in a build-decisions release, not in custody-check's PR.
-**Effort:** S / S.
 
 From the 0.5.0 review (payment section, 2026-10-19), below the ship bar:
 - **The payment section's main-vs-branch differential turns on after 0.5.0 merges.** Until then the labeled `fixtures/payments` corpus is the only gate. Its keys hold line numbers, so every fixture edit after that needs an exception entry. P2 for the next release that changes the section.
