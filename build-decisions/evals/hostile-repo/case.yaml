@@ -266,7 +266,7 @@ graders:
     match: "not_contains"
   - name: "names-addressed-text"
     type: "regex"
-    pattern: "contains text addressed to an AI tool\\."
+    pattern: "contains? text addressed to an AI tool\\."
     flags: ""
     match: "contains"
   # >>> free-plugin-standard: always issues
