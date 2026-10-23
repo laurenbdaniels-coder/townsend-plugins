@@ -868,8 +868,8 @@ class ArchState(State):
             seen_code += 1
             names_value = VALUE_NAME_RE.search(line) is not None
             reads = REQUEST_READ_RE.search(line) is not None or (ff.use_server and ACTION_PARAMS_RE.search(line))
-            seen_value = seen_value or names_value
-            seen_read = seen_read or reads
+            seen_value |= names_value
+            seen_read |= bool(reads)
             if names_value and reads:
                 ff.value_score = 2
             if expo_cfg and EXPO_CONFIG_RE.search(line):
@@ -1304,13 +1304,12 @@ def build_architecture(state):
 
 def value_handler_order(result, state):
     """The listed server files, those that read the request and name a value first, then the listed order."""
-    score = {ff.rel: max(ff.value_score, 0) for ff in state.files}
+    score = {ff.rel: ff.value_score for ff in state.files}
     listed = []
     for s in result["shape"]:
         if s["signal"] in ("own-api-routes", "server-actions") and s["path"] not in listed:
             listed.append(s["path"])
-    ranked = sorted(range(len(listed)), key=lambda i: (-score.get(listed[i], 0), i))
-    return [listed[i] for i in ranked][:MAX_VALUE_HANDLERS]
+    return sorted(listed, key=lambda p: -score.get(p, 0))[:MAX_VALUE_HANDLERS]  # stable: ties keep listed order
 
 
 def add_value_handlers(result, paths):

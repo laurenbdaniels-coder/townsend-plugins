@@ -120,8 +120,9 @@ if __name__ == "__main__":
 
 
 class ReadLimitGraderTests(unittest.TestCase):
-    """protects=Reads stay at 120 lines except whole reads (limit 401) of server files (plan S35, EV12);
-    fails_when=a 401-line read of any other file passes, or a server-file read above 401 passes."""
+    """protects=Reads stay at 120 lines except whole reads (limit 401) of the server files the helper lists for
+    that case's app (plan S35, EV12); fails_when=a 401-line read of any other file passes, a listed-file read
+    above 401 passes, or a case's grader is stale against what the helper lists today."""
 
     def setUp(self):
         try:
@@ -135,28 +136,22 @@ class ReadLimitGraderTests(unittest.TestCase):
     def hit(self, pattern, path, limit):
         return re.search(pattern, json.dumps({"file_path": path, "offset": 1, "limit": limit})) is not None
 
-    def test_whole_reads_only_of_server_files(self):
-        for path in ("/tmp/x/nightowl/app/api/coach/route.ts", "nightowl/app/actions/award.ts",
-                     "./nightowl/app/settings/actions.ts", "/abs/app/actions.ts"):
-            self.assertFalse(self.hit(self.at_120, path, 401), path)
-            self.assertTrue(self.hit(self.at_401, path, 402), path)
-        for path in ("nightowl/components/Award.tsx", "nightowl/lib/db.ts", "app/page.tsx"):
-            self.assertTrue(self.hit(self.at_120, path, 401), path)
-        self.assertTrue(self.hit(self.at_120, "nightowl/app/api/coach/route.ts", 200))
-        self.assertFalse(self.hit(self.at_120, "nightowl/components/Award.tsx", 120))
+    def test_whole_reads_only_of_listed_server_files(self):
+        for rel in ("app/api/coach/route.ts", "app/actions/award.ts", "app/settings/actions.ts"):
+            path = "/private/tmp/e-x/home/cwd/nightowl/" + rel
+            self.assertFalse(self.hit(self.at_120, path, 401), rel)
+            self.assertTrue(self.hit(self.at_401, path, 402), rel)
+        for rel in ("components/Award.tsx", "lib/db.ts", "app/api/other/route.ts"):
+            self.assertTrue(self.hit(self.at_120, "/private/tmp/e-x/home/cwd/nightowl/" + rel, 401), rel)
+        self.assertTrue(self.hit(self.at_120, "/t/nightowl/app/api/coach/route.ts", 200))
+        self.assertFalse(self.hit(self.at_120, "/t/nightowl/components/Award.tsx", 120))
 
-    def test_every_case_carries_the_same_two_graders(self):
-        import yaml
-        for root in ("evals", "evals-no-search"):
-            for case in sorted(os.listdir(os.path.join(PLUGIN, root))):
-                path = os.path.join(PLUGIN, root, case, "case.yaml")
-                if not os.path.isfile(path):
-                    continue
-                with open(path, encoding="utf-8") as fh:
-                    g = {x["name"]: x.get("input_match") for x in yaml.safe_load(fh)["graders"]}
-                if "read-at-most-120-lines" in g:
-                    self.assertEqual((g["read-at-most-120-lines"], g.get("read-at-most-401-lines")),
-                                     (self.at_120, self.at_401), case)
+    def test_every_case_is_stamped_from_the_helper(self):
+        import subprocess
+        import sys
+        tool = os.path.join(PLUGIN, "evals", "whole_read_paths.py")
+        proc = subprocess.run([sys.executable, tool], capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, proc.stdout[-500:])
 
 
 class CaseAppNameTests(unittest.TestCase):

@@ -343,6 +343,8 @@ REWORDED = {
          r"Not checked: [^\n]*This version also does not check sign-in checks on server code, or library versions\. "
          r"Payment places are found from the files, not tested in the app\.[^\n]*Not found does not mean",
          '0.5.0 checks payments, so the fixed Not checked line stops naming them (S-008).'),
+        ('thank-you page address yourself, without paying', 'thank-you page address may be treated as paid',
+         'build-decisions 0.6.0 says what the thank-you page means instead of a check to run (SCOPE.md 2026-10-21).'),
         ('If they get out of sync:', 'What it means for you:',
          'build-decisions 0.6.0 names its risk line "What it means for you:", the same label as custody-check (plan G4, pack.json default).'),
     ),
@@ -589,7 +591,7 @@ _B060.update({
     'extra-risk-block': 'build-decisions 0.6.0 states the stop-line reason as a plain extra-risk block (plan S12); older reports said get a person.',
     'never-asks-what-code-shows': 'build-decisions 0.6.0 never asks what the code should show (SCOPE.md); older fix replies asked the founder which copy is right.',
     'did-not-ask-line': 'build-decisions 0.6.0 says when it could not ask the stop-line question (plan D1); older reports asked it after the footer.',
-    'names-the-addressed-text': 'hostile-repo gains a server action in 0.6.0 (plan C7); older runs had no such file to name.',
+    'thank-you-page-check': 'build-decisions 0.6.0 states what the thank-you page means; older reports gave a check to run instead.',
 })
 _B060_GONE_BEFORE = ('build-decisions 0.6.0 drops the "Before you change any of these" line (SCOPE.md 2026-10-21); these older '
                      'reports had no such line, so main failed them; says-what-not-what-to-do now bans the line.')
@@ -1371,7 +1373,7 @@ for _pattern, (_reason, _reports) in _B060_RETIRED.items():
     ALLOWED.update({('build-decisions', c, h, 'looser', _pattern): _reason for c, h in _reports})
 NEW_GRADERS.update({
     ('build-decisions', 'seeded-app', 'did-not-ask-line'): ('0.6.0', _B060['did-not-ask-line']),
-    ('build-decisions', 'hostile-repo', 'names-the-addressed-text'): ('0.6.0', _B060['names-the-addressed-text']),
+    ('build-decisions', 'paywall-lab', 'thank-you-page-check'): ('0.6.0', _B060['thank-you-page-check']),
     ('build-decisions', 'api-split', 'footer-plain'): ('0.6.0', _B060['footer-plain']),
     ('build-decisions', 'api-split', 'says-what-not-what-to-do'): ('0.6.0', _B060['says-what-not-what-to-do']),
     ('build-decisions', 'clean-looking-app', 'footer-plain'): ('0.6.0', _B060['footer-plain']),

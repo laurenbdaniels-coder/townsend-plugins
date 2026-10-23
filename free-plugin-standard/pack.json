@@ -67,7 +67,7 @@
       "exempt": {
         "inside-app": "stops before any report: it only tells the founder to run the census from the folder above the app",
         "near-miss": "the census does not run: the prompt asks for a code review, so no report is rendered",
-        "asks-stopline-first": "ends at the stop-line question before any report: the host can ask and nothing settles it (plan D1)"
+        "empty-app": "no code files: the skill takes the degraded path (one sentence, then the four signs) and renders no report, as main does"
       },
       "omit": {
         "std-check-it": "0.6.0 (SCOPE.md, Lauren 2026-10-21): the report says what is broken and what it means, never what to do, so its blocks carry no check line."

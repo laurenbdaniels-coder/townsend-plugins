@@ -48,7 +48,7 @@ for spec in "$@"; do
   fi
   # Add the reports only when the case's every run passed (the report text comes from each run's trace).
   if python3 - "$json" "$CORPUS" "$name" <<'PY'; then touch "$OUT/$name.added"; else echo "FAIL $name: not added to the corpus; log ${log}" >&2; fi
-import json, os, sys
+import json, os, re, sys
 path, corpus, name = sys.argv[1:]
 d = json.load(open(path))
 rows = []
@@ -68,11 +68,11 @@ for case in d["cases"]:
         read = set()
         for line in open(r["tracePath"]):
             ev = json.loads(line)
-            for block in (ev.get("message") or {}).get("content") or []:
+            msg = ev.get("message")
+            for block in (msg.get("content") or [] if isinstance(msg, dict) else []):
                 if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("name") == "Read":
                     read.add((block.get("input") or {}).get("file_path"))
-        import re as _re
-        m = _re.search(r"We read (?:all )?(\d+)", text)
+        m = re.search(r"We read (?:all )?(\d+)", text)
         if m and int(m.group(1)) > len(read):
             sys.exit("%s: report says it read %s files, the trace shows %d" % (case["name"], m.group(1), len(read)))
         version = text.rsplit("build-decisions v", 1)[-1].split(" ", 1)[0] if "build-decisions v" in text else None
