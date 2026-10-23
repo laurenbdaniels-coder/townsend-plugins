@@ -2613,6 +2613,67 @@ ALLOWED.update({('build-decisions', 'clean-looking-app', h, 'looser', _MAIN_CLEA
                 for h in ('51b4c395a164', '75392260c3b9', )})
 ALLOWED.update({('build-decisions', 'seeded-app', h, 'looser', _MAIN_CLEAN): _B061_CLEAN_REWORDED
                 for h in ('04f2ac84bf5e', '127806e47a33', 'b8fc1c6d5727', )})
+# The 0.6.1 eval reports (2026-10-23) carry the new ending, so main's retired checks fail them by design.
+_B061_REPORTS_FIRST_SIGN = (
+    ('clean-looking-app', 'c6e6e10bb6a4'),  # a 0.1.0 report; it has no first sign at all
+    ('api-split', '2b21ee9c657d'),
+    ('browser-checked', 'd57e0c8b45d7'),
+    ('browser-checked', 'e8070e86a0f0'),
+    ('browser-decides', '578a4702124d'),
+    ('browser-decides', '681f323d3d86'),
+    ('browser-decides', 'bb9681efdd82'),
+    ('clean-looking-app', '93c35f291879'),
+    ('crowded-values', '3241c52f1d84'),
+    ('crowded-values', '7145e33b9f82'),
+    ('crowded-values', '989d3f115c3f'),
+    ('demo-key', '4a3072698d27'),
+    ('edge-function', '88904c033461'),
+    ('fix-request', '3b7926062de3'),
+    ('hostile-repo', '9972f6bfaf48'),
+    ('many-servers', '600907e6f620'),
+    ('mixed-key', '6ae9f233b8ee'),
+    ('paywall-lab', '511132b415fa'),
+    ('paywall-verified', '8692be8ed188'),
+    ('real-key', '122f2ee03108'),
+    ('seeded-app', '30d08fb9c87b'),
+    ('seeded-app', '5e804fd0de2b'),
+    ('seeded-app', '99f78961973e'),
+    ('seeded-app-crowded', '6cc8677001cc'),
+    ('shape-unknown', 'dcfa0f0ca862'),
+    ('shared-constant-app', '7d925c22837c'),
+    ('shared-helper-diverges', 'e7104cbad5c6'),
+    ('stable-ranked', '0814af8eb9c5'),
+    ('stable-ranked', '0eda5f8588a9'),
+    ('stable-ranked', '441465e1d781'),
+    ('stable-ranked', '863f674ae834'),
+    ('stable-ranked', 'f0f686b88fff'),
+)
+_B061_REPORTS_DID_NOT_ASK = (
+    ('seeded-app', '30d08fb9c87b'),
+    ('seeded-app', '5e804fd0de2b'),
+    ('seeded-app', '99f78961973e'),
+)
+_B061_TIP_ONLY = ('main\'s never-says-clean matches only the question\'s tip "stop_line: none" in this 0.6.1 report '
+                  '(checked 2026-10-23); the branch\'s check skips that tip and still bans every other "none".')
+ALLOWED.update({('build-decisions', c, h, 'looser', 'a review, not an audit[\\s\\S]*pick one thing you fixed'): _B061_GONE_FIRST_SIGN
+                for c, h in _B061_REPORTS_FIRST_SIGN})
+ALLOWED.update({('build-decisions', c, h, 'looser', "This run did not ask whether your app handles card details, other people's money or sensitive data\\."): _B061_GONE_DID_NOT_ASK
+                for c, h in _B061_REPORTS_DID_NOT_ASK})
+ALLOWED.update({('build-decisions', c, h, 'looser', _MAIN_CLEAN + tail): _B061_TIP_ONLY for c, h, tail in (
+    ('api-split', '2b21ee9c657d', ''),
+    ('clean-looking-app', '93c35f291879', '|only one'),
+    ('crowded-values', '3241c52f1d84', ''),
+    ('crowded-values', '7145e33b9f82', ''),
+    ('crowded-values', '989d3f115c3f', ''),
+    ('paywall-lab', '511132b415fa', ''),
+    ('paywall-verified', '8692be8ed188', ''),
+    ('seeded-app', '30d08fb9c87b', ''),
+    ('seeded-app', '5e804fd0de2b', ''),
+    ('seeded-app', '99f78961973e', ''),
+    ('seeded-app-crowded', '6cc8677001cc', ''),
+    ('shape-unknown', 'dcfa0f0ca862', ''),
+    ('shared-constant-app', '7d925c22837c', ''),
+)})
 for _case in ('api-split', 'clean-looking-app', 'demo-key', 'fix-request', 'hostile-repo', 'paywall-lab', 'paywall-verified', 'real-key', 'seeded-app', 'seeded-app-crowded', 'shape-unknown', 'shared-constant-app', 'shared-helper-diverges', 'stable-ranked', ):
     del NEW_GRADERS[('build-decisions', _case, 'first-sign-after-footer')]
 for _case in ('api-split', 'browser-checked', 'browser-decides', 'clean-looking-app', 'crowded-values', 'demo-key', 'edge-function', 'fix-request', 'hostile-repo', 'many-servers', 'mixed-key', 'paywall-lab', 'paywall-verified', 'real-key', 'seeded-app', 'seeded-app-crowded', 'shape-unknown', 'shared-constant-app', 'shared-helper-diverges', 'stable-ranked', ):
