@@ -1,7 +1,8 @@
 schema_version: "1.1"
 name: many-servers
 # More server files than Step 3b reads whole (13 > 10): the not-listed line prints, and the one value
-# the screen chooses (bonus credits) is still found, because value_handlers puts its file first.
+# the screen chooses (bonus credits) is still found. (bonus sorts first by name too, so this case does not prove
+# value_handlers' ranking; that is a TODO.)
 execution:
   prompt: "run build decisions on ./bigdesk"
   max_turns: 60

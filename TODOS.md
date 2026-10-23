@@ -467,6 +467,8 @@
 ### From the build-decisions 0.6.0 /review round 1 (2026-10-23)
 
 **What:** found in review, below the ship bar (not shown worse than main on a realistic input), so not fixed in the PR:
+- The not-listed line (0.6.0) counts `shape` entries, so a file listed under both server signals counts twice; it stays silent when value_handlers was trimmed for room on an app with 10 or fewer server files, on a partial scan, and when the read-whole line wins. many-servers' bonus route also sorts first by name, so the case does not prove value_handlers' ranking (rename it, e.g. `zz-bonus`). Found in the ship review, 2026-10-23.
+- The after-footer graders would false-fail a founder who pastes all four answers up front (no sign asked), and pass a later sign asked with a reworded test. Eval-only; no case does either today.
 - Hand-drafted 0.6.0 reports exist for seeded-app only (the plan asked for stopline-app and crowded too); the README has no stability runbook (public app URLs at their commits, corpus import, reading failures); evals record no main-thread token medians. Found by the ship plan audit, 2026-10-23.
 - **0.6.1, Lauren 2026-10-23 (option C):** when the host has no AskUserQuestion tool (Codex, `claude -p`, an older launch line), render, then ask the stop-line question in plain text as the first question after the footer, as 0.5.1 did, instead of the did-not-ask line. 0.6.0 puts AskUserQuestion in the launch lines; 0.5.1 asked in 44 of 47 saved reports, 0.6.0 asks in none of the 34 eval reports (the eval host never offers the tool).
 - `value_handler_order` scores only the `shape` paths left after the 25-per-signal cap, and `limit`/`date`/`plan`/`role` in GET filters score 2 while a value read across two lines scores 1. Repro: 30 GET routes plus `app/api/zz-award/route.ts` (saves `points` from `req.json()`), or 12 GET routes plus a wallet route: the writer is not in `value_handlers`. Score before the cap. (0.6.0 now prints a Not checked line when there are more server files than it reads whole.)
@@ -477,7 +479,7 @@
 - The template has no slot for rule 5's "replace it now" line; reports place it differently. When the second helper output is rejected, Step 3b is skipped with no Not checked line.
 - The shared std-out-of-sync label also matches the extra-risk and browser-chooses blocks, so a report that lost every rule block can still pass it. Anchor it to a rule block.
 - run-evals.sh: a rerun into a new folder appends duplicate corpus rows; the ceiling leaves out `judgeCostUsd`; the cleanup path check is not normalised with realpath.
-- Tests: value_handlers_test `test_other_keys_are_unchanged` compares the branch with itself (a review run showed main == branch on 48/48 fixture runs); value_score's score-1, params and negative branches are untested; says-what-not-what-to-do is bitten only by "Check it".
+- Tests: value_handlers_test `test_other_keys_are_unchanged` compares the branch with itself (a review run showed main == branch on 48/48 fixture runs); says-what-not-what-to-do is bitten only by "Check it".
 - The no-search line reads like "no search tool was available" when the tool was there but unused (the branch searches less: 2 of 6 stability runs vs 5 of 6 on main).
 **Why:** the ship bar: weaknesses of a new check or of main, and style, become TODOs.
 **Effort:** S each; the 0.6.1 fallback is M (eval rerun).

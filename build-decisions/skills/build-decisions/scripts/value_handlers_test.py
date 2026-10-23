@@ -45,6 +45,39 @@ class ValueHandlersTests(ArchCase):
         self.assertEqual(set(vh[:2]), {"app/api/zz-award/route.ts", "app/actions/points.ts"})
         self.assertEqual(len(vh), 7)
 
+    def test_a_value_read_on_two_lines_ranks_between(self):
+        """protects=a handler that reads the request on one line and names the value on another (score 1) is read
+        after a same-line reader (score 2) and before a plain handler; fails_when=either score is dropped, so the
+        split reader falls back to name order behind a plain handler, or ties with the same-line one."""
+        self.w("package.json", NEXT_PKG)
+        self.w("app/api/a-plain/route.ts", ROUTE)
+        self.w("app/api/b-split/route.ts", "export async function POST(req) {\n  const data = await req.json()\n"
+                                           "  return Response.json({ ok: data.credits > 0 })\n}\n")
+        self.w("app/api/c-same/route.ts", TAKES_AMOUNT)
+        self.assertEqual(self.arch()["value_handlers"],
+                         ["app/api/c-same/route.ts", "app/api/b-split/route.ts", "app/api/a-plain/route.ts"])
+
+    def test_a_server_action_argument_counts_as_a_request_read(self):
+        """protects=a server action that takes the value as an argument ranks as a reader (its arguments come
+        from the screen); fails_when=the action-arguments rule is dropped, so the action scores 0 and sits behind
+        the routes in listed order."""
+        self.w("package.json", NEXT_PKG)
+        self.w("app/api/a0/route.ts", ROUTE)
+        self.w("app/api/a1/route.ts", ROUTE)
+        self.w("app/actions/grant.ts", "'use server'\nexport async function grant(userId: string, credits: number) {\n"
+                                       "  await db.update({ credits }).eq('id', userId)\n}\n")
+        self.assertEqual(self.arch()["value_handlers"][0], "app/actions/grant.ts")
+
+    def test_naming_a_value_without_reading_the_request_scores_nothing(self):
+        """protects=a file that only names a value (a price it sets itself) is not ranked as a reader;
+        fails_when=a value name alone scores, so a fixed-price file outranks a real split reader by name order."""
+        self.w("package.json", NEXT_PKG)
+        self.w("app/api/a-prices/route.ts", "export async function GET() {\n  const price = 10\n"
+                                            "  return Response.json({ price })\n}\n")
+        self.w("app/api/m-split/route.ts", "export async function POST(req) {\n  const data = await req.json()\n"
+                                           "  return Response.json({ ok: data.credits > 0 })\n}\n")
+        self.assertEqual(self.arch()["value_handlers"], ["app/api/m-split/route.ts", "app/api/a-prices/route.ts"])
+
     def test_only_listed_server_paths_at_most_ten(self):
         self.w("package.json", NEXT_PKG)
         for i in range(14):
