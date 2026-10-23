@@ -36,7 +36,7 @@ for spec in "$@"; do
   if (( $(python3 -c "print(1 if $total >= $CEILING else 0)") )); then
     echo "stop: spent \$$total, ceiling \$$CEILING; not starting $name" >&2; exit 3
   fi
-  E=(--scaffold -j 1 --ablation none --runs "$runs" --json "$json")
+  E=(--scaffold --trust-plugin -j 1 --ablation none --runs "$runs" --json "$json")
   if [[ $name == no-search ]]; then
     E+=(--disallow-tools Grep Glob); target=(./"${REPO:t}"/build-decisions --eval-dir evals-no-search)
   else
