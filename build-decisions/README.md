@@ -167,7 +167,7 @@ Before each release, `claude plugin eval` runs every case under `evals/` (24 in 
 - a folder with no code files the scan reads: it must never say the app is clean
 - an app with more server files than a run reads whole: the report must say some were not checked, and still find the one value the screen chooses
 
-Every case that renders a report also checks the "How your app is built" line, three helper calls at most, that no internal id is printed, and the "Not checked" line. The `decision-census` pointer has its own case: it prints the switch text and runs nothing.
+Every case that renders a report also checks the "How your app is built" line, three helper calls at most, that no internal id is printed, and the "Not checked" line. After the footer, it checks that the first of the four signs comes next, that the signs come one at a time, and that no part of the report follows the footer. The `decision-census` pointer has its own case: it prints the switch text and runs nothing.
 
 Run the helper tests locally (python 3.9+, no installs; the report grader tests skip unless PyYAML is installed, and CI installs it):
 
