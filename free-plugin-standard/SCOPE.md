@@ -81,5 +81,5 @@ Warnings (Lauren, 2026-10-23; not built yet). Build Decisions may also show thre
 several ways, code that never runs, and more parts than the app uses. A warning is not a problem. It is not
 counted in the opening count line, which stays the same. Warnings get their own section after the problems, headed
 with their own number. Each warning says what it means for the founder and never says what to change. Each kind
-ships only after its own false-alarm sample passes the same bar as the other checks: at least half of what it
-flags is real, and it flags at most 1 in 10 apps that are fine. A kind that fails is cut.
+ships only after its own sample of real apps passes the same bar as the other checks: it finds the problem in at
+least half of the apps that have it, and it flags at most 1 in 10 apps that are fine. A kind that fails is cut.
