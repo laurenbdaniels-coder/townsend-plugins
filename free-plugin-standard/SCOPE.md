@@ -4,7 +4,7 @@ The one place this is written down. Every plan, template, SKILL.md, README, deck
 custody-check or build-decisions agrees with it. A change starts here, with the date and who decided, before any
 other file moves. `scope_test.py` checks the parts a machine can check.
 
-Decided by Lauren Townsend. Last change: 2026-10-22.
+Decided by Lauren Townsend. Last change: 2026-10-23.
 
 ## What these plugins are
 
@@ -76,3 +76,10 @@ pointer, and questions only about what code can't show. (2026-10-21) Until 0.6.0
 
 It also shows values your screens choose that your server saves or counts without checking. (Lauren, 2026-10-21; recorded 2026-10-22) It never says what to change. Screens that promise something no code was found for are not
 reported: the 2026-10-22 sample found too many false alarms (Lauren, 2026-10-22).
+
+Warnings (Lauren, 2026-10-23; not built yet). Build Decisions may also show three kinds of warning: one job done
+several ways, code that never runs, and more parts than the app uses. A warning is not a problem. It is not
+counted in the opening count line, which stays the same. Warnings get their own section after the problems, headed
+with their own number. Each warning says what it means for the founder and never says what to change. Each kind
+ships only after its own false-alarm sample passes the same bar as the other checks: at least half of what it
+flags is real, and it flags at most 1 in 10 apps that are fine. A kind that fails is cut.
