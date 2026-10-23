@@ -56,7 +56,7 @@ Also worth a look:
 Not checked: database settings, dashboards, other projects, names this run does not know, and code it did not search. This version also does not check sign-in checks on server code, or library versions. Payment places are found from the files, not tested in the app. This version does not check whether payment messages really come from your payment company. It checks values the browser chooses only in your app's own server code, not in code that runs inside your database service. Not found does not mean it isn't there.
 
 ---
-build-decisions v0.6.0 · read-only · a review, not an audit
+build-decisions v0.6.1 · read-only · a review, not an audit
 ```
 
 It's a review, not an audit. It reports, and it changes nothing in your app. It never says your app is clean. "Not found" means not found by this run, never "not there".
@@ -102,13 +102,13 @@ From the folder that contains your app, start Claude Code with this line:
 claude --permission-mode plan --tools Skill,Bash,Read,Grep,Glob,AskUserQuestion
 ```
 
-`--permission-mode plan` means nothing can be edited, even by accident. `--tools` gives Build Decisions its code search back: the native installs of Claude Code 2.1.117 and later on macOS and Linux leave out the Grep and Glob tools unless you list them (npm and Windows installs keep them), and without them it can only read files, so the report sees less. AskUserQuestion lets it ask its one stop-line question before the report. The list also leaves out the Edit and Write tools. Verified on Claude Code 2.1.306: with this line Build Decisions used Grep; on 2.1.309 it asked the stop-line question before the report. Then say:
+`--permission-mode plan` means nothing can be edited, even by accident. `--tools` gives Build Decisions its code search back: the native installs of Claude Code 2.1.117 and later on macOS and Linux leave out the Grep and Glob tools unless you list them (npm and Windows installs keep them), and without them it can only read files, so the report sees less. AskUserQuestion lets it ask its one stop-line question before the report; without it, it asks the same question in plain text after the report. The list also leaves out the Edit and Write tools. Verified on Claude Code 2.1.306: with this line Build Decisions used Grep; on 2.1.309 it asked the stop-line question before the report. Then say:
 
 ```
 run build decisions on ./my-app
 ```
 
-The agent runs three commands, all the same helper (`python3 -I census_scan.py --repo 'my-app'`, then the same with `--section architecture` and with `--section payment`; your host will ask you to allow them). Then it searches and reads your code to follow each decision and writes the report. Before the report it may ask one stop-line question, only when your code and your message don't answer it and your tool can ask (to skip it, start with `stop_line: none`). After the report it asks the four signs, each with a one-minute test you can run. "Don't know" is a fine answer to any of them.
+The agent runs three commands, all the same helper (`python3 -I census_scan.py --repo 'my-app'`, then the same with `--section architecture` and with `--section payment`; your host will ask you to allow them). Then it searches and reads your code to follow each decision and writes the report. It may ask one stop-line question, only when your code and your message don't answer it (to skip it, start with `stop_line: none`): before the report when your tool can ask, otherwise in plain text right after the report. After the report it asks the four signs, each with a one-minute test you can run. "Don't know" is a fine answer to any of them.
 
 ## How it works, and what it never does
 
@@ -195,7 +195,7 @@ Claude Code reads the instruction files in the folder it starts in. If you start
 - **`repo-is-symlink` / `repo-unreadable`.** Pass the real folder, or copy the app somewhere you own.
 - **`python-too-old` / python not found.** The census says nothing was read and still asks the four signs. Install python 3.9 or newer (macOS: Command Line Tools).
 - **"The scan stopped early: …"** The helper stopped early (file limit, size limit, time limit, unreadable files). The report says whether a rerun helps; when it does, say the line it gives (`--max-files 50000` or `--max-file-bytes 5242880`).
-- **"This run did not ask whether your app handles card details…"** Your tool had no way to ask the stop-line question (for example Codex, or a launch line without AskUserQuestion). Start your request with `stop_line: none`, or say what applies, to settle it.
+- **The stop-line question comes after the report.** Your tool has no way to show a question before the report (for example Codex, or a launch line without AskUserQuestion), so it asks in plain text after the footer. Answer in your own words. A yes adds a short extra-risk note before the four signs. To skip the question, start your request with `stop_line: none`.
 - **"Some of your server files were not checked for values the browser chooses."** Your app has more than 10 server files, and a run reads at most 10 of them whole, starting with the ones that take a value from the screen.
 - **A card looks wrong.** Two places that look alike can decide different things. Open both lines; if they don't make the same decision, ignore the card, and open an issue on this repository with the pattern names from the census so I can tune the helper.
 
@@ -206,7 +206,7 @@ claude plugin marketplace update townsend-plugins
 claude plugin update build-decisions@townsend-plugins
 ```
 
-Then start a new session. The report's last line names the version, for example `build-decisions v0.6.0`. 0.6.0 no longer prints checks to run, a "do this next" line, a link or a pointer: it says what is broken and what it means. To go back, install the earlier version from a clone of this repository at its release commit.
+Then start a new session. The report's last line names the version, for example `build-decisions v0.6.1`. 0.6.0 no longer prints checks to run, a "do this next" line, a link or a pointer: it says what is broken and what it means. To go back, install the earlier version from a clone of this repository at its release commit.
 
 ## Platforms
 

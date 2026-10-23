@@ -2,6 +2,10 @@
 
 The footer of every report names the version that produced it. Up to 0.3.2 this plugin was called decision-census.
 
+## 0.6.1 (unreleased)
+
+- **The stop-line question is asked in every tool again.** When your tool can't show a question before the report (Codex, `claude -p`, a launch line without AskUserQuestion), the report comes first and the question follows the footer in plain text, as 0.5.1 did. A yes adds the extra-risk block on its own, then the four signs; "No" and "Don't know" go straight to the signs. The did-not-ask line is gone. Tools with AskUserQuestion still ask before the report, as in 0.6.0.
+
 ## 0.6.0 (2026-10-23)
 
 - **The report says what is broken and what it means, and nothing to do** (SCOPE.md, settled 2026-10-21). Gone from the report: every "Check it (1 min)" line, the "Before you change any of these" line, the assessment link and the "Next" line, the pointer to the other free plugin, the closing prompt for your AI tool, and the stop-line "get a person" line.
