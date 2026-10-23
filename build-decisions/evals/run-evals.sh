@@ -36,7 +36,7 @@ for spec in "$@"; do
   if (( $(python3 -c "print(1 if $total >= $CEILING else 0)") )); then
     echo "stop: spent \$$total, ceiling \$$CEILING; not starting $name" >&2; exit 3
   fi
-  E=(--scaffold --trust-plugin -j 1 --ablation none --runs "$runs" --json "$json")
+  E=(--scaffold --trust-plugin --keep-temp --allow-tools 'Bash(python3:*)' -j 1 --ablation none --runs "$runs" --json "$json")
   if [[ $name == no-search ]]; then
     E+=(--disallow-tools Grep Glob); target=(./"${REPO:t}"/build-decisions --eval-dir evals-no-search)
   else
@@ -48,7 +48,7 @@ for spec in "$@"; do
   fi
   # Add the reports only when the case's every run passed (the report text comes from each run's trace).
   if python3 - "$json" "$CORPUS" "$name" <<'PY'; then touch "$OUT/$name.added"; else echo "FAIL $name: not added to the corpus; log ${log}" >&2; fi
-import json, sys
+import json, os, sys
 path, corpus, name = sys.argv[1:]
 d = json.load(open(path))
 rows = []
@@ -64,12 +64,30 @@ for case in d["cases"]:
                 text = ev["result"]
         if not text:
             sys.exit("%s: no report text in %s" % (case["name"], r["tracePath"]))
+        # Honesty check (plan EV4, custody E-P2-6): the printed n is never more than the distinct files read.
+        read = set()
+        for line in open(r["tracePath"]):
+            ev = json.loads(line)
+            for block in (ev.get("message") or {}).get("content") or []:
+                if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("name") == "Read":
+                    read.add((block.get("input") or {}).get("file_path"))
+        import re as _re
+        m = _re.search(r"We read (?:all )?(\d+)", text)
+        if m and int(m.group(1)) > len(read):
+            sys.exit("%s: report says it read %s files, the trace shows %d" % (case["name"], m.group(1), len(read)))
         version = text.rsplit("build-decisions v", 1)[-1].split(" ", 1)[0] if "build-decisions v" in text else None
         rows.append({"case": case["name"], "text": text, "version": version})
+import shutil
 with open(corpus, "a") as fh:
     for row in rows:
         fh.write(json.dumps(row, ensure_ascii=False) + "\n")
 print("added %d reports from %s" % (len(rows), name))
+# --keep-temp left each run's folder (scaffold + trace); remove exactly those, now the text is saved.
+for case in d["cases"]:
+    for r in case["arms"]["with"]:
+        run_dir = os.path.dirname(os.path.dirname(r["tracePath"]))
+        if os.path.basename(run_dir).startswith("e-") and run_dir.startswith(("/private/tmp/", "/tmp/", "/var/folders/")):
+            shutil.rmtree(run_dir, ignore_errors=True)
 PY
 done
 echo "done: spent \$$(spent)"
