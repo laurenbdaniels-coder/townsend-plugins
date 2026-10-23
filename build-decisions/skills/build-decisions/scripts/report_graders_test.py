@@ -95,6 +95,8 @@ class AllCasesTests(unittest.TestCase):
         try:
             import yaml
         except ImportError:
+            if os.environ.get("CI"):
+                raise
             self.skipTest("PyYAML not installed (CI installs it)")
         with open(os.path.join(ROOT, "free-plugin-standard", "pack.json"), encoding="utf-8") as fh:
             exempt = json.load(fh)["plugins"]["build-decisions"]["exempt"]
@@ -115,9 +117,6 @@ class AllCasesTests(unittest.TestCase):
                     self.assertNotIn(gone, names, (case, gone))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class ReadLimitGraderTests(unittest.TestCase):
     """protects=Reads stay at 120 lines except whole reads (limit 401) of the server files the helper lists for
@@ -128,6 +127,8 @@ class ReadLimitGraderTests(unittest.TestCase):
         try:
             import yaml
         except ImportError:
+            if os.environ.get("CI"):
+                raise
             self.skipTest("PyYAML not installed (CI installs it)")
         with open(os.path.join(PLUGIN, "evals", "browser-decides", "case.yaml"), encoding="utf-8") as fh:
             g = {x["name"]: x.get("input_match") for x in yaml.safe_load(fh)["graders"] if x.get("type") == "tool_used"}
@@ -161,6 +162,8 @@ class CaseAppNameTests(unittest.TestCase):
         try:
             import yaml
         except ImportError:
+            if os.environ.get("CI"):
+                raise
             self.skipTest("PyYAML not installed (CI installs it)")
         fixtures = set(os.listdir(os.path.join(PLUGIN, "evals", "fixtures")))
         for root in ("evals", "evals-no-search"):
@@ -178,3 +181,7 @@ class CaseAppNameTests(unittest.TestCase):
                     text = str(g.get("input_match", ""))
                     for other in fixtures - {app}:
                         self.assertNotIn("/%s/" % other, text, (case, g["name"], other))
+
+
+if __name__ == "__main__":
+    unittest.main()

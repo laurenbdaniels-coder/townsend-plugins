@@ -19,7 +19,7 @@ A generic fix prompt is unsafe: an AI tool can drop the server's copy of an acce
 ## The report, in order
 
 1. **Title.** Nothing comes before it.
-2. **The count**, one bold line. build-decisions: `**Your app has N <rules that are written in more than one place>.**`, or one plain line when nothing is found ("This run found no ..."). custody-check: `**We found N problems in your code, and M things your code can't tell us.**`, with "no" for zero.
+2. **The count**, one bold line. build-decisions: `**Your app has N <rules that are written in more than one place>.**`, with `, and M <values the browser chooses>` added when it found any (or only that clause when it found no rule), or one plain line when nothing is found ("This run found no ..."). custody-check: `**We found N problems in your code, and M things your code can't tell us.**`, with "no" for zero.
 3. **Why this matters:** one fixed line, the risk in everyday terms (what breaks, what the user sees).
 4. **The coverage line:** how many code files the run read to the end, one of three fixed forms ("We read all <m> of your code files.", "We read <n> of your <m> code files. Problems in the others can be missed.", "We read <n> code files. Problems in files we did not read can be missed.").
 5. **The extra-risk block**, only when the stop-line is ticked: what the app keeps or does, and what a mistake costs. A plain fact, never advice, not counted.
@@ -44,7 +44,7 @@ custody-check 0.6.0 and later has its own plain shape: count, why, a coverage li
 
 `claude plugin eval` has no include for `case.yaml`, so the shared graders live in `pack.json` and are copied into each case:
 
-- `always`: no fix prompt, no code words. Every case that renders a report carries it.
+- `always`: no fix prompt, no code words, the coverage line. Every case that renders a report carries it.
 - `issues`: the count line and the risk line (both in the plugin's own words when it has them), the why line, the check line (both plugins omit it from 0.6.0). Every case that expects at least one issue carries it.
 
 To add a free plugin, list it under `plugins` in `pack.json`. Then end each case's `graders:` list with:

@@ -2077,9 +2077,6 @@ class NeverSaysCleanGraderTest(unittest.TestCase):
         self.assertEqual(seen, 9)  # 0.6.0: crowded-values carries seeded-app's grader
 
 
-if __name__ == '__main__':
-    unittest.main()
-
 
 class Release060PackTest(unittest.TestCase):
     """build-decisions 0.6.0 + the shared pack: one label, one coverage line, no check line, every eval root."""
@@ -2172,3 +2169,7 @@ class NewCaseGateTest(unittest.TestCase):
                         with open(path) as fh:
                             branch[(plugin, case)] = _regex_checks(fh.read())
         self.assertEqual(new_case_failures(reports, main_cases, branch), [])
+
+
+if __name__ == "__main__":
+    unittest.main()

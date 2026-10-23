@@ -9,11 +9,12 @@
 # Needs: the sandbox off (claude plugin eval runs agents), python3 3.9+. Run from anywhere; it cds to the
 # repo root's parent (~/Documents), which is where the evals have always run from.
 # Resume: a case with <out-dir>/<case>.added (written once its reports joined the corpus) is skipped;
-# a failed case runs again. A case's reports join
+# a failed case runs again (its earlier file is kept as <case>.<time>.json). A case's reports join
 # free-plugin-standard/corpus/build-decisions-reports.jsonl only when every run of it passed.
 set -euo pipefail
 
 OUT=${1:?usage: run-evals.sh <out-dir> <case[:runs]>...}; shift
+OUT=${OUT:A}  # absolute, so the cd below does not move it
 CEILING=${EVAL_COST_CEILING_USD:-60}
 REPO=${0:A:h:h:h}
 CORPUS=$REPO/free-plugin-standard/corpus/build-decisions-reports.jsonl
@@ -31,9 +32,10 @@ for spec in "$@"; do
   name=${spec%%:*}; runs=1; [[ $spec == *:* ]] && runs=${spec##*:}
   json="$OUT/$name.json"; log="$OUT/$name.log"
   if [[ -e $OUT/$name.added ]]; then echo "skip $name (done)"; continue; fi
-  rm -f "$json"
+  # A failed earlier try keeps its file under a new name, so its cost still counts toward the ceiling.
+  if [[ -e $json ]]; then mv "$json" "$OUT/$name.$(date +%s).json"; fi
   total=$(spent)
-  if (( $(python3 -c "print(1 if $total >= $CEILING else 0)") )); then
+  if (( $(python3 -c 'import sys; print(1 if float(sys.argv[1]) >= float(sys.argv[2]) else 0)' "$total" "$CEILING") )); then
     echo "stop: spent \$$total, ceiling \$$CEILING; not starting $name" >&2; exit 3
   fi
   E=(--scaffold --trust-plugin --keep-temp --allow-tools 'Bash(python3:*)' -j 1 --ablation none --runs "$runs" --json "$json")
