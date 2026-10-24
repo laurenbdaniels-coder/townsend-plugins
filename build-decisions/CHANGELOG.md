@@ -4,7 +4,7 @@ The footer of every report names the version that produced it. Up to 0.3.2 this 
 
 ## 0.6.2 (2026-10-23)
 
-- **A plain "yes" gets one follow-up question.** The stop-line question lists four risks, and a plain "yes" names none of them, so the extra-risk block had to guess. Now Build Decisions asks once: "Which of these?" The block then names the risk you picked and what a mistake there costs. "Don't know" gives a general block; "No" gives none. A yes that already names a risk gets no follow-up.
+- **A plain "yes" gets one follow-up question.** The stop-line question lists four risks, and a plain "yes" names none of them, so the extra-risk block had to guess. Now Build Decisions asks once: "Which of these?" The block then names the risk you picked and what a mistake there costs. "Don't know" gives a general block; "No" gives none. A yes that already names a risk gets no follow-up, and neither does an app whose code already shows the risk.
 - The skill's stop-line rule now says where the extra-risk block prints: in the report, or by itself after it when the question came after the report.
 
 ## 0.6.1 (2026-10-23)
