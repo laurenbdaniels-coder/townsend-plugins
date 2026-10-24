@@ -596,6 +596,19 @@ From the v0.1.0 review (2026-10-15). None met the ship bar; each is a one-line f
 
 ## free-plugin-standard
 
+### Left out of S-062, shared plugin rules (2026-10-24)
+
+**What:** kept out of the shared-rules PR on purpose (plan section 13), each its own later item:
+- One definition of "schema file" for extra-risk fields: custody-check also reads browser forms (`name="bday"`), build-decisions does not, so one plugin can show the block when the other does not (the agreement test lists this one difference).
+- One shared stop-line question and answer mapping for both plugins.
+- A written rule for when a field alone is enough to show the extra-risk block.
+- A founder test of how the extra-risk block reads (product lane).
+- Main has these too: evidence from a field name alone is worded as fact ("Your app keeps…"); one cost sentence when several risks tick; Do today shows after the extra-risk block; Q10 Don't know beside a ticked block.
+- A second kind of risk is lost when one word already matches (`ssn_creditcard` gives `ssn` only); build-decisions' 12-hint cap could prefer distinct (file, field) pairs.
+- custody-check: 0.3.2's own Q10 rows come first and stay, so ordinary fields such as `email` can hold row slots while extra-risk fields are dropped; the drop is counted (`stats.stopline_rows_capped`) and the block still shows.
+- Unchanged from the source plan: Supabase sample key wording (S-051); the by-hand key text in `references/questions.md`; custody's MCP never-open extras; `inventory_walk` / `overlay_walk` duplication.
+**Effort:** S to M each.
+
 ### Leftovers from the NEW_GRADERS review (free-plugin-standard, 2026-10-21)
 
 **What:** Findings from the review of PR "NEW_GRADERS" that missed the ship bar (each needs a future entry or only affects messages).

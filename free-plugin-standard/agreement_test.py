@@ -104,5 +104,24 @@ class AgreementTests(unittest.TestCase):
         self.assertFalse(sl["capped"])
 
 
+class EvalCopyTests(unittest.TestCase):
+    """Each plugin's eval cases build their app from a copy inside the plugin (an eval may copy one plugin folder
+    alone). The copies stay byte-equal to the fixture this test uses."""
+
+    def files(self, root):
+        out = {}
+        for d, _dirs, names in os.walk(root):
+            for n in names:
+                with open(os.path.join(d, n), "rb") as fh:
+                    out[os.path.relpath(os.path.join(d, n), root)] = fh.read()
+        return out
+
+    def test_eval_copies_equal_the_fixture(self):
+        want = self.files(FIXTURE)
+        for plugin in ("custody-check", "build-decisions"):
+            copy = os.path.join(ROOT, plugin, "evals", "fixtures", "shared-stopline-app")
+            self.assertEqual(self.files(copy), want, plugin)
+
+
 if __name__ == "__main__":
     unittest.main()

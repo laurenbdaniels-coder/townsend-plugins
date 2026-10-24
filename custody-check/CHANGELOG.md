@@ -2,6 +2,16 @@
 
 The footer of every verdict names the version that produced it. Later entries carry a "What changed since the workshop" line so an attendee can tell whether an answer would come out differently today.
 
+## 0.6.1 (2026-10-24)
+
+What changed since the workshop build: more field names count as extra risk, so the extra-risk block can show on an app where 0.6.0 left it out. Nothing else in the rule that decides changed.
+
+- **Fields written as one word, like `creditcard`, or named `birthday`, now count as extra-risk in both plugins.** `birth_date` counts too. custody-check finds them in your schema files and leaves out names that only appear in a comment or a quoted value.
+- Both plugins now use the same list of extra-risk field names, but they read different parts of an app, so one can show the extra-risk block when the other does not. custody-check also reads browser forms, for example; build-decisions does not.
+- **When the scan finds more such fields than the report can list**, the extra-risk block says so in one line and still shows.
+- **A pasted key:** the skill now answers "assume it is exposed, and replace it now with a new one", the same words build-decisions uses. It said "rotate it at the provider now".
+- **The scanner is three files now** (`custody_scan.py`, `custody_scan_0_3_2.py` and `shared_rules.py`). If the third is missing or damaged, the check stops with `internal:shared-missing` or `internal:shared-broken`: reinstall the plugin, or re-run the `cp -R` command in the README.
+
 ## 0.6.0 (2026-10-21)
 
 What changed since the workshop build: the report is new. It says what is broken in your app and what it means for you, and lists what your code can't tell. It no longer prints the door, the eleven, the tier, the five, a one-minute check, a question for your AI tool, a pointer or a link. One database false alarm is gone (Q3). The rule that decides is otherwise the same.

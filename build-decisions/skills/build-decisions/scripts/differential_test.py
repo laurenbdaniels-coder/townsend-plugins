@@ -57,6 +57,10 @@ HINT_EXCEPTIONS = [
      "reason": "main read a line inside a /* */ comment as a field"},
     {"app": "corpus", "path": "supabase/migrations/004_notes.sql", "line": 4, "field": "medical",
      "reason": "main read a line inside a /* */ comment as a field"},
+    {"app": "shared-stopline-app", "path": "db/schema.sql", "line": 11, "field": "medical",
+     "reason": "main read a line inside a /* */ comment as a field (the S-062 agreement app's negative case)"},
+    {"app": "shared-stopline-app", "path": "prisma/schema.prisma", "line": 8, "field": "medical",
+     "reason": "main read a line inside a /* */ comment as a field (the S-062 agreement app's negative case)"},
 ]
 
 
