@@ -75,6 +75,20 @@ class StoplineTermsTests(unittest.TestCase):
         self.assertEqual(sr.stopline_terms("paramedical_staff"), ["medical"])
         self.assertEqual(sr.stopline_terms("biomedicalDevice"), ["medical"])
 
+    def test_one_word_match_never_starts_inside_an_earlier_word(self):
+        """Review round 1: accNumber read as cc_number. A run-together term that reaches into the next word must start
+        at a word's start; inside one word it may start anywhere (custody's released verdict did that)."""
+        self.assertEqual(sr.stopline_terms("accNumber"), [])
+        self.assertEqual(sr.stopline_terms("acc_number"), [])
+        self.assertEqual(sr.stopline_terms("creditcardNumber"), ["credit_card"])
+        self.assertEqual(sr.stopline_terms("userbirthdate"), ["birthdate"])
+        self.assertEqual(sr.stopline_terms("user_creditcard"), ["credit_card"])
+
+    def test_results_are_copies(self):
+        out = sr.stopline_terms("dateOfBirth")
+        out.append("x")
+        self.assertEqual(sr.stopline_terms("dateOfBirth"), ["date_of_birth"])
+
     def test_returns_a_list_of_list_members_only(self):
         out = sr.stopline_terms("user_ssn_creditcard")
         self.assertIsInstance(out, list)
@@ -164,7 +178,7 @@ class LineTermsTests(unittest.TestCase):
                 "model User {\n"
                 "  /*\n   stores medical notes\n  */\n"
                 "  creditcard String\n"
-                "  note String @default(\"passport\")\n"
+                "  note String @default(\"passport card\")\n"
                 "}\n")
         self.assertEqual(terms(text, "slash"), [(7, "credit_card")])
 
@@ -172,8 +186,8 @@ class LineTermsTests(unittest.TestCase):
         text = 'model User {\n  dob DateTime @map("date_of_birth")\n  @@map("medical_records")\n}\n'
         self.assertEqual(terms(text, "slash"), [(2, "dob"), (2, "date_of_birth"), (3, "medical")])
 
-    def test_slash_drops_both_quote_styles_and_keeps_backticks(self):
-        self.assertEqual(terms("a = 'ssn'; b = \"iban\"; c = `passport`\n", "slash"), [(1, "passport")])
+    def test_slash_drops_prose_in_both_quote_styles_and_keeps_backticks(self):
+        self.assertEqual(terms("a = 'an ssn'; b = \"iban here\"; c = `passport`\n", "slash"), [(1, "passport")])
 
     def test_slash_string_with_escaped_quote(self):
         self.assertEqual(terms('a = "x\\"birthday"; dob\n', "slash"), [(1, "dob")])
@@ -190,13 +204,54 @@ class LineTermsTests(unittest.TestCase):
     def test_hash_comments_and_strings(self):
         text = ("class P(models.Model):\n"
                 "    # passport number\n"
-                "    note = models.TextField(default='ssn')\n"
+                "    note = models.TextField(default='no ssn here')\n"
                 "    birthday = models.DateField()  # dob\n")
         self.assertEqual(terms(text, "hash"), [(4, "birthday")])
 
     def test_graphql_hash_comments_and_descriptions(self):
         text = ('# ssn\ntype User {\n  "the passport"\n  birthday: String # iban\n}\n')
         self.assertEqual(terms(text, "graphql"), [(4, "birthday")])
+
+    def test_a_quoted_single_name_is_a_field_name(self):
+        """Review round 1 (S-062): Rails schema.rb, knex, SQLAlchemy Column(), quoted object keys and Prisma @map write
+        column names as strings; main build-decisions matched them, so dropping them lost its hints."""
+        for kind, text, want in (
+                ("hash", 'create_table "patients" do |t|\n  t.string "ssn"\n  t.date "date_of_birth"\nend\n',
+                 [(2, "ssn"), (3, "date_of_birth")]),
+                ("slash", "table.string('ssn');\n", [(1, "ssn")]),
+                ("hash", 'tax_id = Column("ssn", String)\n', [(1, "ssn")]),
+                ("slash", 'z.object({ "dob": z.string() })\n', [(1, "dob")])):
+            with self.subTest(text=text):
+                self.assertEqual(terms(text, kind), want)
+
+    def test_a_quoted_word_counts_only_as_a_whole_word(self):
+        """A quoted value such as 'creditcard' may be a value, not a name: only main's whole-word rule applies to it."""
+        self.assertEqual(terms("method: 'creditcard',\nkind: \"paymentmethod\"\n", "slash"), [])
+
+    def test_escaped_quotes_on_one_line_stay_linear(self):
+        """Review round 1: each unclosed quote on a line rescanned the rest of the line."""
+        for kind in ("slash", "hash", "graphql"):
+            text = 'ssn = 1\nx = "' + '\\"' * 150000 + "\n"
+            t0 = time.monotonic()
+            self.assertEqual(terms(text, kind), [(1, "ssn")])
+            self.assertLess(time.monotonic() - t0, 2.0, kind)
+
+    def test_sql_value_never_runs_past_a_statement_end(self):
+        """Review round 1: a MySQL dump's \\' put a quote out of step and blanked every later table."""
+        text = ("INSERT INTO people VALUES ('O\\'Brien'),('x');\n"
+                "CREATE TABLE patients (\n  ssn text,\n  note text DEFAULT 'a'\n);\n")
+        self.assertEqual(terms(text, "sql"), [(3, "ssn")])
+
+    def test_sql_hash_line_is_a_mysql_comment(self):
+        text = "# don't edit\nCREATE TABLE p (\n  ssn text,\n  note text DEFAULT 'x'\n);\n"
+        self.assertEqual(terms(text, "sql"), [(3, "ssn")])
+
+    def test_insert_heavy_sql_stays_fast(self):
+        """Review round 1: seed files name a term on every row; each name's terms are worked out once."""
+        text = "insert into t5 (id, name, dob) values (1, 'a', '2000-01-01');\n" * 40000
+        t0 = time.monotonic()
+        self.assertEqual(sum(1 for _ in sr.stopline_line_terms(text, "sql")), 40000)
+        self.assertLess(time.monotonic() - t0, 1.5)
 
     def test_crlf_keeps_line_numbers(self):
         self.assertEqual(terms("a\r\n-- dob\r\nbirthday\r\n", "sql"), [(3, "birthday")])

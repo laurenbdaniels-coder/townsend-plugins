@@ -303,6 +303,8 @@ class Overlay(object):
         self.release_q3_rows = None  # (nothing-found row, summary row) as 0.3.2 writes them
         self.release_q10_terms = {}  # path -> stop-line terms 0.3.2's own Q10 rows name there (S-062)
         self.stopline_found = set()  # every stop-line term found, kept or not: stats.stopline_rows_capped counts the lost ones
+        self.stopline_files = []  # (rel, full path, name, ext): schema and SQL files the walk passed, read after it
+        self.stopline_unfinished = False  # the stop-line pass ran out of time (fewer rows; the other checks are done)
 
     def stopline(self, path, line, term):
         """A Q10 stop-line row. Its snippet is the list term, never the app's identifier."""
@@ -1017,25 +1019,60 @@ def _mcp_configs_inside(path, name, deadline=None):
 
 def _needs_read(base, ext):
     b = base.lower()
-    return (ext in release.SQL_LIKE_EXTS or b.endswith(".rules") or b == "database.rules.json" or ext in MODULE_EXTS
-            or b in release.MANIFEST_BASENAMES or _stopline_file(base, ext))
+    return ext in release.SQL_LIKE_EXTS or b.endswith(".rules") or b == "database.rules.json" or ext in MODULE_EXTS or b in release.MANIFEST_BASENAMES
 
 
 def _stopline_file(base, ext):
     return ext in release.SQL_LIKE_EXTS or ext in release.SCHEMA_EXTS or base.lower() in SCHEMA_BASENAMES
 
 
-def detect_stopline(sf, ov):
+def detect_stopline(sf, ov, past_end=lambda: False):
     """S-062: a Q10 row per stop-line term in a schema or SQL file (the shared matcher: comments and string values
-    never count), unless 0.3.2's own Q10 rows already name that term on this path. One row per (line, term)."""
+    never count), unless 0.3.2's own Q10 rows already name that term on this path. One row per term per file, at
+    its first line. Raises release.Deadline when past_end() says the pass's time is up."""
     named = ov.release_q10_terms.get(release.sanitize_path(sf.rel), ())
     seen = set()
-    for line_no, _identifier, term in shared.stopline_line_terms(sf.text, shared.stopline_kind(sf.base)):
-        ov.tick()
-        if term in named or (line_no, term) in seen:
+    for k, (line_no, _identifier, term) in enumerate(shared.stopline_line_terms(sf.text, shared.stopline_kind(sf.base))):
+        if k % release.DEADLINE_TICK == 0 and past_end():
+            raise release.Deadline()
+        if term in named or term in seen:
             continue
-        seen.add((line_no, term))
+        seen.add(term)
         ov.stopline(sf.rel, line_no, term)
+
+
+def stopline_pass(ov, opts, clock=time.monotonic, end=float("inf")):
+    """After the walk and every other check: the stop-line fields of the files the walk passed, in the time left.
+    Running out stops only this pass. A file not read here means fewer stop-line rows, which main never had."""
+    past_end = lambda: clock() > end  # noqa: E731
+    try:
+        for rel, full, name, ext in ov.stopline_files:
+            if past_end():
+                raise release.Deadline()
+            opened = release.open_regular(full)
+            if opened is None:
+                continue
+            fd, size = opened
+            try:
+                if size > opts.max_file_bytes:
+                    continue
+                data = release.read_bytes(fd, size)
+            finally:
+                os.close(fd)
+            text = release.decode_text(data) if len(data) == size else None
+            if text is not None:
+                detect_stopline(OverlayFile(rel, name, ext, text), ov, past_end)
+    except release.Deadline:
+        ov.stopline_unfinished = True
+
+
+def note_release_q10(ov, result):
+    """The stop-line terms 0.3.2's own Q10 rows name: the overlay does not repeat them on that path, and a later trim
+    that drops one is counted in stats.stopline_rows_capped like an overlay row."""
+    for r in result["questions"]["q10"]["evidence"]:
+        terms = shared.stopline_terms(r["snippet"])
+        ov.release_q10_terms.setdefault(r["path"], set()).update(terms)
+        ov.stopline_found.update(terms)
 
 
 def _compressed_could_hold(base, ext):
@@ -1139,6 +1176,8 @@ def overlay_walk(repo, opts, ov, rel_state, caps, clock, end):
                     raise OverlayTimeout()  # 0.3.2 stopped here too (its result says so): nothing after this was read
                 candidates += 1
                 total_bytes += st.st_size
+            if _stopline_file(name, ext):
+                ov.stopline_files.append((rel, full, name, ext))  # read after the walk (stopline_pass)
             if not _needs_read(name, ext):
                 continue
             opened = release.open_regular(full)
@@ -1168,14 +1207,11 @@ def overlay_walk(repo, opts, ov, rel_state, caps, clock, end):
                 detect_module(sf, ov, opts)
             if b in release.MANIFEST_BASENAMES:
                 detect_monitoring(sf, ov)
-            if _stopline_file(name, ext):
-                detect_stopline(sf, ov)
 
 
 def overlay_pass(repo, opts, ov, rel_state, result, clock, end):
     caps = bool(result.get("partial")) or result["stats"].get("max_files_hit") or result["stats"].get("max_total_bytes_hit")
-    for r in result["questions"]["q10"]["evidence"]:
-        ov.release_q10_terms.setdefault(r["path"], set()).update(shared.stopline_terms(r["snippet"]))
+    note_release_q10(ov, result)
     overlay_walk(repo, opts, ov, rel_state, caps, clock, end)
     # a capped or partial scan may have missed a later migration that turns RLS off: no credit (review round 1)
     ov.loop_credited = set() if caps else _resolve_loop_credits(ov) & (set(ov.tables) | set(rel_state.tables))
@@ -1197,6 +1233,7 @@ def overlay_pass(repo, opts, ov, rel_state, result, clock, end):
             ov.add("table-without-rls", path, line, _name("table", name in ov.code_tables), source="sql")
     if ov.rule_files == 0 and result["questions"]["q3"]["answer"] == "nothing-found":
         ov.add("no-rule-statements", "", 0, "no SQL file creates a table or policy; no rules file")
+    stopline_pass(ov, opts, clock, end)  # last: it never makes the checks above unfinished
 
 # ------------------------------------------------------------------ the code inventory (--inventory, 0.6.0)
 # One JSON line: every code file the agent may Read, with its line count and two marks, server files and
@@ -1532,12 +1569,18 @@ def _fit(result, plans):
     if not over():
         return _assemble(result, plans)
     moved = lambda p: p.answer != p.base_answer
+    # 0. stop-line rows before any row main prints (review round 1): those whose term another shown row names, then
+    #    the rest, last first. stats.stopline_rows_capped counts each term no kept row names, so the verdict ticks.
+    q10 = plans["q10"]
+    while over() and q10.ov_rows:
+        shown = [shared.stopline_terms(r["snippet"]) for r in _shown_base(q10)] + [[r["snippet"]] for r in q10.ov_rows]
+        repeat = [i for i, r in enumerate(q10.ov_rows) if sum(r["snippet"] in t for t in shown) > 1]
+        q10.ov_rows.pop(repeat[-1] if repeat else -1)
     # Nos sort first in ov_rows, so pop() takes cautions before any No.
     # 1. overlay rows on questions whose answer the overlay did not change, the longest list first; a No dropped
     #    here (0.3.2 already said No) gives back the 0.3.2 row it displaced
-    q10 = plans["q10"]
     while over():
-        idle = [p for p in plans.values() if not moved(p) and p.ov_rows and p is not q10]  # stop-line rows go last (E-8)
+        idle = [p for p in plans.values() if not moved(p) and p.ov_rows]
         if not idle:
             break
         max(idle, key=lambda p: len(p.ov_rows)).ov_rows.pop()
@@ -1556,14 +1599,10 @@ def _fit(result, plans):
         if not busy:
             break
         max(busy, key=lambda p: len(p.ov_rows)).ov_rows.pop()
-    # 3. compact what is left (never a stop-line row: its snippet is the term the verdict ticks on)
+    # 3. compact what is left
     if over():
         for p in plans.values():
-            if p is not q10:
-                p.ov_rows = [_compact(r) for r in p.ov_rows]
-    # 3b. stop-line rows, last first; stats.stopline_rows_capped counts each term no kept row names
-    while over() and q10.ov_rows:
-        q10.ov_rows.pop()
+            p.ov_rows = [_compact(r) for r in p.ov_rows]
     q1 = plans["q1"]
     # 4. a Q1 No: displace 0.3.2's evidence-only Q1 rows, last first; then a fully compact No row
     while over() and any(r["_no"] for r in q1.ov_rows):

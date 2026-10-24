@@ -7825,6 +7825,45 @@ class StoplineOverlayTests(ScanCase):
         _, q = self.q10()
         self.assertEqual(self.rows(q), [("prisma/schema.prisma", 2, "birthday")])
 
+    def test_one_row_per_term_per_file(self):
+        """Review round 1 (red team): a migration adding one column to many tables filled Q10 with repeats."""
+        self.write("db/schema.sql", "".join("alter table t%d add column birthday date;\n" % i for i in range(20)))
+        _, q = self.q10()
+        self.assertEqual(self.rows(q), [("db/schema.sql", 1, "birthday")])
+
+    def test_a_trimmed_release_term_is_counted(self):
+        """Review round 1 (Codex): a term only 0.3.2's own Q10 row names, dropped by a later trim, still counts."""
+        self.write("db/schema.sql", "create table t (dob date);\n")
+        result = cs.release.scan(self.repo)
+        ov = cs.Overlay(float("inf"))
+        cs.note_release_q10(ov, result)
+        out = copy.deepcopy(result)
+        out["questions"]["q10"]["evidence"] = []
+        self.assertEqual(cs.stopline_stat(out, ov)["stats"]["stopline_rows_capped"], 1)
+
+    def test_the_stop_line_pass_never_leaves_the_overlay_unfinished(self):
+        """Review round 1 (performance, adversarial): stop-line work ran inside the overlay walk, so on SQL-heavy apps
+        the walk ran out of time and Q1/Q3/Q9 fell back. It now runs after the walk; running out there only stops it."""
+        self.write("supabase/migrations/1.sql", "create table public.notes (id int);\nalter table public.notes enable row level security;\n")
+        self.write("db/schema.sql", "create table t (birthday date);\n")
+        base = self.scan()
+        with mock.patch.object(cs, "detect_stopline", side_effect=cs.release.Deadline()):
+            out = self.scan()
+        self.assertIsNone(out["stats"]["overlay_fallback"])
+        for q in ("q1", "q3", "q9"):
+            self.assertEqual(out["questions"][q], base["questions"][q], q)
+        self.assertEqual(self.rows(out["questions"]["q10"]), [])
+        self.assertTrue(cs.scan_with_overlay.last.stopline_unfinished)
+
+    def test_the_stop_line_pass_stops_at_the_end(self):
+        self.write("db/schema.sql", "create table t (birthday date);\n")
+        ov = cs.Overlay(float("inf"))
+        ov.stopline_files.append(("db/schema.sql", os.path.join(self.repo, "db", "schema.sql"), "schema.sql", ".sql"))
+        cs.stopline_pass(ov, cs.release.Options(), clock=lambda: 1.0, end=0.0)
+        self.assertTrue(ov.finished)
+        self.assertTrue(ov.stopline_unfinished)
+        self.assertEqual(ov.rows["q10"], [])
+
     def test_snippets_are_list_terms_only(self):
         self.write("db/schema.sql", "create table t (hunter2_creditcard text, x_birthday_y date);\n")
         _, q = self.q10()
@@ -7884,13 +7923,28 @@ class StoplineOverlayTests(ScanCase):
         self.assertEqual(cs._size(result), cs.release.MAX_OUTPUT_BYTES - room)
         return result
 
-    def test_byte_cap_trims_other_overlay_rows_before_a_ticking_row(self):
-        """E-8: a scan near the cap with Q10 under the row cap still shows the ticking row and stays under the cap."""
+    def test_byte_cap_with_room_keeps_the_stop_line_row(self):
         ov = self.ov_with_birthday()
-        out = cs.stopline_stat(cs.merge(self.padded(300), ov), ov)
-        self.assertLessEqual(cs._size(out), cs.release.MAX_OUTPUT_BYTES)
+        out = cs.stopline_stat(cs.merge(self.padded(5000), ov), ov)
         self.assertIn(("prisma/schema.prisma", 2, "birthday"), self.rows(out["questions"]["q10"]))
         self.assertEqual(out["stats"]["stopline_rows_capped"], 0)
+
+    def test_byte_cap_drops_stop_line_rows_before_any_row_main_keeps(self):
+        """Review round 1 (red team, replaces plan E-8's order): near the cap, stop-line rows go first, so every other
+        row is what main would print; a dropped term is counted, so the verdict still ticks."""
+        for room in (20, 150, 300, 600, 2000):
+            with self.subTest(room=room):
+                ov = self.ov_with_birthday()
+                out = cs.stopline_stat(cs.merge(self.padded(room), ov), ov)
+                main_ov = self.ov_with_birthday()
+                main_ov.rows["q10"] = []
+                main = cs.merge(self.padded(room), main_ov)
+                self.assertLessEqual(cs._size(out), cs.release.MAX_OUTPUT_BYTES)
+                for q in out["questions"]:
+                    if q != "q10":
+                        self.assertEqual(out["questions"][q], main["questions"][q], q)
+                kept = bool(self.rows(out["questions"]["q10"]))
+                self.assertEqual(out["stats"]["stopline_rows_capped"], 0 if kept else 1)
 
     def test_byte_cap_with_no_room_counts_the_dropped_term(self):
         ov = self.ov_with_birthday()

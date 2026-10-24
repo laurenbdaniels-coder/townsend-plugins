@@ -517,6 +517,23 @@ class StoplineTests(TreeCase):
         result, _, _ = self.scan()
         return [(h["path"], h["line"], h["field"]) for h in result["stopline_hints"]], result
 
+    def test_deadline_inside_a_schema_file_keeps_the_lines_read(self):
+        """protects=review round 1 (S-062): main kept the hints of the lines it read before the deadline; the branch
+        dropped the whole file's; fails_when=a deadline mid-file loses an earlier line's hint; no_claim=lines after it."""
+        path = os.path.join(self.repo, "db", "schema.sql")
+        write(self.repo, "db/schema.sql", "create table p (\n  ssn text,\n" + "  x int,\n" * 400 + "  dob date\n);\n")
+        state = cs.State(cs.Options(cs.DEFAULT_MAX_FILES, cs.DEFAULT_MAX_FILE_BYTES, cs.DEFAULT_MAX_TOTAL_BYTES, 60.0))
+        calls = [0]
+
+        def over():
+            calls[0] += 1
+            if calls[0] >= 3:  # the line loop asks every 32 lines: it stops near line 96
+                state.stopped = True
+            return state.stopped
+        state.over_deadline = over
+        cs.scan_file(path, ["db", "schema.sql"], ".sql", state)
+        self.assertEqual([(h[2]["line"], h[2]["field"]) for h in state.hints], [(2, "ssn")])
+
     def test_run_together_and_new_terms_hint(self):
         """protects=fields written as one word (creditcard) and birthday count (S-062, shared matcher);
         fails_when=the scanner keeps its own whole-word list; no_claim=identifiers outside schema files."""

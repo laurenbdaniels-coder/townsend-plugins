@@ -35,12 +35,53 @@ def _stopline_norm(identifier):
     return _NON_WORD.sub("_", s.lower())
 
 
-def stopline_whole_terms(identifier):
-    """Step (a) of stopline_terms alone: the terms that are whole words of the identifier's snake form."""
+_CACHE_MAX = 65536  # names repeat heavily (a seed file names dob on every row): each is worked out once
+_whole_cache = {}
+_terms_cache = {}
+
+
+def _cached(cache, fn, identifier):
+    hit = cache.get(identifier)
+    if hit is None:
+        if len(cache) >= _CACHE_MAX:
+            cache.clear()
+        hit = cache[identifier] = tuple(fn(identifier))
+    return list(hit)
+
+
+def _whole_terms(identifier):
     n = _stopline_norm(identifier)
     if not _FLAT_ANY.search(n.replace("_", "")):
         return []
     return [t for t, rx in _WHOLE if rx.search(n)]
+
+
+def _run_together(identifier):
+    """The single longest term of 6+ letters run together, ties to the earlier term. A match that reaches into the
+    next word must start where a word starts (accNumber is not cc_number); inside one word it may start anywhere."""
+    words = [w for w in _stopline_norm(identifier).split("_") if w]
+    flat = "".join(words)
+    starts, ends, at = set(), set(), 0
+    for w in words:
+        starts.add(at)
+        at += len(w)
+        ends.add(at)
+    best = None
+    for t, f in _FLAT:
+        if len(f) < RUN_TOGETHER_MIN or (best is not None and len(f) <= len(best[1])):
+            continue
+        k = flat.find(f)
+        while k >= 0:
+            if k in starts or not any(k < e < k + len(f) for e in ends):
+                best = (t, f)
+                break
+            k = flat.find(f, k + 1)
+    return [best[0]] if best else []
+
+
+def stopline_whole_terms(identifier):
+    """Step (a) of stopline_terms alone: the terms that are whole words of the identifier's snake form."""
+    return _cached(_whole_cache, _whole_terms, identifier)
 
 
 def stopline_terms(identifier):
@@ -51,15 +92,7 @@ def stopline_terms(identifier):
         ties to the earlier term in the list.
     Returns list members only, never the app's own text.
     """
-    hits = stopline_whole_terms(identifier)
-    if hits:
-        return hits
-    flat = _stopline_norm(identifier).replace("_", "")
-    best = None
-    for t, f in _FLAT:
-        if len(f) >= RUN_TOGETHER_MIN and f in flat and (best is None or len(f) > len(best[1])):
-            best = (t, f)
-    return [best[0]] if best else []
+    return _cached(_terms_cache, lambda i: stopline_whole_terms(i) or _run_together(i), identifier)
 
 
 # ------------------------------------------------------------------ files never to open
@@ -110,11 +143,11 @@ IDENT_RE = re.compile(r"[A-Za-z0-9_]+")
 
 # Each kind: the openers it knows. strip_for_stopline finds each closer with str.find, one pass forward.
 _OPENERS = {
-    # SQL: -- and /* */ comments; '...' values (may span lines, '' is a quote inside) are dropped;
-    # "..." and `...` are quoted identifiers and stay.
-    "sql": re.compile(r"(?P<line>--)|(?P<block>/\*)|(?P<sqlstr>')|(?P<keep>[\"`])"),
+    # SQL: -- and /* */ comments, and a MySQL # line; '...' values (may span lines, '' is a quote inside, never past
+    # a statement's end) are dropped; "..." and `...` are quoted identifiers and stay.
+    "sql": re.compile(r"(?P<line>--|(?m:^[ \t]*#))|(?P<block>/\*)|(?P<sqlstr>')|(?P<keep>[\"`])"),
     # Prisma, TS/JS: //, ///, /* */, and a line that starts with * or <!--; '...' and "..." values are
-    # dropped, except a Prisma @map("...") / @@map("...") argument; `...` stays.
+    # dropped, except a quoted single name (below); `...` stays.
     "slash": re.compile(r"(?P<line>//|(?m:^[ \t]*(?:\*|<!--)))|(?P<block>/\*)|(?P<str>[\"'])|(?P<tick>`)"),
     # Python, Ruby: # comments; '...' and "..." values.
     "hash": re.compile(r"(?P<line>#)|(?P<str>[\"'])"),
@@ -122,7 +155,10 @@ _OPENERS = {
     "graphql": re.compile(r'(?P<line>#)|(?P<triple>""")|(?P<str>")'),
 }
 _LINE_STRING = {'"': re.compile(r'"(?:[^"\\\n]|\\.)*"'), "'": re.compile(r"'(?:[^'\\\n]|\\.)*'")}
-_MAP_ARG = re.compile(r"@map\(\s*$")
+# A quoted single name is a field name, not a value: Rails t.string "ssn", knex table.string('ssn'),
+# Column("ssn"), {"dob": ...}, Prisma @map("date_of_birth"). It counts only as a whole word (main's rule).
+_QUOTED_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
+_SQL_STATEMENT_END = re.compile(r";[ \t]*\r?\n")
 _NOT_NEWLINE = re.compile(r"[^\n]")
 
 
@@ -150,6 +186,9 @@ def strip_for_stopline(text, kind):
     pos = done = 0  # pos: where the next opener search starts; done: text up to here is already in out
     none_after = {}  # closer -> a position after which that closer never occurs
     eol_at = [-1, -1]  # [line start searched from, its end]
+    no_close_until = {}  # quote -> end of the line on which it has no closer: its later openers there cannot close
+    ends = [e.start() for e in _SQL_STATEMENT_END.finditer(text)] if kind == "sql" else []
+    end_i = [0]
 
     def eol(i):
         if not (eol_at[0] <= i <= eol_at[1]):
@@ -184,14 +223,25 @@ def strip_for_stopline(text, kind):
             j = find("'", i)
             while j >= 0 and j + 1 < n and text[j + 1] == "'":  # '' is a quote inside the value
                 j = find("'", j + 2)
+            if j >= 0:  # a value never runs past a statement's end: a dump's \' must not blank the tables after it
+                while end_i[0] < len(ends) and ends[end_i[0]] < i:
+                    end_i[0] += 1
+                if end_i[0] < len(ends) and ends[end_i[0]] < j:
+                    j = -1
             drop_end = None if j < 0 else j + 1
         elif kind_of == "str":
-            sm = _LINE_STRING[m.group()].match(text, start, eol(start))
-            if sm and not (kind == "slash" and m.group() == '"' and _MAP_ARG.search(text, max(0, start - 16), start)):
-                drop_end = sm.end()
-            elif sm:  # a Prisma @map("...") argument is an identifier: keep it
-                pos = sm.end()
+            q, line_end = m.group(), eol(start)
+            if no_close_until.get(q, -1) == line_end:  # an earlier quote on this line found no closer: neither will this
+                pos = m.end()
                 continue
+            sm = _LINE_STRING[q].match(text, start, line_end)
+            if sm is None:
+                no_close_until[q] = line_end
+            elif _QUOTED_NAME.match(text, start + 1, sm.end() - 1) and stopline_whole_terms(text[start + 1:sm.end() - 1]):
+                pos = sm.end()  # a quoted single name: keep it
+                continue
+            else:
+                drop_end = sm.end()
         elif kind_of == "keep":  # an SQL quoted identifier, kept as written
             j = find(m.group(), m.end(), eol(start))
             pos = m.end() if j < 0 else j + 1

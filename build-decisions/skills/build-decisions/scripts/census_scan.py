@@ -539,6 +539,7 @@ def scan_file(path, parts, ext, state):
     hints = []
     demo_lines = []
     where_open = 0
+    lines_read = len(lines)
     for i, line in enumerate(lines, 1):
         if line.endswith("\r"):
             line = line[:-1]
@@ -546,19 +547,21 @@ def scan_file(path, parts, ext, state):
         if clipped:
             line = line[:LINE_CLIP_CHARS]
         if (i % DEADLINE_LINE_TICK == 0 or len(line) > 512) and state.over_deadline():
+            lines_read = i - 1
             break
         if state.collect_demo_keys and not clipped and line_has_only_sample_keys(line):  # a cut line is never listed
             demo_lines.append(i)
         for typ, pid, strength in classify_line(line, ext, where_open > 0):
             found.append((typ, 0 if strength == "strong" else 1, i, pid))
         where_open = 3 if WHERE_OPEN_RE.search(line) else max(0, where_open - 1)
-    if is_schema and not state.stopped:
-        # Stop-line fields: the shared matcher, comments and string values left out (shared_rules.py).
+    if is_schema and lines_read:
+        # Stop-line fields: the shared matcher, comments and string values left out (shared_rules.py), on the lines
+        # the loop above read (main kept those when the deadline came mid-file). One linear pass over a file the
+        # size cap already bounds, so it does not stop at the deadline itself.
         last, seen = 0, set()
-        terms = shared.stopline_line_terms(text, shared.stopline_kind(parts[-1]), clip=LINE_CLIP_CHARS)
-        for k, (line_no, ident, field) in enumerate(terms):
-            if k % DEADLINE_LINE_TICK == 0 and state.over_deadline():
-                break
+        src = text if lines_read == len(lines) else "\n".join(lines[:lines_read])
+        terms = shared.stopline_line_terms(src, shared.stopline_kind(parts[-1]), clip=LINE_CLIP_CHARS)
+        for line_no, ident, field in terms:
             if line_no != last:
                 last, seen = line_no, set()
             if field not in seen:
