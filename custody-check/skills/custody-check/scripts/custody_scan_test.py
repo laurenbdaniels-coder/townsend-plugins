@@ -6843,7 +6843,9 @@ class OverlayContractTests(ScanCase):
         self.assertIn("not opened", rows["opencode.json"], "0.3.2 never opens opencode.json")
         self.assertFalse(cs.release.is_never_open_file("opencode.jsonc"), "control: 0.3.2's list")
         with open(os.path.join(PLUGIN_DIR, "README.md"), encoding="utf-8") as fh:
-            never = [l for l in fh.read().splitlines() if l.startswith("- The scanner never opens your AI instruction files")][0]
+            # 0.6.1 (S-062): the list is a stamped shared block; read the line without its markers
+            text = re.sub(r"<!-- /?shared:[a-z-]+ -->", "", fh.read())
+            never = [l for l in text.splitlines() if l.startswith("- The scanner never opens your AI instruction files")][0]
         self.assertNotIn("`opencode.jsonc`,", never.split(". The list lives")[0], "README lists only what 0.3.2 never opens")
 
     def test_rtdb_rows_show_their_fixed_labels(self):

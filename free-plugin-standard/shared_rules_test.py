@@ -321,7 +321,7 @@ class NeverOpenProseTests(unittest.TestCase):
         for name in sr.NEVER_OPEN_FILES:
             self.assertIn(name, files)
         for d in sr.NEVER_OPEN_DIRS:
-            self.assertTrue(d + "/" in folders or d in files, d)
+            self.assertIn(d + "/", folders)
         for parent, child in sr.NEVER_OPEN_DIR_PAIRS:
             self.assertIn("%s/%s/" % (parent, child), folders)
 

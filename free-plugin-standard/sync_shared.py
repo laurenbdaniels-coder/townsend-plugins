@@ -39,12 +39,14 @@ RUN = "run: python3 free-plugin-standard/sync_shared.py"
 
 COPIES = (
     "build-decisions/skills/build-decisions/scripts/shared_rules.py",
+    "custody-check/skills/custody-check/scripts/shared_rules.py",
 )
 BLOCKS = {
     "mistake-meanings": ("custody-check/skills/custody-check/assets/verdict-template.md",
                          "build-decisions/skills/build-decisions/SKILL.md"),
-    "stopline-fields": ("build-decisions/skills/build-decisions/SKILL.md",),
-    "never-open": ("build-decisions/skills/build-decisions/SKILL.md", "build-decisions/README.md"),
+    "stopline-fields": ("build-decisions/skills/build-decisions/SKILL.md", "custody-check/skills/custody-check/SKILL.md"),
+    "never-open": ("build-decisions/skills/build-decisions/SKILL.md", "build-decisions/README.md",
+                   "custody-check/skills/custody-check/SKILL.md", "custody-check/README.md"),
 }
 GUARDED_NAMES = ("STOPLINE_FIELDS", "_stopline_norm", "stopline_terms", "stopline_line_terms", "NEVER_OPEN_DIRS",
                  "NEVER_OPEN_DIR_PAIRS", "NEVER_OPEN_FILE_RE", "NEVER_OPEN_FILES", "KEY_SENTENCE", "MISTAKE_MEANINGS",

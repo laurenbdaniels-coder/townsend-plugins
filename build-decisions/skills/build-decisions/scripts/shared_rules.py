@@ -78,7 +78,7 @@ NEVER_OPEN_INSTRUCTION_FILES = ("CLAUDE.md", "AGENTS.md", "AGENT.md", "GEMINI.md
                                 ".cursorrules", ".windsurfrules", ".clinerules", ".rules", ".roomodes", "opencode.json",
                                 ".aider*")
 NEVER_OPEN_INSTRUCTION_FOLDERS = (".claude/", ".codex/", ".agents/", ".cursor/rules/", ".github/instructions/",
-                                  ".github/prompts/", ".github/agents/", ".windsurf/", ".gemini/", ".kiro/", ".roo/",
+                                  ".github/prompts/", ".github/agents/", ".windsurf/", ".clinerules/", ".gemini/", ".kiro/", ".roo/",
                                   ".trae/", ".augment/", ".amazonq/", ".junie/", ".continue/", ".aider/", ".opencode/")
 
 # ------------------------------------------------------------------ report text (stamped into markdown)
