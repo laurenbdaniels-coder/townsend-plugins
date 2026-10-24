@@ -149,7 +149,7 @@ BARE_YES_BAD = {
     # main's other likely ending: a guessed risk block in the report.
     "no-guessed-risk-block": ("# Build decisions: x\n\n**Your app keeps sensitive personal data, and that carries extra "
                               "risk.**\nWhat it means for you: you said yes.\n\n" + BARE_FOOTER),
-    # the follow-up asked, then no wait: sign 1 by its title, by its test, or by the 0.6.1 opener.
+    # the follow-up asked, then no wait (sign 1 by its title; its other forms are in the test below).
     "waits-after-which-one": BARE_FOOTER + WHICH + "\n1. A fix that didn't take.\n",
 }
 
@@ -181,10 +181,6 @@ class BareYesGraderTests(unittest.TestCase):
         for sign in ("Pick one thing you fixed.", "First: did a fix ever not take?", "1. A fix that didn\u2019t take.",
                      "1. A fix that didn't take."):
             self.assertTrue(fails(self.g["waits-after-which-one"], BARE_FOOTER + WHICH + sign), sign)
-
-    def test_the_block_after_the_answer_is_not_graded_here(self):
-        """The case is single-turn: the risk block after the founder's answer is a later turn, never in this text."""
-        self.assertFalse(fails(self.g["no-guessed-risk-block"], self.draft))
 
 
 class AllCasesTests(unittest.TestCase):

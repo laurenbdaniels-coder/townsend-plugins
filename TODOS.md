@@ -470,6 +470,7 @@
 - After a pasted `stop_line: yes`, 2 of 3 eval runs put a lead-in sentence before the fixed follow-up ("You said yes to the extra-risk question."). The fixed words follow exactly; a grader could anchor the follow-up right after the footer.
 - The never-worse test skips a case main does not have, so `bare-yes` was compared with main by running main's plugin on it (3 of 3 printed a guessed extra-risk block, worded differently each time; plugins-internal/build-decisions/evals-0.6.2-main-baseline-bare-yes/). After merge, main has the case and later releases are compared as usual.
 - The answer turn after the follow-up (the block alone, then the first sign) is checked by one interactive run only (release-0.6.2-2026-10-23/); it joins the 2-turn eval TODO above.
+- From the 0.6.2 /review (below the ship bar): no eval covers a yes that names a risk (must get no follow-up), "Don't know" or "No" to the follow-up, a bare yes on an app whose code ticks the stop-line (a by-hand `claude -p` run on kidsclub kept the block, n=1), or the AskUserQuestion follow-up (one interactive run). `waits-after-which-one` bans only sign 1 and not a second "Which of these?"; `which-one-after-footer` matches the first 7 words; add BAD rows for the follow-up placed before the footer and for the "yes, not which" title. One kidsclub run put a stray `---` after the footer (n=1).
 **Why:** the ship bar.
 **Effort:** S.
 
