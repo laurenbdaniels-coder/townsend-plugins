@@ -223,6 +223,29 @@ class LineTermsTests(unittest.TestCase):
         self.assertEqual(terms(text, "slash"), [(1, "birthday")])
         self.assertLess(time.monotonic() - t0, 3.0)
 
+    def test_a_file_with_no_term_letters_is_not_stripped(self):
+        """custody's reading-cost ratchet: a file that holds no term's letters anywhere cannot hit, so it costs one
+        search, not a strip (each hit's letters, underscores removed, sit in the whole file's)."""
+        calls = []
+        real = sr.strip_for_stopline
+        sr.strip_for_stopline = lambda *a: calls.append(a) or real(*a)
+        try:
+            self.assertEqual(list(sr.stopline_line_terms("--\n" * 1000, "sql")), [])
+            self.assertEqual(calls, [])
+            self.assertEqual(terms("-- birthday\nx int\n", "sql"), [])  # the letters are there, in a comment: stripped, no hit
+            self.assertEqual(len(calls), 1)
+        finally:
+            sr.strip_for_stopline = real
+
+    def test_many_unclosed_openers_stay_linear(self):
+        """custody's ShipReviewTests input: an unclosed opener must not rescan the rest of the file each time."""
+        for kind, text in (("sql", "/* a" * 100000), ("slash", "/* a" * 100000), ("graphql", '"""a' * 60000),
+                           ("sql", "x' " * 60000)):
+            t0 = time.monotonic()
+            out = sr.strip_for_stopline(text, kind)
+            self.assertLess(time.monotonic() - t0, 1.0, kind)
+            self.assertEqual(len(out), len(text))
+
     def test_fuzz_line_terms_only_list_members(self):
         rng = random.Random(7)
         alphabet = "abcdefgh_ \n\r'\"`/*-#@()$\\éДcreditcardbirthday"

@@ -104,23 +104,20 @@ _SQL_EXTS = (".sql", ".psql", ".pgsql", ".ddl")
 KINDS = ("sql", "slash", "hash", "graphql")
 IDENT_RE = re.compile(r"[A-Za-z0-9_]+")
 
-_BLOCK = r"/\*[\s\S]*?\*/"
-_DQ_LINE = r'"(?:[^"\\\n]|\\.)*"'
-_SQ_LINE = r"'(?:[^'\\\n]|\\.)*'"
-# Each kind: one pattern; named groups say what to blank (drop) and what to keep as written (keep).
-_STRIP = {
+# Each kind: the openers it knows. strip_for_stopline finds each closer with str.find, one pass forward.
+_OPENERS = {
     # SQL: -- and /* */ comments; '...' values (may span lines, '' is a quote inside) are dropped;
     # "..." and `...` are quoted identifiers and stay.
-    "sql": re.compile(r"(?P<drop>--[^\n]*|%s|'[^']*(?:''[^']*)*')|(?P<keep>\"[^\"\n]*\"|`[^`\n]*`)" % _BLOCK),
+    "sql": re.compile(r"(?P<line>--)|(?P<block>/\*)|(?P<sqlstr>')|(?P<keep>[\"`])"),
     # Prisma, TS/JS: //, ///, /* */, and a line that starts with * or <!--; '...' and "..." values are
     # dropped, except a Prisma @map("...") / @@map("...") argument; `...` stays.
-    "slash": re.compile(r"(?P<drop>//[^\n]*|%s|(?m:^[ \t]*(?:\*|<!--)[^\n]*))|(?P<str>%s|%s)|(?P<keep>`[^`]*`)"
-                        % (_BLOCK, _DQ_LINE, _SQ_LINE)),
+    "slash": re.compile(r"(?P<line>//|(?m:^[ \t]*(?:\*|<!--)))|(?P<block>/\*)|(?P<str>[\"'])|(?P<tick>`)"),
     # Python, Ruby: # comments; '...' and "..." values.
-    "hash": re.compile(r"(?P<drop>#[^\n]*|%s|%s)" % (_DQ_LINE, _SQ_LINE)),
+    "hash": re.compile(r"(?P<line>#)|(?P<str>[\"'])"),
     # GraphQL: # comments; """...""" and "..." descriptions.
-    "graphql": re.compile(r'(?P<drop>#[^\n]*|"""[\s\S]*?"""|%s)' % _DQ_LINE),
+    "graphql": re.compile(r'(?P<line>#)|(?P<triple>""")|(?P<str>")'),
 }
+_LINE_STRING = {'"': re.compile(r'"(?:[^"\\\n]|\\.)*"'), "'": re.compile(r"'(?:[^'\\\n]|\\.)*'")}
 _MAP_ARG = re.compile(r"@map\(\s*$")
 _NOT_NEWLINE = re.compile(r"[^\n]")
 
@@ -139,20 +136,73 @@ def stopline_kind(name):
 
 def strip_for_stopline(text, kind):
     """Blank comments and string values with spaces. Length and newlines stay, so line numbers hold.
-    An unclosed quote or comment is left as written, so it never hides the rest of the file."""
-    if kind not in _STRIP:
+    An unclosed quote or comment is left as written, so it never hides the rest of the file. One pass
+    forward: each closer is found once, and an opener with no closer after it marks every later one."""
+    if kind not in _OPENERS:
         raise ValueError("unknown kind: %r" % (kind,))
+    opener = _OPENERS[kind]
+    n = len(text)
     out = []
-    pos = 0
-    for m in _STRIP[kind].finditer(text):
-        if m.lastgroup == "keep":
+    pos = done = 0  # pos: where the next opener search starts; done: text up to here is already in out
+    none_after = {}  # closer -> a position after which that closer never occurs
+    eol_at = [-1, -1]  # [line start searched from, its end]
+
+    def eol(i):
+        if not (eol_at[0] <= i <= eol_at[1]):
+            j = text.find("\n", i)
+            eol_at[0], eol_at[1] = i, (n if j < 0 else j)
+        return eol_at[1]
+
+    def find(closer, i, stop=None):
+        if closer in none_after and i >= none_after[closer]:
+            return -1
+        j = text.find(closer, i, n if stop is None else stop)
+        if j < 0 and stop is None:
+            none_after[closer] = i
+        return j
+
+    while True:
+        m = opener.search(text, pos)
+        if m is None:
+            break
+        kind_of, start = m.lastgroup, m.start()
+        drop_end = None
+        if kind_of == "line":
+            drop_end = eol(start)
+        elif kind_of == "block":
+            j = find("*/", m.end())
+            drop_end = None if j < 0 else j + 2
+        elif kind_of == "triple":
+            j = find('"""', m.end())
+            drop_end = None if j < 0 else j + 3
+        elif kind_of == "sqlstr":
+            i = m.end()
+            j = find("'", i)
+            while j >= 0 and j + 1 < n and text[j + 1] == "'":  # '' is a quote inside the value
+                j = find("'", j + 2)
+            drop_end = None if j < 0 else j + 1
+        elif kind_of == "str":
+            sm = _LINE_STRING[m.group()].match(text, start, eol(start))
+            if sm and not (kind == "slash" and m.group() == '"' and _MAP_ARG.search(text, max(0, start - 16), start)):
+                drop_end = sm.end()
+            elif sm:  # a Prisma @map("...") argument is an identifier: keep it
+                pos = sm.end()
+                continue
+        elif kind_of == "keep":  # an SQL quoted identifier, kept as written
+            j = find(m.group(), m.end(), eol(start))
+            pos = m.end() if j < 0 else j + 1
             continue
-        if m.lastgroup == "str" and _MAP_ARG.search(text, max(0, m.start() - 16), m.start()):
+        elif kind_of == "tick":  # a JS template literal, kept as written (it may span lines)
+            j = find("`", m.end())
+            pos = m.end() if j < 0 else j + 1
             continue
-        out.append(text[pos:m.start()])
-        out.append(_NOT_NEWLINE.sub(" ", m.group()))
-        pos = m.end()
-    out.append(text[pos:])
+        if drop_end is None:  # unclosed: leave the opener as written
+            pos = m.end()
+            continue
+        out.append(text[done:start])
+        out.append(_NOT_NEWLINE.sub(" ", text[start:drop_end]))
+        pos = done = drop_end
+    out.append(text[done:])
     return "".join(out)
 
 
@@ -162,6 +212,11 @@ def stopline_line_terms(text, kind, clip=None):
     Comments and string values never count (strip_for_stopline). clip keeps only the first clip
     characters of each line. The identifier is the app's own text: callers show the term, not it.
     """
+    if kind not in _OPENERS:
+        raise ValueError("unknown kind: %r" % (kind,))
+    # A hit's letters (underscores removed) sit in the whole file's: no term's letters anywhere, no hit.
+    if not _FLAT_ANY.search(text.lower().replace("_", "")):
+        return
     stripped = strip_for_stopline(text, kind)
     for line_no, line in enumerate(stripped.split("\n"), 1):
         if clip is not None:

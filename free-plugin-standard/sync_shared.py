@@ -53,6 +53,7 @@ GUARDED_NAMES = ("STOPLINE_FIELDS", "_stopline_norm", "stopline_terms", "stoplin
                  "stopline_whole_terms", "NEVER_OPEN_INSTRUCTION_FILES", "NEVER_OPEN_INSTRUCTION_FOLDERS")
 GUARDED = {
     "build-decisions": GUARDED_NAMES,
+    "custody-check": GUARDED_NAMES,
 }
 EXCLUDED = (
     ("custody-check/skills/custody-check/scripts/custody_scan_0_3_2.py", "frozen 0.3.2 release, sha-pinned"),
