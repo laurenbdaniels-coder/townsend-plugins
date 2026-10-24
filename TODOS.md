@@ -464,6 +464,15 @@
 
 ## build-decisions (decision-census until 0.4.0)
 
+### From the build-decisions 0.6.2 eval run (2026-10-23)
+
+**What:** below the ship bar, not fixed in the PR:
+- After a pasted `stop_line: yes`, 2 of 3 eval runs put a lead-in sentence before the fixed follow-up ("You said yes to the extra-risk question."). The fixed words follow exactly; a grader could anchor the follow-up right after the footer.
+- The never-worse test skips a case main does not have, so `bare-yes` was compared with main by running main's plugin on it (3 of 3 printed a guessed extra-risk block, worded differently each time; plugins-internal/build-decisions/evals-0.6.2-main-baseline-bare-yes/). After merge, main has the case and later releases are compared as usual.
+- The answer turn after the follow-up (the block alone, then the first sign) is checked by one interactive run only (release-0.6.2-2026-10-23/); it joins the 2-turn eval TODO above.
+**Why:** the ship bar.
+**Effort:** S.
+
 ### From the build-decisions 0.6.1 /review (2026-10-23)
 
 **What:** found in review, below the ship bar (nothing shown worse than main), so not fixed in the PR:
