@@ -111,6 +111,8 @@ jobs:
         run: python3 -m pip install pyyaml==6.0.2
       - name: Every free plugin's eval cases carry the shared graders, up to date
         run: python3 free-plugin-standard/sync_graders.py --check
+      - name: Both plugins carry the same shared rules (copies and stamped blocks), and no hand copies
+        run: python3 free-plugin-standard/sync_shared.py --check
       - name: Sync tests and never-worse-than-main differential on the saved reports
         run: python3 -m unittest discover -s free-plugin-standard -p '*_test.py' -v
 

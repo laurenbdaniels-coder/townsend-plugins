@@ -57,6 +57,33 @@ def stopline_terms(identifier):
     return [best[0]] if best else []
 
 
+# ------------------------------------------------------------------ files never to open
+
+# Equal to custody-check 0.3.2's (shared_rules_test checks). AI-tool instruction files and folders.
+NEVER_OPEN_DIRS = frozenset({".claude", ".codex", ".agents", ".windsurf", ".clinerules", ".gemini", ".kiro", ".roo",
+                             ".trae", ".augment", ".amazonq", ".junie", ".continue", ".aider", ".opencode"})
+NEVER_OPEN_DIR_PAIRS = frozenset({(".cursor", "rules"), (".github", "instructions"), (".github", "prompts"),
+                                  (".github", "agents")})
+NEVER_OPEN_FILE_RE = re.compile(r"^(?:claude|agents?|gemini|conventions|copilot-instructions)(?:[.-][^/]*)?\.md$|^\.aider.*$|.*\.prompt\.md$|.*\.agent\.md$|.*\.instructions\.md$|.*\.mdc$", re.I)
+NEVER_OPEN_FILES = frozenset({".cursorrules", ".windsurfrules", ".clinerules", ".rules", "opencode.json", ".roomodes"})
+
+# ------------------------------------------------------------------ report text (stamped into markdown)
+
+# "What a mistake costs": label, then the sentence the report copies. sync_shared.py renders these as
+# `- <label>: "<sentence>"` lines between <!-- shared:mistake-meanings --> markers.
+MISTAKE_MEANINGS = (
+    ("card details the app handles itself",
+     "If they leak, your customers' cards are exposed, and card industry rules apply to you."),
+    ("money held or moved for other people",
+     "A mistake here loses other people's money, and money rules apply to you."),
+    ("health data, or other people's sensitive data (fields such as ID numbers, dates of birth, passports)",
+     "If this data leaks, the people it belongs to can be harmed, and laws on this data can apply to you."),
+    ("real scale, or a contract that needs the app to stay up",
+     "A mistake here reaches many people at once, or breaks your contract."),
+    ("money, and it is not clear which kind",
+     "Your app handles money, and it is not clear whether it holds card details or other people's money."),
+)
+
 # ------------------------------------------------------------------ whole files
 
 _SQL_EXTS = (".sql", ".psql", ".pgsql", ".ddl")

@@ -243,11 +243,13 @@ Rules for filling it in:
 - **Never in the report:** a step for the founder to take, a check to run, a question for their AI tool, a link, the studio, the other free plugin, or any advice about who to hire or what to change next (SCOPE.md). <!-- scope-list -->
 - Fill every `<…>` with real words: the report never shows angle brackets. In each place line the file path is the only code span, at the end.
 - **The extra-risk block** (only when the stop-line is ticked) is a plain fact, not a rule: it is not numbered and not counted in N. Never call it advice and never say who to call. What it means for you is exactly two sentences: the facts that ticked it in one sentence (and "your answers did not mention them" when `stopline_hints` lists fields and the founder's message gave stop-line answers that left them out), then what a mistake costs, copied from these meanings:
+  <!-- shared:mistake-meanings -->
   - card details the app handles itself: "If they leak, your customers' cards are exposed, and card industry rules apply to you."
   - money held or moved for other people: "A mistake here loses other people's money, and money rules apply to you."
   - health data, or other people's sensitive data (fields such as ID numbers, dates of birth, passports): "If this data leaks, the people it belongs to can be harmed, and laws on this data can apply to you."
   - real scale, or a contract that needs the app to stay up: "A mistake here reaches many people at once, or breaks your contract."
   - money, and it is not clear which kind: "Your app handles money, and it is not clear whether it holds card details or other people's money."
+  <!-- /shared:mistake-meanings -->
   - yes, not which (the founder said yes, then "Don't know" to the follow-up): title "**Your app does one of the things you said yes to, and that carries extra risk.**"; facts "You said yes, and not which one."; cost "A mistake here can cost more than in most apps."
   Where: at most 2 places from `stopline_hints`; leave the Where line out when only the founder's answer ticked it.
 - **The lines under Not checked**, each only when it applies:

@@ -619,5 +619,86 @@ class EvalFixtureTests(unittest.TestCase):
             shutil.rmtree(parent, ignore_errors=True)
 
 
+class SharedLoaderTests(unittest.TestCase):
+    """The scanner loads its shared_rules.py copy by path (scripts run as python3 -I) and fails with one envelope."""
+
+    def setUp(self):
+        self.parent = tempfile.mkdtemp(prefix="census-shared-")
+        self.addCleanup(shutil.rmtree, self.parent, True)
+        self.scripts = os.path.join(self.parent, "scripts")
+        os.makedirs(self.scripts)
+        shutil.copy(SCRIPT, self.scripts)
+        shutil.copy(os.path.join(SCRIPT_DIR, "shared_rules.py"), self.scripts)
+        shutil.copytree(CORPUS, os.path.join(self.parent, "app"))
+
+    def run_copy(self):
+        proc = subprocess.run([sys.executable, "-I", os.path.join(self.scripts, "census_scan.py"), "--repo", "app"],
+                              cwd=self.parent, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
+        lines = [ln for ln in proc.stdout.decode("utf-8").split("\n") if ln]
+        self.assertEqual(len(lines), 1, (proc.stdout, proc.stderr))
+        self.assertEqual(proc.stderr, b"", "%s: %s" % (self.scripts, proc.stderr.decode("utf-8", "replace")))
+        return json.loads(lines[0])
+
+    def assert_envelope(self, code):
+        out = self.run_copy()
+        self.assertEqual(out, {"ok": False, "error": code, "hint": cs.HINTS[code], "partial": True})
+
+    def test_runs_isolated_from_a_temp_cwd_and_finds_birthday(self):
+        """protects: the copy loads under python3 -I, nothing on sys.path stands in.
+        fails_when: the loader imports shared_rules, or the copy is not next to the script.
+        no_claim: does not test the plugin's installed layout."""
+        out = self.run_copy()
+        self.assertTrue(out["ok"])
+        self.assertIn("birthday", [h["field"] for h in out["stopline_hints"]])
+
+    def test_missing_copy(self):
+        """protects: a missing shared_rules.py is one JSON envelope, no traceback.
+        fails_when: the loader raises, or the code is wrong.
+        no_claim: does not cover a partial install of other files."""
+        os.remove(os.path.join(self.scripts, "shared_rules.py"))
+        self.assert_envelope("internal:shared-missing")
+
+    def test_syntax_invalid_copy(self):
+        """protects: a corrupt copy is shared-broken. fails_when: a SyntaxError escapes. no_claim: none."""
+        with open(os.path.join(self.scripts, "shared_rules.py"), "w") as fh:
+            fh.write("def (:\n")
+        self.assert_envelope("internal:shared-broken")
+
+    def test_empty_copy(self):
+        """protects: an empty file executes fine but lacks exports, so it is broken.
+        fails_when: the export check is missing. no_claim: none."""
+        open(os.path.join(self.scripts, "shared_rules.py"), "w").close()
+        self.assert_envelope("internal:shared-broken")
+
+    def test_copy_that_raises(self):
+        """protects: an exec error is shared-broken. fails_when: the exception escapes. no_claim: none."""
+        with open(os.path.join(self.scripts, "shared_rules.py"), "w") as fh:
+            fh.write("raise RuntimeError('x')\n")
+        self.assert_envelope("internal:shared-broken")
+
+    @unittest.skipIf(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0), "needs file permissions")
+    def test_unreadable_copy(self):
+        """protects: an unreadable copy is shared-broken. fails_when: PermissionError escapes. no_claim: Windows."""
+        path = os.path.join(self.scripts, "shared_rules.py")
+        os.chmod(path, 0)
+        self.addCleanup(os.chmod, path, 0o644)
+        self.assert_envelope("internal:shared-broken")
+
+    def test_crlf_copy_loads(self):
+        """protects: a Windows checkout's CRLF copy still loads. fails_when: bytes are not normalised. no_claim: none."""
+        path = os.path.join(self.scripts, "shared_rules.py")
+        with open(path, "rb") as fh:
+            data = fh.read()
+        with open(path, "wb") as fh:
+            fh.write(data.replace(b"\n", b"\r\n"))
+        self.assertTrue(self.run_copy()["ok"])
+
+    def test_hints_say_update_the_plugin(self):
+        """protects: bd's hint fits its README (no cp -R step). fails_when: custody's wording is copied. no_claim: none."""
+        for code in ("internal:shared-missing", "internal:shared-broken"):
+            self.assertIn("update the plugin", cs.HINTS[code].lower())
+            self.assertNotIn("cp -R", cs.HINTS[code])
+
+
 if __name__ == "__main__":
     unittest.main()

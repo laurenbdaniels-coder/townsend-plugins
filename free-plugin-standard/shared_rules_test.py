@@ -288,6 +288,32 @@ class FloorTests(unittest.TestCase):
             self.assertEqual([i for i, c in enumerate(out) if c == "\n"], [i for i, c in enumerate(text) if c == "\n"])
 
 
+class NeverOpenTests(unittest.TestCase):
+    def test_never_open_rules_equal_frozen_0_3_2s(self):
+        release = _load(os.path.join(CUSTODY_SCRIPTS, "custody_scan_0_3_2.py"), "never_open_release_0_3_2")
+        self.assertEqual(set(sr.NEVER_OPEN_DIRS), release.NEVER_OPEN_DIRS)
+        self.assertEqual(set(sr.NEVER_OPEN_DIR_PAIRS), release.NEVER_OPEN_DIR_PAIRS)
+        self.assertEqual(set(sr.NEVER_OPEN_FILES), release.NEVER_OPEN_FILES)
+        self.assertEqual((sr.NEVER_OPEN_FILE_RE.pattern, sr.NEVER_OPEN_FILE_RE.flags),
+                         (release.NEVER_OPEN_FILE_RE.pattern, release.NEVER_OPEN_FILE_RE.flags))
+
+    def test_never_open_sets_are_frozen(self):
+        for name in ("NEVER_OPEN_DIRS", "NEVER_OPEN_DIR_PAIRS", "NEVER_OPEN_FILES"):
+            self.assertIsInstance(getattr(sr, name), frozenset, name)
+
+
+class MistakeMeaningsTests(unittest.TestCase):
+    def test_five_meanings_label_then_sentence(self):
+        self.assertEqual([label for label, _ in sr.MISTAKE_MEANINGS], [
+            "card details the app handles itself",
+            "money held or moved for other people",
+            "health data, or other people's sensitive data (fields such as ID numbers, dates of birth, passports)",
+            "real scale, or a contract that needs the app to stay up",
+            "money, and it is not clear which kind"])
+        for _label, sentence in sr.MISTAKE_MEANINGS:
+            self.assertTrue(sentence.endswith(".") and '"' not in sentence, sentence)
+
+
 class Python38Tests(unittest.TestCase):
     def test_no_annotations_so_old_pythons_reach_each_scripts_version_check(self):
         with open(sr.__file__, encoding="utf-8") as fh:

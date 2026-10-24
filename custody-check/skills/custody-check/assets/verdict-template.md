@@ -51,11 +51,13 @@ Rules for filling it in:
 - **The extra-risk block** (only when `verdict.stop_line.ticked` is true). It is a plain fact, not a problem: it is not numbered and not counted in P. Never call it advice and never say who to call.
   - Title: one plain sentence naming what carries the risk, from the items that ticked it.
   - What it means for you: exactly two sentences. First the facts in one sentence of at most 20 words (what the app keeps or does, and "your answers did not mention them" when the files show fields your answers left out; no list of where). Then what a mistake costs, copied from these meanings:
+    <!-- shared:mistake-meanings -->
     - card details the app handles itself: "If they leak, your customers' cards are exposed, and card industry rules apply to you."
     - money held or moved for other people: "A mistake here loses other people's money, and money rules apply to you."
     - health data, or other people's sensitive data (fields such as ID numbers, dates of birth, passports): "If this data leaks, the people it belongs to can be harmed, and laws on this data can apply to you."
     - real scale, or a contract that needs the app to stay up: "A mistake here reaches many people at once, or breaks your contract."
     - money, and it is not clear which kind: "Your app handles money, and it is not clear whether it holds card details or other people's money."
+    <!-- /shared:mistake-meanings -->
   - Where: at most 2 places, from Q10 evidence or your reading. Leave the Where line out when only the founder's answers ticked it.
 - **Do today** (only when `verdict.rows.q1` is No, or the founder pasted a key into the chat): n is the number of distinct places of Q1's No evidence rows (checks marked "no" in questions.md "All check names") and the Q1 `path:line` you read, at least 1. Evidence rows such as `env-file-on-disk` are never counted: a settings file on disk is not a key the browser can see. The places are not repeated here: they are in problem 1. This is the one safety step the report keeps (SKILL.md rule 8).
 - **Problem blocks:** one block per row answered No in `verdict.rows` (Q5 by its lower half), in this order: the No rows in `verdict.patch_list` in its order, then the other No rows by question number, then No rows in the AI section by their order in questions.md.
