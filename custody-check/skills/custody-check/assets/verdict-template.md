@@ -11,6 +11,7 @@ Why this matters: a stranger can reach what your app does not protect. That can 
 
 <only when the stop-line is ticked:>
 **Your app <keeps | handles | runs at> <what, in plain words> that carries extra risk.**
+<only when `verdict.stop_line.capped` is true: the line from the rules below>
 What it means for you: <the facts that ticked it, in plain words>. <what a mistake here costs, from the stop-line meanings below>.
 Where: `<path>:<line>`, `<path>:<line>`
 
@@ -49,7 +50,7 @@ Rules for filling it in:
 - **Why this matters** and the **We also can't see** line are fixed: copy them exactly.
 - **The coverage line** is SKILL.md's, copied with the numbers filled in. Nothing else goes on that line.
 - **The extra-risk block** (only when `verdict.stop_line.ticked` is true). It is a plain fact, not a problem: it is not numbered and not counted in P. Never call it advice and never say who to call.
-  - Title: one plain sentence naming what carries the risk, from the items that ticked it.
+  - Title: one plain sentence naming what carries the risk, from the items that ticked it. Fields from the scan are named by the stop-line items they show (ID numbers, dates of birth, card details, health data), never ordinary fields such as an email address.
   - What it means for you: exactly two sentences. First the facts in one sentence of at most 20 words (what the app keeps or does, and "your answers did not mention them" when the files show fields your answers left out; no list of where). Then what a mistake costs, copied from these meanings:
     <!-- shared:mistake-meanings -->
     - card details the app handles itself: "If they leak, your customers' cards are exposed, and card industry rules apply to you."
@@ -58,7 +59,11 @@ Rules for filling it in:
     - real scale, or a contract that needs the app to stay up: "A mistake here reaches many people at once, or breaks your contract."
     - money, and it is not clear which kind: "Your app handles money, and it is not clear whether it holds card details or other people's money."
     <!-- /shared:mistake-meanings -->
-  - Where: at most 2 places, from Q10 evidence or your reading. Leave the Where line out when only the founder's answers ticked it. `stats.stopline_rows_capped` above 0 means the scan found more such fields than it could list (`verdict.stop_line.capped`).
+  - Where: the places in `verdict.stop_line.where` (at most 2); when it is empty, at most 2 places from your reading. Leave the Where line out when there is no place: only the founder's answers ticked it, or only the scan's limit did.
+  - When `verdict.stop_line.capped` is true, the scan found more such fields than it could list (`stats.stopline_rows_capped` above 0). Never print the count or its name.
+    - `verdict.stop_line.fields` has items: the title names only those, and the line under it is exactly "The scan found more such fields than this report can list."
+    - `fields` is empty and other items ticked it: the title names those, and the line under it is exactly "Your app keeps personal-data fields the scan could not list here, and that carries extra risk."
+    - `fields` is empty and nothing else ticked it: that same sentence is the title, with no line under it and no Where line. What it means for you uses the meaning for other people's sensitive data.
 - **Do today** (only when `verdict.rows.q1` is No, or the founder pasted a key into the chat): n is the number of distinct places of Q1's No evidence rows (checks marked "no" in questions.md "All check names") and the Q1 `path:line` you read, at least 1. Evidence rows such as `env-file-on-disk` are never counted: a settings file on disk is not a key the browser can see. The places are not repeated here: they are in problem 1. This is the one safety step the report keeps (SKILL.md rule 8).
 - **Problem blocks:** one block per row answered No in `verdict.rows` (Q5 by its lower half), in this order: the No rows in `verdict.patch_list` in its order, then the other No rows by question number, then No rows in the AI section by their order in questions.md.
   - **Joining:** when every place of a row is already shown by an earlier block, that row gets no block of its own. It joins the earlier block (for example a browser file holding a secret key is Q1 and Q2 at once). A row with no places (a No from the founder's answers) never joins: it always gets its own block. The earlier block's title and meaning may then cover both.

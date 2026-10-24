@@ -83,6 +83,10 @@ NEVER_OPEN_INSTRUCTION_FOLDERS = (".claude/", ".codex/", ".agents/", ".cursor/ru
 
 # ------------------------------------------------------------------ report text (stamped into markdown)
 
+# The one safety step both plugins keep (SCOPE.md: "replace it now"). Lowercase, no full stop: each rule uses it
+# mid-sentence after "say in one line:" or "answer with one line:". sync_shared.py stamps it as the key-clause block.
+KEY_SENTENCE = "assume it is exposed, and replace it now with a new one"
+
 # "What a mistake costs": label, then the sentence the report copies. sync_shared.py renders these as
 # `- <label>: "<sentence>"` lines between <!-- shared:mistake-meanings --> markers.
 MISTAKE_MEANINGS = (

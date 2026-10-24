@@ -346,6 +346,13 @@ class ExpectTests(unittest.TestCase):
         scan["stats"]["stopline_rows_capped"] = 3
         self.assertIn("stopline_capped=1", cv.expect_tokens(scan).split())
 
+    def test_q10_fields_never_carry_the_cap(self):
+        """DD11: the cap is its own token; q10_fields holds list terms and snippets only."""
+        scan = ok_scan(q10=("dont-know", [row("pii-field", "email")]))
+        scan["stats"]["stopline_rows_capped"] = 4
+        fields = [t for t in cv.expect_tokens(scan).split() if t.startswith("q10_fields=")][0]
+        self.assertEqual(fields, "q10_fields=email")
+
     def test_rescan_that_only_flips_the_cap_is_scan_changed(self):
         """E-9: identical rows, only the stop-line cap state differs: the door could differ, so scan-changed."""
         first = ok_scan(q10=("dont-know", [row("pii-field", "email")]))

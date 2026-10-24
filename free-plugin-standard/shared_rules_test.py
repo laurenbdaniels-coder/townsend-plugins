@@ -366,6 +366,18 @@ class MistakeMeaningsTests(unittest.TestCase):
             self.assertTrue(sentence.endswith(".") and '"' not in sentence, sentence)
 
 
+class KeySentenceTests(unittest.TestCase):
+    def test_key_sentence_is_pinned(self):
+        # Lowercase, no full stop: both rules use it mid-sentence after "say in one line:" / "answer with one line:".
+        self.assertEqual(sr.KEY_SENTENCE, "assume it is exposed, and replace it now with a new one")
+
+    def test_key_sentence_keeps_scopes_one_safety_step(self):
+        with open(os.path.join(HERE, "SCOPE.md"), encoding="utf-8") as fh:
+            scope = fh.read()
+        self.assertIn('"replace it now"', scope)
+        self.assertIn("replace it now", sr.KEY_SENTENCE)
+
+
 class Python38Tests(unittest.TestCase):
     def test_no_annotations_so_old_pythons_reach_each_scripts_version_check(self):
         with open(sr.__file__, encoding="utf-8") as fh:

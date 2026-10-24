@@ -11,7 +11,7 @@ blocks between markers (BLOCKS):
   <!-- /shared:NAME -->
 
 The CI guard also fails when a plugin defines one of the shared names itself (GUARDED), outside the
-registered copies and EXCLUDED paths.
+registered copies and EXCLUDED paths, or writes the key sentence out by hand.
 
   python3 free-plugin-standard/sync_shared.py           rewrite the copies and blocks
   python3 free-plugin-standard/sync_shared.py --check   exit 1 if anything is stale, hand-edited or copied
@@ -47,6 +47,7 @@ BLOCKS = {
     "stopline-fields": ("build-decisions/skills/build-decisions/SKILL.md", "custody-check/skills/custody-check/SKILL.md"),
     "never-open": ("build-decisions/skills/build-decisions/SKILL.md", "build-decisions/README.md",
                    "custody-check/skills/custody-check/SKILL.md", "custody-check/README.md"),
+    "key-clause": ("build-decisions/skills/build-decisions/SKILL.md", "custody-check/skills/custody-check/SKILL.md"),
 }
 GUARDED_NAMES = ("STOPLINE_FIELDS", "_stopline_norm", "stopline_terms", "stopline_line_terms", "NEVER_OPEN_DIRS",
                  "NEVER_OPEN_DIR_PAIRS", "NEVER_OPEN_FILE_RE", "NEVER_OPEN_FILES", "KEY_SENTENCE", "MISTAKE_MEANINGS",
@@ -75,6 +76,7 @@ RENDER = {
     "stopline-fields": lambda m: _code_list(m.STOPLINE_FIELDS),
     "never-open": lambda m: "instruction files (%s, and the folders %s)" % (
         _code_list(m.NEVER_OPEN_INSTRUCTION_FILES), _code_list(m.NEVER_OPEN_INSTRUCTION_FOLDERS)),
+    "key-clause": lambda m: m.KEY_SENTENCE,
 }
 
 START_RE = re.compile(r"^(?P<indent>[ \t]*)<!-- shared:(?P<name>[a-z0-9-]+) -->[ \t]*$")
@@ -268,6 +270,37 @@ def hand_copies(root, reg):
     return errors
 
 
+KEY_BLOCK_RE = re.compile(r"<!-- shared:key-clause -->.*?<!-- /shared:key-clause -->")
+
+
+def key_clause_copies(root, reg, module):
+    """The key sentence written out by hand: in a plugin's .py files (outside the copies and EXCLUDED), SKILL.md or
+    assets/*.md, outside a key-clause block. On only once a key-clause block is registered."""
+    if "key-clause" not in reg["blocks"]:
+        return []
+    sentence = module.KEY_SENTENCE
+    fix = ("put it between <!-- shared:key-clause --> markers in markdown, or use shared_rules.KEY_SENTENCE in code, "
+           "and register the file in BLOCKS")
+    plugins = sorted(set(reg["guarded"]) | {rel.split("/", 1)[0] for rel in reg["blocks"]["key-clause"]})
+    errors = []
+    for plugin in plugins:
+        for d, dirs, files in os.walk(os.path.join(root, plugin)):
+            dirs[:] = sorted(x for x in dirs if x not in (".git", "__pycache__", "node_modules"))
+            for f in sorted(files):
+                rel = os.path.relpath(os.path.join(d, f), root).replace(os.sep, "/")
+                is_md = f == "SKILL.md" or (f.endswith(".md") and os.path.basename(d) == "assets")
+                if not (is_md or f.endswith(".py")) or rel in reg["copies"] or is_excluded(rel, reg["excluded"]):
+                    continue
+                try:
+                    lines = _read_text(os.path.join(d, f)).replace("\r\n", "\n").split("\n")
+                except (OSError, ValueError):
+                    continue
+                for n, line in enumerate(lines, 1):
+                    if sentence in (KEY_BLOCK_RE.sub("", line) if is_md else line):
+                        errors.append("hand-copy %s:%d block key-clause: %s" % (rel, n, fix))
+    return errors
+
+
 def _defined(node):
     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
         return [node.name]
@@ -288,7 +321,7 @@ def check(root=ROOT, reg=REGISTRY):
     stale_copies, _ = _copies_plan(root, reg)
     errors = ["stale-copy %s:1 block shared_rules: %s" % (rel, RUN) for rel in stale_copies]
     block_errors, stale_blocks, _ = _blocks_plan(root, reg, module)
-    return errors + block_errors + stale_blocks + hand_copies(root, reg)
+    return errors + block_errors + stale_blocks + hand_copies(root, reg) + key_clause_copies(root, reg, module)
 
 
 def _write_atomic(path, data):
@@ -315,7 +348,7 @@ def rewrite(root=ROOT, reg=REGISTRY):
         return [str(f)], []
     stale_copies, canon = _copies_plan(root, reg)
     block_errors, _stale, new_texts = _blocks_plan(root, reg, module)
-    errors = block_errors + hand_copies(root, reg)
+    errors = block_errors + hand_copies(root, reg) + key_clause_copies(root, reg, module)
     if errors:
         return errors, []
     written = []

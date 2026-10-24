@@ -5,6 +5,7 @@ Also the CI guard: no plugin keeps its own copy of a shared rule.
 Run: python3 -m unittest discover -s free-plugin-standard -p '*_test.py' -v
 """
 import io
+import json
 import os
 import shutil
 import subprocess
@@ -27,7 +28,7 @@ def fake_registry():
     return {
         "copies": ("alpha/scripts/shared_rules.py", "beta/scripts/shared_rules.py"),
         "blocks": {"mistake-meanings": ("alpha/assets/t.md", "beta/SKILL.md"),
-                   "stopline-fields": ("beta/fields.md",)},
+                   "stopline-fields": ("beta/fields.md",), "key-clause": ("gamma/SKILL.md",)},
         "guarded": {"alpha": ("NEVER_OPEN_DIRS", "STOPLINE_FIELDS")},
         "excluded": (("alpha/scripts/frozen_*.py", "frozen release"), ("*/fixtures/*", "test inputs"),
                      ("*_test.py", "tests")),
@@ -49,8 +50,11 @@ class FakeRepo(unittest.TestCase):
         self.write("alpha/assets/t.md", "Intro:\n    <!-- shared:mistake-meanings -->\n%s\n    <!-- /shared:mistake-meanings -->\nAfter.\n"
                    % "\n".join("    " + ln for ln in body.split("\n")))
         self.fields = ss.render_block(self.root, "stopline-fields")
+        self.key = ss.render_block(self.root, "key-clause")
         self.write("beta/SKILL.md", "Rule:\n  <!-- shared:mistake-meanings -->\n%s\n  <!-- /shared:mistake-meanings -->\n"
                    % "\n".join("  " + ln for ln in body.split("\n")))
+        self.write("gamma/SKILL.md", "Rules:\n5. If a file holds a key, say in one line: <!-- shared:key-clause -->%s"
+                   "<!-- /shared:key-clause -->. Never echo it.\n" % self.key)
         self.write("beta/fields.md", "Intro.\nFields such as <!-- shared:stopline-fields -->%s<!-- /shared:stopline-fields -->, too.\n"
                    % self.fields)
 
@@ -198,6 +202,46 @@ class InlineBlockTests(FakeRepo):
         self.assertTrue(text.endswith("`.opencode/`)"), text)
 
 
+class KeyClauseTests(FakeRepo):
+    FIX = ("put it between <!-- shared:key-clause --> markers in markdown, or use shared_rules.KEY_SENTENCE in code, "
+           "and register the file in BLOCKS")
+
+    def test_key_clause_renders_the_shared_sentence(self):
+        self.assertEqual(self.key, ss._load_canonical(self.root).KEY_SENTENCE)
+
+    def test_key_clause_hand_edited(self):
+        self.write("gamma/SKILL.md", self.read("gamma/SKILL.md").replace("replace it now", "rotate it"))
+        self.assertEqual(self.check(), [
+            "hand-edited gamma/SKILL.md:2 block key-clause: %s (edit %s, not this block)" % (RUN, CANON)])
+
+    def test_the_sentence_in_code_outside_the_copies_fails(self):
+        self.write("alpha/scripts/scan.py", "import os\nMSG = 'Say: %s.'\n" % self.key)
+        self.assertEqual(self.check(), ["hand-copy alpha/scripts/scan.py:2 block key-clause: " + self.FIX])
+
+    def test_the_sentence_in_markdown_outside_its_block_fails(self):
+        self.write("gamma/SKILL.md", self.read("gamma/SKILL.md") + "Later: %s.\n" % self.key)
+        self.write("alpha/assets/note.md", "Say: %s.\n" % self.key)
+        self.assertEqual(sorted(self.check()), [
+            "hand-copy alpha/assets/note.md:1 block key-clause: " + self.FIX,
+            "hand-copy gamma/SKILL.md:3 block key-clause: " + self.FIX])
+
+    def test_copies_tests_fixtures_and_other_prose_are_not_checked(self):
+        self.write("alpha/scripts/scan_test.py", "WANT = %r\n" % self.key)
+        self.write("alpha/scripts/fixtures/app/x.py", "S = %r\n" % self.key)
+        self.write("gamma/README.md", "Say: %s.\n" % self.key)
+        self.write("gamma/CHANGELOG.md", "Rule 5 now reads %s.\n" % self.key)
+        self.write("gamma/references/q.md", "Say: %s.\n" % self.key)
+        self.write("beta/scripts/scan.py", "MSG = %r\n" % self.key)  # beta is neither guarded nor a key-clause target
+        self.assertEqual(self.check(), [])  # the copies hold the sentence too
+
+    def test_the_check_is_off_until_a_key_clause_block_is_registered(self):
+        del self.reg["blocks"]["key-clause"]
+        self.write("gamma/SKILL.md", self.read("gamma/SKILL.md").replace("<!-- shared:key-clause -->", "")
+                   .replace("<!-- /shared:key-clause -->", ""))
+        self.write("alpha/scripts/scan.py", "MSG = %r\n" % self.key)
+        self.assertEqual(self.check(), [])
+
+
 class RewriteTests(FakeRepo):
     def test_rewrite_fixes_copies_and_blocks_and_is_idempotent(self):
         self.write("beta/scripts/shared_rules.py", "old\n")
@@ -305,6 +349,29 @@ class RealRepoTests(unittest.TestCase):
         self.assertFalse(ss.is_excluded("build-decisions/skills/build-decisions/scripts/census_scan.py"))
         for _glob, reason in ss.EXCLUDED:
             self.assertTrue(reason.strip())
+
+    def test_key_clause_is_registered_for_both_rules(self):
+        self.assertEqual(set(ss.BLOCKS["key-clause"]), {"build-decisions/skills/build-decisions/SKILL.md",
+                                                       "custody-check/skills/custody-check/SKILL.md"})
+
+    def test_key_clause_sits_right_after_its_one_line_lead(self):
+        """Both rules use the clause mid-sentence, lowercase, after "say in one line:" or "answer with one line:"."""
+        for rel in ss.BLOCKS["key-clause"]:
+            with open(os.path.join(ROOT, rel), encoding="utf-8") as fh:
+                text = fh.read()
+            parts = text.split("<!-- shared:key-clause -->")
+            self.assertEqual(len(parts), 2, rel)
+            self.assertTrue(parts[0].endswith(("say in one line: ", "answer with one line: ")), rel)
+
+    def test_reports_never_name_the_shared_machinery(self):
+        """What lands in a report (each rendered block, each recorded report) never names the sync tool or markers."""
+        texts = [ss.render_block(ROOT, name) for name in ss.BLOCKS]
+        for name in ("custody-check-reports.jsonl", "build-decisions-reports.jsonl"):
+            with open(os.path.join(HERE, "corpus", name), encoding="utf-8") as fh:
+                texts += [json.loads(line)["text"] for line in fh if line.strip()]
+        for text in texts:
+            for word in ("<!-- shared:", "<!-- /shared:", "sync_shared", "free-plugin-standard", "shared_rules"):
+                self.assertNotIn(word, text)
 
     def test_ci_runs_the_check(self):
         with open(os.path.join(ROOT, ".github", "workflows", "ci.yml"), encoding="utf-8") as fh:
