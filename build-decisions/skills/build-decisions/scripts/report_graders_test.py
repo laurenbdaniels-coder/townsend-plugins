@@ -14,6 +14,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 PLUGIN = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
 ROOT = os.path.dirname(PLUGIN)
 DRAFT = os.path.join(HERE, "fixtures", "report", "seeded-app-0.6.1-hand-draft.md")
+BARE_YES_DRAFT = os.path.join(HERE, "fixtures", "report", "bare-yes-0.6.2-hand-draft.md")
 CORPUS = os.path.join(ROOT, "free-plugin-standard", "corpus", "build-decisions-reports.jsonl")
 
 NEW_COMMON = ("footer-plain", "says-what-not-what-to-do", "never-asks-what-code-shows", "one-stopped-early-line",
@@ -22,6 +23,11 @@ NEW_COMMON = ("footer-plain", "says-what-not-what-to-do", "never-asks-what-code-
 # plain text right after the footer, then waits. A case the code ticks (stopline-app) never asks it.
 ASKS_AFTER = ("stopline-question-after-footer", "waits-after-stopline-question")
 TICKED = {"stopline-app": ("first-sign-after-footer", "no-stopline-question")}
+# 0.6.2: a bare "yes" pasted up front names no risk, so the report has no extra-risk block and the footer is
+# followed by the one follow-up question ("Which of these?"), then a wait. The full question is not asked again.
+BARE_YES = {"bare-yes": ("which-one-after-footer", "waits-after-which-one", "no-full-question-again",
+                         "no-guessed-risk-block")}
+AFTER_FOOTER = dict(TICKED, **BARE_YES)
 # New in 0.6.0 that a saved 0.5.1 seeded-app report really breaks (it had the old footer, a check line, the old
 # label and no coverage line). The other new graders guard things 0.5.1 already did right.
 OLD_REPORT_BREAKS = ("footer-plain", "says-what-not-what-to-do", "what-it-means-per-block", "std-coverage-line",
@@ -133,6 +139,50 @@ class StoplineAppGraderTests(unittest.TestCase):
         self.assertTrue(fails(self.g["first-sign-after-footer"], asks))
 
 
+BARE_FOOTER = "# Build decisions: x\n\n---\nbuild-decisions v0.6.2 \u00b7 read-only \u00b7 a review, not an audit\n\n"
+WHICH = ("Which of these? Card details your app handles itself, other people's money, health or other sensitive "
+         "personal data, or real scale or a contract. You can name more than one, or answer 'Don't know'.\n")
+BARE_YES_BAD = {
+    # main's likely ending after a bare yes: the full question again.
+    "which-one-after-footer": BARE_FOOTER + "Does this app do any of these? Store or handle card details itself.\n",
+    "no-full-question-again": BARE_FOOTER + "Does this app do any of these? Store or handle card details itself.\n",
+    # main's other likely ending: a guessed risk block in the report.
+    "no-guessed-risk-block": ("# Build decisions: x\n\n**Your app keeps sensitive personal data, and that carries extra "
+                              "risk.**\nWhat it means for you: you said yes.\n\n" + BARE_FOOTER),
+    # the follow-up asked, then no wait (sign 1 by its title; its other forms are in the test below).
+    "waits-after-which-one": BARE_FOOTER + WHICH + "\n1. A fix that didn't take.\n",
+}
+
+
+class BareYesGraderTests(unittest.TestCase):
+    """protects=a bare "yes" pasted up front gets the one follow-up after the footer, no guessed risk block, then a
+    wait (Lauren 2026-10-23, S-061); fails_when=a new grader stops matching what it bans, or bans the hand draft."""
+
+    def setUp(self):
+        try:
+            import yaml  # noqa: F401
+        except ImportError:
+            if os.environ.get("CI"):
+                raise
+            self.skipTest("PyYAML not installed (CI installs it)")
+        self.g = graders("bare-yes")
+        with open(BARE_YES_DRAFT, encoding="utf-8") as fh:
+            self.draft = fh.read()
+
+    def test_every_regex_grader_passes_the_hand_draft(self):
+        self.assertEqual([n for n, c in self.g.items() if fails(c, self.draft)], [])
+
+    def test_each_new_grader_bites(self):
+        for name, bad in BARE_YES_BAD.items():
+            self.assertIn(name, self.g, name)
+            self.assertTrue(fails(self.g[name], bad), name)
+
+    def test_waits_after_which_one_catches_every_form_of_sign_one(self):
+        for sign in ("Pick one thing you fixed.", "First: did a fix ever not take?", "1. A fix that didn\u2019t take.",
+                     "1. A fix that didn't take."):
+            self.assertTrue(fails(self.g["waits-after-which-one"], BARE_FOOTER + WHICH + sign), sign)
+
+
 class AllCasesTests(unittest.TestCase):
     def test_every_rendering_case_carries_the_plain_report_graders(self):
         try:
@@ -150,8 +200,12 @@ class AllCasesTests(unittest.TestCase):
                     continue
                 with open(path, encoding="utf-8") as fh:
                     names = {g["name"] for g in yaml.safe_load(fh)["graders"]}
-                for name in NEW_COMMON + TICKED.get(case, ASKS_AFTER):
+                for name in NEW_COMMON + AFTER_FOOTER.get(case, ASKS_AFTER):
                     self.assertIn(name, names, (case, name))
+                if case in BARE_YES:
+                    # The founder already answered the full question, so its after-footer graders do not apply.
+                    for name in ASKS_AFTER + ("first-sign-after-footer",):
+                        self.assertNotIn(name, names, (case, name))
                 if case not in TICKED:
                     # 0.6.0's "first sign comes right after the footer" no longer holds: the question comes first.
                     self.assertNotIn("first-sign-after-footer", names, case)

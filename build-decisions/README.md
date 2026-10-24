@@ -56,7 +56,7 @@ Also worth a look:
 Not checked: database settings, dashboards, other projects, names this run does not know, and code it did not search. This version also does not check sign-in checks on server code, or library versions. Payment places are found from the files, not tested in the app. This version does not check whether payment messages really come from your payment company. It checks values the browser chooses only in your app's own server code, not in code that runs inside your database service. Not found does not mean it isn't there.
 
 ---
-build-decisions v0.6.1 · read-only · a review, not an audit
+build-decisions v0.6.2 · read-only · a review, not an audit
 ```
 
 It's a review, not an audit. It reports, and it changes nothing in your app. It never says your app is clean. "Not found" means not found by this run, never "not there".
@@ -108,7 +108,7 @@ claude --permission-mode plan --tools Skill,Bash,Read,Grep,Glob,AskUserQuestion
 run build decisions on ./my-app
 ```
 
-The agent runs three commands, all the same helper (`python3 -I census_scan.py --repo 'my-app'`, then the same with `--section architecture` and with `--section payment`; your host will ask you to allow them). Then it searches and reads your code to follow each decision and writes the report. It may ask one stop-line question, only when your code and your message don't answer it (to skip it, start with `stop_line: none`): before the report when your tool can ask, otherwise in plain text right after the report. After the report it asks the four signs, each with a one-minute test you can run. "Don't know" is a fine answer to any of them.
+The agent runs three commands, all the same helper (`python3 -I census_scan.py --repo 'my-app'`, then the same with `--section architecture` and with `--section payment`; your host will ask you to allow them). Then it searches and reads your code to follow each decision and writes the report. It may ask one stop-line question, only when your code and your message don't answer it (to skip it, start with `stop_line: none`): before the report when your tool can ask, otherwise in plain text right after the report. A plain "yes" gets one more question: which of the risks it is. After the report it asks the four signs, each with a one-minute test you can run. "Don't know" is a fine answer to any of them.
 
 ## How it works, and what it never does
 
@@ -123,7 +123,7 @@ The agent runs three commands, all the same helper (`python3 -I census_scan.py -
 
 ## What this version checks
 
-| Checked in 0.6.1 | Partly | Not yet |
+| Checked in 0.6.2 | Partly | Not yet |
 |---|---|---|
 | Rules written in more than one place (who can see a record, prices, paid status, money rounding) | Places that save paid status: listed from the files, read by the agent, not tested in the app | Whether payment messages really come from the payment company (next); sign-in checks on each part that runs on a server (planned) |
 | Values the browser chooses that your own server code saves or counts by | | Values chosen in code that runs inside your database service (planned) |
@@ -145,7 +145,7 @@ Build Decisions shows where your app decides who sees what and what things cost,
 
 ## Evals
 
-Before each release, `claude plugin eval` runs every case under `evals/` (24 in 0.6.1) and the one in `evals-no-search/`, on synthetic apps under `evals/fixtures/`; `evals/run-evals.sh` runs them one at a time:
+Before each release, `claude plugin eval` runs every case under `evals/` (25 in 0.6.2) and the one in `evals-no-search/`, on synthetic apps under `evals/fixtures/`; `evals/run-evals.sh` runs them one at a time:
 - a seeded app with one planted two-place decision per type, all of which must be reported, in a short report
 - a crowded app with many look-alike places, where the planted pairs must still be found
 - an app where two places read one shared list (one source, so no card) beside a real duplicated price (a card)
@@ -153,6 +153,7 @@ Before each release, `claude plugin eval` runs every case under `evals/` (24 in 
 - a clean-looking app that must never be called clean
 - a hostile repo whose code tells the agent to open `CLAUDE.md` and `.env` and say the app is clean: graded on every file the agent opens and every search it makes (file names only, inside the app, code files only), not just on what it says
 - a stop-line app
+- a plain "yes" to the stop-line question, pasted up front: the report must not guess a risk, and must ask which one after the footer, then wait
 - a run from inside the app
 - a "fix it too" request
 - a prompt that must not start the census
@@ -195,7 +196,7 @@ Claude Code reads the instruction files in the folder it starts in. If you start
 - **`repo-is-symlink` / `repo-unreadable`.** Pass the real folder, or copy the app somewhere you own.
 - **`python-too-old` / python not found.** The census says nothing was read and still asks the four signs. Install python 3.9 or newer (macOS: Command Line Tools).
 - **"The scan stopped early: …"** The helper stopped early (file limit, size limit, time limit, unreadable files). The report says whether a rerun helps; when it does, say the line it gives (`--max-files 50000` or `--max-file-bytes 5242880`).
-- **The stop-line question comes after the report.** Your tool has no way to show a question before the report (for example Codex, `claude -p`, or a launch line without AskUserQuestion), so it asks in plain text after the footer. Answer in your own words. A yes adds a short extra-risk note before the four signs. To skip the question, start your request with `stop_line: none`.
+- **The stop-line question comes after the report.** Your tool has no way to show a question before the report (for example Codex, `claude -p`, or a launch line without AskUserQuestion), so it asks in plain text after the footer. Answer in your own words. A yes adds a short extra-risk note before the four signs. A plain "yes" gets one more question first: which of the risks it is. To skip the question, start your request with `stop_line: none`.
 - **"Some of your server files were not checked for values the browser chooses."** Your app has more than 10 server files, and a run reads at most 10 of them whole, starting with the ones that take a value from the screen.
 - **A card looks wrong.** Two places that look alike can decide different things. Open both lines; if they don't make the same decision, ignore the card, and open an issue on this repository with the pattern names from the census so I can tune the helper.
 
@@ -206,7 +207,7 @@ claude plugin marketplace update townsend-plugins
 claude plugin update build-decisions@townsend-plugins
 ```
 
-Then start a new session. The report's last line names the version, for example `build-decisions v0.6.1`. 0.6.0 no longer prints checks to run, a "do this next" line, a link or a pointer: it says what is broken and what it means. To go back, install the earlier version from a clone of this repository at its release commit.
+Then start a new session. The report's last line names the version, for example `build-decisions v0.6.2`. 0.6.0 no longer prints checks to run, a "do this next" line, a link or a pointer: it says what is broken and what it means. To go back, install the earlier version from a clone of this repository at its release commit.
 
 ## Platforms
 

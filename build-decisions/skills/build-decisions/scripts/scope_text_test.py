@@ -154,7 +154,7 @@ class VersionTests(unittest.TestCase):
         row = [l for l in read(ROOT, "README.md").splitlines() if l.startswith("| build-decisions |")][0]
         readme = row.split("|")[2].strip()
         self.assertEqual({helper, plugin, market, changelog, readme}, {helper}, (helper, plugin, market, changelog, readme))
-        self.assertEqual(helper, "0.6.1")
+        self.assertEqual(helper, "0.6.2")
 
 
 if __name__ == "__main__":

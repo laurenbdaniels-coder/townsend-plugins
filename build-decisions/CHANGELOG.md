@@ -2,6 +2,11 @@
 
 The footer of every report names the version that produced it. Up to 0.3.2 this plugin was called decision-census.
 
+## 0.6.2 (2026-10-23)
+
+- **A plain "yes" gets one follow-up question.** The stop-line question lists four risks, and a plain "yes" names none of them, so the extra-risk block had to guess. Now Build Decisions asks once: "Which of these?" The block then names the risk you picked and what a mistake there costs. "Don't know" gives a general block; "No" gives none. A yes that already names a risk gets no follow-up, and neither does an app whose code already shows the risk.
+- The skill's stop-line rule now says where the extra-risk block prints: in the report, or by itself after it when the question came after the report.
+
 ## 0.6.1 (2026-10-23)
 
 - **The stop-line question is asked in every tool again.** When your tool can't show a question before the report (Codex, `claude -p`, a launch line without AskUserQuestion), the report comes first and the question follows the footer in plain text, as 0.5.1 did. A yes adds the extra-risk block on its own, then the four signs; "No" and "Don't know" go straight to the signs. The did-not-ask line is gone. Tools with AskUserQuestion still ask before the report, as in 0.6.0.
