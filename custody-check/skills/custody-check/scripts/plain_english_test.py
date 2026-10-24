@@ -308,6 +308,13 @@ class FreePluginStandardTests(unittest.TestCase):
         self.assertNotIn("stopline_rows_capped", template_block())
         self.assertIn("Never print the count or its name.", self.risk_rules())
 
+    def test_do_today_counts_each_place_as_a_key(self):
+        """S-062 evals: with rule 4's pasted-key line reading "replace it now with a new one", 3 of 4 seeded-app runs
+        printed "replace 1 secret key" for two key places (main: 2 keys, 6 of 6). The count rule says it outright."""
+        rules = read("assets", "verdict-template.md").split("Rules for filling it in:", 1)[1]
+        part = rules.split("- **Do today**", 1)[1].split("\n- **", 1)[0]
+        self.assertIn("Each place counts as one key, even when two places look alike: two places are 2 keys.", part)
+
     def test_short_footer(self):
         skill = read("SKILL.md").split("## Footer", 1)[1]
         self.assertIn("custody-check v<version from the JSON> · read-only · a review, not an audit", skill)

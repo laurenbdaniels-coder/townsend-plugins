@@ -166,7 +166,7 @@ graders:
     match: "not_contains"
   - name: "extra-risk-block"
     type: "regex"
-    pattern: "\\*\\*Your app [^\\n]*carr(?:y|ies) extra risk\\.\\*\\*\\nWhat it means for you: "
+    pattern: "\\*\\*Your app [^\\n]*carr(?:y|ies) extra risk\\.\\*\\*\\n(?:The scan found more such fields than this report can list\\.\\n|Your app keeps personal-data fields the scan could not list here, and that carries extra risk\\.\\n)?What it means for you: "
     flags: ""
     match: "contains"
   - name: "first-screen-short"
