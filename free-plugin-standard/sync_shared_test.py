@@ -320,6 +320,61 @@ class CliTests(FakeRepo):
         self.assertEqual((code, out, err), (0, "wrote beta/scripts/shared_rules.py\n", ""))
 
 
+def _git(*args):
+    return subprocess.run(["git"] + list(args), cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+
+def _without(reg, plugin):
+    """The registry after a one-plugin split: the plugin leaves COPIES, BLOCKS and GUARDED."""
+    out = lambda rel: rel.split("/", 1)[0] == plugin  # noqa: E731
+    return {"copies": tuple(r for r in reg["copies"] if not out(r)),
+            "blocks": {n: tuple(r for r in ts if not out(r)) for n, ts in reg["blocks"].items()
+                       if any(not out(r) for r in ts)},
+            "guarded": {p: names for p, names in reg["guarded"].items() if p != plugin},
+            "excluded": reg["excluded"]}
+
+
+@unittest.skipIf(_git("merge-base", "HEAD", "origin/main").returncode != 0, "no origin/main to split from")
+class SplitTests(unittest.TestCase):
+    """Section 11 of the S-062 plan: if only one plugin ships, the other's files go back to main's bytes in one
+    commit and it leaves the registry. Then --check, rewrite and the guard all pass, and rewrite never puts the
+    shared copy back. Tested in both directions."""
+
+    PLUGINS = ("custody-check", "build-decisions")
+
+    def split(self, plugin):
+        root = tempfile.mkdtemp(prefix="sync-split-")
+        self.addCleanup(shutil.rmtree, root, True)
+        ignore = shutil.ignore_patterns("__pycache__", ".git")
+        for d in self.PLUGINS + ("free-plugin-standard",):
+            if d != plugin:
+                shutil.copytree(os.path.join(ROOT, d), os.path.join(root, d), ignore=ignore)
+        base = _git("merge-base", "HEAD", "origin/main").stdout.decode().strip()
+        archive = _git("archive", base, plugin)
+        self.assertEqual(archive.returncode, 0, archive.stderr)
+        subprocess.run(["tar", "-x", "-C", root], input=archive.stdout, check=True)
+        return root, _without(ss.REGISTRY, plugin)
+
+    def test_each_plugin_can_leave_alone(self):
+        for plugin in self.PLUGINS:
+            with self.subTest(leaves=plugin):
+                root, reg = self.split(plugin)
+                self.assertTrue(reg["copies"] and reg["blocks"] and reg["guarded"])
+                self.assertEqual(ss.check(root, reg), [])
+                errors, written = ss.rewrite(root, reg)
+                self.assertEqual((errors, written), ([], []))
+                gone = [r for r in ss.COPIES if r.startswith(plugin + "/")]
+                self.assertTrue(gone)
+                for rel in gone:
+                    self.assertFalse(os.path.exists(os.path.join(root, rel)), rel)
+
+    def test_a_split_without_the_registry_change_fails(self):
+        """The registry change is part of the split: the reverted plugin still registered is caught."""
+        root, _reg = self.split("custody-check")
+        errors = ss.check(root, ss.REGISTRY)
+        self.assertTrue(any(e.startswith("stale-copy custody-check/") for e in errors), errors)
+
+
 class RealRepoTests(unittest.TestCase):
     def test_real_repo_is_in_sync(self):
         proc = subprocess.run([sys.executable, os.path.join(HERE, "sync_shared.py"), "--check"], cwd=ROOT,
