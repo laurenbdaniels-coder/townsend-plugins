@@ -55,7 +55,8 @@ import stat
 import time
 import types
 
-SHARED_EXPORTS = ("NEVER_OPEN_DIRS", "NEVER_OPEN_DIR_PAIRS", "NEVER_OPEN_FILE_RE", "NEVER_OPEN_FILES")
+SHARED_EXPORTS = ("NEVER_OPEN_DIRS", "NEVER_OPEN_DIR_PAIRS", "NEVER_OPEN_FILE_RE", "NEVER_OPEN_FILES", "STOPLINE_FIELDS",
+                  "stopline_line_terms", "stopline_kind", "stopline_whole_terms")
 
 
 def load_shared():
@@ -97,7 +98,6 @@ SQL_EXTS = {".sql", ".psql", ".pgsql", ".ddl"}
 SCHEMA_EXTS = {".prisma", ".graphql", ".gql"}
 SCAN_EXTS = CODE_EXTS | SQL_EXTS | SCHEMA_EXTS
 MARKUP_EXTS = {".jsx", ".tsx", ".vue", ".svelte", ".astro"}  # page copy sits outside strings here
-STOPLINE_FIELDS = {"ssn", "social_security", "dob", "date_of_birth", "birthdate", "birth_date", "birthday", "medical", "diagnosis", "credit_card", "card_number", "cc_number", "iban", "passport"}
 MAX_PATH_CHARS = 200
 LINE_CLIP_CHARS = 2048
 BINARY_SNIFF_BYTES = 8192
@@ -189,7 +189,6 @@ PATTERNS = {
         ("decimal-math", "weak", re.compile(r"\bnew\s+(?:Decimal|Big|BigNumber)\s*\(|\bDinero\s*\(|\bdinero\s*\("), "code"),
     ],
 }
-STOPLINE_RE = re.compile(r"(?<![a-z0-9])(ssn|social_security|dob|date_of_birth|birthdate|birth_date|birthday|medical|diagnosis|credit_card|card_number|cc_number|iban|passport)(?![a-z0-9])", re.I)
 CAMEL_SPLIT_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 
 # Supabase's local development setup ships sample keys that are public by design: they are signed with a
@@ -265,7 +264,7 @@ PARTIAL_REASONS = ("max_files_hit", "max_total_bytes_hit", "deadline_hit", "file
                    "files_skipped_special", "dirs_unreadable", "dirs_truncated", "output_trimmed")
 ERROR_CODES = tuple(HINTS)
 PATTERN_IDS = tuple(p[0] for t in TYPES for p in PATTERNS[t]) + tuple(t + "-comment" for t in TYPES)
-VOCABULARY_CENSUS = (TYPES + STRENGTHS + PATTERN_IDS + tuple(STOPLINE_FIELDS) + WARNINGS + PARTIAL_REASONS
+VOCABULARY_CENSUS = (TYPES + STRENGTHS + PATTERN_IDS + shared.STOPLINE_FIELDS + WARNINGS + PARTIAL_REASONS
                      + ERROR_CODES + tuple(HINTS.values()) + (__version__,))
 
 
@@ -430,7 +429,7 @@ class State:
                                      "files_skipped_binary", "files_skipped_generated", "files_skipped_special",
                                      "files_skipped_test", "files_skipped_env", "dirs_unreadable")}
         self.hits = {t: [] for t in TYPES}  # (rank, path, line, pattern)
-        self.hints = []
+        self.hints = []  # (order found, whole word, hint)
         self.hints_capped = False
         self.stopped = False
         self.collect_demo_keys = True  # census only; the section scans turn it off
@@ -553,15 +552,18 @@ def scan_file(path, parts, ext, state):
         for typ, pid, strength in classify_line(line, ext, where_open > 0):
             found.append((typ, 0 if strength == "strong" else 1, i, pid))
         where_open = 3 if WHERE_OPEN_RE.search(line) else max(0, where_open - 1)
-        if is_schema:
-            seen = set()
-            body = comment_body(line.strip(), ext)
-            src = strip_trailing_comment(line, ext) if body is None else ""
-            for m in STOPLINE_RE.finditer(CAMEL_SPLIT_RE.sub("_", src)):
-                field = m.group(1).lower()
-                if field in STOPLINE_FIELDS and field not in seen:
-                    seen.add(field)
-                    hints.append((i, field))
+    if is_schema and not state.stopped:
+        # Stop-line fields: the shared matcher, comments and string values left out (shared_rules.py).
+        last, seen = 0, set()
+        terms = shared.stopline_line_terms(text, shared.stopline_kind(parts[-1]), clip=LINE_CLIP_CHARS)
+        for k, (line_no, ident, field) in enumerate(terms):
+            if k % DEADLINE_LINE_TICK == 0 and state.over_deadline():
+                break
+            if line_no != last:
+                last, seen = line_no, set()
+            if field not in seen:
+                seen.add(field)
+                hints.append((line_no, field, field in shared.stopline_whole_terms(ident)))
     if rel is not None:
         for line_no in demo_lines:
             if len(state.demo_keys) >= MAX_DEMO_KEYS:
@@ -575,11 +577,13 @@ def scan_file(path, parts, ext, state):
         return
     for typ, rank, line_no, pid in found:
         state.hits[typ].append((rank, rel, line_no, pid))
-    for line_no, field in hints:
-        if len(state.hints) >= MAX_STOPLINE_HINTS:
+    for line_no, field, whole in hints:
+        # Whole-word and one-word (creditcard) hints are capped apart, so a one-word hint never takes the
+        # place of a whole-word one; build() keeps whole-word hints first.
+        if sum(1 for h in state.hints if h[1] == whole) >= MAX_STOPLINE_HINTS:
             state.hints_capped = True
-            break
-        state.hints.append({"path": rel, "line": line_no, "field": field})
+            continue
+        state.hints.append((len(state.hints), whole, {"path": rel, "line": line_no, "field": field}))
 
 
 def walk(repo, state):
@@ -2030,7 +2034,14 @@ def build(state, uncapped):
         chosen = select(hits, uncapped)
         candidates[t] = [{"type": t, "path": h[1], "line": h[2], "pattern": h[3], "strength": STRENGTHS[h[0]]} for h in chosen]
         totals[t] = {"listed": len(chosen), "not_listed": len(hits) - len(chosen), "files": len({h[1] for h in hits})}
-    warnings_ = ["stopline-hints-capped"] if state.hints_capped else []
+    whole = [h for h in state.hints if h[1]][:MAX_STOPLINE_HINTS]
+    one_word = [h for h in state.hints if not h[1]][:MAX_STOPLINE_HINTS - len(whole)]
+    capped = [state.hints_capped or len(whole) + len(one_word) < len(state.hints)]
+    warnings_ = []
+
+    def hint_list():
+        warnings_[:] = ["stopline-hints-capped"] if capped[0] else []
+        return [h[2] for h in sorted(whole + one_word)]
 
     def render():
         reasons = list(state.reasons)
@@ -2042,7 +2053,7 @@ def build(state, uncapped):
             "stats": state.stats,
             "warnings": warnings_,
             "partial_reasons": reasons,
-            "stopline_hints": state.hints,
+            "stopline_hints": hint_list(),
             "candidates": [c for t in TYPES for c in candidates[t]],
             "totals": totals,
         }
@@ -2051,6 +2062,11 @@ def build(state, uncapped):
     if uncapped:
         return dict(result, demo_keys=list(state.demo_keys), demo_keys_trimmed=state.demo_keys_capped)
     while len(dumps(result).encode("utf-8")) > MAX_OUTPUT_BYTES:
+        if one_word:  # new hints main never listed go before any candidate main kept
+            one_word.pop()
+            capped[0] = True
+            result = render()
+            continue
         biggest = max(reversed(TYPES), key=lambda t: len(candidates[t]))
         if not candidates[biggest]:
             break

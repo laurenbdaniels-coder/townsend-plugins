@@ -99,6 +99,19 @@ class StoplineTermsTests(unittest.TestCase):
         self.assertLess(time.monotonic() - t0, 1.0)
 
 
+class WholeTermsTests(unittest.TestCase):
+    def test_whole_terms_are_step_a_only(self):
+        self.assertEqual(sr.stopline_whole_terms("user_birthday"), ["birthday"])
+        self.assertEqual(sr.stopline_whole_terms("creditcard"), [])
+        self.assertEqual(sr.stopline_whole_terms("medical_diagnosis"), ["medical", "diagnosis"])
+
+    def test_terms_equal_whole_terms_when_there_are_any(self):
+        for ident in ("birthday", "creditcard", "dateOfBirth", "medical_creditcard", "passportscount", "x"):
+            whole = sr.stopline_whole_terms(ident)
+            if whole:
+                self.assertEqual(sr.stopline_terms(ident), whole)
+
+
 class KindTests(unittest.TestCase):
     def test_kind_by_file_name(self):
         for name, kind in (("001_init.sql", "sql"), ("x.PSQL", "sql"), ("a.pgsql", "sql"), ("a.ddl", "sql"),
@@ -300,6 +313,22 @@ class NeverOpenTests(unittest.TestCase):
     def test_never_open_sets_are_frozen(self):
         for name in ("NEVER_OPEN_DIRS", "NEVER_OPEN_DIR_PAIRS", "NEVER_OPEN_FILES"):
             self.assertIsInstance(getattr(sr, name), frozenset, name)
+
+
+class NeverOpenProseTests(unittest.TestCase):
+    def test_prose_names_every_instruction_file_and_folder_the_code_skips(self):
+        files, folders = set(sr.NEVER_OPEN_INSTRUCTION_FILES), set(sr.NEVER_OPEN_INSTRUCTION_FOLDERS)
+        for name in sr.NEVER_OPEN_FILES:
+            self.assertIn(name, files)
+        for d in sr.NEVER_OPEN_DIRS:
+            self.assertTrue(d + "/" in folders or d in files, d)
+        for parent, child in sr.NEVER_OPEN_DIR_PAIRS:
+            self.assertIn("%s/%s/" % (parent, child), folders)
+
+    def test_every_prose_file_name_is_skipped_by_the_code(self):
+        for name in sr.NEVER_OPEN_INSTRUCTION_FILES:
+            probe = name.replace("*", "x")
+            self.assertTrue(probe in sr.NEVER_OPEN_FILES or sr.NEVER_OPEN_FILE_RE.match(probe), name)
 
 
 class MistakeMeaningsTests(unittest.TestCase):

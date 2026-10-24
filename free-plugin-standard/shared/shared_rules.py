@@ -35,6 +35,14 @@ def _stopline_norm(identifier):
     return _NON_WORD.sub("_", s.lower())
 
 
+def stopline_whole_terms(identifier):
+    """Step (a) of stopline_terms alone: the terms that are whole words of the identifier's snake form."""
+    n = _stopline_norm(identifier)
+    if not _FLAT_ANY.search(n.replace("_", "")):
+        return []
+    return [t for t, rx in _WHOLE if rx.search(n)]
+
+
 def stopline_terms(identifier):
     """The stop-line terms one identifier (a field or column name, never a line) names, in list order.
 
@@ -43,13 +51,10 @@ def stopline_terms(identifier):
         ties to the earlier term in the list.
     Returns list members only, never the app's own text.
     """
-    n = _stopline_norm(identifier)
-    flat = n.replace("_", "")
-    if not _FLAT_ANY.search(flat):
-        return []
-    hits = [t for t, rx in _WHOLE if rx.search(n)]
+    hits = stopline_whole_terms(identifier)
     if hits:
         return hits
+    flat = _stopline_norm(identifier).replace("_", "")
     best = None
     for t, f in _FLAT:
         if len(f) >= RUN_TOGETHER_MIN and f in flat and (best is None or len(f) > len(best[1])):
@@ -66,6 +71,15 @@ NEVER_OPEN_DIR_PAIRS = frozenset({(".cursor", "rules"), (".github", "instruction
                                   (".github", "agents")})
 NEVER_OPEN_FILE_RE = re.compile(r"^(?:claude|agents?|gemini|conventions|copilot-instructions)(?:[.-][^/]*)?\.md$|^\.aider.*$|.*\.prompt\.md$|.*\.agent\.md$|.*\.instructions\.md$|.*\.mdc$", re.I)
 NEVER_OPEN_FILES = frozenset({".cursorrules", ".windsurfrules", ".clinerules", ".rules", "opencode.json", ".roomodes"})
+
+# The same list as prose (the never-open markdown block): instruction files, then folders.
+NEVER_OPEN_INSTRUCTION_FILES = ("CLAUDE.md", "AGENTS.md", "AGENT.md", "GEMINI.md", "CONVENTIONS.md",
+                                "copilot-instructions.md", "*.prompt.md", "*.agent.md", "*.instructions.md", "*.mdc",
+                                ".cursorrules", ".windsurfrules", ".clinerules", ".rules", ".roomodes", "opencode.json",
+                                ".aider*")
+NEVER_OPEN_INSTRUCTION_FOLDERS = (".claude/", ".codex/", ".agents/", ".cursor/rules/", ".github/instructions/",
+                                  ".github/prompts/", ".github/agents/", ".windsurf/", ".gemini/", ".kiro/", ".roo/",
+                                  ".trae/", ".augment/", ".amazonq/", ".junie/", ".continue/", ".aider/", ".opencode/")
 
 # ------------------------------------------------------------------ report text (stamped into markdown)
 

@@ -26,7 +26,8 @@ RUN = "run: python3 free-plugin-standard/sync_shared.py"
 def fake_registry():
     return {
         "copies": ("alpha/scripts/shared_rules.py", "beta/scripts/shared_rules.py"),
-        "blocks": {"mistake-meanings": ("alpha/assets/t.md", "beta/SKILL.md")},
+        "blocks": {"mistake-meanings": ("alpha/assets/t.md", "beta/SKILL.md"),
+                   "stopline-fields": ("beta/fields.md",)},
         "guarded": {"alpha": ("NEVER_OPEN_DIRS", "STOPLINE_FIELDS")},
         "excluded": (("alpha/scripts/frozen_*.py", "frozen release"), ("*/fixtures/*", "test inputs"),
                      ("*_test.py", "tests")),
@@ -47,8 +48,11 @@ class FakeRepo(unittest.TestCase):
         body = ss.render_block(self.root, "mistake-meanings")
         self.write("alpha/assets/t.md", "Intro:\n    <!-- shared:mistake-meanings -->\n%s\n    <!-- /shared:mistake-meanings -->\nAfter.\n"
                    % "\n".join("    " + ln for ln in body.split("\n")))
+        self.fields = ss.render_block(self.root, "stopline-fields")
         self.write("beta/SKILL.md", "Rule:\n  <!-- shared:mistake-meanings -->\n%s\n  <!-- /shared:mistake-meanings -->\n"
                    % "\n".join("  " + ln for ln in body.split("\n")))
+        self.write("beta/fields.md", "Intro.\nFields such as <!-- shared:stopline-fields -->%s<!-- /shared:stopline-fields -->, too.\n"
+                   % self.fields)
 
     def path(self, rel):
         return os.path.join(self.root, *rel.split("/"))
@@ -164,6 +168,34 @@ class CheckTests(FakeRepo):
         self.write("alpha/scripts/scan.py", "NEVER_OPEN_DIRS = {'SECRET-TEXT'}\n")
         for line in self.check():
             self.assertNotIn("SECRET", line)
+
+
+class InlineBlockTests(FakeRepo):
+    def test_inline_block_renders_the_field_list(self):
+        self.assertTrue(self.fields.startswith("`ssn`, `social_security`, "))
+        self.assertTrue(self.fields.endswith("`birth_date`, `birthday`"))
+
+    def test_inline_block_hand_edited(self):
+        self.write("beta/fields.md", self.read("beta/fields.md").replace("`ssn`, ", ""))
+        self.assertEqual(self.check(), [
+            "hand-edited beta/fields.md:2 block stopline-fields: %s (edit %s, not this block)" % (RUN, CANON)])
+
+    def test_inline_block_rewrite_keeps_the_rest_of_the_line(self):
+        self.write("beta/fields.md", self.read("beta/fields.md").replace("`ssn`, ", ""))
+        ss.rewrite(self.root, self.reg)
+        self.assertIn("Fields such as <!-- shared:stopline-fields -->`ssn`, ", self.read("beta/fields.md"))
+        self.assertIn("<!-- /shared:stopline-fields -->, too.\n", self.read("beta/fields.md"))
+        self.assertEqual(self.check(), [])
+
+    def test_inline_start_without_end_on_the_line(self):
+        self.write("beta/fields.md", self.read("beta/fields.md").replace("<!-- /shared:stopline-fields -->", ""))
+        self.assertEqual([e.split(" ")[:2] for e in self.check()], [["unbalanced-marker", "beta/fields.md:2"]])
+
+    def test_never_open_renders_files_then_folders(self):
+        text = ss.render_block(self.root, "never-open")
+        self.assertTrue(text.startswith("instruction files (`CLAUDE.md`, `AGENTS.md`, "), text)
+        self.assertIn("`.aider*`, and the folders `.claude/`, ", text)
+        self.assertTrue(text.endswith("`.opencode/`)"), text)
 
 
 class RewriteTests(FakeRepo):

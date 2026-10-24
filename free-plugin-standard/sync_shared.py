@@ -43,11 +43,14 @@ COPIES = (
 BLOCKS = {
     "mistake-meanings": ("custody-check/skills/custody-check/assets/verdict-template.md",
                          "build-decisions/skills/build-decisions/SKILL.md"),
+    "stopline-fields": ("build-decisions/skills/build-decisions/SKILL.md",),
+    "never-open": ("build-decisions/skills/build-decisions/SKILL.md", "build-decisions/README.md"),
 }
 GUARDED_NAMES = ("STOPLINE_FIELDS", "_stopline_norm", "stopline_terms", "stopline_line_terms", "NEVER_OPEN_DIRS",
-                 "NEVER_OPEN_DIR_PAIRS", "NEVER_OPEN_FILE_RE", "NEVER_OPEN_FILES", "KEY_SENTENCE", "MISTAKE_MEANINGS")
+                 "NEVER_OPEN_DIR_PAIRS", "NEVER_OPEN_FILE_RE", "NEVER_OPEN_FILES", "KEY_SENTENCE", "MISTAKE_MEANINGS",
+                 "stopline_whole_terms", "NEVER_OPEN_INSTRUCTION_FILES", "NEVER_OPEN_INSTRUCTION_FOLDERS")
 GUARDED = {
-    "build-decisions": ("NEVER_OPEN_DIRS", "NEVER_OPEN_DIR_PAIRS", "NEVER_OPEN_FILE_RE", "NEVER_OPEN_FILES"),
+    "build-decisions": GUARDED_NAMES,
 }
 EXCLUDED = (
     ("custody-check/skills/custody-check/scripts/custody_scan_0_3_2.py", "frozen 0.3.2 release, sha-pinned"),
@@ -60,12 +63,20 @@ REGISTRY = {"copies": COPIES, "blocks": BLOCKS, "guarded": GUARDED, "excluded": 
 
 # ------------------------------------------------------------------ rendering
 
+def _code_list(names):
+    return ", ".join("`%s`" % n for n in names)
+
+
 RENDER = {
     "mistake-meanings": lambda m: "\n".join('- %s: "%s"' % pair for pair in m.MISTAKE_MEANINGS),
+    "stopline-fields": lambda m: _code_list(m.STOPLINE_FIELDS),
+    "never-open": lambda m: "instruction files (%s, and the folders %s)" % (
+        _code_list(m.NEVER_OPEN_INSTRUCTION_FILES), _code_list(m.NEVER_OPEN_INSTRUCTION_FOLDERS)),
 }
 
 START_RE = re.compile(r"^(?P<indent>[ \t]*)<!-- shared:(?P<name>[a-z0-9-]+) -->[ \t]*$")
 END_RE = re.compile(r"^[ \t]*<!-- /shared:(?P<name>[a-z0-9-]+) -->[ \t]*$")
+INLINE_RE = re.compile(r"<!-- shared:(?P<name>[a-z0-9-]+) -->(?P<text>.*?)<!-- /shared:(?P=name) -->")
 ANY_MARKER = "<!-- shared:", "<!-- /shared:"
 
 
@@ -107,7 +118,8 @@ def is_excluded(rel, excluded=EXCLUDED):
 # ------------------------------------------------------------------ markdown blocks
 
 def parse_blocks(text):
-    """Return (blocks, errors). A block is (name, start_line, end_line, indent), lines 1-based (the markers)."""
+    """Return (blocks, errors). A line block is (name, start_line, end_line, indent), lines 1-based (the markers);
+    an inline block, both markers on one line, is (name, line, None, (start, end)) with the text's span on the line."""
     blocks, errors, open_ = [], [], None
     for n, line in enumerate(text.split("\n"), 1):
         start, end = START_RE.match(line), END_RE.match(line)
@@ -124,8 +136,11 @@ def parse_blocks(text):
                 errors.append((n, end.group("name")))
             open_ = None
         elif any(m in line for m in ANY_MARKER):
-            name = re.search(r"shared:([a-z0-9-]*)", line).group(1)
-            errors.append((n, name))
+            for m in INLINE_RE.finditer(line):
+                blocks.append((m.group("name"), n, None, m.span("text")))
+            rest = INLINE_RE.sub("", line)
+            if any(m in rest for m in ANY_MARKER):
+                errors.append((n, re.search(r"shared:([a-z0-9-]*)", rest).group(1)))
     if open_:
         errors.append((open_[1], open_[0]))
     return blocks, errors
@@ -169,7 +184,7 @@ def _blocks_plan(root, reg, module):
             else:
                 fix = "register %s for %s in BLOCKS in free-plugin-standard/sync_shared.py, or delete its markers" % (name, rel)
             errors.append("unbalanced-marker %s:%d block %s: %s" % (rel, line, name, fix))
-        for name, start, _end, _indent in blocks:
+        for name, start, _end, _span in blocks:
             if name not in names:
                 errors.append("unbalanced-marker %s:%d block %s: register %s for %s in BLOCKS in "
                               "free-plugin-standard/sync_shared.py, or delete its markers" % (rel, start, name, name, rel))
@@ -179,8 +194,17 @@ def _blocks_plan(root, reg, module):
                 errors.append("missing-marker %s:1 block %s: add <!-- shared:%s -->…<!-- /shared:%s --> in %s"
                               % (rel, name, name, name, rel))
         lines = text.split("\n")
+        # inline blocks first, right to left on each line, so spans stay valid
+        for name, line_no, _none, span in sorted((b for b in blocks if b[2] is None), key=lambda b: (b[1], -b[3][0])):
+            if name not in names:
+                continue
+            want = render_block(root, name, module)
+            line = lines[line_no - 1]
+            if line[span[0]:span[1]] != want:
+                stale.append("hand-edited %s:%d block %s: %s (edit %s, not this block)" % (rel, line_no, name, RUN, CANONICAL))
+                lines[line_no - 1] = line[:span[0]] + want + line[span[1]:]
         out, pos = [], 0
-        for name, start, end, indent in blocks:
+        for name, start, end, indent in (b for b in blocks if b[2] is not None):
             if name not in names:
                 continue
             want = render_block(root, name, module).split("\n")

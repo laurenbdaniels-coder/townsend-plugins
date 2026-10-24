@@ -1,0 +1,12 @@
+// birthday reminders come from the mail service
+/// date of birth is kept on Member
+model Patient {
+  id         String   @id
+  bornOn     DateTime @map("date_of_birth")
+  /*
+   stores medical notes
+  */
+  notes      String
+  creditcard String?
+  @@map("patients")
+}
