@@ -50,11 +50,11 @@ class FakeRepo(unittest.TestCase):
         self.write("alpha/assets/t.md", "Intro:\n    <!-- shared:mistake-meanings -->\n%s\n    <!-- /shared:mistake-meanings -->\nAfter.\n"
                    % "\n".join("    " + ln for ln in body.split("\n")))
         self.fields = ss.render_block(self.root, "stopline-fields")
-        self.key = ss.render_block(self.root, "key-clause")
+        self.clause = ss.render_block(self.root, "key-clause")
         self.write("beta/SKILL.md", "Rule:\n  <!-- shared:mistake-meanings -->\n%s\n  <!-- /shared:mistake-meanings -->\n"
                    % "\n".join("  " + ln for ln in body.split("\n")))
         self.write("gamma/SKILL.md", "Rules:\n5. If a file holds a key, say in one line: <!-- shared:key-clause -->%s"
-                   "<!-- /shared:key-clause -->. Never echo it.\n" % self.key)
+                   "<!-- /shared:key-clause -->. Never echo it.\n" % self.clause)
         self.write("beta/fields.md", "Intro.\nFields such as <!-- shared:stopline-fields -->%s<!-- /shared:stopline-fields -->, too.\n"
                    % self.fields)
 
@@ -207,7 +207,7 @@ class KeyClauseTests(FakeRepo):
            "and register the file in BLOCKS")
 
     def test_key_clause_renders_the_shared_sentence(self):
-        self.assertEqual(self.key, ss._load_canonical(self.root).KEY_SENTENCE)
+        self.assertEqual(self.clause, ss._load_canonical(self.root).KEY_SENTENCE)
 
     def test_key_clause_hand_edited(self):
         self.write("gamma/SKILL.md", self.read("gamma/SKILL.md").replace("replace it now", "rotate it"))
@@ -215,30 +215,30 @@ class KeyClauseTests(FakeRepo):
             "hand-edited gamma/SKILL.md:2 block key-clause: %s (edit %s, not this block)" % (RUN, CANON)])
 
     def test_the_sentence_in_code_outside_the_copies_fails(self):
-        self.write("alpha/scripts/scan.py", "import os\nMSG = 'Say: %s.'\n" % self.key)
+        self.write("alpha/scripts/scan.py", "import os\nMSG = 'Say: %s.'\n" % self.clause)
         self.assertEqual(self.check(), ["hand-copy alpha/scripts/scan.py:2 block key-clause: " + self.FIX])
 
     def test_the_sentence_in_markdown_outside_its_block_fails(self):
-        self.write("gamma/SKILL.md", self.read("gamma/SKILL.md") + "Later: %s.\n" % self.key)
-        self.write("alpha/assets/note.md", "Say: %s.\n" % self.key)
+        self.write("gamma/SKILL.md", self.read("gamma/SKILL.md") + "Later: %s.\n" % self.clause)
+        self.write("alpha/assets/note.md", "Say: %s.\n" % self.clause)
         self.assertEqual(sorted(self.check()), [
             "hand-copy alpha/assets/note.md:1 block key-clause: " + self.FIX,
             "hand-copy gamma/SKILL.md:3 block key-clause: " + self.FIX])
 
     def test_copies_tests_fixtures_and_other_prose_are_not_checked(self):
-        self.write("alpha/scripts/scan_test.py", "WANT = %r\n" % self.key)
-        self.write("alpha/scripts/fixtures/app/x.py", "S = %r\n" % self.key)
-        self.write("gamma/README.md", "Say: %s.\n" % self.key)
-        self.write("gamma/CHANGELOG.md", "Rule 5 now reads %s.\n" % self.key)
-        self.write("gamma/references/q.md", "Say: %s.\n" % self.key)
-        self.write("beta/scripts/scan.py", "MSG = %r\n" % self.key)  # beta is neither guarded nor a key-clause target
+        self.write("alpha/scripts/scan_test.py", "WANT = %r\n" % self.clause)
+        self.write("alpha/scripts/fixtures/app/x.py", "S = %r\n" % self.clause)
+        self.write("gamma/README.md", "Say: %s.\n" % self.clause)
+        self.write("gamma/CHANGELOG.md", "Rule 5 now reads %s.\n" % self.clause)
+        self.write("gamma/references/q.md", "Say: %s.\n" % self.clause)
+        self.write("beta/scripts/scan.py", "MSG = %r\n" % self.clause)  # beta is neither guarded nor a key-clause target
         self.assertEqual(self.check(), [])  # the copies hold the sentence too
 
     def test_the_check_is_off_until_a_key_clause_block_is_registered(self):
         del self.reg["blocks"]["key-clause"]
         self.write("gamma/SKILL.md", self.read("gamma/SKILL.md").replace("<!-- shared:key-clause -->", "")
                    .replace("<!-- /shared:key-clause -->", ""))
-        self.write("alpha/scripts/scan.py", "MSG = %r\n" % self.key)
+        self.write("alpha/scripts/scan.py", "MSG = %r\n" % self.clause)
         self.assertEqual(self.check(), [])
 
 
