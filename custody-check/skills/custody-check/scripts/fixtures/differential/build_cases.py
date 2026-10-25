@@ -356,7 +356,7 @@ case("ai flag with an unknown name", dict(VITE_PKG, **{"src/ai.ts": "new OpenAI(
 case("clean vite app with public names", dict(VITE_PKG, **{"src/db.ts": "export const u = import.meta.env.VITE_SUPABASE_URL;\nexport const a = import.meta.env.VITE_SUPABASE_ANON_KEY;\n"}))
 case("env name already judged plus two screen files", dict(VITE_PKG, **{".env": "VITE_OPENAI_API_KEY=%s\n" % KEY, "src/a.ts": "export const k = import.meta.env.VITE_OPENAI_API_KEY;\n", "src/b.ts": "export const k = import.meta.env.VITE_OPENAI_API_KEY;\n"}))
 case("stripe test key in a server file", {"server/pay.ts": 'export const k = "sk_test_a1b2c3d4e5f6g7h8i9j0";\n'})
-# S-064 /review red team: hand-built hostile inputs the branch first made slow or broke
+# S-064 code review, red team: hand-built hostile inputs the branch first made slow or broke
 case("unclosed quote with many escaped quotes", dict(VITE_PKG, **{"src/big.js": "const k = import.meta.env.VITE_OPENAI_API_KEY;\nconst s = \"" + "\\\"" * 40000 + "\n"}))
 case("deeply nested package json", {"package.json": '{"a":' * 5000 + "1" + "}" * 5000, "src/a.ts": "export const a = 1;\n"})
 

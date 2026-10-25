@@ -8140,7 +8140,7 @@ class KeyNamePassTests(ScanCase):
         self.assertEqual(self.rows(r, self.NAME_NO), [(path, line)])
         self.assertEqual(len(self.places(r)), 1)
 
-    # ---- red-team review (S-064 /review): hand-built hostile inputs this branch made worse than main
+    # ---- red-team review (S-064 code review): hand-built hostile inputs this branch made worse than main
 
     def test_unclosed_quote_with_many_escapes_stays_fast(self):
         self.vite()
