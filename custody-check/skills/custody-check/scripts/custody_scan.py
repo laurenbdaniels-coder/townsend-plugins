@@ -53,6 +53,7 @@ if _guard is not None and __name__ == "__main__":
     sys.stdout.write(_json.dumps(_guard, separators=(",", ":")) + "\n")
     sys.exit(0)
 
+import base64
 import bisect
 import collections
 import copy
@@ -154,17 +155,30 @@ UNFINISHED_SNIPPETS = {"unfinished": "time ran out; rerun with --deadline-s 600"
                        "error": "an error; please report it",
                        "full": "more found than the output can hold"}  # each row shorter than any nothing-found row it replaces
 
-# check id -> the questions its rows go to. Every overlay row is evidence; the one No is a key in browser-side
-# .mts/.cts code (source "mts-key"), read with 0.3.2's own key detectors.
-OVERLAY_CHECKS = {
-    "mcp-config-not-opened": ("q1",), "code-file-not-read": ("q1",),
-    "open-rule-unconfirmed": ("q3",), "open-rule-in-string": ("q3",), "policy-true-unevaluated": ("q3",),
-    "firebase-rules-test-mode": ("q3",), "firebase-rules-true-unevaluated": ("q3",), "public-view": ("q3",),
-    "rules-not-read-whole": ("q3",), "table-dropped": ("q3",), "no-rule-statements": ("q3",),
-    "manifest-not-parsed": ("q9",),
-    "compressed-file-not-read": ("q1", "q3", "q9"), "checks-not-finished": ("q1", "q3", "q9"),
-    "stopline-field": ("q10",),
+# The one table of overlay checks (S-064, G15): check id -> (the questions its rows go to, effect, the source of a
+# No). Overlay rows are evidence except three Q1 Nos: a key in browser-side .mts/.cts code (0.3.2's own check ids,
+# source "mts-key"), a browser-prefixed secret NAME read in screen code ("key-name"), and a live named key typed
+# into server or unclear code ("key-literal"). The clamp in _plans lets no other source give a No.
+NAME_NO_CHECK, NAME_ALSO_CHECK = "browser-secret-env-name", "browser-secret-env-name-also"
+FLAG_CHECK, LIVE_KEY_CHECK = "browser-ai-key-flag", "code-key-live-literal"
+OVERLAY_TABLE = {
+    "mcp-config-not-opened": (("q1",), "evidence", None), "code-file-not-read": (("q1",), "evidence", None),
+    "open-rule-unconfirmed": (("q3",), "evidence", None), "open-rule-in-string": (("q3",), "evidence", None),
+    "policy-true-unevaluated": (("q3",), "evidence", None), "firebase-rules-test-mode": (("q3",), "evidence", None),
+    "firebase-rules-true-unevaluated": (("q3",), "evidence", None), "public-view": (("q3",), "evidence", None),
+    "rules-not-read-whole": (("q3",), "evidence", None), "table-dropped": (("q3",), "evidence", None),
+    "no-rule-statements": (("q3",), "evidence", None),
+    "manifest-not-parsed": (("q9",), "evidence", None),
+    "compressed-file-not-read": (("q1", "q3", "q9"), "evidence", None),
+    "checks-not-finished": (("q1", "q3", "q9"), "evidence", None),
+    "stopline-field": (("q10",), "evidence", None),
+    NAME_NO_CHECK: (("q1",), "no", "key-name"),
+    NAME_ALSO_CHECK: (("q1",), "evidence", None),
+    FLAG_CHECK: (("q1",), "evidence", None),
+    LIVE_KEY_CHECK: (("q1",), "no", "key-literal"),
 }
+OVERLAY_CHECKS = dict((k, qs) for k, (qs, _e, _s) in OVERLAY_TABLE.items())
+NO_SOURCES = frozenset(["mts-key"] + [s for _q, e, s in OVERLAY_TABLE.values() if e == "no"])
 STOPLINE_CHECK = "stopline-field"
 # 0.3.2's schema files (its classify() "schema" kind): the overlay reads these and its SQL files for stop-line fields
 SCHEMA_BASENAMES = ("models.py", "schema.rb", "schema.ts", "schema.py", "schema.sql")
@@ -180,7 +194,7 @@ def named_per_scan():
 def all_checks():
     """Every check id the output can hold: 0.3.2's (question, effect) and the overlay's, as {id: (questions, effect)}."""
     out = dict((k, ((q,), e)) for k, (q, e) in release.CHECKS.items())
-    out.update((k, (qs, "evidence")) for k, qs in OVERLAY_CHECKS.items())
+    out.update((k, (qs, e)) for k, (qs, e, _s) in OVERLAY_TABLE.items())
     return out
 
 
@@ -305,6 +319,14 @@ class Overlay(object):
         self.stopline_found = set()  # every stop-line term found, kept or not: stats.stopline_rows_capped counts the lost ones
         self.stopline_files = []  # (rel, full path, name, ext): schema and SQL files the walk passed, read after it
         self.stopline_unfinished = False  # the stop-line pass ran out of time (fewer rows; the other checks are done)
+        # S-064 Q1 key pass (G2): code files the walk passed, read after it; its own finished flag
+        self.key_files = []  # (rel, full path, name, ext)
+        self.key_finished = True
+        self.key_errors = []  # (exception class, sanitized path): a detector that raised; never file text (D2)
+        self.key_cands = []  # name references, judged after the pass (R2)
+        self.pkg_next = {}  # package folder -> its package.json lists next (unread or unparsed: True) (G4)
+        self.next_config_dirs = set()  # folders holding a next.config.*
+        self.q1_no_lines = set()  # (path, line) that already hold a Q1 No: 0.3.2's or an .mts one (G7, G14)
 
     def stopline(self, path, line, term):
         """A Q10 stop-line row. Its snippet is the list term, never the app's identifier."""
@@ -1066,6 +1088,271 @@ def stopline_pass(ov, opts, clock=time.monotonic, end=float("inf")):
         ov.stopline_unfinished = True
 
 
+# ------------------------------------------------------------------ S-064: the Q1 key pass (custody 0.6.2)
+# Gap 1: a browser-prefixed secret NAME read in screen code ships its value to every visitor, even when .env is not
+# in the clone. Gap 2: a live named key typed into server or unclear code is a key to replace, so 0.3.2's evidence
+# row for it becomes a No. Plan Steps 2-3 (~/.claude/plans/idempotent-wishing-feigenbaum.md).
+
+NEXT_CONFIG_RE = re.compile(r"^next\.config\.(?:js|mjs|ts|cjs)$")
+_ENV_NAME = r"[A-Za-z_][A-Za-z0-9_]{0,127}"
+ENV_ACCESS_RE = re.compile(r"(?<![\w$.])(import\.meta\.env|process\.env)\s{0,5}(?:\??\.\s{0,5}(" + _ENV_NAME + r")|(?:\?\.)?\s{0,5}\[\s{0,5}([\"'`])(" + _ENV_NAME + r")\3\s{0,5}\])")
+ENV_DESTRUCTURE_RE = re.compile(r"\{([^{}]{0,2000})\}\s{0,20}=\s{0,20}(import\.meta\.env|process\.env)\b")
+DESTRUCTURE_KEY_RE = re.compile(r"(?:^|[{,])\s{0,200}(" + _ENV_NAME + r")\s{0,200}(?=[:,=]|$)")
+AI_FLAG_RE = re.compile(r"\bdangerouslyAllowBrowser\s{0,5}:\s{0,5}true\b")
+SECRET_SUFFIX_RE = re.compile(r"(?:_KEY|_TOKEN|_SECRET|_SERVICE_ROLE|_ROLE_KEY)$|^SECRET$", re.I)
+INLINED_PROCESS_PREFIXES = ("NEXT_PUBLIC_", "REACT_APP_", "EXPO_PUBLIC_")  # bundlers inline these from process.env
+JS_COMMENT_RE = re.compile(r"//[^\n]*|/\*(?:[^*]|\*(?!/))*(?:\*/|$)|\"(?:[^\"\\\n]|\\.)*\"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`?")
+JS_EXTS = {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".mts", ".cts", ".vue", ".svelte", ".astro"}
+MAX_NAME_SNIPPET = 64
+PROMOTED_CHECKS = ("server-path-key-literal", "non-client-key-literal")
+
+
+def _dir_of(rel):
+    return rel.rsplit("/", 1)[0] if "/" in rel else ""
+
+
+def _lists_next(text):
+    """True when a package.json lists next in dependencies or devDependencies, or cannot be read as one (G4)."""
+    try:
+        pj = json.loads(text)
+    except ValueError:
+        return True
+    if not isinstance(pj, dict):
+        return True
+    for k in ("dependencies", "devDependencies"):
+        deps = pj.get(k)
+        if isinstance(deps, dict) and "next" in deps:
+            return True
+    return False
+
+
+def _is_next(rel, ov):
+    """The nearest package root above the file is a Next app (G4); the repo root when there is none."""
+    d = _dir_of(rel)
+    while True:
+        if d in ov.next_config_dirs:
+            return True
+        if d in ov.pkg_next:
+            return ov.pkg_next[d]
+        if not d:
+            return False
+        d = _dir_of(d)
+
+
+def secret_name_prefix(name, opts):
+    """The browser prefix of NAME when the rest of it names a secret (S2, C3), else None."""
+    up = name.upper()
+    for p in opts.prefixes:
+        if up.startswith(p.upper()):
+            rest = name[len(p):]
+            if rest and ((release.IDENT_SENSITIVE_RE.search(rest) and SECRET_SUFFIX_RE.search(rest))
+                         or re.match(r"^(?:" + release.MODEL_PROVIDER_ALT + r")_[A-Z0-9_]*(?:KEY|TOKEN|SECRET)$", rest, re.I)):
+                return p
+            return None
+    return None
+
+
+def _comment_spans(text, ov):
+    """(start, end) of each // and /* */ comment in JS-like code; strings are skipped so `'//'` is not one."""
+    spans = []
+    for k, m in enumerate(JS_COMMENT_RE.finditer(text)):
+        if k % release.DEADLINE_TICK == 0:
+            ov.tick()
+        if m.group(0)[:1] == "/":
+            spans.append((m.start(), m.end()))
+    return spans
+
+
+def _inside(pos, spans, starts):
+    i = bisect.bisect_right(starts, pos) - 1
+    return i >= 0 and spans[i][1] > pos
+
+
+def _jwt_iss(token):
+    try:
+        part = token.split(".")[1]
+        if len(part) > 4096:
+            return None
+        data = json.loads(base64.urlsafe_b64decode(part + "=" * (-len(part) % 4)).decode("utf-8"))
+        return data.get("iss") if isinstance(data, dict) else None
+    except Exception:
+        return None
+
+
+def _live_on_line(line_text):
+    """A live named key (not test mode, not a placeholder) or a service_role JWT that is not Supabase's demo key."""
+    for m in release.NAMED_KEY_RE.finditer(line_text):
+        v = m.group(0)
+        if not release.TEST_MODE_KEY_RE.match(v) and not release.is_placeholder(v, False):
+            return True
+    for s, e in release.find_jwts(line_text):
+        tok = line_text[s:e]
+        if release.decode_jwt_role(tok) == "service_role" and _jwt_iss(tok) != "supabase-demo" and not release.is_placeholder(tok, True):
+            return True
+    return False
+
+
+def _key_prefilter(text, opts):
+    return "import.meta.env" in text or "process.env" in text or "dangerouslyAllowBrowser" in text or bool(opts.prefilter_re.search(text))
+
+
+def detect_keys(sf, ov, opts):
+    """One code file: name references (judged after the pass), the AI SDK browser flag (evidence), and live keys
+    0.3.2 left as evidence in server or unclear code (promoted to a No). An .mts/.cts file reads as its .ts sibling."""
+    module = sf.ext in MODULE_EXTS
+    rel_ts, base_ts, ext_ts = (_ts_name(sf.rel), _ts_name(sf.base), ".ts") if module else (sf.rel, sf.base, sf.ext)
+    text = sf.text
+    cls, kinds = release.classify(rel_ts, base_ts, ext_ts, text)
+    path = release.sanitize_path(sf.rel)
+    test = bool(release.TEST_PATH_RE.search(sf.rel))
+    spans = starts = None
+
+    def in_comment(pos):
+        nonlocal spans, starts
+        if sf.ext not in JS_EXTS:
+            return False
+        if spans is None:
+            spans = _comment_spans(text, ov)
+            starts = [s for s, _ in spans]
+        return _inside(pos, spans, starts)
+
+    if cls != "server" and ("import.meta.env" in text or "process.env" in text):
+        refs = []
+        for m in ENV_ACCESS_RE.finditer(text):
+            ov.tick()
+            refs.append((m.group(2) or m.group(4), m.group(1), m.start()))
+        for m in ENV_DESTRUCTURE_RE.finditer(text):
+            ov.tick()
+            for k in DESTRUCTURE_KEY_RE.finditer(m.group(1)):
+                refs.append((k.group(1), m.group(2), m.start()))
+        nxt = None
+        for name, acc, pos in refs:
+            prefix = secret_name_prefix(name, opts)
+            if prefix is None or len(ov.key_cands) >= release.MAX_SEEN:
+                continue
+            if nxt is None:
+                nxt = _is_next(sf.rel, ov)
+            ov.key_cands.append({"name": name, "acc": acc, "prefix": prefix, "rel": sf.rel, "path": path,
+                                 "line": release.line_of(text, pos), "cls": cls, "comment": in_comment(pos), "test": test, "next": nxt})
+    if cls != "server" and not test and "dangerouslyAllowBrowser" in text:
+        n = 0
+        for m in AI_FLAG_RE.finditer(text):
+            ov.tick()
+            if in_comment(m.start()):
+                continue
+            n += 1
+            if n > release.MAX_HITS_PER_FILE_PER_CHECK:
+                break
+            ov.add(FLAG_CHECK, sf.rel, release.line_of(text, m.start()), "dangerouslyAllowBrowser: true", source="key-flag")
+    rsf = release.ScanFile(rel_ts, base_ts, ext_ts, cls, kinds, text)
+    if cls in ("server", "other") and release._q1_gate(rsf, opts):
+        scratch = release.ScanState()
+        scratch.deadline = ov.deadline
+        claimed = []
+        release.detect_browser_prefix(rsf, scratch, opts, claimed)
+        release.detect_key_literals(rsf, scratch, opts, claimed)
+        lines = None
+        ts_path = release.sanitize_path(rel_ts)
+        for row in scratch.evidence["q1"]:
+            if row["check"] not in PROMOTED_CHECKS:
+                continue
+            ov.tick()
+            if lines is None:
+                lines = text.split("\n")
+            n = row["line"]
+            if not (0 < n <= len(lines)) or not _live_on_line(lines[n - 1]):
+                continue
+            rpath = path if row["path"] == ts_path else row["path"]
+            if (rpath, n) in ov.q1_no_lines:
+                continue
+            ov.add(LIVE_KEY_CHECK, sf.rel if row["path"] == ts_path else row["path"], n, row["snippet"], effect="no", source="key-literal")
+
+
+def _judge_names(ov, opts, rel_state):
+    """After the pass (R2): each name reference becomes no row (server), `-also` evidence (comment, test path, a
+    process.env name a bundler does not inline in an unclear file, an unclear file in a Next app), or a No candidate.
+    Per NAME the first No candidate in sorted (path, line) is the No, unless 0.3.2 already gave that NAME a No (F3)."""
+    prefix_alt = "|".join(re.escape(p) for p in opts.prefixes)
+    name_re = re.compile(r"\b(?:" + prefix_alt + r")[A-Za-z0-9_]+")
+    judged = set()
+    for row in rel_state.evidence["q1"]:
+        if row["check"].startswith("browser-prefix-") and release.CHECKS[row["check"]][1] == "no":
+            judged.update(n.upper() for n in name_re.findall(row["snippet"]))
+    candidates = {}
+    also = []
+    for c in ov.key_cands:
+        if c["cls"] == "server":
+            continue
+        unclear = c["cls"] == "other"
+        if c["comment"] or c["test"] or (unclear and c["next"]) or \
+                (unclear and c["acc"] == "process.env" and c["prefix"].upper() not in INLINED_PROCESS_PREFIXES):
+            also.append(c)
+        else:
+            candidates.setdefault(c["name"].upper(), []).append(c)
+    nos = []
+    for name in sorted(candidates):
+        group = sorted(candidates[name], key=lambda c: (c["path"], c["line"]))
+        first = None if name in judged else group[0]
+        for c in group:
+            (nos if c is first else also).append(c)
+    for c in nos:
+        if (c["path"], c["line"]) not in ov.q1_no_lines:
+            ov.add(NAME_NO_CHECK, c["rel"], c["line"], c["name"][:MAX_NAME_SNIPPET], effect="no", source="key-name")
+    shown = {}
+    for c in sorted(also, key=lambda c: (c["path"], c["line"])):
+        shown[c["path"]] = shown.get(c["path"], 0) + 1
+        if shown[c["path"]] <= release.MAX_HITS_PER_FILE_PER_CHECK:
+            ov.add(NAME_ALSO_CHECK, c["rel"], c["line"], c["name"][:MAX_NAME_SNIPPET], source="key-name-also")
+
+
+def _key_gap(ov, rel, why, named):
+    if release.sanitize_path(rel) not in named:  # 0.3.2 already shows this file on Q1 (G14)
+        ov.gap("code-file-not-read", rel, 0, why)
+
+
+def key_pass(ov, opts, rel_state, clock=time.monotonic, end=float("inf")):
+    """S-064 (G2): after the walk and the stop-line pass, the code files the walk passed, in the time left. Running
+    out leaves only Q1 unfinished (Don't know, never Nothing found); the rows found so far stand. A detector error on
+    one file is a Q1 gap for that file and the rest of the pass goes on (D2, G1)."""
+    past_end = lambda: clock() > end  # noqa: E731
+    named = set(r["path"] for r in rel_state.evidence["q1"])
+    ov.q1_no_lines = set((r["path"], r["line"]) for r in rel_state.evidence["q1"] if release.CHECKS[r["check"]][1] == "no")
+    ov.q1_no_lines.update((r["path"], r["line"]) for r in ov.rows["q1"] if r["_effect"] == "no" and r["_source"] == "mts-key")
+    stopped_by = ov.stopped_by
+    try:
+        for rel, full, name, ext in ov.key_files:
+            if past_end():
+                raise release.Deadline()
+            opened = release.open_regular(full)
+            if opened is None:
+                _key_gap(ov, rel, "could not be read", named)
+                continue
+            fd, size = opened
+            try:
+                if size > opts.max_file_bytes:
+                    continue  # 0.3.2 counts an oversize file itself
+                data = release.read_bytes(fd, size)
+            finally:
+                os.close(fd)
+            text = release.decode_text(data) if len(data) == size else None
+            if text is None:
+                _key_gap(ov, rel, "binary or changed while read", named)
+                continue
+            if not _key_prefilter(text, opts):
+                continue
+            try:
+                detect_keys(OverlayFile(rel, name, ext, text), ov, opts)
+            except (release.Deadline, OverlayTimeout):
+                raise
+            except Exception as exc:
+                ov.key_errors.append((type(exc).__name__, release.sanitize_path(rel)))
+                _key_gap(ov, rel, "the key check stopped on an error", named)
+    except (release.Deadline, OverlayTimeout):
+        ov.key_finished = False
+        ov.stopped_by = stopped_by  # the walk's own ending is unchanged
+    _judge_names(ov, opts, rel_state)
+
+
 def note_release_q10(ov, result):
     """The stop-line terms 0.3.2's own Q10 rows name: the overlay does not repeat them on that path, and a later trim
     that drops one is counted in stats.stopline_rows_capped like an overlay row."""
@@ -1156,6 +1443,10 @@ def overlay_walk(repo, opts, ov, rel_state, caps, clock, end):
                     ov.gap("code-file-not-read", rel, 0, "a link or special file, not read")
                 continue
             lower_rel = rel.lower()
+            if name == "package.json":
+                ov.pkg_next[_dir_of(rel)] = True  # Next until it is read and says otherwise (G4: fewer Nos)
+            elif NEXT_CONFIG_RE.match(name):
+                ov.next_config_dirs.add(_dir_of(rel))
             dirs = lower_rel.split("/")[:-1]
             in_code = "src" in dirs or release.TEST_PATH_RE.search(lower_rel)  # tests/setup.py and src/setup.py are code
             if not in_code and (UNPARSED_MANIFEST_RE.match(name.lower()) or (dirs and dirs[-1] == "requirements" and name.lower().endswith((".txt", ".in")))):
@@ -1178,6 +1469,8 @@ def overlay_walk(repo, opts, ov, rel_state, caps, clock, end):
                 total_bytes += st.st_size
             if _stopline_file(name, ext):
                 ov.stopline_files.append((rel, full, name, ext))  # read after the walk (stopline_pass)
+            if ext in release.CODE_EXTS or module:
+                ov.key_files.append((rel, full, name, ext))  # read after the walk (key_pass)
             if not _needs_read(name, ext):
                 continue
             opened = release.open_regular(full)
@@ -1207,6 +1500,8 @@ def overlay_walk(repo, opts, ov, rel_state, caps, clock, end):
                 detect_module(sf, ov, opts)
             if b in release.MANIFEST_BASENAMES:
                 detect_monitoring(sf, ov)
+            if name == "package.json":
+                ov.pkg_next[_dir_of(rel)] = _lists_next(text)
 
 
 def overlay_pass(repo, opts, ov, rel_state, result, clock, end):
@@ -1233,7 +1528,8 @@ def overlay_pass(repo, opts, ov, rel_state, result, clock, end):
             ov.add("table-without-rls", path, line, _name("table", name in ov.code_tables), source="sql")
     if ov.rule_files == 0 and result["questions"]["q3"]["answer"] == "nothing-found":
         ov.add("no-rule-statements", "", 0, "no SQL file creates a table or policy; no rules file")
-    stopline_pass(ov, opts, clock, end)  # last: it never makes the checks above unfinished
+    stopline_pass(ov, opts, clock, end)  # it never makes the checks above unfinished
+    key_pass(ov, opts, rel_state, clock, end)  # after the stop-line pass, so its rows are never fewer than main's (S-064)
 
 # ------------------------------------------------------------------ the code inventory (--inventory, 0.6.0)
 # One JSON line: every code file the agent may Read, with its line count and two marks, server files and
@@ -1486,12 +1782,13 @@ def _plans(result, ov):
         lines = set((r["path"], r["line"]) for r in base_rows if r["line"] > 0)
         rows = []
         for r in ov.rows[q]:
-            no = r["_effect"] == "no" and r["_source"] == "mts-key" and q == "q1"  # the clamp: no other overlay row is a No
+            no = r["_effect"] == "no" and r["_source"] in NO_SOURCES and q == "q1"  # the clamp: no other overlay row is a No
             if (r["check"], r["path"], r["line"]) in taken or (not no and q != "q10" and (r["path"], r["line"]) in lines):
                 continue  # 0.3.2 already shows this line on this question (Q10: dedupe is by path, line and term)
             rows.append(dict(r, _no=no))
         rows.sort(key=lambda r: 0 if r["_no"] else 1)
-        want = "no" if any(r["_no"] for r in rows) else ("dont-know" if rows or ov.gaps[q] or not ov.finished else "nothing-found")
+        done = ov.finished and (q != "q1" or ov.key_finished)  # the key pass has its own flag; it moves Q1 only (G2)
+        want = "no" if any(r["_no"] for r in rows) else ("dont-know" if rows or ov.gaps[q] or not done else "nothing-found")
         p = _Plan()
         p.base_answer, p.extra, p.rows_changed = qd["answer"], 0, False
         base = qd["answer"]
@@ -1502,7 +1799,7 @@ def _plans(result, ov):
             base_rows = [r for r in base_rows if not r["check"].startswith("nothing-found-")]
             p.rows_changed = True
         p.base_rows = base_rows
-        p.unfinished_row = _unfinished_row(ov.status) if not ov.finished and p.base_answer == "nothing-found" else None
+        p.unfinished_row = _unfinished_row(ov.status if not ov.finished else "unfinished") if not done and p.base_answer == "nothing-found" else None
         # Nos first: each takes one evidence-only 0.3.2 slot when Q1 is full; cautions only take free slots
         displaceable = sum(1 for r in base_rows if _evidence_only(r))
         free = max(0, cap - len(base_rows) - (1 if p.unfinished_row else 0))
@@ -1812,7 +2109,8 @@ def main(argv=None):
         r.emit(result, pretty)
         skipped = sum(state.stats[k] for k in ("files_skipped_oversize", "files_skipped_binary", "files_skipped_generated", "files_never_open", "files_skipped_special"))
         sys.stderr.write("custody-check v%s: scanned %d, skipped %d, errored %d, %d ms; checks 0.3.3: %s, %d ms\n" % (
-            __version__, state.files_scanned, skipped, state.stats["files_errored"], int((time.monotonic() - started) * 1000), status, overlay_ms))
+            __version__, state.files_scanned, skipped, state.stats["files_errored"], int((time.monotonic() - started) * 1000),
+            status + (" (key pass unfinished)" if status == "finished" and not getattr(getattr(scan_with_overlay, "last", None), "key_finished", True) else ""), overlay_ms))
         return 3 if (exit_code and result["partial"]) else 0
     except r.UsageError:
         r.emit(r.envelope("usage"), pretty)
