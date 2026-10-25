@@ -104,6 +104,35 @@ class AgreementTests(unittest.TestCase):
         self.assertFalse(sl["capped"])
 
 
+@unittest.skipIf(shutil.which("git") is None, "git is not installed")
+class ReviewInputAgreementTests(unittest.TestCase):
+    """Inputs review round 2 found: a field word inside a string value. build-decisions main hints both (it drops
+    comments only), so the branch keeps that and custody-check agrees with it. Known weakness, in TODOS.md."""
+
+    FILES = {
+        "prisma/schema.prisma": 'model Event {\n  id Int @id\n  kind String @default("birthday")\n}\n',
+        "db/seed.sql": "CREATE TABLE notes (id int, body text);\n"
+                       "INSERT INTO notes (body) VALUES ('Opening line;\nbirthday invitation');\n",
+    }
+    WANT = {("prisma/schema.prisma", 3, "birthday"), ("db/seed.sql", 3, "birthday")}
+
+    def test_both_plugins_give_the_same_rows(self):
+        tmp = tempfile.mkdtemp(prefix="agreement-review-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        for rel, body in self.FILES.items():
+            path = os.path.join(tmp, "app", rel)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", newline="") as fh:
+                fh.write(body)
+        census = run(os.path.join(BD, "census_scan.py"), "--repo", "app", cwd=tmp)
+        scan = run(os.path.join(CUSTODY, "custody_scan.py"), "--repo", "app", cwd=tmp)
+        bd = {(h["path"], h["line"], h["field"]) for h in census["stopline_hints"]}
+        custody = {(e["path"], e["line"], t) for e in scan["questions"]["q10"]["evidence"]
+                   if e["check"] == "stopline-field" for t in sr.stopline_terms(e["snippet"])}
+        self.assertEqual(bd, self.WANT)
+        self.assertEqual(custody, self.WANT)
+
+
 class EvalCopyTests(unittest.TestCase):
     """Each plugin's eval cases build their app from a copy inside the plugin (an eval may copy one plugin folder
     alone). The copies stay byte-equal to the fixture this test uses."""
