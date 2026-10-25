@@ -1063,6 +1063,23 @@ def detect_stopline(sf, ov, past_end=lambda: False):
         ov.stopline(sf.rel, line_no, term)
 
 
+def _read_text(full, opts):
+    """(text, why): a regular file's text, or None and why it was not read ("" for one over the size limit, which
+    0.3.2 counts itself)."""
+    opened = release.open_regular(full)
+    if opened is None:
+        return None, "could not be read"
+    fd, size = opened
+    try:
+        if size > opts.max_file_bytes:
+            return None, ""
+        data = release.read_bytes(fd, size)
+    finally:
+        os.close(fd)
+    text = release.decode_text(data) if len(data) == size else None
+    return text, "" if text is not None else "binary or changed while read"
+
+
 def stopline_pass(ov, opts, clock=time.monotonic, end=float("inf")):
     """After the walk and every other check: the stop-line fields of the files the walk passed, in the time left.
     Running out stops only this pass. A file not read here means fewer stop-line rows, which main never had."""
@@ -1071,17 +1088,7 @@ def stopline_pass(ov, opts, clock=time.monotonic, end=float("inf")):
         for rel, full, name, ext in ov.stopline_files:
             if past_end():
                 raise release.Deadline()
-            opened = release.open_regular(full)
-            if opened is None:
-                continue
-            fd, size = opened
-            try:
-                if size > opts.max_file_bytes:
-                    continue
-                data = release.read_bytes(fd, size)
-            finally:
-                os.close(fd)
-            text = release.decode_text(data) if len(data) == size else None
+            text, _why = _read_text(full, opts)
             if text is not None:
                 detect_stopline(OverlayFile(rel, name, ext, text), ov, past_end)
     except release.Deadline:
@@ -1099,6 +1106,7 @@ ENV_ACCESS_RE = re.compile(r"(?<![\w$.])(import\.meta\.env|process\.env)\s{0,5}(
 ENV_DESTRUCTURE_RE = re.compile(r"\{([^{}]{0,2000})\}\s{0,20}=\s{0,20}(import\.meta\.env|process\.env)\b")
 DESTRUCTURE_KEY_RE = re.compile(r"(?:^|[{,])\s{0,200}(" + _ENV_NAME + r")\s{0,200}(?=[:,=]|$)")
 AI_FLAG_RE = re.compile(r"\bdangerouslyAllowBrowser\s{0,5}:\s{0,5}true\b")
+PROVIDER_KEY_RE = re.compile(r"^(?:" + release.MODEL_PROVIDER_ALT + r")_[A-Z0-9_]*(?:KEY|TOKEN|SECRET)$", re.I) if release else None
 SECRET_SUFFIX_RE = re.compile(r"(?:_KEY|_TOKEN|_SECRET|_SERVICE_ROLE|_ROLE_KEY)$|^SECRET$", re.I)
 INLINED_PROCESS_PREFIXES = ("NEXT_PUBLIC_", "REACT_APP_", "EXPO_PUBLIC_")  # bundlers inline these from process.env
 JS_COMMENT_RE = re.compile(r"//[^\n]*|/\*(?:[^*]|\*(?!/))*(?:\*/|$)|\"(?:[^\"\\\n]|\\.)*\"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`?")
@@ -1146,7 +1154,7 @@ def secret_name_prefix(name, opts):
         if up.startswith(p.upper()):
             rest = name[len(p):]
             if rest and ((release.IDENT_SENSITIVE_RE.search(rest) and SECRET_SUFFIX_RE.search(rest))
-                         or re.match(r"^(?:" + release.MODEL_PROVIDER_ALT + r")_[A-Z0-9_]*(?:KEY|TOKEN|SECRET)$", rest, re.I)):
+                         or PROVIDER_KEY_RE.match(rest)):
                 return p
             return None
     return None
@@ -1161,11 +1169,6 @@ def _comment_spans(text, ov):
         if m.group(0)[:1] == "/":
             spans.append((m.start(), m.end()))
     return spans
-
-
-def _inside(pos, spans, starts):
-    i = bisect.bisect_right(starts, pos) - 1
-    return i >= 0 and spans[i][1] > pos
 
 
 def _jwt_iss(token):
@@ -1192,10 +1195,6 @@ def _live_on_line(line_text):
     return False
 
 
-def _key_prefilter(text, opts):
-    return "import.meta.env" in text or "process.env" in text or "dangerouslyAllowBrowser" in text or bool(opts.prefilter_re.search(text))
-
-
 def detect_keys(sf, ov, opts):
     """One code file: name references (judged after the pass), the AI SDK browser flag (evidence), and live keys
     0.3.2 left as evidence in server or unclear code (promoted to a No). An .mts/.cts file reads as its .ts sibling."""
@@ -1214,7 +1213,8 @@ def detect_keys(sf, ov, opts):
         if spans is None:
             spans = _comment_spans(text, ov)
             starts = [s for s, _ in spans]
-        return _inside(pos, spans, starts)
+        i = bisect.bisect_right(starts, pos) - 1
+        return i >= 0 and spans[i][1] > pos
 
     if cls != "server" and ("import.meta.env" in text or "process.env" in text):
         refs = []
@@ -1323,22 +1323,12 @@ def key_pass(ov, opts, rel_state, clock=time.monotonic, end=float("inf")):
         for rel, full, name, ext in ov.key_files:
             if past_end():
                 raise release.Deadline()
-            opened = release.open_regular(full)
-            if opened is None:
-                _key_gap(ov, rel, "could not be read", named)
-                continue
-            fd, size = opened
-            try:
-                if size > opts.max_file_bytes:
-                    continue  # 0.3.2 counts an oversize file itself
-                data = release.read_bytes(fd, size)
-            finally:
-                os.close(fd)
-            text = release.decode_text(data) if len(data) == size else None
+            text, why = _read_text(full, opts)
             if text is None:
-                _key_gap(ov, rel, "binary or changed while read", named)
+                if why:
+                    _key_gap(ov, rel, why, named)
                 continue
-            if not _key_prefilter(text, opts):
+            if not ("import.meta.env" in text or "process.env" in text or "dangerouslyAllowBrowser" in text or opts.prefilter_re.search(text)):
                 continue
             try:
                 detect_keys(OverlayFile(rel, name, ext, text), ov, opts)
