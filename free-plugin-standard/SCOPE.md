@@ -71,7 +71,7 @@ README's "From the workshop".
 
 ## Build Decisions
 
-Shows where your app decides who sees what and what things cost, and which rules it wrote more than once.
+Shows where your app decides the same thing twice. (Wording matched to the Oct 26 talk deck, 2026-10-25.)
 
 From 0.6.0 the same rules apply as for Custody Check: what is broken and what it means, nothing to do, no link, no
 pointer, and questions only about what code can't show. (2026-10-21)

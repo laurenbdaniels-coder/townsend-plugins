@@ -1,7 +1,7 @@
 {
   "name": "build-decisions",
   "version": "0.6.3",
-  "description": "Find where your AI-built app decides who can see a record, what something costs, whether someone has paid, and how money rounds, how the app is built, and where it saves whether someone has paid, then get a short plain-English analysis of each decision made in more than one place and what it means for you. Read-only; a review, not an audit.",
+  "description": "Shows where your AI-built app decides the same thing twice (who sees what, what things cost, who has paid, how money rounds), what each one means for you, and how the app is built. Next release: limits, discounts and date cutoffs, and warnings for several ways to do one job, code that never runs, and more parts than the job needs. Read-only; a review, not an audit.",
   "author": {
     "name": "Lauren Townsend"
   },

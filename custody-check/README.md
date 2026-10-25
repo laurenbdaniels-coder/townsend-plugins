@@ -4,7 +4,7 @@ I built this for the people who came to "It Said It Was Fine" at Seattle AI Week
 
 It runs inside Claude Code or Codex. It never changes your app, and the scanner makes no network calls; what does leave your machine is the redacted scan, the parts of your code the agent reads, and your answers, sent to the AI provider your host already uses (see What leaves the machine).
 
-Build Decisions shows where your app decides who sees what and what things cost, and which rules it wrote more than once. Custody Check shows what a stranger could see or do in your app, and what your code can't tell it. Both are free and read-only.
+Build Decisions shows where your app decides the same thing twice. Custody Check shows what a stranger could see or do in your app, and what your code can't tell it. Both are free and read-only.
 
 ## Step 0: get your code onto your machine
 
