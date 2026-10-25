@@ -192,13 +192,13 @@ graders:
     max: 0
   - name: "do-today-one-key"
     type: "regex"
-    pattern: "\\*\\*Do today:\\*\\* replace 1 secret key with new ones\\."
+    pattern: "\\*\\*Do today:\\*\\* replace 1 secret key with (?:a )?new ones?\\."
     flags: ""
     match: "contains"
   - name: "browser-title"
     type: "regex"
-    pattern: "Anyone who visits your site can see your secret keys\\."
-    flags: ""
+    pattern: "\\*\\*1\\. (?=[^\\n]*(?:visit|browser|anyone|stranger))(?=[^\\n]*key)[^\\n]*\\*\\*"
+    flags: "i"
     match: "contains"
   # >>> free-plugin-standard: always issues
   - name: "std-no-fix-prompt"

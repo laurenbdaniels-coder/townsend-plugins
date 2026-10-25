@@ -190,14 +190,10 @@ graders:
     input_match: "custody_verdict\\.py[\\s\\S]*(?:q4_one_place|one_place)"
     min: 0
     max: 0
-  - name: "no-do-today"
+  # C2: the scanner gives this flag-only app no No. The agent's own read of src/ai.ts may make it one (SKILL.md "Read the code"); otherwise it stays an open question.
+  - name: "read-no-or-open-question"
     type: "regex"
-    pattern: "Do today:"
-    flags: ""
-    match: "not_contains"
-  - name: "flag-open-question"
-    type: "regex"
-    pattern: "Whether your site sends an AI key to visitors' browsers"
+    pattern: "Where: `src/ai\\.ts:\\d+`|Whether your site sends an AI key to visitors' browsers"
     flags: ""
     match: "contains"
   # >>> free-plugin-standard: always issues
