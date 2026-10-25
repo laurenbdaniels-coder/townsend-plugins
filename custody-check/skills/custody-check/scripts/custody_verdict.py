@@ -33,7 +33,7 @@ import subprocess
 import sys
 import types
 
-__version__ = "0.6.1"
+__version__ = "0.6.2"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCANNER = os.path.join(HERE, "custody_scan.py")

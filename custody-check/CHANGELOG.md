@@ -2,6 +2,24 @@
 
 The footer of every verdict names the version that produced it. Later entries carry a "What changed since the workshop" line so an attendee can tell whether an answer would come out differently today.
 
+## 0.6.2 (2026-10-25)
+
+What changed since the workshop build: two kinds of exposed key that gave "Nothing found" or only "can't tell" now count as a problem, with a "Do today: replace" line. A clean app reads the same as before.
+
+- **A secret key name read in screen code is now a problem.** For example `new OpenAI({ apiKey: import.meta.env.VITE_OPENAI_API_KEY, dangerouslyAllowBrowser: true })`. The build copies any `VITE_`, `NEXT_PUBLIC_`, `REACT_APP_` or `EXPO_PUBLIC_` value into your site, so every visitor can read that key. Before, a fresh copy of the app with no `.env` file said "Nothing found" here. A name counts as a secret when it names a model provider's key (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`) or holds SECRET or SERVICE_ROLE. One name counts as one key to replace, however many files read it.
+- **A live key typed into server code is now a problem.** A Stripe `sk_live_`, an OpenAI or Anthropic `sk-`, an AWS, GitHub, Slack or Supabase secret key, or a service-role token written into a server file used to be "can't tell". It is now "Your secret keys are written into your code.", with a Do today line. Test-mode keys, placeholders, test folders and Supabase's public demo key stay as before.
+- **Not a problem, and still listed:** the same names read only in a server file, a server script or a Next.js server component; a name inside a comment or a test file; and the `dangerouslyAllowBrowser: true` setting on its own. The setting becomes an open question, because it does not say which key. If your key sits under a name the check does not know (for example `VITE_MY_AI`), the report says "can't tell", not "problem".
+- **Known limits:**
+  - A name read in a screen counts even if no page uses that screen.
+  - Keys read through a variable name built at run time (`import.meta.env[name]`) are not seen.
+  - Some newer key formats with many dashes are not recognized yet.
+  - When the scan already lists twelve key rows, one key can be counted twice.
+- **Measured before it shipped, on 112 public apps.**
+  - 14 send a secret key to the browser: 11 are now a problem, against 1 before.
+  - 91 have no such leak: none is newly flagged.
+  - 7 could not be labelled either way: 2 of them are newly flagged.
+- These key checks read your code files once more, after the other checks, with their own time. If they run out, only the key question says "can't tell".
+
 ## 0.6.1 (2026-10-24)
 
 What changed since the workshop build: more field names count as extra risk, so the extra-risk block can show on an app where 0.6.0 left it out. Nothing else in the rule that decides changed.

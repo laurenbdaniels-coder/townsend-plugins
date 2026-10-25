@@ -33,7 +33,7 @@ CUSTODY_CHECK_OVERLAY=0 skips the overlay: the output is 0.3.2's with only `vers
 """
 import sys
 
-__version__ = "0.6.1"
+__version__ = "0.6.2"
 
 _DOCS = "README.md#when-it-goes-wrong"
 _PY_TOO_OLD = ("This scanner needs python 3.9 or newer. Run python3 --version; on macOS install the Command Line Tools, on Windows use py -3.", _DOCS)
