@@ -6,7 +6,7 @@ The footer of every verdict names the version that produced it. Later entries ca
 
 What changed since the workshop build: more field names count as extra risk, so the extra-risk block can show on an app where 0.6.0 left it out. Nothing else in the rule that decides changed.
 
-- **Fields written as one word, like `creditcard`, or named `birthday`, now count as extra-risk in both plugins.** `birth_date` counts too. custody-check finds them in your schema files and leaves out names that only appear in a comment or a quoted value.
+- **Fields written as one word, like `creditcard`, or named `birthday`, now count as extra-risk in both plugins.** `birth_date` counts too. custody-check finds them in your schema files and leaves out names that only appear in a comment or inside quoted text of more than one word, such as `"medical history"`. A quoted single word, such as `"birthday"`, still counts.
 - Both plugins now use the same list of extra-risk field names, but they read different parts of an app, so one can show the extra-risk block when the other does not. custody-check also reads browser forms, for example; build-decisions does not.
 - **When the scan finds more such fields than the report can list**, the extra-risk block says so in one line and still shows.
 - **A pasted key:** the skill now answers "assume it is exposed, and replace it now with a new one", the same words build-decisions uses. It said "rotate it at the provider now".

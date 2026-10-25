@@ -4,7 +4,7 @@ The footer of every report names the version that produced it. Up to 0.3.2 this 
 
 ## 0.6.3 (2026-10-24)
 
-- **Fields written as one word, like `creditcard`, or named `birthday`, now count as extra-risk in both plugins.** A field named only in a comment, including one that spans several lines, or in a quoted value, no longer counts.
+- **Fields written as one word, like `creditcard`, or named `birthday`, now count as extra-risk in both plugins.** A field named only in a comment, including one that spans several lines, or inside quoted text of more than one word, such as `"medical history"`, no longer counts. A quoted single word, such as `"birthday"`, still counts.
 - Both plugins now use the same list of extra-risk field names, but they read different parts of an app, so one can show the extra-risk block when the other does not. custody-check also reads browser forms, for example; build-decisions does not.
 - **If a needed file is missing or damaged**, the helper stops with `internal:shared-missing` or `internal:shared-broken`. Update the plugin.
 
