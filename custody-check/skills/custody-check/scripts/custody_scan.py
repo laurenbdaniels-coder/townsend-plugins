@@ -322,7 +322,7 @@ class Overlay(object):
         # S-064 Q1 key pass (G2): code files the walk passed, read after it; its own finished flag
         self.key_files = []  # (rel, full path, name, ext)
         self.key_finished = True
-        self.key_errors = []  # (exception class, sanitized path): a detector that raised; never file text (D2)
+        self.key_errors = []  # (exception class, sanitized path): a detector that raised; never file text (D2). Tests read it; the report does not
         self.key_cands = []  # name references, judged after the pass (R2)
         self.pkg_next = {}  # package folder -> its package.json lists next (unread or unparsed: True) (G4)
         self.next_config_dirs = set()  # folders holding a next.config.*
@@ -1081,7 +1081,7 @@ def _read_text(full, opts):
 
 
 def stopline_pass(ov, opts, clock=time.monotonic, end=float("inf")):
-    """After the walk and every other check: the stop-line fields of the files the walk passed, in the time left.
+    """After the walk and the other overlay checks (the key pass runs after this one): the stop-line fields of the files the walk passed, in the time left.
     Running out stops only this pass. A file not read here means fewer stop-line rows, which main never had."""
     past_end = lambda: clock() > end  # noqa: E731
     try:
@@ -1109,7 +1109,7 @@ AI_FLAG_RE = re.compile(r"\bdangerouslyAllowBrowser\s{0,5}:\s{0,5}true\b")
 PROVIDER_KEY_RE = re.compile(r"^(?:" + release.MODEL_PROVIDER_ALT + r")_[A-Z0-9_]*(?:KEY|TOKEN|SECRET)$", re.I) if release else None
 SECRET_SUFFIX_RE = re.compile(r"(?:_KEY|_TOKEN|_SECRET|_SERVICE_ROLE|_ROLE_KEY)$|^SECRET$", re.I)
 INLINED_PROCESS_PREFIXES = ("NEXT_PUBLIC_", "REACT_APP_", "EXPO_PUBLIC_")  # bundlers inline these from process.env
-JS_COMMENT_RE = re.compile(r"//[^\n]*|/\*(?:[^*]|\*(?!/))*(?:\*/|$)|\"(?:[^\"\\\n]|\\.)*\"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`?")
+JS_COMMENT_RE = re.compile(r"//[^\n]*|/\*(?:[^*]|\*(?!/))*(?:\*/|$)|\"(?:[^\"\\\n]|\\.)*\"?|'(?:[^'\\\n]|\\.)*'?|`(?:[^`\\]|\\.)*`?")  # an unclosed quote ends at its line, so the scan stays linear
 JS_EXTS = {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".mts", ".cts", ".vue", ".svelte", ".astro"}
 MAX_NAME_SNIPPET = 64
 PROMOTED_CHECKS = ("server-path-key-literal", "non-client-key-literal")
@@ -1123,7 +1123,7 @@ def _lists_next(text):
     """True when a package.json lists next in dependencies or devDependencies, or cannot be read as one (G4)."""
     try:
         pj = json.loads(text)
-    except ValueError:
+    except (ValueError, RecursionError):
         return True
     if not isinstance(pj, dict):
         return True

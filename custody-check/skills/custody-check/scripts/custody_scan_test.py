@@ -271,6 +271,11 @@ def evidence_checks(q):
     return [e["check"] for e in q["evidence"]]
 
 
+def no_checks(checks):
+    """The checks in a list that mark a question no (S-064 pins: a live key in server code is a No only from code-key-live-literal)."""
+    return {c for c in checks if cs.all_checks().get(c, ((), ""))[1] == "no"}
+
+
 def assert_unconfirmed(tc, q, msg=None):
     """A rule the scanner reads as open in a shape 0.3.2 did not check: never a new No (every Q3 No comes from
     0.3.2's own patterns), never Nothing found, and the row names it."""
@@ -676,6 +681,7 @@ class NamedKeyFormatTests(ScanCase):
         self.assertIn("server-path-key-literal", evidence_checks(q1))  # S-064: a live key typed into server or unclear code is a No from code-key-live-literal, never a client row
         self.assertEqual(q1["answer"], "no")
         self.assertIn("code-key-live-literal", evidence_checks(q1))
+        self.assertEqual(no_checks(evidence_checks(q1)), {"code-key-live-literal"})
 
     def test_service_account_json_private_key_blocks_nothing_found(self):
         doc = {"type": "service_account", "project_id": "demo", "private_key": PEM_HEAD + "\n" + PEM_BODY + "\n" + PEM_TAIL + "\n",
@@ -949,6 +955,7 @@ class KeyLiteralTests(ScanCase):
         self.assertIn("server-path-key-literal", evidence_checks(q1))  # S-064: a live key typed into server or unclear code is a No from code-key-live-literal, never a client row
         self.assertEqual(q1["answer"], "no")
         self.assertIn("code-key-live-literal", evidence_checks(q1))
+        self.assertEqual(no_checks(evidence_checks(q1)), {"code-key-live-literal"})
         self.assertNotIn("client-key-literal", evidence_checks(q1))
         self.write("src/components/A.tsx", 'const k = "%s";\n' % GHP)
         q1 = self.scan()["questions"]["q1"]
@@ -967,6 +974,7 @@ class KeyLiteralTests(ScanCase):
         self.assertIn("non-client-key-literal", evidence_checks(q1))  # S-064: a live key typed into server or unclear code is a No from code-key-live-literal, never a client row
         self.assertEqual(q1["answer"], "no")
         self.assertIn("code-key-live-literal", evidence_checks(q1))
+        self.assertEqual(no_checks(evidence_checks(q1)), {"code-key-live-literal"})
         self.assertNotIn("client-key-literal", evidence_checks(q1))
         self.write("app/page.tsx", '"use client";\nconst k = "%s";\n' % SK)
         q1 = self.scan()["questions"]["q1"]
@@ -978,6 +986,7 @@ class KeyLiteralTests(ScanCase):
         self.assertIn("non-client-key-literal", evidence_checks(q1))  # S-064: a live key typed into server or unclear code is a No from code-key-live-literal, never a client row
         self.assertEqual(q1["answer"], "no")
         self.assertIn("code-key-live-literal", evidence_checks(q1))
+        self.assertEqual(no_checks(evidence_checks(q1)), {"code-key-live-literal"})
         self.assertNotIn("client-privileged-jwt", evidence_checks(q1))
         self.write("src/lib/client.tsx", '"use client";\nexport const k = "%s";\n' % SK)
         self.assertEqual(self.scan()["questions"]["q1"]["answer"], "no")
@@ -988,6 +997,7 @@ class KeyLiteralTests(ScanCase):
         self.assertIn("server-path-key-literal", evidence_checks(q1))  # S-064: a live key typed into server or unclear code is a No from code-key-live-literal, never a client row
         self.assertEqual(q1["answer"], "no")
         self.assertIn("code-key-live-literal", evidence_checks(q1))
+        self.assertEqual(no_checks(evidence_checks(q1)), {"code-key-live-literal"})
 
     def test_pages_with_data_fetching_is_evidence(self):
         self.write("pages/index.tsx", 'export async function getServerSideProps() { const k = "%s"; return { props: {} }; }\n' % SK)
@@ -995,6 +1005,7 @@ class KeyLiteralTests(ScanCase):
         self.assertIn("non-client-key-literal", evidence_checks(q1))  # S-064: a live key typed into server or unclear code is a No from code-key-live-literal, never a client row
         self.assertEqual(q1["answer"], "no")
         self.assertIn("code-key-live-literal", evidence_checks(q1))
+        self.assertEqual(no_checks(evidence_checks(q1)), {"code-key-live-literal"})
 
     def test_test_paths_never_produce_no(self):
         self.write("src/__tests__/Client.test.tsx", '"use client";\nconst k = "%s";\n' % SK)
@@ -1812,6 +1823,7 @@ class ReviewCycleTwoTests(ScanCase):
         self.assertNotIn("client-key-literal", evidence_checks(q1))  # S-064: a live key typed into server code is a No from code-key-live-literal, never a client row
         self.assertIn("non-client-key-literal", evidence_checks(q1))
         self.assertIn(("src/app/page.tsx", 1), [(e["path"], e["line"]) for e in q1["evidence"] if e["check"] == "code-key-live-literal"])
+        self.assertEqual(no_checks(evidence_checks(q1)), {"code-key-live-literal"})
         self.assertIn("api-route-dir", evidence_checks(r["questions"]["q2"]))
 
     def test_anon_jwt_next_to_service_identifier_is_not_no(self):
@@ -1921,6 +1933,7 @@ class ReviewCycleThreeTests(ScanCase):
             q1 = self.scan()["questions"]["q1"]
             self.assertNotIn("client-key-literal", evidence_checks(q1), mod)  # S-064: a live key typed into server code is a No from code-key-live-literal, never a client row
             self.assertIn("code-key-live-literal", evidence_checks(q1), mod)
+            self.assertEqual(no_checks(evidence_checks(q1)), {"code-key-live-literal"}, mod)
             self.assertTrue({"non-client-key-literal", "server-path-key-literal"} & set(evidence_checks(q1)), mod)  # server-only now marks it server code
         self.write("src/lib/auth.ts", 'import Link from "next/link";\nexport const key = "%s";\n' % SK)
         self.assertEqual(self.scan()["questions"]["q1"]["answer"], "no")
@@ -2153,6 +2166,7 @@ class ReviewCycleThreeAdversarialTests(ScanCase):
         self.write("app/api/y/route.ts", 'const k = "%s";\n' % GHP)
         checks = evidence_checks(self.scan()["questions"]["q1"])  # S-064: a live key typed into server code is a No from code-key-live-literal, never a client row
         self.assertNotIn("client-key-literal", checks)
+        self.assertEqual(no_checks(checks), {"code-key-live-literal"})
         self.assertEqual(checks.count("code-key-live-literal"), 2)
 
     def test_digitless_named_key_is_not_a_placeholder(self):
@@ -2584,6 +2598,7 @@ class ShipReviewTests(ScanCase):
         self.assertIn("server-path-key-literal", evidence_checks(q1))  # S-064: a live key typed into server code is a No from code-key-live-literal, never a client row
         self.assertNotIn("client-key-literal", evidence_checks(q1))
         self.assertIn("code-key-live-literal", evidence_checks(q1))
+        self.assertEqual(no_checks(evidence_checks(q1)), {"code-key-live-literal"})
 
     # --- claude adversarial
 
@@ -2624,6 +2639,7 @@ class ShipReviewTests(ScanCase):
         self.write("src/app/app.component.ts", 'import { headers } from "next/headers";\nconst k = "%s";\n' % AKIA)
         checks = evidence_checks(self.scan()["questions"]["q1"])  # S-064: a live key typed into server code is a No from code-key-live-literal, never a client row
         self.assertNotIn("client-key-literal", checks)
+        self.assertEqual(no_checks(checks), {"code-key-live-literal"})
         self.assertIn("code-key-live-literal", checks)
 
     def test_generic_tokens_in_json_and_yaml_config_are_found(self):
@@ -5915,6 +5931,7 @@ class NeverWorseThanMainTests(unittest.TestCase):
         ('live key typed into a python server file', "q1"): "S-064 gap 2: a live Stripe key typed into code is a key to replace (questions.md Q1: every secret lives in an env variable or a secrets manager)",
         ('live key typed into an api route', "q1"): "S-064 gap 2: a live Stripe key typed into a server route is a key to replace",
         ('lib key', "q1"): "S-064 gap 2: a live OpenAI key typed into src/lib is a key to replace wherever src/lib runs (TODOS: what src/lib means in a Vite app)",
+        ("unclosed quote with many escaped quotes", "q1"): "S-064 gap 1: line 1 reads import.meta.env.VITE_OPENAI_API_KEY in screen code, a real leak; the hostile line 2 only tests that the scan stays fast (red-team review)",
     }
 
     def _scan(self, c):
@@ -8123,6 +8140,24 @@ class KeyNamePassTests(ScanCase):
         self.assertEqual(self.rows(r, self.NAME_NO), [(path, line)])
         self.assertEqual(len(self.places(r)), 1)
 
+    # ---- red-team review (S-064 /review): hand-built hostile inputs this branch made worse than main
+
+    def test_unclosed_quote_with_many_escapes_stays_fast(self):
+        self.vite()
+        self.write("src/big.js", "const k = import.meta.env.VITE_OPENAI_API_KEY;\nconst s = \"" + "\\\"" * 40000 + "\n")
+        t0 = time.monotonic()
+        r = self.scan()
+        self.assertLess(time.monotonic() - t0, 5)  # was 25 s: the comment lexer retried at every escaped quote
+        self.assertIsNone(r["stats"]["overlay_fallback"])
+        self.assertEqual(self.rows(r, self.NAME_NO), [("src/big.js", 1)])
+
+    def test_deeply_nested_package_json_does_not_crash_the_overlay(self):
+        self.write("package.json", '{"a":' * 5000 + "1" + "}" * 5000)
+        self.write("src/a.ts", "export const a = 1;\n")
+        r = self.scan()
+        self.assertIsNone(r["stats"]["overlay_fallback"])  # was "error": json raised RecursionError
+        self.assertEqual(self.q1(r)["answer"], "nothing-found")
+
     # ---- gap 1: the name rule
 
     def test_vite_openai_name_in_screen_code_is_a_no(self):
@@ -8481,8 +8516,9 @@ class KeyNamePassTests(ScanCase):
             self.assertEqual(cs.all_checks()[check], (("q1",), "evidence"))
 
     def test_the_clamp_refuses_a_no_from_any_other_source(self):
-        self.write("README.md", "hi\n")
+        self.write("src/a.ts", "export const a = 1;\n")
         result = cs.release.build_result(self._state(), self.repo)
+        self.assertEqual(result["questions"]["q1"]["answer"], "nothing-found")  # the base the clamp is judged against
         for source, expect in (("names", "nothing-found"), ("key-name-also", "nothing-found"), ("key-flag", "nothing-found"),
                                ("key-name", "no"), ("key-literal", "no"), ("mts-key", "no")):
             with self.subTest(source=source):
@@ -8490,8 +8526,7 @@ class KeyNamePassTests(ScanCase):
                 ov.key_finished = True
                 ov.add(self.NAME_NO, "src/a.ts", 1, "VITE_X_KEY", effect="no", source=source)
                 plan = cs._plans(copy.deepcopy(result), ov)["q1"]
-                if result["questions"]["q1"]["answer"] == "nothing-found":
-                    self.assertEqual(plan.answer, "dont-know" if expect == "nothing-found" else "no")
+                self.assertEqual(plan.answer, "dont-know" if expect == "nothing-found" else "no")
 
     def _state(self):
         st = cs.release.ScanState()

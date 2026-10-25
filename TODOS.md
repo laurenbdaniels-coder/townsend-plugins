@@ -25,6 +25,15 @@
 
 **Context:** S-064 ships gaps 1 and 2 only (Lauren, 2026-10-24). These were each a weakness main shares, an unmeasured new rule, or an optional surface.
 
+### Leftovers from the S-064 /review (custody 0.6.2, 2026-10-25)
+
+**What:** below the ship bar (hand-built inputs). Lauren chose to fix the two hostile-repo slowdowns in the PR (unclosed quote, deep package.json); these stay open:
+- **A stray backtick or an HTML comment hides a later comment** (red team F2). `JS_COMMENT_RE` starts a template literal at any backtick, so `s.replace(/[`"']/g, "")` or JSX text "Press ` to open" swallows the rest of the file. A later commented-out `import.meta.env.VITE_OPENAI_API_KEY` then reads as code: a No where main says Nothing found. `<!-- -->` in `.vue`/`.svelte`/`.astro` is not lexed either. No corpus app shows it. Fix: start a template only after a token that can begin an expression, and lex `<!-- -->`. Add the red-team inputs a3, a7 and l1 to the differential corpus with the fix. Effort: S / S. Priority: P2.
+- **Sequential-digit fake keys become a No** (`sk-1234567890abcdef…` in server or docs code). `is_placeholder` misses them, and gap 2 now promotes them. Tighten the placeholder rule for promoted keys. Effort: S / S. Priority: P3.
+- **The key pass's line numbering is slow on a file with thousands of references** (security review). `detect_keys` calls `release.line_of` per reference and does not tick the clock: a 13,100-reference file runs about 1.4 s past the deadline. Fix: tick in the loop and number lines from precomputed newline offsets. Effort: S / S. Priority: P3.
+- **G6 (Do today place count) is skipped without git.** Effort: S / S. Priority: P3.
+- **Flag-only eval grader.** `browser-ai-flag-only` could add a `not_contains` for a Do today line, but in the real run the agent's own read of the code correctly gave one (a D4 deviation). Decide which is right. Effort: S / S. Priority: P3.
+
 ### Leftovers from the custody-check 0.6.0 review (2026-10-21)
 
 **What:** below the ship bar (contrived inputs or weaknesses main shares), from the round-1 specialists, red team and Codex:
