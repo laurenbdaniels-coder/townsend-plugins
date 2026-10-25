@@ -2,6 +2,38 @@
 
 ## custody-check
 
+### Deferred by the S-064 /autoplan (browser-key names and live keys in code, 2026-10-25)
+
+**What:** items the S-064 plan review deferred. Plan: `~/.claude/plans/idempotent-wishing-feigenbaum.md`.
+- **E1, secret names only in env templates.** A browser-prefixed secret name found only in `.env.example`/`.env.sample` would keep Q1 off Nothing found. Why: a template that names `VITE_OPENAI_API_KEY` shows intent. Needs its own sample before it judges anything. Effort: S / S. Priority: P3.
+- **E2, name the provider in Do today** ("replace your OpenAI key"). Why: founders asked "replace what, where?" in the DX roleplay. It changes a fixed report line and its graders. Effort: S / S. Priority: P3.
+- **E3, secrets in a `next.config.*` `env:` block.** Why: another way Next copies values into the bundle. Needs its own sample. Effort: M / S. Priority: P3.
+- **S11, many-hyphen keys** (`sk-proj-…`, `sk-svcacct-…`, `sk-ant-api03-…`). `is_placeholder` treats an `sk-` value with more than 5 hyphens as a placeholder, so these common keys are skipped. Main shares this; S-064 pins it with a fixture. Start in `custody_scan_0_3_2.py` `is_placeholder` (frozen: fix in the overlay or in a new release file). Effort: M / S. Priority: P2.
+- **H2, Do today for a browser key re-leaks.** Replacing a `VITE_*` key and redeploying leaks the new one too. Main has the same wording. Any change must pass SCOPE.md (diagnose only) and `plain_english_test`. Effort: S / S. Priority: P2.
+- **M7, a founder route to mark a false No** ("this name is not a key"), and a way to remove a default browser prefix such as `PUBLIC_`. Effort: M / S. Priority: P3.
+- **Overlay-error trace for existing paths.** `scan_with_overlay` turns any exception into `overlay_fallback: error` with no class or path. S-064 isolates only its own detectors (D2). Effort: S / S. Priority: P3.
+- **Env aliases and SvelteKit `$env`.** `const env = import.meta.env; env.VITE_X` and `$env/static/public` imports are not matched (recall gap). Effort: S / S. Priority: P3.
+- **Fold the overlay into a 0.4 scanner.** More Q1 logic in the overlay makes the eventual fold bigger. Effort: L / M. Priority: P3.
+- **G1 docs caveat before the talk** (if Lauren declines it at the gate): a README line saying Q1 cannot yet see a browser-prefixed secret name without `.env`. Effort: S / S. Priority: P1 if kept.
+- **Sample-gate misses (2026-10-25, `plugins-internal/custody-check/s064-sample-2026-10-25/`).** The name rule missed 3 of 13 labelled leak apps:
+  - dynamic `import.meta.env[name]`;
+  - `VITE_Open_AI_Key`: the provider is spelled `Open_AI`;
+  - `VITE_GENAI_KEY`: `GENAI` is not a provider token.
+  Provider spellings could be widened only with a new precision sample. Effort: S / S. Priority: P3.
+- **A name read in screen code nothing imports still counts** (2 "unclear" sample apps, including a dev-only read). Knowing would need an import graph or the built bundle. Written in the 0.6.2 CHANGELOG as a known limit. Effort: L / M. Priority: P3.
+- Gap 3 (keys in `.sh`, `.md`, `.txt`) is the existing entry "Q1 Nothing found after one file, and file kinds Q1 never reads" below; not duplicated.
+
+**Context:** S-064 ships gaps 1 and 2 only (Lauren, 2026-10-24). These were each a weakness main shares, an unmeasured new rule, or an optional surface.
+
+### Leftovers from the S-064 /review (custody 0.6.2, 2026-10-25)
+
+**What:** below the ship bar (hand-built inputs). Lauren chose to fix the two hostile-repo slowdowns in the PR (unclosed quote, deep package.json); these stay open:
+- **A stray backtick or an HTML comment hides a later comment** (red team F2). `JS_COMMENT_RE` starts a template literal at any backtick, so `s.replace(/[`"']/g, "")` or JSX text "Press ` to open" swallows the rest of the file. A later commented-out `import.meta.env.VITE_OPENAI_API_KEY` then reads as code: a No where main says Nothing found. `<!-- -->` in `.vue`/`.svelte`/`.astro` is not lexed either. Since the F1 fix, an unclosed quote ends at its line, so an apostrophe in JSX text ("Don't") also hides a `//` comment later on the same line. No corpus app shows it. Fix: start a template only after a token that can begin an expression, and lex `<!-- -->`. Add the red-team inputs a3, a7 and l1 to the differential corpus with the fix. Effort: S / S. Priority: P2.
+- **Sequential-digit fake keys become a No** (`sk-1234567890abcdef…` in server or docs code). `is_placeholder` misses them, and gap 2 now promotes them. Tighten the placeholder rule for promoted keys. Effort: S / S. Priority: P3.
+- **The key pass's line numbering is slow on a file with thousands of references** (security review). `detect_keys` calls `release.line_of` per reference and does not tick the clock: a 13,100-reference file runs about 1.4 s past the deadline. Fix: tick in the loop and number lines from precomputed newline offsets. Effort: S / S. Priority: P3.
+- **G6 (Do today place count) is skipped without git.** Effort: S / S. Priority: P3.
+- **Flag-only eval grader.** `browser-ai-flag-only` could add a `not_contains` for a Do today line, but in the real run the agent's own read of the code correctly gave one (a D4 deviation). Decide which is right. Effort: S / S. Priority: P3.
+
 ### Leftovers from the custody-check 0.6.0 review (2026-10-21)
 
 **What:** below the ship bar (contrived inputs or weaknesses main shares), from the round-1 specialists, red team and Codex:
@@ -105,6 +137,8 @@
 **What:** Today a file under a neutral segment (`lib`, `utils`, `services`, ...) is client code only when it imports a UI framework or carries a `use client` directive. In a Vite or plain SPA build, everything under `src/` is bundled for the browser.
 
 **Why:** A hardcoded service key in `src/lib/supabase.ts` is evidence rather than a decisive Q1 `no`. That is deliberate (the same rule stops Next.js server helpers producing false positives), but the tradeoff should be re-decided against real builder exports.
+
+**Update (S-064, custody 0.6.2):** a named live key or service-role token typed into `src/lib` (or any unclear or server file) is now a No (`code-key-live-literal`). This entry now covers only generic secret-named tokens with no named format.
 
 **Context:** Raised by the Codex adversarial pass in the pre-merge review of PR 1 and kept as designed. The M5 precision pass on public builder templates is the right place to settle it: if Vite exports dominate, gate the rule on the presence of `next.config.*` instead.
 

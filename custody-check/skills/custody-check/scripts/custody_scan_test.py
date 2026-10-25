@@ -252,7 +252,14 @@ def _baseline(c, module=None):
     q = r["questions"]
     return {"answers": {k: q[k]["answer"] for k in ("q1", "q3", "q9")}, "partial": r["partial"],
             "pii": sorted(set(e["snippet"] for e in q["q10"]["evidence"] if e["check"] == "pii-field")),
-            "stopline": _stopline_rows(r)}
+            "stopline": _stopline_rows(r), "q1_no_places": _q1_no_places(module, r)}
+
+
+def _q1_no_places(module, result):
+    """G6 (S-064): how many places Q1's No rows name (distinct path:line of rows a check marks no) after the merge:
+    the Do today count a report prints. Read with that scanner's own check table."""
+    marks = module.all_checks() if hasattr(module, "all_checks") else dict((k, ((q,), e)) for k, (q, e) in module.CHECKS.items())
+    return len(set((e["path"], e["line"]) for e in result["questions"]["q1"]["evidence"] if marks.get(e["check"], ((), ""))[1] == "no"))
 
 
 def _stopline_rows(result):
@@ -262,6 +269,11 @@ def _stopline_rows(result):
 
 def evidence_checks(q):
     return [e["check"] for e in q["evidence"]]
+
+
+def no_checks(checks):
+    """The checks in a list that mark a question no (S-064 pins: a live key in server code is a No only from code-key-live-literal)."""
+    return {c for c in checks if cs.all_checks().get(c, ((), ""))[1] == "no"}
 
 
 def assert_unconfirmed(tc, q, msg=None):
@@ -663,11 +675,13 @@ class NamedKeyFormatTests(ScanCase):
             self.assertNotEqual(q1["answer"], "no", value[:8])
             self.assertIn("client-test-mode-key", evidence_checks(q1), value[:8])
 
-    def test_stripe_key_on_the_server_is_evidence_not_nothing_found(self):
+    def test_stripe_key_on_the_server_is_a_no_not_nothing_found(self):
         self.write("app/api/pay/route.ts", 'const s = new Stripe("%s");\n' % STRIPE_LIVE)
         q1 = self.scan()["questions"]["q1"]
-        self.assertEqual(q1["answer"], "dont-know")
-        self.assertIn("server-path-key-literal", evidence_checks(q1))
+        self.assertIn("server-path-key-literal", evidence_checks(q1))  # S-064: a live key typed into server or unclear code is a No from code-key-live-literal, never a client row
+        self.assertEqual(q1["answer"], "no")
+        self.assertIn("code-key-live-literal", evidence_checks(q1))
+        self.assertEqual(no_checks(evidence_checks(q1)), {"code-key-live-literal"})
 
     def test_service_account_json_private_key_blocks_nothing_found(self):
         doc = {"type": "service_account", "project_id": "demo", "private_key": PEM_HEAD + "\n" + PEM_BODY + "\n" + PEM_TAIL + "\n",
@@ -938,8 +952,11 @@ class KeyLiteralTests(ScanCase):
     def test_server_literal_is_evidence_and_client_literal_is_no(self):
         self.write("app/api/x/route.ts", 'const k = "%s";\n' % SK)
         q1 = self.scan()["questions"]["q1"]
-        self.assertEqual(q1["answer"], "dont-know")
-        self.assertIn("server-path-key-literal", evidence_checks(q1))
+        self.assertIn("server-path-key-literal", evidence_checks(q1))  # S-064: a live key typed into server or unclear code is a No from code-key-live-literal, never a client row
+        self.assertEqual(q1["answer"], "no")
+        self.assertIn("code-key-live-literal", evidence_checks(q1))
+        self.assertEqual(no_checks(evidence_checks(q1)), {"code-key-live-literal"})
+        self.assertNotIn("client-key-literal", evidence_checks(q1))
         self.write("src/components/A.tsx", 'const k = "%s";\n' % GHP)
         q1 = self.scan()["questions"]["q1"]
         self.assertEqual(q1["answer"], "no")
@@ -954,8 +971,11 @@ class KeyLiteralTests(ScanCase):
     def test_app_router_server_component_is_not_client(self):
         self.write("app/page.tsx", 'const k = "%s";\nexport default function P() { return null; }\n' % SK)
         q1 = self.scan()["questions"]["q1"]
-        self.assertNotEqual(q1["answer"], "no")
-        self.assertIn("non-client-key-literal", evidence_checks(q1))
+        self.assertIn("non-client-key-literal", evidence_checks(q1))  # S-064: a live key typed into server or unclear code is a No from code-key-live-literal, never a client row
+        self.assertEqual(q1["answer"], "no")
+        self.assertIn("code-key-live-literal", evidence_checks(q1))
+        self.assertEqual(no_checks(evidence_checks(q1)), {"code-key-live-literal"})
+        self.assertNotIn("client-key-literal", evidence_checks(q1))
         self.write("app/page.tsx", '"use client";\nconst k = "%s";\n' % SK)
         q1 = self.scan()["questions"]["q1"]
         self.assertEqual(q1["answer"], "no")
@@ -963,22 +983,29 @@ class KeyLiteralTests(ScanCase):
     def test_neutral_segments_are_not_client(self):
         self.write("src/lib/supabaseAdmin.ts", 'export const admin = createClient(url, "%s");\n' % SERVICE_JWT)
         q1 = self.scan()["questions"]["q1"]
-        self.assertNotEqual(q1["answer"], "no")
-        self.assertIn("non-client-key-literal", evidence_checks(q1))
+        self.assertIn("non-client-key-literal", evidence_checks(q1))  # S-064: a live key typed into server or unclear code is a No from code-key-live-literal, never a client row
+        self.assertEqual(q1["answer"], "no")
+        self.assertIn("code-key-live-literal", evidence_checks(q1))
+        self.assertEqual(no_checks(evidence_checks(q1)), {"code-key-live-literal"})
+        self.assertNotIn("client-privileged-jwt", evidence_checks(q1))
         self.write("src/lib/client.tsx", '"use client";\nexport const k = "%s";\n' % SK)
         self.assertEqual(self.scan()["questions"]["q1"]["answer"], "no")
 
     def test_sveltekit_server_file(self):
         self.write("src/routes/+server.ts", 'const k = "%s";\n' % SK)
         q1 = self.scan()["questions"]["q1"]
-        self.assertIn("server-path-key-literal", evidence_checks(q1))
-        self.assertEqual(q1["answer"], "dont-know")
+        self.assertIn("server-path-key-literal", evidence_checks(q1))  # S-064: a live key typed into server or unclear code is a No from code-key-live-literal, never a client row
+        self.assertEqual(q1["answer"], "no")
+        self.assertIn("code-key-live-literal", evidence_checks(q1))
+        self.assertEqual(no_checks(evidence_checks(q1)), {"code-key-live-literal"})
 
     def test_pages_with_data_fetching_is_evidence(self):
         self.write("pages/index.tsx", 'export async function getServerSideProps() { const k = "%s"; return { props: {} }; }\n' % SK)
         q1 = self.scan()["questions"]["q1"]
-        self.assertEqual(q1["answer"], "dont-know")
-        self.assertIn("non-client-key-literal", evidence_checks(q1))
+        self.assertIn("non-client-key-literal", evidence_checks(q1))  # S-064: a live key typed into server or unclear code is a No from code-key-live-literal, never a client row
+        self.assertEqual(q1["answer"], "no")
+        self.assertIn("code-key-live-literal", evidence_checks(q1))
+        self.assertEqual(no_checks(evidence_checks(q1)), {"code-key-live-literal"})
 
     def test_test_paths_never_produce_no(self):
         self.write("src/__tests__/Client.test.tsx", '"use client";\nconst k = "%s";\n' % SK)
@@ -1793,8 +1820,10 @@ class ReviewCycleTwoTests(ScanCase):
         self.write("src/.env", "OPENAI_API_KEY=%s\n" % SK)
         r = self.scan()
         q1 = r["questions"]["q1"]
-        self.assertNotEqual(q1["answer"], "no")
+        self.assertNotIn("client-key-literal", evidence_checks(q1))  # S-064: a live key typed into server code is a No from code-key-live-literal, never a client row
         self.assertIn("non-client-key-literal", evidence_checks(q1))
+        self.assertIn(("src/app/page.tsx", 1), [(e["path"], e["line"]) for e in q1["evidence"] if e["check"] == "code-key-live-literal"])
+        self.assertEqual(no_checks(evidence_checks(q1)), {"code-key-live-literal"})
         self.assertIn("api-route-dir", evidence_checks(r["questions"]["q2"]))
 
     def test_anon_jwt_next_to_service_identifier_is_not_no(self):
@@ -1902,7 +1931,9 @@ class ReviewCycleThreeTests(ScanCase):
         for mod in ("next/headers", "next/server", "next/cache", "server-only"):
             self.write("src/lib/auth.ts", 'import { cookies } from "%s";\nexport const key = "%s";\n' % (mod, SK))
             q1 = self.scan()["questions"]["q1"]
-            self.assertNotEqual(q1["answer"], "no", mod)
+            self.assertNotIn("client-key-literal", evidence_checks(q1), mod)  # S-064: a live key typed into server code is a No from code-key-live-literal, never a client row
+            self.assertIn("code-key-live-literal", evidence_checks(q1), mod)
+            self.assertEqual(no_checks(evidence_checks(q1)), {"code-key-live-literal"}, mod)
             self.assertTrue({"non-client-key-literal", "server-path-key-literal"} & set(evidence_checks(q1)), mod)  # server-only now marks it server code
         self.write("src/lib/auth.ts", 'import Link from "next/link";\nexport const key = "%s";\n' % SK)
         self.assertEqual(self.scan()["questions"]["q1"]["answer"], "no")
@@ -2133,7 +2164,10 @@ class ReviewCycleThreeAdversarialTests(ScanCase):
         os.makedirs(self.repo)
         self.write("pages/api/x.ts", 'const k = "%s";\n' % SK)
         self.write("app/api/y/route.ts", 'const k = "%s";\n' % GHP)
-        self.assertEqual(self.scan()["questions"]["q1"]["answer"], "dont-know")
+        checks = evidence_checks(self.scan()["questions"]["q1"])  # S-064: a live key typed into server code is a No from code-key-live-literal, never a client row
+        self.assertNotIn("client-key-literal", checks)
+        self.assertEqual(no_checks(checks), {"code-key-live-literal"})
+        self.assertEqual(checks.count("code-key-live-literal"), 2)
 
     def test_digitless_named_key_is_not_a_placeholder(self):
         akia = "AKIA" + "".join(_RNG.choice("ABCDEFGHIJKLMNOPQRSTUVWXYZ") for _ in range(16))
@@ -2561,8 +2595,10 @@ class ShipReviewTests(ScanCase):
     def test_src_functions_is_server_code(self):
         self.write("src/functions/sendEmail.ts", 'const k = "%s";\n' % SK)
         q1 = self.scan()["questions"]["q1"]
-        self.assertNotEqual(q1["answer"], "no")
-        self.assertIn("server-path-key-literal", evidence_checks(q1))
+        self.assertIn("server-path-key-literal", evidence_checks(q1))  # S-064: a live key typed into server code is a No from code-key-live-literal, never a client row
+        self.assertNotIn("client-key-literal", evidence_checks(q1))
+        self.assertIn("code-key-live-literal", evidence_checks(q1))
+        self.assertEqual(no_checks(evidence_checks(q1)), {"code-key-live-literal"})
 
     # --- claude adversarial
 
@@ -2601,7 +2637,10 @@ class ShipReviewTests(ScanCase):
         self.write("src/app/app.component.ts", 'import { Component } from "@angular/core";\nconst k = "%s";\n' % AKIA)
         self.assertEqual(self.scan()["questions"]["q1"]["answer"], "no")
         self.write("src/app/app.component.ts", 'import { headers } from "next/headers";\nconst k = "%s";\n' % AKIA)
-        self.assertNotEqual(self.scan()["questions"]["q1"]["answer"], "no")
+        checks = evidence_checks(self.scan()["questions"]["q1"])  # S-064: a live key typed into server code is a No from code-key-live-literal, never a client row
+        self.assertNotIn("client-key-literal", checks)
+        self.assertEqual(no_checks(checks), {"code-key-live-literal"})
+        self.assertIn("code-key-live-literal", checks)
 
     def test_generic_tokens_in_json_and_yaml_config_are_found(self):
         self.write("src/config.json", '{"secretKey": "%s"}\n' % GENERIC)
@@ -4604,8 +4643,8 @@ class FalseNothingFoundTests(ScanCase):
     # ----------------------------------------------------------------- Q1
     def test_mts_and_cts_files_are_code(self):
         key = "sk-" + "proj-" + "a1b2c3d4e5f6g7h8i9j0" * 2
-        for name, answer in (("src/components/ai.mts", "no"), ("src/components/ai.cts", "no"), ("src/lib/ai.mts", "dont-know")):
-            with self.subTest(name=name):  # src/lib is unclear territory, the same as a .ts there: evidence, not a no
+        for name, answer in (("src/components/ai.mts", "no"), ("src/components/ai.cts", "no"), ("src/lib/ai.mts", "no")):
+            with self.subTest(name=name):  # src/lib is unclear territory, the same as a .ts there: since S-064 its live key is a No (code-key-live-literal)
                 self.fresh()
                 self.write(name, 'export const openai = new OpenAI({ apiKey: "%s" });\n' % key)
                 self.assertEqual(self.q("q1")["answer"], answer, name)
@@ -5876,6 +5915,7 @@ class NeverWorseThanMainTests(unittest.TestCase):
 
     RANK = {"no": 2, "dont-know": 1, "nothing-found": 0, "yes": 0}
     KEYS = {"{KEY}": "sk-" + "proj-" + "a1b2c3d4e5f6g7h8i9j0" * 2,
+            "{LIVE}": "sk_" + "live_" + "a1b2c3d4e5f6g7h8i9j0",
             "{PEM}": "-----BEGIN " + "PRIVATE KEY-----\\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\\n-----END " + "PRIVATE KEY-----\\n",
             "{PEM_BODY}": "-----BEGIN " + "PRIVATE KEY-----\n" + "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7" * 3 + "\n-----END " + "PRIVATE KEY-----\n"}
     # (case, question) -> (the answer allowed, why the baseline's more cautious answer was wrong)
@@ -5885,7 +5925,14 @@ class NeverWorseThanMainTests(unittest.TestCase):
         ('rls loop credited after an earlier create', "q3"): ("nothing-found", "0.3.2 cannot read a DO-block loop of execute format('alter table %I enable row level security', t): RLS is on for each named table (S-044)"),
     }
     # (case, question) -> why a No the baseline did not give is right
-    ALLOW_NEW_NO = {}
+    ALLOW_NEW_NO = {
+        ('vite openai name in screen code', "q1"): "S-064 gap 1: import.meta.env.VITE_OPENAI_API_KEY in screen code ships the key to every visitor; main said Nothing found on a fresh clone",
+        ('vite service role name in screen code', "q1"): "S-064 gap 1: a VITE_ service-role key name read in screen code ships that key to the browser",
+        ('live key typed into a python server file', "q1"): "S-064 gap 2: a live Stripe key typed into code is a key to replace (questions.md Q1: every secret lives in an env variable or a secrets manager)",
+        ('live key typed into an api route', "q1"): "S-064 gap 2: a live Stripe key typed into a server route is a key to replace",
+        ('lib key', "q1"): "S-064 gap 2: a live OpenAI key typed into src/lib is a key to replace wherever src/lib runs (TODOS: what src/lib means in a Vite app)",
+        ("unclosed quote with many escaped quotes", "q1"): "S-064 gap 1: line 1 reads import.meta.env.VITE_OPENAI_API_KEY in screen code, a real leak; the hostile line 2 only tests that the scan stays fast (red-team review)",
+    }
 
     def _scan(self, c):
         """Write a case as build_cases.materialize does (generated bodies, hard links) and scan it with its args."""
@@ -5907,6 +5954,7 @@ class NeverWorseThanMainTests(unittest.TestCase):
             q = r["questions"]
             pii = sorted(set(e["snippet"] for e in q["q10"]["evidence"] if e["check"] == "pii-field"))
             self.stopline = _stopline_rows(r)
+            self.q1_no_places = _q1_no_places(cs, r)
             return {k: q[k]["answer"] for k in ("q1", "q3", "q9")}, r["partial"], pii, r["stats"]
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
@@ -5934,6 +5982,10 @@ class NeverWorseThanMainTests(unittest.TestCase):
                         used.add(key)
                     if new[q] == "no" and was != "no":
                         self.assertIn(key, self.ALLOW_NEW_NO, "%s %s: a new No the baseline did not give" % (c["name"], q))
+                        used.add(key)
+                    # G6: more Do today places than the baseline is a new alarm too, even where both say No
+                    if q == "q1" and "q1_no_places" in base and getattr(self, "q1_no_places", 0) > base["q1_no_places"]:
+                        self.assertIn(key, self.ALLOW_NEW_NO, "%s q1: %d Do today places, the baseline %d" % (c["name"], self.q1_no_places, base["q1_no_places"]))
                         used.add(key)
         stale = _stale_exceptions(set(self.ALLOW_SOFTER) | set(self.ALLOW_NEW_NO), used, _released_main().allow)
         self.assertEqual(stale, set(), "an allowed exception that no longer happens should be removed")
@@ -6112,7 +6164,8 @@ class ReleasedMainFloorTests(unittest.TestCase):
             me = sys.modules[__name__]
             with mock.patch.object(me, "_corpus", lambda: cases), mock.patch.object(me, "_baseline", base), \
                     mock.patch.object(me, "_released_main", lambda cache=True: rel), \
-                    mock.patch.object(never, "_scan", scan), mock.patch.object(never, "ALLOW_SOFTER", softer):
+                    mock.patch.object(never, "_scan", scan), mock.patch.object(never, "ALLOW_SOFTER", softer), \
+                    mock.patch.object(never, "ALLOW_NEW_NO", {}):
                 never.test_never_worse_than_the_baseline()
 
         allowed = {(c["name"], "q1"): ("nothing-found", "r") for c in cases}
@@ -6627,7 +6680,9 @@ class OverlayContractTests(ScanCase):
                 self.write(rel[:-4] + ".ts", 'export const k = "%s";\n' % SK)
                 as_ts = self.scan()["questions"]["q1"]
                 self.assertEqual(as_mts["answer"], as_ts["answer"], "classified as its .ts sibling")
-                self.assertNotEqual(as_mts["answer"], "no")
+                checks = evidence_checks(as_mts)  # server code: never a client row; S-064's code-key-live-literal is its No
+                self.assertNotIn("client-key-literal", checks)
+                self.assertIn("code-key-live-literal", checks)
 
     def test_a_pem_in_browser_mts_gives_one_client_private_key_row(self):
         self.write("src/components/k.mts", "export const k = `%s\n%s\n%s`;\n" % (PEM_HEAD, PEM_BODY, PEM_TAIL))
@@ -8045,6 +8100,448 @@ class ScannerSharedLoaderTests(ScanCase):
     def test_a_missing_release_wins(self):
         scripts = self.copy_scripts("custody_scan.py")
         self.assertEqual(self.run_copy(scripts)["error"], "internal:release-missing")
+
+
+# ---------------------------------------------------------------- S-064: browser-key names and live keys in code
+
+LIVE = "sk_" + "live_" + rand(28)
+RK_LIVE = "rk_" + "live_" + rand(28)
+SK_TEST = "sk_" + "test_" + rand(28)
+OPENAI_KEY = "sk-" + rand(44)
+ANT_KEY = "sk-" + "ant-" + rand(44)
+SPROJ_KEY = "sk-" + "proj-" + "-".join(rand(10) for _ in range(5))  # 6 hyphens: main's is_placeholder skips it (S11)
+GH_PAT = "github_pat_" + rand(40, ALNUM + "_")
+SLACK_BOT = "xoxb-" + "1234567890123-1234567890123-" + rand(24)
+DEMO_SERVICE_JWT = make_jwt({"iss": "supabase-demo", "role": "service_role", "exp": 1983812996})
+KEY_SECRETS = [LIVE, RK_LIVE, OPENAI_KEY, ANT_KEY, SPROJ_KEY, GH_PAT, SLACK_BOT, AKIA, GHP, SBS, SERVICE_JWT]
+
+
+class KeyNamePassTests(ScanCase):
+    """S-064 (custody 0.6.2): Q1 reads browser-prefixed secret NAMES in screen code (gap 1) and promotes 0.3.2's
+    live named keys typed into server or unclear code to a No (gap 2). Plan Steps 2-3 (the one current spec)."""
+
+    NAME_NO, NAME_ALSO, FLAG, LIVE_NO = "browser-secret-env-name", "browser-secret-env-name-also", "browser-ai-key-flag", "code-key-live-literal"
+
+    def q1(self, r):
+        return r["questions"]["q1"]
+
+    def rows(self, r, check):
+        return [(e["path"], e["line"]) for e in self.q1(r)["evidence"] if e["check"] == check]
+
+    def places(self, r):
+        no = cs.all_checks()
+        return sorted(set((e["path"], e["line"]) for e in self.q1(r)["evidence"] if no.get(e["check"], ((), ""))[1] == "no"))
+
+    def vite(self):
+        self.write("package.json", '{"dependencies": {"vite": "5", "openai": "4"}}')
+
+    def assert_one_name_no(self, r, path, line=1):
+        self.assertEqual(self.q1(r)["answer"], "no")
+        self.assertEqual(self.rows(r, self.NAME_NO), [(path, line)])
+        self.assertEqual(len(self.places(r)), 1)
+
+    # ---- red-team review (S-064 code review): hand-built hostile inputs this branch made worse than main
+
+    def test_unclosed_quote_with_many_escapes_stays_fast(self):
+        self.vite()
+        self.write("src/big.js", "const k = import.meta.env.VITE_OPENAI_API_KEY;\nconst s = \"" + "\\\"" * 40000 + "\n")
+        t0 = time.monotonic()
+        r = self.scan()
+        self.assertLess(time.monotonic() - t0, 5)  # was 25 s: the comment lexer retried at every escaped quote
+        self.assertIsNone(r["stats"]["overlay_fallback"])
+        self.assertEqual(self.rows(r, self.NAME_NO), [("src/big.js", 1)])
+
+    def test_deeply_nested_package_json_does_not_crash_the_overlay(self):
+        self.write("package.json", '{"a":' * 5000 + "1" + "}" * 5000)
+        self.write("src/a.ts", "export const a = 1;\n")
+        r = self.scan()
+        self.assertIsNone(r["stats"]["overlay_fallback"])  # was "error": json raised RecursionError
+        self.assertEqual(self.q1(r)["answer"], "nothing-found")
+
+    # ---- gap 1: the name rule
+
+    def test_vite_openai_name_in_screen_code_is_a_no(self):
+        self.vite()
+        self.write("src/lib/ai.ts", 'import OpenAI from "openai";\nexport const ai = new OpenAI({ apiKey: import.meta.env.VITE_OPENAI_API_KEY, dangerouslyAllowBrowser: true });\n')
+        r = self.scan()
+        self.assertEqual(self.q1(r)["answer"], "no")
+        self.assertEqual(self.rows(r, self.NAME_NO), [("src/lib/ai.ts", 2)])
+        self.assertEqual(self.rows(r, self.FLAG), [("src/lib/ai.ts", 2)])
+        self.assertEqual(len(self.places(r)), 1)
+        snips = [e["snippet"] for e in self.q1(r)["evidence"] if e["check"] == self.NAME_NO]
+        self.assertEqual(snips, ["VITE_OPENAI_API_KEY"])
+
+    def test_secret_names_by_accessor_and_prefix(self):
+        cases = [
+            ("components/Pay.tsx", '"use client"\nconst k = process.env.NEXT_PUBLIC_STRIPE_SECRET_KEY;\n', 2),
+            ("src/App.jsx", 'const k = process.env["REACT_APP_SUPABASE_SERVICE_ROLE_KEY"];\n', 1),
+            ("src/db.ts", "const k = import.meta.env.VITE_SUPABASE_SERVICE_ROLE;\n", 1),  # C3
+            ("src/claude.ts", "const k = import.meta.env.VITE_ANTHROPIC_API_KEY;\n", 1),
+        ]
+        for path, body, line in cases:
+            with self.subTest(path=path):
+                shutil.rmtree(self.repo)
+                os.makedirs(self.repo)
+                self.vite()
+                self.write(path, body)
+                self.assert_one_name_no(self.scan(), path, line)
+
+    def test_accessor_variants(self):
+        for ref in ("import.meta.env?.VITE_OPENAI_API_KEY", "import.meta.env['VITE_OPENAI_API_KEY']",
+                    'import.meta.env["VITE_OPENAI_API_KEY"]', "import.meta.env[`VITE_OPENAI_API_KEY`]",
+                    "import.meta.env?.['VITE_OPENAI_API_KEY']", "process.env?.REACT_APP_OPENAI_API_KEY"):
+            with self.subTest(ref=ref):
+                shutil.rmtree(self.repo)
+                os.makedirs(self.repo)
+                self.vite()
+                self.write("src/ai.ts", "const k = %s;\n" % ref)
+                self.assert_one_name_no(self.scan(), "src/ai.ts")
+
+    def test_destructuring(self):
+        self.vite()
+        self.write("src/ai.ts", "const { VITE_OPENAI_API_KEY: k, VITE_APP_TITLE } = import.meta.env;\n")
+        self.assert_one_name_no(self.scan(), "src/ai.ts")
+        self.write("src/ai.ts", "const {\n  VITE_OPENAI_API_KEY,\n} = import.meta.env;\n")
+        self.assert_one_name_no(self.scan(), "src/ai.ts")
+
+    def test_names_that_are_not_secret_give_no_row(self):
+        self.vite()
+        self.write("src/cfg.ts", "".join("export const a%d = import.meta.env.%s;\n" % (i, n) for i, n in enumerate(
+            ("VITE_SUPABASE_ANON_KEY", "VITE_FIREBASE_API_KEY", "VITE_SECRET_SANTA_ENABLED", "VITE_API_URL"))))
+        self.write("components/Pay.tsx", '"use client"\nconst p = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;\n')
+        r = self.scan()
+        for c in (self.NAME_NO, self.NAME_ALSO):
+            self.assertEqual(self.rows(r, c), [], c)
+        self.assertEqual(self.q1(r)["answer"], "nothing-found")
+
+    def test_server_files_give_no_row(self):
+        self.vite()
+        self.write("api/chat.ts", "const k = process.env.VITE_OPENAI_API_KEY;\n")
+        self.write("server/ai.ts", "const k = import.meta.env.VITE_OPENAI_API_KEY;\n")
+        r = self.scan()
+        self.assertEqual(self.rows(r, self.NAME_NO) + self.rows(r, self.NAME_ALSO), [])
+
+    def test_server_scripts_reading_browser_names_are_evidence(self):
+        self.vite()
+        self.write("scripts/seed.ts", "const k = process.env.VITE_SUPABASE_SERVICE_ROLE_KEY;\n")
+        self.write("vite.config.ts", 'import { defineConfig } from "vite";\nconst k = process.env.VITE_SUPABASE_SERVICE_ROLE_KEY;\n')
+        r = self.scan()
+        self.assertEqual(self.rows(r, self.NAME_NO), [])
+        self.assertEqual(sorted(self.rows(r, self.NAME_ALSO)), [("scripts/seed.ts", 1), ("vite.config.ts", 2)])
+        self.assertEqual(self.q1(r)["answer"], "dont-know")
+
+    def test_inlined_prefix_in_unclear_file_of_a_non_next_app_is_a_no(self):
+        self.write("package.json", '{"dependencies": {"react-scripts": "5"}}')
+        self.write("lib/ai.js", "const k = process.env.NEXT_PUBLIC_OPENAI_API_KEY;\n")
+        self.assert_one_name_no(self.scan(), "lib/ai.js")
+
+    def test_next_server_component_is_evidence_and_client_component_is_a_no(self):
+        self.write("package.json", '{"dependencies": {"next": "14", "openai": "4"}}')  # no next.config: G4
+        self.write("app/page.tsx", "export default function P() { return process.env.NEXT_PUBLIC_OPENAI_API_KEY ? 1 : 0 }\n")
+        r = self.scan()
+        self.assertEqual(self.rows(r, self.NAME_NO), [])
+        self.assertEqual(self.rows(r, self.NAME_ALSO), [("app/page.tsx", 1)])
+        self.assertEqual(self.q1(r)["answer"], "dont-know")
+        self.write("app/page.tsx", '"use client"\nexport default function P() { return process.env.NEXT_PUBLIC_OPENAI_API_KEY ? 1 : 0 }\n')
+        self.assert_one_name_no(self.scan(), "app/page.tsx", 2)
+
+    def test_monorepo_next_is_per_package(self):
+        self.write("apps/web/package.json", '{"dependencies": {"next": "14"}}')
+        self.write("apps/web/app/page.tsx", "export const k = process.env.NEXT_PUBLIC_OPENAI_API_KEY;\n")
+        self.write("apps/admin/package.json", '{"dependencies": {"vite": "5"}}')
+        self.write("apps/admin/src/ai.ts", "export const k = import.meta.env.VITE_OPENAI_API_KEY;\n")
+        r = self.scan()
+        self.assertEqual(self.rows(r, self.NAME_NO), [("apps/admin/src/ai.ts", 1)])
+        self.assertEqual(self.rows(r, self.NAME_ALSO), [("apps/web/app/page.tsx", 1)])
+
+    def test_unparsed_package_json_counts_as_next(self):
+        self.write("package.json", '{"dependencies": {"next": "14",}')
+        self.write("app/page.tsx", "export const k = process.env.NEXT_PUBLIC_OPENAI_API_KEY;\n")
+        r = self.scan()
+        self.assertEqual(self.rows(r, self.NAME_NO), [])
+        self.assertEqual(self.rows(r, self.NAME_ALSO), [("app/page.tsx", 1)])
+
+    def test_next_config_marks_its_folder_as_next(self):
+        self.write("next.config.mjs", "export default {};\n")
+        self.write("app/page.tsx", "export const k = process.env.NEXT_PUBLIC_OPENAI_API_KEY;\n")
+        self.assertEqual(self.rows(self.scan(), self.NAME_NO), [])
+
+    def test_comments_and_test_paths_are_evidence(self):
+        self.vite()
+        self.write("src/a.ts", "// apiKey: import.meta.env.VITE_OPENAI_API_KEY\n/* import.meta.env.VITE_STRIPE_SECRET_KEY */\nconst s = '// not a comment';\n")
+        self.write("src/ai.test.ts", "const k = import.meta.env.VITE_ANTHROPIC_API_KEY;\n")
+        r = self.scan()
+        self.assertEqual(self.rows(r, self.NAME_NO), [])
+        self.assertEqual(sorted(self.rows(r, self.NAME_ALSO)), [("src/a.ts", 1), ("src/a.ts", 2), ("src/ai.test.ts", 1)])
+        self.assertEqual(self.q1(r)["answer"], "dont-know")
+
+    def test_a_string_holding_double_slash_does_not_hide_a_reference(self):
+        self.vite()
+        self.write("src/a.ts", "const u = 'https://x.io'; const k = import.meta.env.VITE_OPENAI_API_KEY;\n")
+        self.assert_one_name_no(self.scan(), "src/a.ts")
+
+    def test_one_name_in_three_files_is_one_place(self):
+        self.vite()
+        for p in ("src/c.ts", "src/a.ts", "src/b.ts"):
+            self.write(p, "\nconst k = import.meta.env.VITE_OPENAI_API_KEY;\n")
+        r1, r2 = self.scan(), self.scan()
+        self.assert_one_name_no(r1, "src/a.ts", 2)
+        self.assertEqual(sorted(self.rows(r1, self.NAME_ALSO)), [("src/b.ts", 2), ("src/c.ts", 2)])
+        self.assertEqual(self.q1(r1), self.q1(r2))
+
+    def test_seven_names_in_one_file_are_seven_places(self):
+        self.vite()
+        names = ["VITE_%s_API_KEY" % p for p in ("OPENAI", "ANTHROPIC", "GEMINI", "MISTRAL", "GROQ", "COHERE", "DEEPSEEK")]
+        self.write("src/config.ts", "".join("export const k%d = import.meta.env.%s;\n" % (i, n) for i, n in enumerate(names)))
+        r = self.scan()
+        self.assertEqual(len(self.rows(r, self.NAME_NO)), 7)
+        self.assertEqual(len(self.places(r)), 7)
+
+    def test_name_already_judged_in_env_counts_once(self):
+        self.vite()
+        self.write(".env", "VITE_OPENAI_API_KEY=%s\n" % OPENAI_KEY)
+        self.write("src/a.ts", "const k = import.meta.env.VITE_OPENAI_API_KEY;\n")
+        self.write("src/b.ts", "const k = import.meta.env.VITE_OPENAI_API_KEY;\n")
+        r = self.scan()
+        self.assertEqual(self.q1(r)["answer"], "no")
+        self.assertEqual(self.rows(r, self.NAME_NO), [])
+        self.assertEqual(sorted(self.rows(r, self.NAME_ALSO)), [("src/a.ts", 1), ("src/b.ts", 1)])
+        self.assertEqual(len(self.places(r)), 1)
+        self.assert_no_secret(json.dumps(r), OPENAI_KEY)
+
+    def test_many_hyphen_key_in_env_matches_main(self):
+        """G11/S11: main skips an sk- value with more than 5 hyphens; the code reference still gives its one No."""
+        self.vite()
+        self.write(".env", "VITE_OPENAI_API_KEY=%s\n" % SPROJ_KEY)
+        self.write("src/a.ts", "const k = import.meta.env.VITE_OPENAI_API_KEY;\n")
+        main_env = [e for e in cs.release.scan(self.repo)["questions"]["q1"]["evidence"] if e["path"] == ".env" and cs.release.CHECKS[e["check"]][1] == "no"]
+        self.assertEqual(main_env, [])
+        self.assert_one_name_no(self.scan(), "src/a.ts")
+
+    # ---- the flag (evidence only, C2)
+
+    def test_flag_alone_is_evidence_never_a_place(self):
+        self.vite()
+        self.write("src/ai.ts", 'new OpenAI({ apiKey: import.meta.env.VITE_MY_AI, dangerouslyAllowBrowser: true });\n')
+        r = self.scan()
+        self.assertEqual(self.rows(r, self.FLAG), [("src/ai.ts", 1)])
+        self.assertEqual(self.q1(r)["answer"], "dont-know")
+        self.assertEqual(self.places(r), [])
+
+    def test_flag_false_server_or_comment_gives_no_row(self):
+        self.vite()
+        self.write("src/a.ts", "new OpenAI({ dangerouslyAllowBrowser: false });\n// dangerouslyAllowBrowser: true\n")
+        self.write("server/b.ts", "new OpenAI({ dangerouslyAllowBrowser: true });\n")
+        r = self.scan()
+        self.assertEqual(self.rows(r, self.FLAG), [])
+        self.assertEqual(self.q1(r)["answer"], "nothing-found")
+
+    # ---- gap 2: live keys typed into code
+
+    def test_live_named_keys_in_server_or_unclear_code_are_a_no(self):
+        for key in (LIVE, RK_LIVE, OPENAI_KEY, ANT_KEY, AKIA, GHP, GH_PAT, SBS, SLACK_BOT, SERVICE_JWT):
+            for path in ("server/pay.ts", "app/pay.py", "api/x.js"):
+                with self.subTest(key=key[:6], path=path):
+                    shutil.rmtree(self.repo)
+                    os.makedirs(self.repo)
+                    self.write(path, 'KEY = "%s"\n' % key)
+                    r = self.scan()
+                    self.assertEqual(self.q1(r)["answer"], "no")
+                    self.assertEqual(self.rows(r, self.LIVE_NO), [(path, 1)])
+                    self.assertEqual(len(self.places(r)), 1)
+                    self.assert_no_secret(json.dumps(r), key)
+
+    def test_not_live_keys_stay_as_main_gives_them(self):
+        bodies = {
+            "server/a.ts": 'const a = "%s";\n' % SK_TEST,
+            "server/b.ts": 'const b = "sk_live_your_key_here_0000000000";\n',
+            "server/tests/c.ts": 'const c = "%s";\n' % LIVE,
+            "server/d.ts": 'const apiSecret = "%s";\n' % GENERIC,
+            "server/e.ts": 'const e = "%s"; const f = "%s";\n' % (ANON_JWT, PUBLISHABLE),
+            "server/f.ts": 'const g = "%s";\n' % DEMO_SERVICE_JWT,
+            "server/g.ts": 'const h = "%s";\n' % SPROJ_KEY,
+        }
+        for p, b in bodies.items():
+            self.write(p, b)
+        self.write(".env", "STRIPE_SECRET_KEY=%s\n" % LIVE)
+        self.write(".env.example", "STRIPE_SECRET_KEY=%s\n" % LIVE)
+        self.write(".env.local", "STRIPE_SECRET_KEY=%s\n" % LIVE)
+        r = self.scan()
+        self.assertEqual(self.rows(r, self.LIVE_NO), [])
+        self.assertEqual(self.q1(r)["answer"], cs.release.scan(self.repo)["questions"]["q1"]["answer"])
+
+    def test_live_key_in_a_server_comment_is_still_a_no(self):
+        self.write("server/pay.ts", "// old key: %s\n" % LIVE)
+        self.assertEqual(self.rows(self.scan(), self.LIVE_NO), [("server/pay.ts", 1)])
+
+    def test_one_line_is_never_two_nos(self):
+        self.write("vite.config.ts", 'import { defineConfig } from "vite";\nexport default defineConfig({ define: { VITE_X: "%s" } });\n' % LIVE)
+        self.write("src/ai.ts", 'new OpenAI({ apiKey: "%s", dangerouslyAllowBrowser: true });\n' % OPENAI_KEY)
+        r = self.scan()
+        self.assertEqual(self.rows(r, self.LIVE_NO), [])
+        self.assertEqual(len(self.places(r)), 2)
+
+    def test_two_places_with_one_key_are_two_places(self):
+        self.write("server/a.ts", 'const k = "%s";\n' % LIVE)
+        self.write("server/b.ts", 'const k = "%s";\n' % LIVE)
+        self.assertEqual(len(self.places(self.scan())), 2)
+
+    # ---- .mts / .cts (one path)
+
+    def test_module_files(self):
+        self.vite()
+        self.write("src/ai.mts", "export const k = import.meta.env.VITE_OPENAI_API_KEY;\n")
+        self.write("server/pay.mts", 'export const k = "%s";\n' % LIVE)
+        r = self.scan()
+        self.assertEqual(self.rows(r, self.NAME_NO), [("src/ai.mts", 1)])
+        self.assertEqual(self.rows(r, self.LIVE_NO), [("server/pay.mts", 1)])
+        self.assertEqual(len([e for e in self.q1(r)["evidence"] if e["path"] == "server/pay.mts"]), 2)  # 0.3.2's evidence row + the No
+
+    def test_a_browser_module_key_is_one_row(self):
+        self.write("src/k.mts", 'export const k = "%s";\n' % LIVE)
+        r = self.scan()
+        self.assertEqual(len([e for e in self.q1(r)["evidence"] if e["path"] == "src/k.mts"]), 1)
+
+    # ---- the pass itself
+
+    def test_a_detector_error_is_a_q1_gap_and_nothing_else_moves(self):
+        self.vite()
+        self.write("src/bad.ts", "const k = import.meta.env.VITE_OPENAI_API_KEY;\n")
+        self.write("src/ok.mts", 'export const k = "%s";\n' % LIVE)
+        self.write("supabase/migrations/1.sql", "create table t (id int);\n")
+        before = self.scan()
+        real = cs.detect_keys
+
+        def boom(sf, *a, **k):
+            if sf.rel == "src/bad.ts":
+                raise ValueError("forced")
+            return real(sf, *a, **k)
+        with mock.patch.object(cs, "detect_keys", boom):
+            r = self.scan()
+        self.assertIn(("src/bad.ts", 0), self.rows(r, "code-file-not-read"))
+        self.assertEqual(self.q1(r)["answer"], "no")  # the .mts No elsewhere stands
+        for q in ("q3", "q9"):
+            self.assertEqual(r["questions"][q], before["questions"][q])
+        ov = cs.scan_with_overlay.last
+        self.assertEqual(ov.key_errors, [("ValueError", "src/bad.ts")])
+        self.assertNotIn("VITE_OPENAI", json.dumps(ov.key_errors))
+
+    def test_a_deadline_inside_the_pass_leaves_q1_unfinished_only(self):
+        self.vite()
+        self.write("src/a.ts", "const k = import.meta.env.VITE_API_URL;\n")
+        self.write("supabase/migrations/1.sql", "create table t (id int);\nalter table t enable row level security;\n")
+        before = self.scan()
+
+        def late(*a, **k):
+            raise cs.release.Deadline()
+        with mock.patch.object(cs, "detect_keys", late):
+            r = self.scan()
+        ov = cs.scan_with_overlay.last
+        self.assertEqual(ov.status, "finished")
+        self.assertFalse(ov.key_finished)
+        self.assertEqual(self.q1(r)["answer"], "dont-know")
+        self.assertIn("checks-not-finished", [e["check"] for e in self.q1(r)["evidence"]])
+        for q in ("q3", "q9"):
+            self.assertEqual(r["questions"][q]["answer"], before["questions"][q]["answer"])
+
+    def test_files_without_a_trigger_are_not_judged(self):
+        self.vite()
+        self.write("src/plain.ts", "export const add = (a: number, b: number) => a + b;\n")
+        self.write("src/env.ts", "export const u = import.meta.env.VITE_API_URL;\n")
+        seen = []
+        real = cs.detect_keys
+
+        def spy(sf, *a, **k):
+            seen.append(sf.rel)
+            return real(sf, *a, **k)
+        with mock.patch.object(cs, "detect_keys", spy):
+            self.scan()
+        self.assertEqual(seen, ["src/env.ts"])
+
+    def test_read_failures_never_give_nothing_found_or_a_double_row(self):
+        self.vite()
+        self.write("src/bin.ts", "const k = import.meta.env.VITE_OPENAI_API_KEY;\x00\n")
+        self.write("src/big.ts", "// hunter2\n" + "x" * 2000 + "\n")
+        r = self.scan(max_file_bytes=1000)
+        self.assertNotEqual(self.q1(r)["answer"], "nothing-found")
+        for p in ("src/bin.ts", "src/big.ts"):
+            self.assertLessEqual(len([e for e in self.q1(r)["evidence"] if e["path"] == p]), 1, p)
+        self.assertNotIn("hunter2", json.dumps(r))
+
+    @unittest.skipIf(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0), "needs file permissions")
+    def test_an_unreadable_code_file_is_never_nothing_found(self):
+        self.vite()
+        path = self.write("src/locked.ts", "const k = import.meta.env.VITE_OPENAI_API_KEY;\n")
+        os.chmod(path, 0)
+        try:
+            r = self.scan()
+        finally:
+            os.chmod(path, 0o644)
+        self.assertNotEqual(self.q1(r)["answer"], "nothing-found")
+        self.assertLessEqual(len([e for e in self.q1(r)["evidence"] if e["path"] == "src/locked.ts"]), 1)
+
+    def test_bounded_on_hostile_text(self):
+        self.vite()
+        self.write("src/a.ts", "{" * 1000000 + " = import.meta.env\n")
+        self.write("src/b.ts", "import.meta.env." * 60000 + "\n")
+        t0 = time.perf_counter()
+        r = self.scan()
+        self.assertLess(time.perf_counter() - t0, bound(10))
+        self.assertTrue(cs.scan_with_overlay.last.key_finished)
+        self.assertEqual(self.rows(r, self.NAME_NO), [])
+
+    @unittest.skipUnless(os.environ.get("CUSTODY_SLOW") == "1", "slow: 3,000 files")
+    def test_three_thousand_code_files_stay_finished(self):
+        self.vite()
+        for i in range(3000):
+            self.write("src/m%04d/x.ts" % i, "export const u%d = import.meta.env.VITE_API_URL;\n" % i)
+        self.scan()
+        ov = cs.scan_with_overlay.last
+        self.assertEqual(ov.status, "finished")
+        self.assertTrue(ov.key_finished)
+
+    def test_a_capped_scan_is_never_nothing_found(self):
+        self.vite()
+        self.write("a.txt", "x\n")
+        self.write("src/z.ts", "const k = import.meta.env.VITE_OPENAI_API_KEY;\n")
+        self.assertNotEqual(self.q1(self.scan(max_files=1))["answer"], "nothing-found")
+
+    # ---- one table
+
+    def test_one_table_decides_ids_effects_and_the_clamp(self):
+        marked_no = set(k for k, (_, e) in cs.all_checks().items() if k in cs.OVERLAY_CHECKS and e == "no")
+        self.assertEqual(marked_no, {self.NAME_NO, self.LIVE_NO})
+        self.assertEqual(set(cs.NO_SOURCES), {"mts-key", "key-name", "key-literal"})
+        for check in (self.NAME_ALSO, self.FLAG):
+            self.assertEqual(cs.all_checks()[check], (("q1",), "evidence"))
+
+    def test_the_clamp_refuses_a_no_from_any_other_source(self):
+        self.write("src/a.ts", "export const a = 1;\n")
+        result = cs.release.build_result(self._state(), self.repo)
+        self.assertEqual(result["questions"]["q1"]["answer"], "nothing-found")  # the base the clamp is judged against
+        for source, expect in (("names", "nothing-found"), ("key-name-also", "nothing-found"), ("key-flag", "nothing-found"),
+                               ("key-name", "no"), ("key-literal", "no"), ("mts-key", "no")):
+            with self.subTest(source=source):
+                ov = cs.Overlay(float("inf"))
+                ov.key_finished = True
+                ov.add(self.NAME_NO, "src/a.ts", 1, "VITE_X_KEY", effect="no", source=source)
+                plan = cs._plans(copy.deepcopy(result), ov)["q1"]
+                self.assertEqual(plan.answer, "dont-know" if expect == "nothing-found" else "no")
+
+    def _state(self):
+        st = cs.release.ScanState()
+        cs.release.run_scan(self.repo, st, cs.release.Options())
+        return st
+
+    def test_no_key_value_is_ever_printed(self):
+        self.vite()
+        self.write("src/ai.ts", "const k = import.meta.env.VITE_OPENAI_API_KEY;\n")
+        self.write(".env", "VITE_OPENAI_API_KEY=%s\nVITE_STRIPE_SECRET_KEY=%s\n" % (OPENAI_KEY, LIVE))
+        for i, k in enumerate(KEY_SECRETS):
+            self.write("server/k%d.ts" % i, 'const k = "%s";\n' % k)
+        p = self.cli("--repo", self.repo)
+        self.assert_no_secret(p.stdout + p.stderr, *KEY_SECRETS)
+
 
 
 if __name__ == "__main__":

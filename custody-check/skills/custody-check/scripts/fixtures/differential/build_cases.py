@@ -42,7 +42,9 @@ RLS = "create table public.notes (id int);\nalter table public.notes enable row 
 FB = "service cloud.firestore {\n  match /databases/{db}/documents {\n    match /{doc=**} {\n      allow read, write: %s\n    }\n  }\n}\n"
 KEY = "{KEY}"  # filled in at run time: no key-shaped literal is stored in the repo
 PEM = "{PEM}"
+LIVE = "{LIVE}"  # a live Stripe-shaped key, filled in at run time like {KEY}
 REAL = {"{KEY}": "sk-" + "proj-" + "a1b2c3d4e5f6g7h8i9j0" * 2,
+        "{LIVE}": "sk_" + "live_" + "a1b2c3d4e5f6g7h8i9j0",
         "{PEM}": "-----BEGIN " + "PRIVATE KEY-----\\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\\n-----END " + "PRIVATE KEY-----\\n",
         "{PEM_BODY}": "-----BEGIN " + "PRIVATE KEY-----\n" + "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7" * 3 + "\n-----END " + "PRIVATE KEY-----\n"}  # a body 0.3.2 does not read as filler
 
@@ -340,6 +342,23 @@ case("rls loop inside an if", {LOOP_A: LOOP_TABLES + _loop().replace("begin\n", 
 case("rls loop with an exit", {LOOP_A: LOOP_TABLES + _loop().replace("  end loop;", "    exit;\n  end loop;", 1)})
 case("rls loop plus an unread larger migration", {LOOP_A: LOOP_TABLES + _loop(), LOOP_B: "alter table public.notes disable row level security;\n" + "-- pad\n" * 2000}, args={"max_file_bytes": 8192})
 case("rls loop past the five-table cap", {LOOP_A: "".join("create table public.t%d (id int);\n" % i for i in range(8)) + _loop(names="'t0','t1','t2'")})
+
+
+# S-064 (custody 0.6.2): browser-prefixed secret names in screen code, and live keys typed into code
+VITE_PKG = {"package.json": '{"dependencies": {"vite": "5", "openai": "4"}}\n'}
+case("vite openai name in screen code", dict(VITE_PKG, **{"src/lib/ai.ts": 'import OpenAI from "openai";\nexport const ai = new OpenAI({ apiKey: import.meta.env.VITE_OPENAI_API_KEY, dangerouslyAllowBrowser: true });\n'}))
+case("vite service role name in screen code", dict(VITE_PKG, **{"src/db.ts": "export const k = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY;\n"}))
+case("live key typed into a python server file", {"app/pay.py": 'import stripe\nstripe.api_key = "%s"\n' % LIVE})
+case("live key typed into an api route", {"api/pay.ts": 'export const k = "%s";\n' % LIVE})
+case("next server component reads a public secret name", {"package.json": '{"dependencies": {"next": "14"}}\n', "app/page.tsx": "export default function P() { return process.env.NEXT_PUBLIC_OPENAI_API_KEY ? 1 : 0 }\n"})
+case("seed script reads a browser-prefixed service name", dict(VITE_PKG, **{"scripts/seed.ts": "const k = process.env.VITE_SUPABASE_SERVICE_ROLE_KEY;\n"}))
+case("ai flag with an unknown name", dict(VITE_PKG, **{"src/ai.ts": "new OpenAI({ apiKey: import.meta.env.VITE_MY_AI, dangerouslyAllowBrowser: true });\n"}))
+case("clean vite app with public names", dict(VITE_PKG, **{"src/db.ts": "export const u = import.meta.env.VITE_SUPABASE_URL;\nexport const a = import.meta.env.VITE_SUPABASE_ANON_KEY;\n"}))
+case("env name already judged plus two screen files", dict(VITE_PKG, **{".env": "VITE_OPENAI_API_KEY=%s\n" % KEY, "src/a.ts": "export const k = import.meta.env.VITE_OPENAI_API_KEY;\n", "src/b.ts": "export const k = import.meta.env.VITE_OPENAI_API_KEY;\n"}))
+case("stripe test key in a server file", {"server/pay.ts": 'export const k = "sk_test_a1b2c3d4e5f6g7h8i9j0";\n'})
+# S-064 code review, red team: hand-built hostile inputs the branch first made slow or broke
+case("unclosed quote with many escaped quotes", dict(VITE_PKG, **{"src/big.js": "const k = import.meta.env.VITE_OPENAI_API_KEY;\nconst s = \"" + "\\\"" * 40000 + "\n"}))
+case("deeply nested package json", {"package.json": '{"a":' * 5000 + "1" + "}" * 5000, "src/a.ts": "export const a = 1;\n"})
 
 
 def answers(scanner, c):
