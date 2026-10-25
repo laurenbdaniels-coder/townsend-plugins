@@ -899,16 +899,18 @@ class ReleasedVerdictNeverWorseTests(unittest.TestCase):
             yield r, self.corpus["scans"][r["scan"]]
 
     @staticmethod
-    def project(verdict):
-        """0.6.1 (S-062) adds stop_line.where and stop_line.capped; everything else is compared with the release."""
-        verdict["stop_line"].pop("where")
-        verdict["stop_line"].pop("capped")
+    def project(verdict, release_verdict):
+        """0.6.1 (S-062) adds stop_line.where and stop_line.capped. They are dropped only while the release lacks them
+        (0.6.0); once the release has them (0.6.1 and later) they are compared like everything else."""
+        for field in ("where", "capped"):
+            if field not in release_verdict["stop_line"]:
+                verdict["stop_line"].pop(field)
         return verdict
 
     def test_a_no_read_is_identical_to_the_release(self):
         for r, scan in self.rows():
-            got = self.project(cv.decide(copy.deepcopy(scan), cv.parse_answers(r["answers"])))
             want = self.released.decide(copy.deepcopy(scan), self.released.parse_answers(r["answers"]))
+            got = self.project(cv.decide(copy.deepcopy(scan), cv.parse_answers(r["answers"])), want)
             self.assertEqual(got, want, r["id"])
 
     # Q10 snippets where the shared matcher differs from the release. The door is never kinder; a new tick is listed
@@ -933,8 +935,8 @@ class ReleasedVerdictNeverWorseTests(unittest.TestCase):
     def test_a_empty_read_is_the_release_plus_an_empty_read_list(self):
         """SKILL.md passes --read '' when the agent read nothing: same verdict as the release, plus stop_line.read = []."""
         for r, scan in self.rows():
-            got = self.project(cv.decide(copy.deepcopy(scan), cv.parse_answers(r["answers"]), cv.parse_read("")))
             want = self.released.decide(copy.deepcopy(scan), self.released.parse_answers(r["answers"]))
+            got = self.project(cv.decide(copy.deepcopy(scan), cv.parse_answers(r["answers"]), cv.parse_read("")), want)
             self.assertEqual(got["stop_line"].pop("read"), [], r["id"])
             self.assertEqual(got, want, r["id"])
 
