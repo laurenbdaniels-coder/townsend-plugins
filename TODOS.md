@@ -2,6 +2,23 @@
 
 ## custody-check
 
+### Deferred by the S-064 /autoplan (browser-key names and live keys in code, 2026-10-25)
+
+**What:** items the S-064 plan review deferred. Plan: `~/.claude/plans/idempotent-wishing-feigenbaum.md`.
+- **E1, secret names only in env templates.** A browser-prefixed secret name found only in `.env.example`/`.env.sample` would keep Q1 off Nothing found. Why: a template that names `VITE_OPENAI_API_KEY` shows intent. Needs its own sample before it judges anything. Effort: S / S. Priority: P3.
+- **E2, name the provider in Do today** ("replace your OpenAI key"). Why: founders asked "replace what, where?" in the DX roleplay. It changes a fixed report line and its graders. Effort: S / S. Priority: P3.
+- **E3, secrets in a `next.config.*` `env:` block.** Why: another way Next copies values into the bundle. Needs its own sample. Effort: M / S. Priority: P3.
+- **S11, many-hyphen keys** (`sk-proj-…`, `sk-svcacct-…`, `sk-ant-api03-…`). `is_placeholder` treats an `sk-` value with more than 5 hyphens as a placeholder, so these common keys are skipped. Main shares this; S-064 pins it with a fixture. Start in `custody_scan_0_3_2.py` `is_placeholder` (frozen: fix in the overlay or in a new release file). Effort: M / S. Priority: P2.
+- **H2, Do today for a browser key re-leaks.** Replacing a `VITE_*` key and redeploying leaks the new one too. Main has the same wording. Any change must pass SCOPE.md (diagnose only) and `plain_english_test`. Effort: S / S. Priority: P2.
+- **M7, a founder route to mark a false No** ("this name is not a key"), and a way to remove a default browser prefix such as `PUBLIC_`. Effort: M / S. Priority: P3.
+- **Overlay-error trace for existing paths.** `scan_with_overlay` turns any exception into `overlay_fallback: error` with no class or path. S-064 isolates only its own detectors (D2). Effort: S / S. Priority: P3.
+- **Env aliases and SvelteKit `$env`.** `const env = import.meta.env; env.VITE_X` and `$env/static/public` imports are not matched (recall gap). Effort: S / S. Priority: P3.
+- **Fold the overlay into a 0.4 scanner.** More Q1 logic in the overlay makes the eventual fold bigger. Effort: L / M. Priority: P3.
+- **G1 docs caveat before the talk** (if Lauren declines it at the gate): a README line saying Q1 cannot yet see a browser-prefixed secret name without `.env`. Effort: S / S. Priority: P1 if kept.
+- Gap 3 (keys in `.sh`, `.md`, `.txt`) is the existing entry "Q1 Nothing found after one file, and file kinds Q1 never reads" below; not duplicated.
+
+**Context:** S-064 ships gaps 1 and 2 only (Lauren, 2026-10-24). These were each a weakness main shares, an unmeasured new rule, or an optional surface.
+
 ### Leftovers from the custody-check 0.6.0 review (2026-10-21)
 
 **What:** below the ship bar (contrived inputs or weaknesses main shares), from the round-1 specialists, red team and Codex:
