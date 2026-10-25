@@ -23,7 +23,7 @@ A copy without git history falls back to the answers stored in `cases.json`.
 
 The base scanner (`custody_scan_0_3_2.py` and the overlay) may be edited when the corpus shows equal-or-more caution.
 Anything less cautious, or a new No, is listed in `ALLOW_SOFTER` / `ALLOW_NEW_NO` with the reason the release was
-wrong (`ALLOW_NEW_NO` is empty today; `ALLOW_SOFTER` lists the three credited DO-block loop cases, S-044, 0.6.0). An `ALLOW_SOFTER` entry is `(case, question): (allowed answer, reason)` and excuses
+wrong (`ALLOW_NEW_NO` lists the six S-064 new Nos, 0.6.2; `ALLOW_SOFTER` lists the three credited DO-block loop cases, S-044, 0.6.0). An `ALLOW_SOFTER` entry is `(case, question): (allowed answer, reason)` and excuses
 only a move to that answer: softening the same case further later needs the entry edited, whether or not the
 release lists it. Once that PR merges, the release gives the answer itself, so the entry goes unused;
 the stale-entry check skips any entry the release's own test file still lists (graduated), and fails only on an

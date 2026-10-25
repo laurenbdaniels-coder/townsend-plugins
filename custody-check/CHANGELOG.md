@@ -18,7 +18,7 @@ What changed since the workshop build: two kinds of exposed key that gave "Nothi
   - 14 send a secret key to the browser: 11 are now a problem, against 1 before.
   - 91 have no such leak: none is newly flagged.
   - 7 could not be labelled either way: 2 of them are newly flagged.
-- These key checks read your code files once more, after the other checks, with their own time. If they run out, only the key question says "can't tell".
+- These key checks read your code files once more, last, in the time left after the other checks. If only they run out, only the key question says "can't tell".
 
 ## 0.6.1 (2026-10-24)
 
