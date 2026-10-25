@@ -1,6 +1,6 @@
 {
- "baseline": "custody-check 0.5.1 (main a828b60)",
- "baseline_sha": "a828b6073f9b05bd53c3c70536a06486e2225fa1",
+ "baseline": "custody-check 0.6.1 (main 716505b)",
+ "baseline_sha": "716505bf3ff16db936d2d1023db69f2a2c963c0d",
  "cases": [
   {
    "files": {
@@ -2655,7 +2655,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "dont-know",
+    "q3": "nothing-found",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -2669,7 +2669,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "dont-know",
+    "q3": "nothing-found",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -2684,7 +2684,7 @@
    },
    "main": {
     "q1": "nothing-found",
-    "q3": "dont-know",
+    "q3": "nothing-found",
     "q9": "dont-know"
    },
    "main_partial": false,
@@ -2935,6 +2935,155 @@
    "main_partial": false,
    "main_pii": [],
    "name": "rls loop past the five-table cap"
+  },
+  {
+   "files": {
+    "package.json": "{\"dependencies\": {\"vite\": \"5\", \"openai\": \"4\"}}\n",
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "src/lib/ai.ts": "import OpenAI from \"openai\";\nexport const ai = new OpenAI({ apiKey: import.meta.env.VITE_OPENAI_API_KEY, dangerouslyAllowBrowser: true });\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "nothing-found"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "vite openai name in screen code"
+  },
+  {
+   "files": {
+    "package.json": "{\"dependencies\": {\"vite\": \"5\", \"openai\": \"4\"}}\n",
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "src/db.ts": "export const k = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "nothing-found"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "vite service role name in screen code"
+  },
+  {
+   "files": {
+    "app/pay.py": "import stripe\nstripe.api_key = \"{LIVE}\"\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "dont-know",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "live key typed into a python server file"
+  },
+  {
+   "files": {
+    "api/pay.ts": "export const k = \"{LIVE}\";\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "dont-know",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "live key typed into an api route"
+  },
+  {
+   "files": {
+    "app/page.tsx": "export default function P() { return process.env.NEXT_PUBLIC_OPENAI_API_KEY ? 1 : 0 }\n",
+    "package.json": "{\"dependencies\": {\"next\": \"14\"}}\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "nothing-found"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "next server component reads a public secret name"
+  },
+  {
+   "files": {
+    "package.json": "{\"dependencies\": {\"vite\": \"5\", \"openai\": \"4\"}}\n",
+    "scripts/seed.ts": "const k = process.env.VITE_SUPABASE_SERVICE_ROLE_KEY;\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "nothing-found"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "seed script reads a browser-prefixed service name"
+  },
+  {
+   "files": {
+    "package.json": "{\"dependencies\": {\"vite\": \"5\", \"openai\": \"4\"}}\n",
+    "src/ai.ts": "new OpenAI({ apiKey: import.meta.env.VITE_MY_AI, dangerouslyAllowBrowser: true });\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "nothing-found"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "ai flag with an unknown name"
+  },
+  {
+   "files": {
+    "package.json": "{\"dependencies\": {\"vite\": \"5\", \"openai\": \"4\"}}\n",
+    "src/components/A.tsx": "export const A = () => null;\n",
+    "src/db.ts": "export const u = import.meta.env.VITE_SUPABASE_URL;\nexport const a = import.meta.env.VITE_SUPABASE_ANON_KEY;\n"
+   },
+   "main": {
+    "q1": "nothing-found",
+    "q3": "dont-know",
+    "q9": "nothing-found"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "clean vite app with public names"
+  },
+  {
+   "files": {
+    ".env": "VITE_OPENAI_API_KEY={KEY}\n",
+    "package.json": "{\"dependencies\": {\"vite\": \"5\", \"openai\": \"4\"}}\n",
+    "src/a.ts": "export const k = import.meta.env.VITE_OPENAI_API_KEY;\n",
+    "src/b.ts": "export const k = import.meta.env.VITE_OPENAI_API_KEY;\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "no",
+    "q3": "dont-know",
+    "q9": "nothing-found"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "env name already judged plus two screen files"
+  },
+  {
+   "files": {
+    "server/pay.ts": "export const k = \"sk_test_a1b2c3d4e5f6g7h8i9j0\";\n",
+    "src/components/A.tsx": "export const A = () => null;\n"
+   },
+   "main": {
+    "q1": "dont-know",
+    "q3": "dont-know",
+    "q9": "dont-know"
+   },
+   "main_partial": false,
+   "main_pii": [],
+   "name": "stripe test key in a server file"
   }
  ]
 }
