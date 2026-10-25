@@ -50,8 +50,22 @@ RECALL_EXCEPTIONS = []
 NEW_ALARM_EXCEPTIONS = []
 
 # Stop-line hints main reported that the branch may drop, with the reason (fewer hints means a missed "Get a person").
-# Format: {"path": "...", "line": N, "field": "...", "reason": "..."}
-HINT_EXCEPTIONS = []
+# Per app, never a whole-app exemption. Format: {"app": "...", "path": "...", "line": N, "field": "...", "reason": "..."}
+# New hints are allowed: since 0.6.3 (S-062) the shared matcher adds fields written as one word (creditcard).
+HINT_EXCEPTIONS = [
+    {"app": "corpus", "path": "prisma/schema/patient.prisma", "line": 7, "field": "medical",
+     "reason": "main read a line inside a /* */ comment as a field"},
+    {"app": "corpus", "path": "supabase/migrations/004_notes.sql", "line": 4, "field": "medical",
+     "reason": "main read a line inside a /* */ comment as a field"},
+    {"app": "corpus", "path": "db/schema.js", "line": 6, "field": "passport",
+     "reason": "main read a word inside a quoted value ('a passport photo') as a field"},
+    {"app": "corpus", "path": "db/schema.rb", "line": 7, "field": "medical",
+     "reason": "main read a word inside a quoted value (\"no medical notes yet\") as a field"},
+    {"app": "shared-stopline-app", "path": "db/schema.sql", "line": 11, "field": "medical",
+     "reason": "main read a line inside a /* */ comment as a field (the S-062 agreement app's negative case)"},
+    {"app": "shared-stopline-app", "path": "prisma/schema.prisma", "line": 8, "field": "medical",
+     "reason": "main read a line inside a /* */ comment as a field (the S-062 agreement app's negative case)"},
+]
 
 
 def dumps(obj):
@@ -176,15 +190,23 @@ class DifferentialTests(unittest.TestCase):
         # hints and partial reasons as main, capped, on the corpus and every eval fixture app.
         apps = [self.repo] + sorted(os.path.join(EVAL_FIXTURES, d) for d in os.listdir(EVAL_FIXTURES)
                                     if os.path.isdir(os.path.join(EVAL_FIXTURES, d)))
+        hints = lambda r: {(h["path"], h["line"], h["field"]) for h in r["stopline_hints"]}
+        allowed = lambda app: {(e["path"], e["line"], e["field"]) for e in HINT_EXCEPTIONS if e["app"] == app}
         for app in apps:
             theirs_line, mine_line = scan(script, app), scan(SCRIPT, app)
+            name = os.path.basename(app)
+            # Every hint main lists, the branch lists too (S-062: new hints are allowed, none lost).
+            lost = sorted(hints(theirs_line) - hints(mine_line) - allowed(name))
+            self.assertEqual(lost, [], "main reports these stop-line hints on %s and the branch does not: %r" % (name, lost))
+            self.assertTrue(set(theirs_line["warnings"]) <= set(mine_line["warnings"]), name)
             theirs_line.pop("version"), mine_line.pop("version")
-            # 0.5.1 adds the sample-key places after the findings are trimmed; everything else stays main's.
+            # 0.5.1 adds the sample-key places after the findings are trimmed; 0.6.3 adds stop-line hints.
+            # Everything else stays main's: candidates, their order, totals and partial reasons.
             for line in (theirs_line, mine_line):
-                line.pop("demo_keys", None), line.pop("demo_keys_trimmed", None)
-            self.assertEqual(dumps(mine_line), dumps(theirs_line), "census line differs from main on %s" % os.path.basename(app))
-        hints = lambda r: {(h["path"], h["line"], h["field"]) for h in r["stopline_hints"]}
-        lost_hints = sorted(hints(main_result) - hints(self.uncapped) - {(e["path"], e["line"], e["field"]) for e in HINT_EXCEPTIONS})
+                for key in ("demo_keys", "demo_keys_trimmed", "stopline_hints", "warnings"):
+                    line.pop(key, None)
+            self.assertEqual(dumps(mine_line), dumps(theirs_line), "census line differs from main on %s" % name)
+        lost_hints = sorted(hints(main_result) - hints(self.uncapped) - allowed("corpus"))
         self.assertEqual(lost_hints, [], "main reports these stop-line hints and the branch does not: %r" % lost_hints)
 
 

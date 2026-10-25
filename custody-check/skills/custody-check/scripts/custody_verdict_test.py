@@ -339,13 +339,35 @@ class ExpectTests(unittest.TestCase):
         self.assertIn("git_unread=yes", toks)
         self.assertIn("q10_fields=-", cv.expect_tokens(ok_scan(q10=("nothing-found", []))).split())
         self.assertIn("git_unread=no", cv.expect_tokens(ok_scan()).split())
+        self.assertIn("stopline_capped=0", cv.expect_tokens(ok_scan()).split())
+
+    def test_expect_tokens_carry_the_cap(self):
+        scan = ok_scan()
+        scan["stats"]["stopline_rows_capped"] = 3
+        self.assertIn("stopline_capped=1", cv.expect_tokens(scan).split())
+
+    def test_q10_fields_never_carry_the_cap(self):
+        """DD11: the cap is its own token; q10_fields holds list terms and snippets only."""
+        scan = ok_scan(q10=("dont-know", [row("pii-field", "email")]))
+        scan["stats"]["stopline_rows_capped"] = 4
+        fields = [t for t in cv.expect_tokens(scan).split() if t.startswith("q10_fields=")][0]
+        self.assertEqual(fields, "q10_fields=email")
+
+    def test_rescan_that_only_flips_the_cap_is_scan_changed(self):
+        """E-9: identical rows, only the stop-line cap state differs: the door could differ, so scan-changed."""
+        first = ok_scan(q10=("dont-know", [row("pii-field", "email")]))
+        second = copy.deepcopy(first)
+        second["stats"]["stopline_rows_capped"] = 1
+        self.assertEqual(self.run_main(first, second)["error"], "scan-changed")
+        self.assertEqual(self.run_main(second, first)["error"], "scan-changed")
 
     def test_bad_expect_tokens(self):
         good = cv.expect_tokens(ok_scan(q10=("nothing-found", [])))
         cv.parse_expect(good)
         for bad in (good.replace("q10_fields=-", "q10_fields=a;b"), good.replace("q10_fields=-", "q10_fields="),
                     good.replace("git_unread=no", "git_unread=maybe"), good.replace(" git_unread=no", ""),
-                    good.replace(" q10_fields=-", "")):
+                    good.replace(" q10_fields=-", ""), good.replace("stopline_capped=0", "stopline_capped=2"),
+                    good.replace(" stopline_capped=0", "")):
             with self.assertRaises(cv.UsageError, msg=bad):
                 cv.parse_expect(bad)
 
@@ -425,14 +447,21 @@ class AcceptScanTests(unittest.TestCase):
 
 
 class ParityTests(unittest.TestCase):
-    def test_stop_line_fields_match_scanner(self):
+    def test_the_verdict_uses_the_shared_list(self):
+        """S-062: the verdict keeps no list of its own; the shared one is custody's twelve plus birth_date, birthday."""
+        self.assertFalse(hasattr(cv, "STOPLINE_FIELDS"))
+        self.assertEqual(cv.shared.STOPLINE_FIELDS[:12], ("ssn", "social_security", "dob", "date_of_birth", "birthdate",
+                         "medical", "diagnosis", "credit_card", "card_number", "cc_number", "iban", "passport"))
+
+    def test_frozen_scanner_list_is_inside_the_shared_list(self):
         import custody_scan as cs
-        self.assertEqual(set(cv.STOPLINE_FIELDS), set(cs.release.STOPLINE_FIELDS))
+        self.assertTrue(set(cs.release.STOPLINE_FIELDS) <= set(cv.shared.STOPLINE_FIELDS))
 
     def test_stop_line_fields_match_skill_rule_6(self):
-        with open(os.path.join(SKILL_DIR, "SKILL.md"), encoding="utf-8") as fh:
-            rule6 = next(l for l in fh if l.startswith("6. **Stop-line.**"))
-        self.assertEqual(set(re.findall(r"`([a-z_]+)`", rule6)), set(cv.STOPLINE_FIELDS))
+        with open(os.path.join(SKILL_DIR, "SKILL.md"), encoding="utf-8", newline="") as fh:
+            rule6 = next(l for l in fh.read().replace("\r\n", "\n").split("\n") if l.startswith("6. **Stop-line.**"))
+        block = re.search(r"<!-- shared:stopline-fields -->(.*?)<!-- /shared:stopline-fields -->", rule6).group(1)
+        self.assertEqual(tuple(re.findall(r"`([a-z_]+)`", block)), cv.shared.STOPLINE_FIELDS)
 
     def test_answer_keys_match_the_example_block(self):
         with open(os.path.join(SKILL_DIR, "assets", "founder-answers-example.md"), encoding="utf-8") as fh:
@@ -869,16 +898,42 @@ class ReleasedVerdictNeverWorseTests(unittest.TestCase):
         for r in self.corpus["rows"]:
             yield r, self.corpus["scans"][r["scan"]]
 
+    @staticmethod
+    def project(verdict):
+        """0.6.1 (S-062) adds stop_line.where and stop_line.capped; everything else is compared with the release."""
+        verdict["stop_line"].pop("where")
+        verdict["stop_line"].pop("capped")
+        return verdict
+
     def test_a_no_read_is_identical_to_the_release(self):
         for r, scan in self.rows():
-            got = cv.decide(copy.deepcopy(scan), cv.parse_answers(r["answers"]))
+            got = self.project(cv.decide(copy.deepcopy(scan), cv.parse_answers(r["answers"])))
             want = self.released.decide(copy.deepcopy(scan), self.released.parse_answers(r["answers"]))
             self.assertEqual(got, want, r["id"])
+
+    # Q10 snippets where the shared matcher differs from the release. The door is never kinder; a new tick is listed
+    # with its reason (Lauren, 2026-10-23, option A: both plugins flag the same field names).
+    NEW_TICKS = {"birthday": "the release's list had no birthday; build-decisions already flagged it",
+                 "birth_date": "the release's list had no birth_date; build-decisions already flagged it",
+                 "userBirthday": "the release's list had no birthday; build-decisions already flagged it"}
+
+    def test_d_shared_matcher_is_never_kinder_than_the_release(self):
+        for snippet in ("birthday", "birth_date", "userBirthday", "creditcardnumber", "medical_creditcard", "creditcard",
+                        "dateOfBirth", "email", "dobby"):
+            scan = ok_scan(q10=("dont-know", [row("pii-field", snippet, "prisma/schema.prisma")]))
+            answers = "q5_data=yes stop_line=none"
+            got = cv.decide(copy.deepcopy(scan), cv.parse_answers(answers))
+            want = self.released.decide(copy.deepcopy(scan), self.released.parse_answers(answers))
+            self.assertLessEqual(RANK[got["door"]], RANK[want["door"]], snippet)
+            if got["door"] != want["door"]:
+                self.assertIn(snippet, self.NEW_TICKS, "%s ticks on the branch only and is not listed" % snippet)
+            self.assertTrue(set(got["stop_line"]["fields"]) <= set(want["stop_line"]["fields"]) or snippet in self.NEW_TICKS,
+                            snippet)
 
     def test_a_empty_read_is_the_release_plus_an_empty_read_list(self):
         """SKILL.md passes --read '' when the agent read nothing: same verdict as the release, plus stop_line.read = []."""
         for r, scan in self.rows():
-            got = cv.decide(copy.deepcopy(scan), cv.parse_answers(r["answers"]), cv.parse_read(""))
+            got = self.project(cv.decide(copy.deepcopy(scan), cv.parse_answers(r["answers"]), cv.parse_read("")))
             want = self.released.decide(copy.deepcopy(scan), self.released.parse_answers(r["answers"]))
             self.assertEqual(got["stop_line"].pop("read"), [], r["id"])
             self.assertEqual(got, want, r["id"])
@@ -922,6 +977,141 @@ class ReleasedVerdictNeverWorseTests(unittest.TestCase):
                 tokens = " ".join("%s=%s" % (k, ",".join(x) if isinstance(x, list) else x) for k, x in merged.items())
                 want = self.released.decide(copy.deepcopy(scan), self.released.parse_answers(tokens))["door"]
                 self.assertLessEqual(RANK[v["door"]], RANK[want], "%s + read %r" % (r["id"], read))
+
+
+class SharedStopLineTests(unittest.TestCase):
+    """S-062: the verdict reads Q10 with the shared matcher, takes the scanner's stop-line cap, and says where."""
+
+    def v(self, rows, capped=None, answers="q5_data=yes stop_line=none"):
+        scan = ok_scan(q10=("dont-know", rows))
+        if capped is not None:
+            scan["stats"]["stopline_rows_capped"] = capped
+        return decide(scan, answers)["stop_line"]
+
+    def test_birthday_and_one_word_fields_tick(self):
+        for snippet, want in (("birthday", ["birthday"]), ("birth_date", ["birth_date"]), ("creditcard", ["credit_card"]),
+                              ("creditcardnumber", ["credit_card"]), ("medical_creditcard", ["medical"])):
+            sl = self.v([row("pii-field", snippet, "db/schema.sql")])
+            self.assertTrue(sl["ticked"], snippet)
+            self.assertEqual(sl["fields"], want, snippet)
+
+    def test_own_copy_smoke(self):
+        """E-16: custody's own copy of the shared matcher."""
+        self.assertEqual(cv.shared.stopline_terms("birthday"), ["birthday"])
+        self.assertEqual(cv.shared.stopline_terms("creditcard"), ["credit_card"])
+        self.assertEqual(cv.shared.stopline_terms("dobby"), [])
+
+    def test_where_is_path_and_line(self):
+        sl = self.v([dict(row("pii-field", "ssn", "db/schema.sql"), line=4)])
+        self.assertEqual(sl["where"], ["db/schema.sql:4"])
+        self.assertIs(sl["capped"], False)
+
+    def test_where_puts_a_ticking_overlay_row_before_ordinary_rows(self):
+        rows = [dict(row("pii-field", "email", "a.sql"), line=1), dict(row("pii-field", "email", "b.sql"), line=2),
+                dict(row("stopline-field", "birthday", "c.prisma"), line=3)]
+        self.assertEqual(self.v(rows)["where"], ["c.prisma:3", "a.sql:1"])
+
+    def test_where_shows_distinct_terms_first(self):
+        rows = [dict(row("pii-field", "birthday", "a.sql"), line=1), dict(row("pii-field", "birthday", "a.sql"), line=2),
+                dict(row("stopline-field", "ssn", "b.sql"), line=5)]
+        self.assertEqual(self.v(rows)["where"], ["a.sql:1", "b.sql:5"])
+
+    def test_where_puts_release_rows_before_overlay_rows(self):
+        rows = [dict(row("stopline-field", "birthday", "c.prisma"), line=3), dict(row("pii-field", "ssn", "a.sql"), line=1)]
+        self.assertEqual(self.v(rows)["where"], ["a.sql:1", "c.prisma:3"])
+
+    def test_where_is_empty_when_only_the_founder_ticked(self):
+        sl = self.v([dict(row("pii-field", "email", "a.sql"), line=1)], answers="q5_data=yes stop_line=health")
+        self.assertTrue(sl["ticked"])
+        self.assertEqual(sl["where"], [])
+
+    def test_where_never_shows_app_text(self):
+        sl = self.v([dict(row("pii-field", "hunter2_dateOfBirth", "a.sql"), line=1)])
+        self.assertNotIn("hunter2", json.dumps(sl))
+
+    def test_capped_stat_ticks_with_no_rows(self):
+        sl = self.v([dict(row("pii-field", "email", "a.sql"), line=1)], capped=2)
+        self.assertEqual((sl["ticked"], sl["capped"], sl["fields"], sl["where"]), (True, True, [], []))
+
+    def test_capped_shows_only_ticking_rows(self):
+        rows = [dict(row("pii-field", "email", "a.sql"), line=1), dict(row("stopline-field", "ssn", "b.sql"), line=2)]
+        sl = self.v(rows, capped=1)
+        self.assertEqual((sl["capped"], sl["where"]), (True, ["b.sql:2"]))
+
+    def test_a_scan_without_the_stat_reads_as_zero(self):
+        scan = ok_scan(q10=("dont-know", [row("pii-field", "email")]))
+        self.assertNotIn("stopline_rows_capped", scan["stats"])
+        self.assertIsNotNone(cv.accept_scan(json.dumps(scan))[0])
+        self.assertFalse(decide(scan, "q5_data=yes stop_line=none")["stop_line"]["ticked"])
+
+    def test_a_bad_stat_is_rejected(self):
+        for bad in (-1, "2", 1.5, True, None):
+            scan = ok_scan()
+            scan["stats"]["stopline_rows_capped"] = bad
+            self.assertEqual(cv.accept_scan(json.dumps(scan)), (None, "bad stats"), bad)
+
+
+class SharedLoaderTests(unittest.TestCase):
+    """The verdict loads its shared_rules.py copy by path under python3 -I, and fails with one envelope."""
+
+    ANSWERS = "q1=yes q5_data=no stop_line=none"
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="custody verdict shared ")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.scripts = os.path.join(self.tmp, "scripts")
+        os.makedirs(self.scripts)
+        shutil.copy(VERDICT, self.scripts)
+        shutil.copy(os.path.join(SCRIPT_DIR, "shared_rules.py"), self.scripts)
+        self.shared = os.path.join(self.scripts, "shared_rules.py")
+
+    def run_copy(self):
+        cwd = tempfile.mkdtemp(prefix="cwd ", dir=self.tmp)
+        out = subprocess.run([sys.executable, "-I", os.path.join(self.scripts, "custody_verdict.py"), "--no-scan",
+                              "--answers", self.ANSWERS], cwd=cwd, capture_output=True, text=True, timeout=60)
+        self.assertEqual(out.stderr, "", "%s: %s" % (self.scripts, out.stderr))
+        lines = out.stdout.splitlines()
+        self.assertEqual(len(lines), 1, out.stdout)
+        return json.loads(lines[0])
+
+    def assert_envelope(self, code):
+        self.assertEqual(self.run_copy(), {"ok": False, "error": code, "hint": cv.HINTS[code]})
+
+    def test_runs_isolated_from_a_temp_cwd(self):
+        """X5: the -I check with an answer token string, as SKILL.md writes it."""
+        out = self.run_copy()
+        self.assertTrue(out["ok"], out)
+        self.assertEqual(out["verdict"]["door"], "patch-it")
+
+    def test_missing_copy(self):
+        os.remove(self.shared)
+        self.assert_envelope("internal:shared-missing")
+
+    def test_syntax_invalid_copy(self):
+        with open(self.shared, "w") as fh:
+            fh.write("def (:\n")
+        self.assert_envelope("internal:shared-broken")
+
+    def test_empty_copy(self):
+        open(self.shared, "w").close()
+        self.assert_envelope("internal:shared-broken")
+
+    @unittest.skipIf(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0), "needs file permissions")
+    def test_unreadable_copy(self):
+        os.chmod(self.shared, 0)
+        self.addCleanup(os.chmod, self.shared, 0o644)
+        self.assert_envelope("internal:shared-broken")
+
+    def test_crlf_copy_loads(self):
+        with open(self.shared, "rb") as fh:
+            data = fh.read()
+        with open(self.shared, "wb") as fh:
+            fh.write(data.replace(b"\n", b"\r\n"))
+        self.assertTrue(self.run_copy()["ok"])
+
+    def test_hints_say_how_to_reinstall(self):
+        for code in ("internal:shared-missing", "internal:shared-broken"):
+            self.assertIn("reinstall the plugin, or re-run the cp -R command in README step 1", cv.HINTS[code])
 
 
 if __name__ == "__main__":

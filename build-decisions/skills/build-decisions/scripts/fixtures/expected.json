@@ -271,6 +271,36 @@
   ],
   "stopline": [
     {
+      "path": "api/models.py",
+      "line": 7,
+      "field": "birthday"
+    },
+    {
+      "path": "billing/models.py",
+      "line": 7,
+      "field": "iban"
+    },
+    {
+      "path": "db/dump.sql",
+      "line": 6,
+      "field": "diagnosis"
+    },
+    {
+      "path": "db/schema.js",
+      "line": 5,
+      "field": "passport"
+    },
+    {
+      "path": "db/schema.rb",
+      "line": 5,
+      "field": "ssn"
+    },
+    {
+      "path": "db/schema.rb",
+      "line": 6,
+      "field": "date_of_birth"
+    },
+    {
       "path": "prisma/schema.prisma",
       "line": 4,
       "field": "card_number"
@@ -289,6 +319,16 @@
       "path": "prisma/schema.prisma",
       "line": 7,
       "field": "birthday"
+    },
+    {
+      "path": "prisma/migrations/20240101000000_init/migration.sql",
+      "line": 4,
+      "field": "date_of_birth"
+    },
+    {
+      "path": "prisma/migrations/20240101000000_init/migration.sql",
+      "line": 5,
+      "field": "credit_card"
     }
   ],
   "sections": {

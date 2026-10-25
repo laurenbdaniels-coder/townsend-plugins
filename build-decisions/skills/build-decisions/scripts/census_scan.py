@@ -12,7 +12,7 @@ paid (whether someone has paid), rounding (how money rounds).
 file that shows each, facts, one advice id) and census decisions found inside a second app that uses
 the same data. Same rule: only safe paths and fixed words.
 """
-__version__ = "0.6.2"
+__version__ = "0.6.3"
 
 import sys
 
@@ -25,6 +25,8 @@ HINTS = {
     "repo-contains-cwd": "The folder you named is the folder you launched from, or contains it. Run from the folder that contains your app and pass its name, never . or ..",
     "python-too-old": "This helper needs python 3.9 or newer. Run python3 --version; on macOS install the Command Line Tools.",
     "internal": "The helper hit an unexpected error. Ask the four signs by hand and file an issue.",
+    "internal:shared-missing": "The helper is missing its shared_rules.py file. Update the plugin, then run it again.",
+    "internal:shared-broken": "The helper's shared_rules.py file is damaged. Update the plugin, then run it again.",
 }
 
 
@@ -51,15 +53,44 @@ import os
 import re
 import stat
 import time
+import types
+
+SHARED_EXPORTS = ("NEVER_OPEN_DIRS", "NEVER_OPEN_DIR_PAIRS", "NEVER_OPEN_FILE_RE", "NEVER_OPEN_FILES", "STOPLINE_FIELDS",
+                  "stopline_line_terms", "stopline_kind", "stopline_whole_terms")
+
+
+def load_shared():
+    """Load shared_rules.py from next to this file by path (python3 -I keeps this folder off sys.path).
+    Returns (module, None) or (None, error code). No .pyc, and nothing on sys.path can stand in."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "shared_rules.py")
+    try:
+        with open(path, "rb") as fh:
+            data = fh.read().replace(b"\r\n", b"\n")
+    except FileNotFoundError:
+        return None, "internal:shared-missing"
+    except OSError:
+        return None, "internal:shared-broken"
+    module = types.ModuleType("shared_rules")
+    module.__file__ = path
+    try:
+        exec(compile(data, path, "exec"), module.__dict__)
+    except Exception:
+        return None, "internal:shared-broken"
+    if not all(hasattr(module, name) for name in SHARED_EXPORTS):
+        return None, "internal:shared-broken"
+    return module, None
+
+
+shared, SHARED_ERROR = load_shared()
+if SHARED_ERROR is not None and __name__ == "__main__":
+    sys.stdout.write(json.dumps({"ok": False, "error": SHARED_ERROR, "hint": HINTS[SHARED_ERROR], "partial": True},
+                                separators=(",", ":")) + "\n")
+    sys.exit(0)
 
 
 # ------------------------------------- walk rules (copied from custody-check 0.3.2, plus 0.3.3's .mts/.cts)
 
 EXCLUDED_DIRS = {".git", "node_modules", "dist", "build", ".next", ".nuxt", "out", "vendor", "venv", ".venv", "__pycache__", "coverage"}
-NEVER_OPEN_DIRS = {".claude", ".codex", ".agents", ".windsurf", ".clinerules", ".gemini", ".kiro", ".roo", ".trae", ".augment", ".amazonq", ".junie", ".continue", ".aider", ".opencode"}
-NEVER_OPEN_DIR_PAIRS = {(".cursor", "rules"), (".github", "instructions"), (".github", "prompts"), (".github", "agents")}
-NEVER_OPEN_FILE_RE = re.compile(r"^(?:claude|agents?|gemini|conventions|copilot-instructions)(?:[.-][^/]*)?\.md$|^\.aider.*$|.*\.prompt\.md$|.*\.agent\.md$|.*\.instructions\.md$|.*\.mdc$", re.I)
-NEVER_OPEN_FILES = {".cursorrules", ".windsurfrules", ".clinerules", ".rules", "opencode.json", ".roomodes"}
 SKIP_BASENAMES = {"package-lock.json", "yarn.lock", "pnpm-lock.yaml", "bun.lockb", "poetry.lock", "cargo.lock", "composer.lock", "gemfile.lock"}
 SKIP_EXT_SUFFIXES = (".map", ".min.js", ".min.css", ".bundle.js")
 CODE_EXTS = {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".mts", ".cts", ".vue", ".svelte", ".astro", ".py", ".rb", ".go", ".java", ".kt", ".php", ".cs", ".swift", ".dart"}
@@ -67,7 +98,6 @@ SQL_EXTS = {".sql", ".psql", ".pgsql", ".ddl"}
 SCHEMA_EXTS = {".prisma", ".graphql", ".gql"}
 SCAN_EXTS = CODE_EXTS | SQL_EXTS | SCHEMA_EXTS
 MARKUP_EXTS = {".jsx", ".tsx", ".vue", ".svelte", ".astro"}  # page copy sits outside strings here
-STOPLINE_FIELDS = {"ssn", "social_security", "dob", "date_of_birth", "birthdate", "birth_date", "birthday", "medical", "diagnosis", "credit_card", "card_number", "cc_number", "iban", "passport"}
 MAX_PATH_CHARS = 200
 LINE_CLIP_CHARS = 2048
 BINARY_SNIFF_BYTES = 8192
@@ -159,7 +189,6 @@ PATTERNS = {
         ("decimal-math", "weak", re.compile(r"\bnew\s+(?:Decimal|Big|BigNumber)\s*\(|\bDinero\s*\(|\bdinero\s*\("), "code"),
     ],
 }
-STOPLINE_RE = re.compile(r"(?<![a-z0-9])(ssn|social_security|dob|date_of_birth|birthdate|birth_date|birthday|medical|diagnosis|credit_card|card_number|cc_number|iban|passport)(?![a-z0-9])", re.I)
 CAMEL_SPLIT_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 
 # Supabase's local development setup ships sample keys that are public by design: they are signed with a
@@ -235,7 +264,7 @@ PARTIAL_REASONS = ("max_files_hit", "max_total_bytes_hit", "deadline_hit", "file
                    "files_skipped_special", "dirs_unreadable", "dirs_truncated", "output_trimmed")
 ERROR_CODES = tuple(HINTS)
 PATTERN_IDS = tuple(p[0] for t in TYPES for p in PATTERNS[t]) + tuple(t + "-comment" for t in TYPES)
-VOCABULARY_CENSUS = (TYPES + STRENGTHS + PATTERN_IDS + tuple(STOPLINE_FIELDS) + WARNINGS + PARTIAL_REASONS
+VOCABULARY_CENSUS = (TYPES + STRENGTHS + PATTERN_IDS + shared.STOPLINE_FIELDS + WARNINGS + PARTIAL_REASONS
                      + ERROR_CODES + tuple(HINTS.values()) + (__version__,))
 
 
@@ -400,7 +429,7 @@ class State:
                                      "files_skipped_binary", "files_skipped_generated", "files_skipped_special",
                                      "files_skipped_test", "files_skipped_env", "dirs_unreadable")}
         self.hits = {t: [] for t in TYPES}  # (rank, path, line, pattern)
-        self.hints = []
+        self.hints = []  # (order found, whole word, hint)
         self.hints_capped = False
         self.stopped = False
         self.collect_demo_keys = True  # census only; the section scans turn it off
@@ -510,6 +539,7 @@ def scan_file(path, parts, ext, state):
     hints = []
     demo_lines = []
     where_open = 0
+    lines_read = len(lines)
     for i, line in enumerate(lines, 1):
         if line.endswith("\r"):
             line = line[:-1]
@@ -517,21 +547,26 @@ def scan_file(path, parts, ext, state):
         if clipped:
             line = line[:LINE_CLIP_CHARS]
         if (i % DEADLINE_LINE_TICK == 0 or len(line) > 512) and state.over_deadline():
+            lines_read = i - 1
             break
         if state.collect_demo_keys and not clipped and line_has_only_sample_keys(line):  # a cut line is never listed
             demo_lines.append(i)
         for typ, pid, strength in classify_line(line, ext, where_open > 0):
             found.append((typ, 0 if strength == "strong" else 1, i, pid))
         where_open = 3 if WHERE_OPEN_RE.search(line) else max(0, where_open - 1)
-        if is_schema:
-            seen = set()
-            body = comment_body(line.strip(), ext)
-            src = strip_trailing_comment(line, ext) if body is None else ""
-            for m in STOPLINE_RE.finditer(CAMEL_SPLIT_RE.sub("_", src)):
-                field = m.group(1).lower()
-                if field in STOPLINE_FIELDS and field not in seen:
-                    seen.add(field)
-                    hints.append((i, field))
+    if is_schema and lines_read:
+        # Stop-line fields: the shared matcher, comments and string values left out (shared_rules.py), on the lines
+        # the loop above read (main kept those when the deadline came mid-file). One linear pass over a file the
+        # size cap already bounds, so it does not stop at the deadline itself.
+        last, seen = 0, set()
+        src = text if lines_read == len(lines) else "\n".join(lines[:lines_read])
+        terms = shared.stopline_line_terms(src, shared.stopline_kind(parts[-1]), clip=LINE_CLIP_CHARS)
+        for line_no, ident, field in terms:
+            if line_no != last:
+                last, seen = line_no, set()
+            if field not in seen:
+                seen.add(field)
+                hints.append((line_no, field, field in shared.stopline_whole_terms(ident)))
     if rel is not None:
         for line_no in demo_lines:
             if len(state.demo_keys) >= MAX_DEMO_KEYS:
@@ -545,11 +580,13 @@ def scan_file(path, parts, ext, state):
         return
     for typ, rank, line_no, pid in found:
         state.hits[typ].append((rank, rel, line_no, pid))
-    for line_no, field in hints:
-        if len(state.hints) >= MAX_STOPLINE_HINTS:
+    for line_no, field, whole in hints:
+        # Whole-word and one-word (creditcard) hints are capped apart, so a one-word hint never takes the
+        # place of a whole-word one; build() keeps whole-word hints first.
+        if sum(1 for h in state.hints if h[1] == whole) >= MAX_STOPLINE_HINTS:
             state.hints_capped = True
-            break
-        state.hints.append({"path": rel, "line": line_no, "field": field})
+            continue
+        state.hints.append((len(state.hints), whole, {"path": rel, "line": line_no, "field": field}))
 
 
 def walk(repo, state):
@@ -586,13 +623,13 @@ def walk(repo, state):
                 if name in EXCLUDED_DIRS:
                     continue
                 parent = parts[-1] if parts else ""
-                if name in NEVER_OPEN_DIRS or (parent, name) in NEVER_OPEN_DIR_PAIRS:
+                if name in shared.NEVER_OPEN_DIRS or (parent, name) in shared.NEVER_OPEN_DIR_PAIRS:
                     count_never_open(e.path, state)
                     continue
                 state.on_dir(parts + [name])
                 subdirs.append((e.path, parts + [name]))
                 continue
-            if name in NEVER_OPEN_FILES or NEVER_OPEN_FILE_RE.match(name):
+            if name in shared.NEVER_OPEN_FILES or shared.NEVER_OPEN_FILE_RE.match(name):
                 state.stats["files_never_open"] += 1
                 continue
             lower = name.lower()
@@ -2000,7 +2037,14 @@ def build(state, uncapped):
         chosen = select(hits, uncapped)
         candidates[t] = [{"type": t, "path": h[1], "line": h[2], "pattern": h[3], "strength": STRENGTHS[h[0]]} for h in chosen]
         totals[t] = {"listed": len(chosen), "not_listed": len(hits) - len(chosen), "files": len({h[1] for h in hits})}
-    warnings_ = ["stopline-hints-capped"] if state.hints_capped else []
+    whole = [h for h in state.hints if h[1]][:MAX_STOPLINE_HINTS]
+    one_word = [h for h in state.hints if not h[1]][:MAX_STOPLINE_HINTS - len(whole)]
+    capped = [state.hints_capped or len(whole) + len(one_word) < len(state.hints)]
+    warnings_ = []
+
+    def hint_list():
+        warnings_[:] = ["stopline-hints-capped"] if capped[0] else []
+        return [h[2] for h in sorted(whole + one_word)]
 
     def render():
         reasons = list(state.reasons)
@@ -2012,7 +2056,7 @@ def build(state, uncapped):
             "stats": state.stats,
             "warnings": warnings_,
             "partial_reasons": reasons,
-            "stopline_hints": state.hints,
+            "stopline_hints": hint_list(),
             "candidates": [c for t in TYPES for c in candidates[t]],
             "totals": totals,
         }
@@ -2021,6 +2065,11 @@ def build(state, uncapped):
     if uncapped:
         return dict(result, demo_keys=list(state.demo_keys), demo_keys_trimmed=state.demo_keys_capped)
     while len(dumps(result).encode("utf-8")) > MAX_OUTPUT_BYTES:
+        if one_word:  # new hints main never listed go before any candidate main kept
+            one_word.pop()
+            capped[0] = True
+            result = render()
+            continue
         biggest = max(reversed(TYPES), key=lambda t: len(candidates[t]))
         if not candidates[biggest]:
             break

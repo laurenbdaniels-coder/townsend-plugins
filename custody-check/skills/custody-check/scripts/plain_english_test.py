@@ -273,6 +273,48 @@ class FreePluginStandardTests(unittest.TestCase):
         self.assertIn("one sentence of at most 20 words", rules)
         self.assertIn("`env-file-on-disk` are never counted", rules)
 
+    CAPPED_KEPT = "The scan found more such fields than this report can list."
+    CAPPED_NONE = "Your app keeps personal-data fields the scan could not list here, and that carries extra risk."
+
+    def risk_rules(self):
+        rules = read("assets", "verdict-template.md").split("Rules for filling it in:", 1)[1]
+        return rules.split("**The extra-risk block**", 1)[1].split("\n- **Do today**", 1)[0]
+
+    def test_capped_states_are_written_down(self):
+        """S-062: when the scan dropped stop-line fields to fit (verdict.stop_line.capped), the report says so in one
+        fixed sentence. Fields kept: the title names only those, plus CAPPED_KEPT. None kept: CAPPED_NONE is the title
+        (or the line under a title the founder's or your reading's items give), and there is no Where line."""
+        part = self.risk_rules()
+        self.assertIn("`verdict.stop_line.capped`", part)
+        self.assertIn('"%s"' % self.CAPPED_KEPT, part)
+        self.assertIn('"%s"' % self.CAPPED_NONE, part)
+        self.assertIn("no Where line", part)
+        self.assertIn("never ordinary fields", part)
+        for sentence in (self.CAPPED_KEPT, self.CAPPED_NONE):
+            self.assertLessEqual(words(sentence), 25)
+            self.assertNotIn("read", sentence)  # an evidence limit, not the "files not read" wording
+        self.assertIn("<only when `verdict.stop_line.capped` is true:", template_block())
+
+    def test_where_comes_from_the_verdict(self):
+        part = self.risk_rules()
+        self.assertIn("`verdict.stop_line.where`", part)
+        skill = read("SKILL.md")
+        self.assertIn("the extra-risk block from `verdict.stop_line` (`ticked`, `where`, `capped`, and the items in "
+                      "`founder`, `fields` and `read`)", skill)
+
+    def test_the_cap_count_never_reaches_the_report(self):
+        """The stat is the script's; the founder sees only the fixed sentence (DD11)."""
+        self.assertNotIn("capped", template_block().replace("`verdict.stop_line.capped`", ""))
+        self.assertNotIn("stopline_rows_capped", template_block())
+        self.assertIn("Never print the count or its name.", self.risk_rules())
+
+    def test_do_today_counts_each_place_as_a_key(self):
+        """S-062 evals: with rule 4's pasted-key line reading "replace it now with a new one", 3 of 4 seeded-app runs
+        printed "replace 1 secret key" for two key places (main: 2 keys, 6 of 6). The count rule says it outright."""
+        rules = read("assets", "verdict-template.md").split("Rules for filling it in:", 1)[1]
+        part = rules.split("- **Do today**", 1)[1].split("\n- **", 1)[0]
+        self.assertIn("Each place counts as one key, even when two places look alike: two places are 2 keys.", part)
+
     def test_short_footer(self):
         skill = read("SKILL.md").split("## Footer", 1)[1]
         self.assertIn("custody-check v<version from the JSON> · read-only · a review, not an audit", skill)

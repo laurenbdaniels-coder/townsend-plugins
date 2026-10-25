@@ -513,6 +513,119 @@ class StoplineTests(TreeCase):
         self.assertEqual(got, want)
 
 
+    def hints(self):
+        result, _, _ = self.scan()
+        return [(h["path"], h["line"], h["field"]) for h in result["stopline_hints"]], result
+
+    def test_deadline_inside_a_schema_file_keeps_the_lines_read(self):
+        """protects=review round 1 (S-062): main kept the hints of the lines it read before the deadline; the branch
+        dropped the whole file's; fails_when=a deadline mid-file loses an earlier line's hint; no_claim=lines after it."""
+        path = os.path.join(self.repo, "db", "schema.sql")
+        write(self.repo, "db/schema.sql", "create table p (\n  ssn text,\n" + "  x int,\n" * 400 + "  dob date\n);\n")
+        state = cs.State(cs.Options(cs.DEFAULT_MAX_FILES, cs.DEFAULT_MAX_FILE_BYTES, cs.DEFAULT_MAX_TOTAL_BYTES, 60.0))
+        calls = [0]
+
+        def over():
+            calls[0] += 1
+            if calls[0] >= 3:  # the line loop asks every 32 lines: it stops near line 96
+                state.stopped = True
+            return state.stopped
+        state.over_deadline = over
+        cs.scan_file(path, ["db", "schema.sql"], ".sql", state)
+        self.assertEqual([(h[2]["line"], h[2]["field"]) for h in state.hints], [(2, "ssn")])
+
+    def test_run_together_and_new_terms_hint(self):
+        """protects=fields written as one word (creditcard) and birthday count (S-062, shared matcher);
+        fails_when=the scanner keeps its own whole-word list; no_claim=identifiers outside schema files."""
+        write(self.repo, "db/schema.sql", "create table c (\n  creditcard text,\n  birthday date,\n  dobby text\n);\n")
+        self.assertEqual(self.hints()[0], [("db/schema.sql", 2, "credit_card"), ("db/schema.sql", 3, "birthday")])
+
+    def test_comments_and_values_never_hint(self):
+        """protects=a comment or a string value is not a field (S-062 negatives);
+        fails_when=multi-line comments or VALUES strings reach the matcher; no_claim=none."""
+        write(self.repo, "db/schema.sql", "-- birthday\n/* creditcard payments */\n/*\n stores medical notes\n*/\n"
+              "create table t (passport text);\ninsert into t values ('creditcard');\n")
+        write(self.repo, "prisma/schema.prisma", "// birthday\n/// date of birth\nmodel U {\n  /*\n   stores medical notes\n  */\n"
+              "  ssn String\n}\n")
+        self.assertEqual(sorted(self.hints()[0]), [("db/schema.sql", 6, "passport"), ("prisma/schema.prisma", 7, "ssn")])
+
+    def test_quoted_identifiers_and_prisma_map_hint(self):
+        """protects=Prisma's generated migration.sql ("dateOfBirth") and @map("date_of_birth") still hint;
+        fails_when=quoted identifiers are dropped as strings; no_claim=none."""
+        write(self.repo, "prisma/migrations/1_init/migration.sql",
+              'CREATE TABLE "User" (\n    "dateOfBirth" TIMESTAMP(3),\n    "credit_card" TEXT\n);\n')
+        write(self.repo, "prisma/schema.prisma", 'model U {\n  bornOn DateTime @map("date_of_birth")\n}\n')
+        self.assertEqual(sorted(self.hints()[0]), [
+            ("prisma/migrations/1_init/migration.sql", 2, "date_of_birth"),
+            ("prisma/migrations/1_init/migration.sql", 3, "credit_card"),
+            ("prisma/schema.prisma", 2, "date_of_birth")])
+
+    def test_python_hash_comment_never_hints(self):
+        """protects=a Django models.py comment is not a field; fails_when=# comments reach the matcher; no_claim=none."""
+        write(self.repo, "api/models.py", "class M(models.Model):\n    # passport number\n    birthday = models.DateField()\n")
+        self.assertEqual(self.hints()[0], [("api/models.py", 3, "birthday")])
+
+    def test_one_hint_per_field_per_line(self):
+        """protects=per-line dedupe by field stays; fails_when=two ssn columns on a line list twice; no_claim=none."""
+        write(self.repo, "db/schema.sql", "create table t (ssn_a text, ssn_b text, iban text);\n")
+        self.assertEqual(self.hints()[0], [("db/schema.sql", 1, "ssn"), ("db/schema.sql", 1, "iban")])
+
+    def test_cap_keeps_whole_word_hints_first(self):
+        """protects=new one-word hints never push out a hint main would have listed under the cap of 12;
+        fails_when=the cap keeps hints in walk order only; no_claim=which of main's own hints the cap keeps."""
+        lines = ["  creditcard%d text," % i for i in range(12)] + ["  birthday_%d date," % i for i in range(12)]
+        write(self.repo, "db/schema.sql", "create table t (\n" + "\n".join(lines) + "\n  id int\n);\n")
+        hints, result = self.hints()
+        self.assertEqual([h[2] for h in hints], ["birthday"] * 12)
+        self.assertEqual([h[1] for h in hints], list(range(14, 26)))
+        self.assertIn("stopline-hints-capped", result["warnings"])
+
+    def test_cap_fills_with_one_word_hints_in_file_order(self):
+        """protects=room left under the cap goes to one-word hints, listed in file order;
+        fails_when=they are dropped or reordered; no_claim=none."""
+        write(self.repo, "db/schema.sql", "create table t (\n  creditcard text,\n  birthday date\n);\n")
+        self.assertEqual([h[1:] for h in self.hints()[0]], [(2, "credit_card"), (3, "birthday")])
+
+
+class StoplineBudgetTests(unittest.TestCase):
+    def test_one_word_hints_go_before_any_candidate(self):
+        """protects=new hints never displace a decision candidate main kept under MAX_OUTPUT_BYTES (E-10);
+        fails_when=the trim loop pops candidates while one-word hints remain;
+        no_claim=whole-word hints, which main also listed."""
+        state = cs.State(cs.Options(1, 1, 1, 1.0))
+        for i in range(30):
+            state.hits["price"].append((0, "src/p%d.ts" % i, 1, cs.PATTERN_IDS[0]))
+        state.hints = [(0, True, {"path": "db/schema.sql", "line": 1, "field": "birthday"})]
+        base = len(cs.dumps(cs.build(state, False)).encode("utf-8"))
+        state.hints += [(k, False, {"path": "db/schema.sql", "line": k + 1, "field": "credit_card"}) for k in range(1, 6)]
+        saved = cs.MAX_OUTPUT_BYTES
+        cs.MAX_OUTPUT_BYTES = base + 150
+        try:
+            out = cs.build(state, False)
+        finally:
+            cs.MAX_OUTPUT_BYTES = saved
+        self.assertEqual(sum(1 for c in out["candidates"] if c["type"] == "price"), 30)
+        self.assertNotIn("output_trimmed", out["partial_reasons"])
+        self.assertIn("stopline-hints-capped", out["warnings"])
+        self.assertEqual(out["stopline_hints"][0]["field"], "birthday")
+        self.assertLess(len(out["stopline_hints"]), 6)
+
+
+class SharedCopyTests(unittest.TestCase):
+    def test_own_copy_smoke(self):
+        """protects=build-decisions' own copy of the shared matcher (E-16); fails_when=the copy is stale or empty;
+        no_claim=custody-check's copy."""
+        self.assertEqual(cs.shared.stopline_terms("birthday"), ["birthday"])
+        self.assertEqual(cs.shared.stopline_terms("creditcard"), ["credit_card"])
+        self.assertEqual(cs.shared.stopline_terms("dobby"), [])
+
+    def test_vocabulary_lists_fields_in_the_shared_order(self):
+        """protects=the census vocabulary is the same on every run (it was built from a set);
+        fails_when=the field list comes from a set again; no_claim=none."""
+        start = len(cs.TYPES + cs.STRENGTHS + cs.PATTERN_IDS)
+        self.assertEqual(cs.VOCABULARY_CENSUS[start:start + len(cs.shared.STOPLINE_FIELDS)], cs.shared.STOPLINE_FIELDS)
+
+
 # ----------------------------------------------------------------- linearity
 
 class LinearityTests(TreeCase):
@@ -535,6 +648,25 @@ class LinearityTests(TreeCase):
 
         small, big = timed(2000), timed(8000)
         self.assertLess(big / max(small, 0.05), 5.0 * TIME_SLACK)
+
+    def test_512_kb_schema_sql_stays_linear(self):
+        """protects=the shared stop-line pass reads a near-cap .sql file in seconds and grows with its size (R2-P3);
+        fails_when=the comment and string stripping goes quadratic on a big migration;
+        no_claim=files over the 512 KB cap, which are skipped."""
+        chunk = "create table t (id int, email text, note text default 'it''s'); -- c\n/* block */\n"
+
+        def timed(size):
+            write(self.repo, "db/schema.sql", chunk * (size // len(chunk)) + "  creditcard text\n")
+            t = time.monotonic()
+            result, _, _ = self.scan()
+            took = time.monotonic() - t
+            self.assertEqual([h["field"] for h in result["stopline_hints"]], ["credit_card"])
+            self.assertFalse(result["partial"])
+            return took
+
+        small, big = timed(64 * 1024), timed(511 * 1024)
+        self.assertLess(big / max(small, 0.05), 12.0 * TIME_SLACK)
+        self.assertLess(big, 10.0 * TIME_SLACK, "a 512 KB schema must scan in seconds")
 
     def test_long_identifier_runs_stay_linear(self):
         """protects=a minified or generated line of one long word cannot go quadratic in the regexes;
@@ -617,6 +749,87 @@ class EvalFixtureTests(unittest.TestCase):
             self.assertEqual({h["field"] for h in result["stopline_hints"]}, {"date_of_birth", "card_number"})
         finally:
             shutil.rmtree(parent, ignore_errors=True)
+
+
+class SharedLoaderTests(unittest.TestCase):
+    """The scanner loads its shared_rules.py copy by path (scripts run as python3 -I) and fails with one envelope."""
+
+    def setUp(self):
+        self.parent = tempfile.mkdtemp(prefix="census-shared-")
+        self.addCleanup(shutil.rmtree, self.parent, True)
+        self.scripts = os.path.join(self.parent, "scripts")
+        os.makedirs(self.scripts)
+        shutil.copy(SCRIPT, self.scripts)
+        shutil.copy(os.path.join(SCRIPT_DIR, "shared_rules.py"), self.scripts)
+        shutil.copytree(CORPUS, os.path.join(self.parent, "app"))
+
+    def run_copy(self):
+        proc = subprocess.run([sys.executable, "-I", os.path.join(self.scripts, "census_scan.py"), "--repo", "app"],
+                              cwd=self.parent, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
+        lines = [ln for ln in proc.stdout.decode("utf-8").split("\n") if ln]
+        self.assertEqual(len(lines), 1, (proc.stdout, proc.stderr))
+        self.assertEqual(proc.stderr, b"", "%s: %s" % (self.scripts, proc.stderr.decode("utf-8", "replace")))
+        return json.loads(lines[0])
+
+    def assert_envelope(self, code):
+        out = self.run_copy()
+        self.assertEqual(out, {"ok": False, "error": code, "hint": cs.HINTS[code], "partial": True})
+
+    def test_runs_isolated_from_a_temp_cwd_and_finds_birthday(self):
+        """protects: the copy loads under python3 -I, nothing on sys.path stands in.
+        fails_when: the loader imports shared_rules, or the copy is not next to the script.
+        no_claim: does not test the plugin's installed layout."""
+        out = self.run_copy()
+        self.assertTrue(out["ok"])
+        self.assertIn("birthday", [h["field"] for h in out["stopline_hints"]])
+
+    def test_missing_copy(self):
+        """protects: a missing shared_rules.py is one JSON envelope, no traceback.
+        fails_when: the loader raises, or the code is wrong.
+        no_claim: does not cover a partial install of other files."""
+        os.remove(os.path.join(self.scripts, "shared_rules.py"))
+        self.assert_envelope("internal:shared-missing")
+
+    def test_syntax_invalid_copy(self):
+        """protects: a corrupt copy is shared-broken. fails_when: a SyntaxError escapes. no_claim: none."""
+        with open(os.path.join(self.scripts, "shared_rules.py"), "w") as fh:
+            fh.write("def (:\n")
+        self.assert_envelope("internal:shared-broken")
+
+    def test_empty_copy(self):
+        """protects: an empty file executes fine but lacks exports, so it is broken.
+        fails_when: the export check is missing. no_claim: none."""
+        open(os.path.join(self.scripts, "shared_rules.py"), "w").close()
+        self.assert_envelope("internal:shared-broken")
+
+    def test_copy_that_raises(self):
+        """protects: an exec error is shared-broken. fails_when: the exception escapes. no_claim: none."""
+        with open(os.path.join(self.scripts, "shared_rules.py"), "w") as fh:
+            fh.write("raise RuntimeError('x')\n")
+        self.assert_envelope("internal:shared-broken")
+
+    @unittest.skipIf(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0), "needs file permissions")
+    def test_unreadable_copy(self):
+        """protects: an unreadable copy is shared-broken. fails_when: PermissionError escapes. no_claim: Windows."""
+        path = os.path.join(self.scripts, "shared_rules.py")
+        os.chmod(path, 0)
+        self.addCleanup(os.chmod, path, 0o644)
+        self.assert_envelope("internal:shared-broken")
+
+    def test_crlf_copy_loads(self):
+        """protects: a Windows checkout's CRLF copy still loads. fails_when: bytes are not normalised. no_claim: none."""
+        path = os.path.join(self.scripts, "shared_rules.py")
+        with open(path, "rb") as fh:
+            data = fh.read()
+        with open(path, "wb") as fh:
+            fh.write(data.replace(b"\n", b"\r\n"))
+        self.assertTrue(self.run_copy()["ok"])
+
+    def test_hints_say_update_the_plugin(self):
+        """protects: bd's hint fits its README (no cp -R step). fails_when: custody's wording is copied. no_claim: none."""
+        for code in ("internal:shared-missing", "internal:shared-broken"):
+            self.assertIn("update the plugin", cs.HINTS[code].lower())
+            self.assertNotIn("cp -R", cs.HINTS[code])
 
 
 if __name__ == "__main__":

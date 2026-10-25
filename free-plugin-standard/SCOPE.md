@@ -19,6 +19,9 @@ They do:
 - Say what the code can't tell, as open questions. An open question is not a failure.
 - Write for a founder who built the app with an AI tool and does not read code: plain English, short sentences,
   no programming words outside file paths.
+- Share one list of extra-risk field names, one way of matching them, the files never to open and some report
+  text. They live in `free-plugin-standard/shared/`, and `sync_shared.py` copies them into each plugin. (Lauren,
+  2026-10-23)
 
 They don't:
 - Fix anything, or suggest a fix: no fix steps, no code, no prompt that changes the app, no offer to fix, no
@@ -71,8 +74,7 @@ README's "From the workshop".
 Shows where your app decides who sees what and what things cost, and which rules it wrote more than once.
 
 From 0.6.0 the same rules apply as for Custody Check: what is broken and what it means, nothing to do, no link, no
-pointer, and questions only about what code can't show. (2026-10-21) Until 0.6.0 ships, 0.5.x still prints
-"Check it", "Before you change any of these", a link and a pointer.
+pointer, and questions only about what code can't show. (2026-10-21)
 
 It also shows values your screens choose that your server saves or counts without checking. (Lauren, 2026-10-21; recorded 2026-10-22) It never says what to change. Screens that promise something no code was found for are not
 reported: the 2026-10-22 sample found too many false alarms (Lauren, 2026-10-22).

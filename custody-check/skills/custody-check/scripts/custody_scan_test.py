@@ -251,7 +251,13 @@ def _baseline(c, module=None):
         shutil.rmtree(tmp, ignore_errors=True)
     q = r["questions"]
     return {"answers": {k: q[k]["answer"] for k in ("q1", "q3", "q9")}, "partial": r["partial"],
-            "pii": sorted(set(e["snippet"] for e in q["q10"]["evidence"] if e["check"] == "pii-field"))}
+            "pii": sorted(set(e["snippet"] for e in q["q10"]["evidence"] if e["check"] == "pii-field")),
+            "stopline": _stopline_rows(r)}
+
+
+def _stopline_rows(result):
+    """S-062: the overlay's Q10 stop-line rows as (path, term). Released main before 0.6.1 has none."""
+    return sorted(set((e["path"], e["snippet"]) for e in result["questions"]["q10"]["evidence"] if e["check"] == "stopline-field"))
 
 
 def evidence_checks(q):
@@ -1372,7 +1378,8 @@ class SeededAppGoldenTest(ScanCase):
 class ContractTests(ScanCase):
     TOP_KEYS = ["ok", "partial", "version", "files_scanned", "stats", "warnings", "git", "questions"]
     STATS_KEYS = ["files_skipped_oversize", "files_skipped_oversize_relevant", "files_skipped_binary", "files_skipped_generated", "files_never_open",
-                  "files_skipped_special", "files_skipped_hardlink", "files_errored", "dirs_unreadable", "dirs_truncated", "mcp_capped", "git_index_partial", "output_trimmed", "max_files_hit", "max_total_bytes_hit", "deadline_hit", "config", "overlay_fallback"]
+                  "files_skipped_special", "files_skipped_hardlink", "files_errored", "dirs_unreadable", "dirs_truncated", "mcp_capped", "git_index_partial", "output_trimmed", "max_files_hit", "max_total_bytes_hit", "deadline_hit", "config", "overlay_fallback",
+                  "stopline_rows_capped"]
 
     def test_json_shape(self):
         self.write("src/a.ts", "export const a = 1;\n")
@@ -2357,9 +2364,11 @@ class ShipCoverageTests(ScanCase):
         self.write("db/schema.sql", "create table t (id int, email text, phone text, address text, street text, salary int, email text, "
                                     "ssn text, dob date, birthdate date, medical text, iban text, passport text);\n")
         q10 = self.scan()["questions"]["q10"]
-        snippets = [e["snippet"] for e in q10["evidence"]]
+        snippets = [e["snippet"] for e in q10["evidence"] if e["check"] == "pii-field"]
         self.assertEqual(len(snippets), 8)
         self.assertEqual(set(snippets), {"email", "phone", "address", "ssn", "dob", "birthdate", "medical", "iban"})
+        # S-062: 0.3.2 keeps five stop-line fields per file; the overlay lists the sixth so it still ticks
+        self.assertEqual([e["snippet"] for e in q10["evidence"] if e["check"] == "stopline-field"], ["passport"])
 
     def test_fly_environment_tomls_name_environments_and_deploy(self):
         for name in ("fly.toml", "fly.staging.toml", "fly.production.toml"):
@@ -5897,6 +5906,7 @@ class NeverWorseThanMainTests(unittest.TestCase):
             r = cs.scan(tmp, **c.get("args", {}))
             q = r["questions"]
             pii = sorted(set(e["snippet"] for e in q["q10"]["evidence"] if e["check"] == "pii-field"))
+            self.stopline = _stopline_rows(r)
             return {k: q[k]["answer"] for k in ("q1", "q3", "q9")}, r["partial"], pii, r["stats"]
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
@@ -5913,6 +5923,9 @@ class NeverWorseThanMainTests(unittest.TestCase):
                 if partial:
                     self.assertTrue(base["partial"], "%s: partial where the baseline finished" % c["name"])
                 self.assertEqual(pii, base["pii"], "%s: Q10 PII fields differ from the baseline" % c["name"])
+                # a test may stand in for _scan; then there are no branch rows to compare
+                missing = sorted(set(base.get("stopline", [])) - set(getattr(self, "stopline", base.get("stopline", []))))
+                self.assertEqual(missing, [], "%s: stop-line rows the baseline shows and the branch does not" % c["name"])
             for q, was in sorted(base["answers"].items()):
                 with self.subTest(case=c["name"], question=q):
                     key = (c["name"], q)
@@ -6148,7 +6161,7 @@ class OverlayContractTests(ScanCase):
     contract: the frozen release, the loader, the merge rules, the budget, and the CLI."""
 
     QS = ("q1", "q3", "q9")
-    OTHERS = ("q2", "q4", "q5", "q6", "q7", "q8", "q10", "q11")
+    OTHERS = ("q2", "q4", "q5", "q6", "q7", "q8", "q11")  # S-062: Q10 gains overlay rows after 0.3.2's (Q10PrefixTests)
 
     def app(self):
         self.write("src/components/A.tsx", "export const A = () => null;\n")
@@ -6159,6 +6172,14 @@ class OverlayContractTests(ScanCase):
         r = copy.deepcopy(cs.release.scan(self.repo, **kw))
         r["version"] = cs.__version__
         return r
+
+    def assert_q10_prefix(self, got, want):
+        """S-062: Q10's answer and confidence are 0.3.2's, and 0.3.2's Q10 rows come first, unchanged; the overlay's
+        `stopline-field` rows may follow (they replace strict Q10 equality)."""
+        g, w = got["questions"]["q10"], want["questions"]["q10"]
+        self.assertEqual((g["answer"], g["confidence"]), (w["answer"], w["confidence"]))
+        self.assertEqual(g["evidence"][:len(w["evidence"])], w["evidence"])
+        self.assertTrue(all(r["check"] == "stopline-field" for r in g["evidence"][len(w["evidence"]):]))
 
     def overlay(self, finished=True):
         ov = cs.Overlay(float("inf"))
@@ -6192,7 +6213,7 @@ class OverlayContractTests(ScanCase):
     def test_the_cli_loads_the_release_and_writes_no_bytecode(self):
         scripts = os.path.join(self.tmp, "scripts")
         os.makedirs(scripts)
-        for name in ("custody_scan.py", "custody_scan_0_3_2.py"):
+        for name in ("custody_scan.py", "custody_scan_0_3_2.py", "shared_rules.py"):  # 0.6.1: the scanner is three files
             shutil.copy(os.path.join(SCRIPT_DIR, name), scripts)
         out = subprocess.run([sys.executable, "-I", os.path.join(scripts, "custody_scan.py"), "--version"], capture_output=True, text=True, timeout=60)
         self.assertEqual(out.stdout.strip(), cs.__version__)
@@ -6200,7 +6221,8 @@ class OverlayContractTests(ScanCase):
         out = subprocess.run([sys.executable, "-I", os.path.join(scripts, "custody_scan.py"), "--repo", os.path.basename(self.repo)],
                              capture_output=True, text=True, cwd=self.tmp, timeout=120)
         self.assertTrue(json.loads(out.stdout)["ok"])
-        self.assertEqual(sorted(os.listdir(scripts)), ["custody_scan.py", "custody_scan_0_3_2.py"], "no __pycache__ beside the scripts")
+        self.assertEqual(sorted(os.listdir(scripts)), ["custody_scan.py", "custody_scan_0_3_2.py", "shared_rules.py"],
+                         "no __pycache__ beside the scripts")
 
     def test_a_missing_or_changed_release_is_an_envelope_with_both_installs_named(self):
         scripts = os.path.join(self.tmp, "scripts")
@@ -6219,6 +6241,7 @@ class OverlayContractTests(ScanCase):
         with open(os.path.join(scripts, "custody_scan_0_3_2.py"), "w", encoding="utf-8") as fh:
             fh.write(src.replace("0.3.2", "0.3.9", 1))
         self.assertEqual(run()["error"], "internal:release-modified")
+        shutil.copy(os.path.join(SCRIPT_DIR, "shared_rules.py"), scripts)  # 0.6.1: the scanner's third file
         with open(os.path.join(scripts, "custody_scan_0_3_2.py"), "w", encoding="utf-8", newline="\r\n") as fh:
             fh.write(src)  # a Windows checkout with core.autocrlf
         self.assertEqual(run()["error"], "repo-not-found", "a CRLF copy of the release loads and runs 0.3.2's checks")
@@ -6245,6 +6268,7 @@ class OverlayContractTests(ScanCase):
         shutil.copytree(SKILL_DIR, os.path.join(dest, "custody-check"), ignore=shutil.ignore_patterns("__pycache__", "fixtures"))
         script = os.path.join(dest, "custody-check", "scripts", "custody_scan.py")
         self.assertTrue(os.path.isfile(os.path.join(dest, "custody-check", "scripts", "custody_scan_0_3_2.py")))
+        self.assertTrue(os.path.isfile(os.path.join(dest, "custody-check", "scripts", "shared_rules.py")))
         self.app()
         out = subprocess.run([sys.executable, "-I", script, "--repo", os.path.basename(self.repo)], capture_output=True, text=True, cwd=self.tmp, timeout=120)
         self.assertEqual(json.loads(out.stdout)["version"], cs.__version__)
@@ -6268,6 +6292,7 @@ class OverlayContractTests(ScanCase):
                 want = cs.release.scan(root, **c.get("args", {}))
                 want["version"] = cs.__version__
                 want["stats"]["overlay_fallback"] = "skipped"  # X5: the report says the newer reader did not run
+                want["stats"]["stopline_rows_capped"] = 0  # S-062: always present; nothing dropped when the overlay is off
                 self.assertEqual(json.dumps(got, sort_keys=False), json.dumps(want, sort_keys=False))
 
     def test_0_3_2s_rows_partial_and_other_questions_survive_the_overlay(self):
@@ -6280,10 +6305,12 @@ class OverlayContractTests(ScanCase):
                 want = cs.release.scan(root, **c.get("args", {}))
                 last = cs.scan_with_overlay.last  # X5, the one added stat: null when the pass finished, else how it ended
                 self.assertIn(got["stats"].pop("overlay_fallback"), (None, "full") if last.finished else (last.status,))
+                self.assertIsInstance(got["stats"].pop("stopline_rows_capped"), int)  # S-062, the second added stat
                 for key in ("partial", "files_scanned", "stats", "warnings", "git", "ok"):
                     self.assertEqual(got[key], want[key], key)
                 for q in self.OTHERS:
                     self.assertEqual(got["questions"][q], want["questions"][q], q)
+                self.assert_q10_prefix(got, want)
                 self.assertLessEqual(_json_bytes(got), cs.release.MAX_OUTPUT_BYTES)
                 for q in self.QS:
                     g, w = got["questions"][q], want["questions"][q]
@@ -6397,6 +6424,7 @@ class OverlayContractTests(ScanCase):
             self.assertLess(_json_bytes(cs._unfinished_row("error")), _json_bytes(nf))
         for q in self.OTHERS:
             self.assertEqual(out["questions"][q], r["questions"][q])
+        self.assert_q10_prefix(out, r)
 
     def test_the_shortest_nothing_found_rows_are_longer_than_the_unfinished_row(self):
         for files in ({"a.ts": "x\n"}, {"x.rules": "x\n"}, {"package.json": "{}\n"}):
@@ -6427,6 +6455,7 @@ class OverlayContractTests(ScanCase):
         self.assertEqual(out["stats"], r["stats"])
         for q in self.OTHERS:
             self.assertEqual(out["questions"][q], r["questions"][q])
+        self.assert_q10_prefix(out, r)
         for q in self.QS:
             self.assertGreaterEqual(cs.RANK[out["questions"][q]["answer"]], cs.RANK[r["questions"][q]["answer"]])
 
@@ -6670,7 +6699,8 @@ class OverlayContractTests(ScanCase):
                 for extra in ([], ["--exit-code"]):
                     got, want = run(SCRIPT, args + extra, root), run(RELEASE_SCRIPT, args + extra, root)
                     self.assertEqual(got.returncode, want.returncode)
-                    self.assertEqual(got.stdout.replace('"version":"%s"' % cs.__version__, '"version":"0.3.2"').replace(',"overlay_fallback":"skipped"', ""), want.stdout)
+                    self.assertEqual(got.stdout.replace('"version":"%s"' % cs.__version__, '"version":"0.3.2"').replace(',"overlay_fallback":"skipped"', "")
+                                     .replace(',"stopline_rows_capped":0', ""), want.stdout)  # S-062's stat, 0 with the overlay off
         os.makedirs(os.path.join(self.repo, "inner"))
         with open(os.path.join(self.tmp, "afile"), "w") as fh:
             fh.write("x")
@@ -6843,7 +6873,9 @@ class OverlayContractTests(ScanCase):
         self.assertIn("not opened", rows["opencode.json"], "0.3.2 never opens opencode.json")
         self.assertFalse(cs.release.is_never_open_file("opencode.jsonc"), "control: 0.3.2's list")
         with open(os.path.join(PLUGIN_DIR, "README.md"), encoding="utf-8") as fh:
-            never = [l for l in fh.read().splitlines() if l.startswith("- The scanner never opens your AI instruction files")][0]
+            # 0.6.1 (S-062): the list is a stamped shared block; read the line without its markers
+            text = re.sub(r"<!-- /?shared:[a-z-]+ -->", "", fh.read())
+            never = [l for l in text.splitlines() if l.startswith("- The scanner never opens your AI instruction files")][0]
         self.assertNotIn("`opencode.jsonc`,", never.split(". The list lives")[0], "README lists only what 0.3.2 never opens")
 
     def test_rtdb_rows_show_their_fixed_labels(self):
@@ -7724,6 +7756,295 @@ class OverlayFallbackStatTests(ScanCase):
                     out = self.scan()
                 self.assertLessEqual(cs._size(out), cs.release.MAX_OUTPUT_BYTES, env)
                 self.assertIn("overlay_fallback", out["stats"])
+
+
+class StoplineOverlayTests(ScanCase):
+    """S-062: the overlay adds a Q10 `stopline-field` row for each stop-line term the shared matcher finds in a schema
+    or SQL file and 0.3.2 did not already show on that path. Q10's answer never changes; caps never lose a tick
+    silently (stats.stopline_rows_capped)."""
+
+    def q10(self, **kw):
+        out = self.scan(**kw)
+        return out, out["questions"]["q10"]
+
+    def rows(self, q, check="stopline-field"):
+        return [(r["path"], r["line"], r["snippet"]) for r in q["evidence"] if r["check"] == check]
+
+    def test_birthday_and_one_word_fields_add_rows(self):
+        self.write("prisma/schema.prisma", "model U {\n  id String @id\n  birthday DateTime\n  creditcard String\n}\n")
+        out, q = self.q10()
+        self.assertEqual(self.rows(q), [("prisma/schema.prisma", 3, "birthday"), ("prisma/schema.prisma", 4, "credit_card")])
+        self.assertEqual((q["answer"], q["confidence"]), ("dont-know", "low"), "Q10's answer and confidence stay 0.3.2's")
+        self.assertEqual(out["stats"]["stopline_rows_capped"], 0)
+
+    def test_a_term_0_3_2_shows_on_the_path_is_not_repeated(self):
+        self.write("db/schema.sql", "create table t (\n  ssn text,\n  user_ssn text\n);\n")
+        _, q = self.q10()
+        self.assertIn(("db/schema.sql", 2, "ssn"), self.rows(q, "pii-field"))
+        self.assertEqual(self.rows(q), [])
+
+    def test_email_and_birthday_on_one_line_both_stay(self):
+        """R2-7: Q10 overlay rows skip the line-only rule; dedupe is by (path, line, term)."""
+        self.write("db/schema.sql", "create table t (email text, birthday date);\n")
+        _, q = self.q10()
+        self.assertIn(("db/schema.sql", 1, "email"), self.rows(q, "pii-field"))
+        self.assertEqual(self.rows(q), [("db/schema.sql", 1, "birthday")])
+
+    def test_release_rows_stay_first_and_unchanged(self):
+        self.write("db/schema.sql", "create table t (email text, phone text, dob date, birthday date);\n")
+        want = cs.release.scan(self.repo)["questions"]["q10"]["evidence"]
+        _, q = self.q10()
+        self.assertEqual(q["evidence"][:len(want)], want)
+        self.assertEqual([r["check"] for r in q["evidence"][len(want):]], ["stopline-field"])
+
+    def test_comments_and_values_never_add_rows(self):
+        self.write("db/schema.sql", "-- birthday\n/* creditcard payments */\n/*\n stores medical notes\n*/\n"
+                   "create table t (passport_no text);\ninsert into t values ('creditcard');\n")
+        self.write("prisma/schema.prisma", "// birthday\n/// date of birth\nmodel U {\n  /*\n   stores medical notes\n  */\n"
+                   "  creditcard String\n}\n")
+        _, q = self.q10()
+        self.assertEqual(sorted(self.rows(q)), [("prisma/schema.prisma", 7, "credit_card")])
+
+    def test_quoted_identifiers_and_prisma_map_add_rows(self):
+        self.write("prisma/migrations/1_init/migration.sql", 'CREATE TABLE "User" (\n  "birthday" TIMESTAMP(3),\n  "creditcard" TEXT\n);\n')
+        self.write("prisma/schema.prisma", 'model U {\n  bornOn DateTime @map("birth_date")\n}\n')
+        _, q = self.q10()
+        self.assertEqual(sorted(self.rows(q)), [("prisma/migrations/1_init/migration.sql", 2, "birthday"),
+                                                ("prisma/migrations/1_init/migration.sql", 3, "credit_card"),
+                                                ("prisma/schema.prisma", 2, "birth_date")])
+
+    def test_only_0_3_2s_schema_and_sql_files_are_read(self):
+        self.write("src/lib/age.ts", "const birthday = new Date();\n")
+        self.write("api/models.py", "class M(models.Model):\n    # passport number\n    birthday = models.DateField()\n")
+        _, q = self.q10()
+        self.assertEqual(self.rows(q), [("api/models.py", 3, "birthday")])
+
+    def test_form_inputs_neither_hide_nor_repeat_schema_rows(self):
+        self.write("public/index.html", '<form><input name="birthday" autocomplete="bday"></form>\n')
+        self.write("prisma/schema.prisma", "model U {\n  birthday DateTime\n}\n")
+        _, q = self.q10()
+        self.assertEqual(self.rows(q), [("prisma/schema.prisma", 2, "birthday")])
+
+    def test_one_row_per_term_per_file(self):
+        """Review round 1 (red team): a migration adding one column to many tables filled Q10 with repeats."""
+        self.write("db/schema.sql", "".join("alter table t%d add column birthday date;\n" % i for i in range(20)))
+        _, q = self.q10()
+        self.assertEqual(self.rows(q), [("db/schema.sql", 1, "birthday")])
+
+    def test_a_trimmed_release_term_is_counted(self):
+        """Review round 1 (Codex): a term only 0.3.2's own Q10 row names, dropped by a later trim, still counts."""
+        self.write("db/schema.sql", "create table t (dob date);\n")
+        result = cs.release.scan(self.repo)
+        ov = cs.Overlay(float("inf"))
+        cs.note_release_q10(ov, result)
+        out = copy.deepcopy(result)
+        out["questions"]["q10"]["evidence"] = []
+        self.assertEqual(cs.stopline_stat(out, ov)["stats"]["stopline_rows_capped"], 1)
+
+    def test_the_stop_line_pass_never_leaves_the_overlay_unfinished(self):
+        """Review round 1 (performance, adversarial): stop-line work ran inside the overlay walk, so on SQL-heavy apps
+        the walk ran out of time and Q1/Q3/Q9 fell back. It now runs after the walk; running out there only stops it."""
+        self.write("supabase/migrations/1.sql", "create table public.notes (id int);\nalter table public.notes enable row level security;\n")
+        self.write("db/schema.sql", "create table t (birthday date);\n")
+        base = self.scan()
+        with mock.patch.object(cs, "detect_stopline", side_effect=cs.release.Deadline()):
+            out = self.scan()
+        self.assertIsNone(out["stats"]["overlay_fallback"])
+        for q in ("q1", "q3", "q9"):
+            self.assertEqual(out["questions"][q], base["questions"][q], q)
+        self.assertEqual(self.rows(out["questions"]["q10"]), [])
+        self.assertTrue(cs.scan_with_overlay.last.stopline_unfinished)
+
+    def test_the_stop_line_pass_stops_at_the_end(self):
+        self.write("db/schema.sql", "create table t (birthday date);\n")
+        ov = cs.Overlay(float("inf"))
+        ov.stopline_files.append(("db/schema.sql", os.path.join(self.repo, "db", "schema.sql"), "schema.sql", ".sql"))
+        cs.stopline_pass(ov, cs.release.Options(), clock=lambda: 1.0, end=0.0)
+        self.assertTrue(ov.finished)
+        self.assertTrue(ov.stopline_unfinished)
+        self.assertEqual(ov.rows["q10"], [])
+
+    def test_snippets_are_list_terms_only(self):
+        self.write("db/schema.sql", "create table t (hunter2_creditcard text, x_birthday_y date);\n")
+        _, q = self.q10()
+        for r in q["evidence"]:
+            if r["check"] == "stopline-field":
+                self.assertIn(r["snippet"], cs.shared.STOPLINE_FIELDS)
+        self.assertNotIn("hunter2", json.dumps(q))
+
+    def test_a_full_q10_counts_the_term_it_could_not_list(self):
+        """S2: 0.3.2 keeps 3 ordinary fields per file, 12 rows in all; four such files fill Q10, so the overlay's
+        birthday row has no room: the stat counts it and the verdict ticks."""
+        for i in range(4):
+            self.write("db/%d_schema.sql" % i, "create table t%d (email text, phone text, address text, salary int);\n" % i)
+        self.write("prisma/schema.prisma", "model U {\n  birthday DateTime\n}\n")
+        out, q = self.q10()
+        self.assertEqual(len(q["evidence"]), cs.release.MAX_EVIDENCE)
+        self.assertEqual(self.rows(q), [])
+        self.assertEqual(out["stats"]["stopline_rows_capped"], 1)
+        import custody_verdict as cv
+        v = cv.decide(out, cv.parse_answers("q5_data=yes stop_line=none"))
+        self.assertTrue(v["stop_line"]["ticked"])
+        self.assertTrue(v["stop_line"]["capped"])
+
+    def test_a_term_shown_elsewhere_is_not_counted(self):
+        for i in range(4):
+            self.write("db/%d_schema.sql" % i, "create table t%d (email text, phone text, address text, ssn text);\n" % i)
+        self.write("prisma/schema.prisma", "model U {\n  ssn String\n}\n")
+        out, _ = self.q10()
+        self.assertEqual(out["stats"]["stopline_rows_capped"], 0, "ssn is in a kept 0.3.2 row")
+
+    def test_the_stat_is_always_present_and_after_overlay_fallback(self):
+        self.write("src/a.ts", "export const a = 1;\n")
+        keys = list(self.scan()["stats"])
+        self.assertEqual(keys[-2:], ["overlay_fallback", "stopline_rows_capped"])
+        with mock.patch.dict(os.environ, {"CUSTODY_CHECK_OVERLAY": "0"}):
+            self.assertEqual(self.scan()["stats"]["stopline_rows_capped"], 0)
+
+    def ov_with_birthday(self):
+        ov = cs.Overlay(float("inf"))
+        ov.stopline("prisma/schema.prisma", 2, "birthday")
+        for i in range(6):
+            ov.add("open-rule-unconfirmed", "supabase/migrations/%d_long_migration_name_for_padding.sql" % i, i + 1,
+                   "a policy (name not shown)", source="sql")
+        return ov
+
+    def padded(self, room):
+        """0.3.2's result for an app, padded on Q2 (which the overlay never touches) to `room` bytes under the cap."""
+        self.write("supabase/migrations/1.sql", "create table public.notes (id int);\nalter table public.notes enable row level security;\n")
+        self.write("prisma/schema.prisma", "model U {\n  birthday DateTime\n}\n")
+        result = copy.deepcopy(cs.release.scan(self.repo))
+        result["version"] = cs.__version__
+        result["stats"]["overlay_fallback"] = None
+        result["stats"]["stopline_rows_capped"] = 0
+        result["questions"]["q3"]["answer"] = "dont-know"  # the overlay's Q3 rows then change no answer: trimmed first
+        result["questions"]["q2"]["evidence"].append({"path": "", "line": 0, "snippet": "", "check": "client-server-split"})
+        result["questions"]["q2"]["evidence"][-1]["snippet"] = "x" * (cs.release.MAX_OUTPUT_BYTES - room - cs._size(result))
+        self.assertEqual(cs._size(result), cs.release.MAX_OUTPUT_BYTES - room)
+        return result
+
+    def test_byte_cap_with_room_keeps_the_stop_line_row(self):
+        ov = self.ov_with_birthday()
+        out = cs.stopline_stat(cs.merge(self.padded(5000), ov), ov)
+        self.assertIn(("prisma/schema.prisma", 2, "birthday"), self.rows(out["questions"]["q10"]))
+        self.assertEqual(out["stats"]["stopline_rows_capped"], 0)
+
+    def test_byte_cap_drops_stop_line_rows_before_any_row_main_keeps(self):
+        """Review round 1 (red team, replaces plan E-8's order): near the cap, stop-line rows go first, so every other
+        row is what main would print; a dropped term is counted, so the verdict still ticks."""
+        for room in (20, 150, 300, 600, 2000):
+            with self.subTest(room=room):
+                ov = self.ov_with_birthday()
+                out = cs.stopline_stat(cs.merge(self.padded(room), ov), ov)
+                main_ov = self.ov_with_birthday()
+                main_ov.rows["q10"] = []
+                main = cs.merge(self.padded(room), main_ov)
+                self.assertLessEqual(cs._size(out), cs.release.MAX_OUTPUT_BYTES)
+                for q in out["questions"]:
+                    if q != "q10":
+                        self.assertEqual(out["questions"][q], main["questions"][q], q)
+                kept = bool(self.rows(out["questions"]["q10"]))
+                self.assertEqual(out["stats"]["stopline_rows_capped"], 0 if kept else 1)
+
+    def test_byte_cap_with_no_room_counts_the_dropped_term(self):
+        ov = self.ov_with_birthday()
+        out = cs.stopline_stat(cs.merge(self.padded(20), ov), ov)
+        self.assertLessEqual(cs._size(out), cs.release.MAX_OUTPUT_BYTES)
+        self.assertEqual(self.rows(out["questions"]["q10"]), [])
+        self.assertEqual(out["stats"]["stopline_rows_capped"], 1)
+        import custody_verdict as cv
+        self.assertTrue(cv.decide(out, cv.parse_answers("q5_data=yes stop_line=none"))["stop_line"]["ticked"])
+
+    def test_a_fallback_counts_every_overlay_term(self):
+        result = self.padded(5000)
+        out = cs.fallback(result, "error")
+        cs.stopline_stat(out, self.ov_with_birthday())
+        self.assertEqual(out["stats"]["stopline_rows_capped"], 1)
+
+    def test_a_large_schema_finishes_within_budget(self):
+        chunk = "create table t (id int, email text, note text default 'it''s'); -- c\n/* block */\n"
+        self.write("db/schema.sql", chunk * (500 * 1024 // len(chunk)) + "  birthday date\n")
+        t = time.monotonic()
+        out, q = self.q10()
+        self.assertLess(time.monotonic() - t, 30)
+        self.assertFalse(out["partial"])
+        self.assertIsNone(out["stats"]["overlay_fallback"])
+        self.assertEqual([r[2] for r in self.rows(q)], ["birthday"])
+
+    def test_the_skill_q10_fields_recipe_reads_overlay_rows(self):
+        import custody_verdict as cv
+        self.write("prisma/schema.prisma", "model U {\n  email String\n  birthday DateTime\n}\n")
+        out, _ = self.q10()
+        toks = dict(t.split("=", 1) for t in cv.expect_tokens(out).split())
+        self.assertEqual(toks["q10_fields"], "birthday,email")
+        self.assertEqual(toks["stopline_capped"], "0")
+
+    def test_the_verdict_ticks_and_says_where(self):
+        import custody_verdict as cv
+        self.write("db/schema.sql", "create table t (\n  email text,\n  creditcard text\n);\n")
+        out, _ = self.q10()
+        sl = cv.decide(out, cv.parse_answers("q5_data=yes stop_line=none"))["stop_line"]
+        self.assertEqual((sl["ticked"], sl["fields"], sl["where"][0]), (True, ["credit_card"], "db/schema.sql:3"))
+
+    def test_check_is_listed_as_q10_evidence(self):
+        self.assertEqual(cs.OVERLAY_CHECKS["stopline-field"], ("q10",))
+        with open(os.path.join(SKILL_DIR, "references", "questions.md"), encoding="utf-8") as fh:
+            text = fh.read().split("## All check names", 1)[1]
+        q10 = next(l for l in text.splitlines() if l.startswith("- **Q10"))
+        self.assertIn("`stopline-field`", q10)
+
+    def test_own_copy_smoke(self):
+        """E-16: the scanner's view of custody's copy of the shared matcher."""
+        self.assertEqual(cs.shared.stopline_terms("birthday"), ["birthday"])
+        self.assertEqual(cs.shared.stopline_terms("creditcard"), ["credit_card"])
+        self.assertEqual(cs.shared.stopline_terms("dobby"), [])
+
+
+class ScannerSharedLoaderTests(ScanCase):
+    """The scanner loads shared_rules.py by path; a missing release wins over a missing shared file."""
+
+    def copy_scripts(self, *names):
+        scripts = os.path.join(self.tmp, "scripts")
+        os.makedirs(scripts)
+        for name in names:
+            shutil.copy(os.path.join(SCRIPT_DIR, name), scripts)
+        return scripts
+
+    def run_copy(self, scripts):
+        out = subprocess.run([sys.executable, "-I", os.path.join(scripts, "custody_scan.py"), "--repo", "x"],
+                             capture_output=True, text=True, cwd=self.tmp, timeout=60)
+        self.assertEqual(out.stderr.count("\n") <= 1 and "Traceback" not in out.stderr, True, out.stderr)
+        lines = out.stdout.splitlines()
+        self.assertEqual(len(lines), 1, out.stdout)
+        return json.loads(lines[0])
+
+    def test_missing_shared_file(self):
+        scripts = self.copy_scripts("custody_scan.py", "custody_scan_0_3_2.py")
+        out = self.run_copy(scripts)
+        self.assertEqual((out["ok"], out["error"], out["partial"]), (False, "internal:shared-missing", True))
+        self.assertIn("reinstall the plugin", out["hint"])
+        self.assertIn("cp -R", out["hint"])
+
+    def test_broken_shared_file(self):
+        scripts = self.copy_scripts("custody_scan.py", "custody_scan_0_3_2.py")
+        for body in ("def (:\n", "", "raise RuntimeError()\n"):
+            with open(os.path.join(scripts, "shared_rules.py"), "w") as fh:
+                fh.write(body)
+            self.assertEqual(self.run_copy(scripts)["error"], "internal:shared-broken", body)
+
+    @unittest.skipIf(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0), "needs file permissions")
+    def test_unreadable_shared_file(self):
+        scripts = self.copy_scripts("custody_scan.py", "custody_scan_0_3_2.py", "shared_rules.py")
+        path = os.path.join(scripts, "shared_rules.py")
+        os.chmod(path, 0)
+        try:
+            self.assertEqual(self.run_copy(scripts)["error"], "internal:shared-broken")
+        finally:
+            os.chmod(path, 0o644)
+
+    def test_a_missing_release_wins(self):
+        scripts = self.copy_scripts("custody_scan.py")
+        self.assertEqual(self.run_copy(scripts)["error"], "internal:release-missing")
 
 
 if __name__ == "__main__":

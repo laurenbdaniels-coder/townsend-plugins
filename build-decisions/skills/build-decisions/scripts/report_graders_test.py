@@ -22,7 +22,8 @@ NEW_COMMON = ("footer-plain", "says-what-not-what-to-do", "never-asks-what-code-
 # 0.6.1: the eval host has no AskUserQuestion, so a case the code does not tick asks the stop-line question in
 # plain text right after the footer, then waits. A case the code ticks (stopline-app) never asks it.
 ASKS_AFTER = ("stopline-question-after-footer", "waits-after-stopline-question")
-TICKED = {"stopline-app": ("first-sign-after-footer", "no-stopline-question")}
+TICKED = {case: ("first-sign-after-footer", "no-stopline-question")
+          for case in ("stopline-app", "shared-stopline")}  # 0.6.3: shared-stopline's schema fields tick it too
 # 0.6.2: a bare "yes" pasted up front names no risk, so the report has no extra-risk block and the footer is
 # followed by the one follow-up question ("Which of these?"), then a wait. The full question is not asked again.
 BARE_YES = {"bare-yes": ("which-one-after-footer", "waits-after-which-one", "no-full-question-again",

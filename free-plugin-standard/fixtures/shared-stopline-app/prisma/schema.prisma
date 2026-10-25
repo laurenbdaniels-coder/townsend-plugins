@@ -1,0 +1,11 @@
+// birthday
+/// date of birth
+model Member {
+  id          Int      @id @default(autoincrement())
+  email       String
+  dateOfBirth DateTime @map("date_of_birth")
+  /*
+   stores medical notes
+  */
+  credit_card String?
+}

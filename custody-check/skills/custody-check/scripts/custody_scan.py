@@ -33,7 +33,7 @@ CUSTODY_CHECK_OVERLAY=0 skips the overlay: the output is 0.3.2's with only `vers
 """
 import sys
 
-__version__ = "0.6.0"
+__version__ = "0.6.1"
 
 _DOCS = "README.md#when-it-goes-wrong"
 _PY_TOO_OLD = ("This scanner needs python 3.9 or newer. Run python3 --version; on macOS install the Command Line Tools, on Windows use py -3.", _DOCS)
@@ -114,11 +114,41 @@ except ReleaseUnavailable as _exc:
     release = None
     RELEASE_ERROR = _exc.code
 
+# ------------------------------------------------------------------ the shared rules (S-062), loaded by path
+
+SHARED_EXPORTS = ("STOPLINE_FIELDS", "stopline_terms", "stopline_line_terms", "stopline_kind")
+
+
+def load_shared():
+    """Load shared_rules.py (the stop-line list and matcher custody-check and build-decisions share) from next to
+    this file, the way load_release does but with no hash: CI holds every copy byte-equal to the canonical file.
+    Returns (module, None) or (None, error code)."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "shared_rules.py")
+    try:
+        with open(path, "rb") as fh:
+            data = fh.read().replace(b"\r\n", b"\n")
+    except FileNotFoundError:
+        return None, "internal:shared-missing"
+    except OSError:
+        return None, "internal:shared-broken"
+    module = types.ModuleType("shared_rules")
+    module.__file__ = path
+    try:
+        exec(compile(data, path, "exec"), module.__dict__)
+    except Exception:
+        return None, "internal:shared-broken"
+    if not all(hasattr(module, name) for name in SHARED_EXPORTS):
+        return None, "internal:shared-broken"
+    return module, None
+
+
+shared, SHARED_ERROR = load_shared()
+
 # ------------------------------------------------------------------ overlay constants
 
 OVERLAY_MIN_S = 5.0  # the overlay's least time; a longer --deadline-s raises it (deadline / 24)
 OVERLAY_SHARE_OF_DEADLINE = 0.8  # the whole scan ends by this share of --deadline-s, so a host's own timeout never kills it
-QS = ("q1", "q3", "q9")
+QS = ("q1", "q3", "q9", "q10")  # Q10 takes evidence rows only (stopline-field); its answer stays 0.3.2's Don't know
 RANK = {"nothing-found": 0, "dont-know": 1, "no": 2}
 UNFINISHED_SNIPPETS = {"unfinished": "time ran out; rerun with --deadline-s 600",
                        "error": "an error; please report it",
@@ -133,7 +163,11 @@ OVERLAY_CHECKS = {
     "rules-not-read-whole": ("q3",), "table-dropped": ("q3",), "no-rule-statements": ("q3",),
     "manifest-not-parsed": ("q9",),
     "compressed-file-not-read": ("q1", "q3", "q9"), "checks-not-finished": ("q1", "q3", "q9"),
+    "stopline-field": ("q10",),
 }
+STOPLINE_CHECK = "stopline-field"
+# 0.3.2's schema files (its classify() "schema" kind): the overlay reads these and its SQL files for stop-line fields
+SCHEMA_BASENAMES = ("models.py", "schema.rb", "schema.ts", "schema.py", "schema.sql")
 CAPPED_PER_SCAN = {"mcp-config-not-opened", "manifest-not-parsed", "compressed-file-not-read", "code-file-not-read"}
 
 
@@ -267,6 +301,15 @@ class Overlay(object):
         self.release_open_tables = []  # [(table, path, line)] 0.3.2 would flag, minus credited, in its order and cap
         self.release_q3_clean = False  # 0.3.2's own Nothing found conditions held, apart from its table rows
         self.release_q3_rows = None  # (nothing-found row, summary row) as 0.3.2 writes them
+        self.release_q10_terms = {}  # path -> stop-line terms 0.3.2's own Q10 rows name there (S-062)
+        self.stopline_found = set()  # every stop-line term found, kept or not: stats.stopline_rows_capped counts the lost ones
+        self.stopline_files = []  # (rel, full path, name, ext): schema and SQL files the walk passed, read after it
+        self.stopline_unfinished = False  # the stop-line pass ran out of time (fewer rows; the other checks are done)
+
+    def stopline(self, path, line, term):
+        """A Q10 stop-line row. Its snippet is the list term, never the app's identifier."""
+        self.stopline_found.add(term)
+        self.add(STOPLINE_CHECK, path, line, term, source="schema")
 
     def table_event(self, kind, path, offset, name):
         if len(self.table_events) >= MAX_LOOP_EVENTS:
@@ -979,6 +1022,59 @@ def _needs_read(base, ext):
     return ext in release.SQL_LIKE_EXTS or b.endswith(".rules") or b == "database.rules.json" or ext in MODULE_EXTS or b in release.MANIFEST_BASENAMES
 
 
+def _stopline_file(base, ext):
+    return ext in release.SQL_LIKE_EXTS or ext in release.SCHEMA_EXTS or base.lower() in SCHEMA_BASENAMES
+
+
+def detect_stopline(sf, ov, past_end=lambda: False):
+    """S-062: a Q10 row per stop-line term in a schema or SQL file (the shared matcher: comments and string values
+    never count), unless 0.3.2's own Q10 rows already name that term on this path. One row per term per file, at
+    its first line. Raises release.Deadline when past_end() says the pass's time is up."""
+    named = ov.release_q10_terms.get(release.sanitize_path(sf.rel), ())
+    seen = set()
+    for k, (line_no, _identifier, term) in enumerate(shared.stopline_line_terms(sf.text, shared.stopline_kind(sf.base))):
+        if k % release.DEADLINE_TICK == 0 and past_end():
+            raise release.Deadline()
+        if term in named or term in seen:
+            continue
+        seen.add(term)
+        ov.stopline(sf.rel, line_no, term)
+
+
+def stopline_pass(ov, opts, clock=time.monotonic, end=float("inf")):
+    """After the walk and every other check: the stop-line fields of the files the walk passed, in the time left.
+    Running out stops only this pass. A file not read here means fewer stop-line rows, which main never had."""
+    past_end = lambda: clock() > end  # noqa: E731
+    try:
+        for rel, full, name, ext in ov.stopline_files:
+            if past_end():
+                raise release.Deadline()
+            opened = release.open_regular(full)
+            if opened is None:
+                continue
+            fd, size = opened
+            try:
+                if size > opts.max_file_bytes:
+                    continue
+                data = release.read_bytes(fd, size)
+            finally:
+                os.close(fd)
+            text = release.decode_text(data) if len(data) == size else None
+            if text is not None:
+                detect_stopline(OverlayFile(rel, name, ext, text), ov, past_end)
+    except release.Deadline:
+        ov.stopline_unfinished = True
+
+
+def note_release_q10(ov, result):
+    """The stop-line terms 0.3.2's own Q10 rows name: the overlay does not repeat them on that path, and a later trim
+    that drops one is counted in stats.stopline_rows_capped like an overlay row."""
+    for r in result["questions"]["q10"]["evidence"]:
+        terms = shared.stopline_terms(r["snippet"])
+        ov.release_q10_terms.setdefault(r["path"], set()).update(terms)
+        ov.stopline_found.update(terms)
+
+
 def _compressed_could_hold(base, ext):
     """`app.js.zst`, `dump.sql.zst`, `.env.zst`, `key.pem.zst`: a compressed file whose inner name could answer Q1/Q3."""
     inner = base[:-len(ext)]
@@ -1080,6 +1176,8 @@ def overlay_walk(repo, opts, ov, rel_state, caps, clock, end):
                     raise OverlayTimeout()  # 0.3.2 stopped here too (its result says so): nothing after this was read
                 candidates += 1
                 total_bytes += st.st_size
+            if _stopline_file(name, ext):
+                ov.stopline_files.append((rel, full, name, ext))  # read after the walk (stopline_pass)
             if not _needs_read(name, ext):
                 continue
             opened = release.open_regular(full)
@@ -1113,6 +1211,7 @@ def overlay_walk(repo, opts, ov, rel_state, caps, clock, end):
 
 def overlay_pass(repo, opts, ov, rel_state, result, clock, end):
     caps = bool(result.get("partial")) or result["stats"].get("max_files_hit") or result["stats"].get("max_total_bytes_hit")
+    note_release_q10(ov, result)
     overlay_walk(repo, opts, ov, rel_state, caps, clock, end)
     # a capped or partial scan may have missed a later migration that turns RLS off: no credit (review round 1)
     ov.loop_credited = set() if caps else _resolve_loop_credits(ov) & (set(ov.tables) | set(rel_state.tables))
@@ -1134,6 +1233,7 @@ def overlay_pass(repo, opts, ov, rel_state, result, clock, end):
             ov.add("table-without-rls", path, line, _name("table", name in ov.code_tables), source="sql")
     if ov.rule_files == 0 and result["questions"]["q3"]["answer"] == "nothing-found":
         ov.add("no-rule-statements", "", 0, "no SQL file creates a table or policy; no rules file")
+    stopline_pass(ov, opts, clock, end)  # last: it never makes the checks above unfinished
 
 # ------------------------------------------------------------------ the code inventory (--inventory, 0.6.0)
 # One JSON line: every code file the agent may Read, with its line count and two marks, server files and
@@ -1387,8 +1487,8 @@ def _plans(result, ov):
         rows = []
         for r in ov.rows[q]:
             no = r["_effect"] == "no" and r["_source"] == "mts-key" and q == "q1"  # the clamp: no other overlay row is a No
-            if (r["check"], r["path"], r["line"]) in taken or (not no and (r["path"], r["line"]) in lines):
-                continue  # 0.3.2 already shows this line on this question
+            if (r["check"], r["path"], r["line"]) in taken or (not no and q != "q10" and (r["path"], r["line"]) in lines):
+                continue  # 0.3.2 already shows this line on this question (Q10: dedupe is by path, line and term)
             rows.append(dict(r, _no=no))
         rows.sort(key=lambda r: 0 if r["_no"] else 1)
         want = "no" if any(r["_no"] for r in rows) else ("dont-know" if rows or ov.gaps[q] or not ov.finished else "nothing-found")
@@ -1443,7 +1543,8 @@ def _assemble(result, plans):
         qd = out["questions"][q]
         qd["answer"] = p.answer
         qd["evidence"] = evidence
-        qd["confidence"] = _confidence(q, p.answer, evidence)
+        if q != "q10":  # Q10's confidence is 0.3.2's
+            qd["confidence"] = _confidence(q, p.answer, evidence)
     return out
 
 
@@ -1468,6 +1569,13 @@ def _fit(result, plans):
     if not over():
         return _assemble(result, plans)
     moved = lambda p: p.answer != p.base_answer
+    # 0. stop-line rows before any row main prints (review round 1): those whose term another shown row names, then
+    #    the rest, last first. stats.stopline_rows_capped counts each term no kept row names, so the verdict ticks.
+    q10 = plans["q10"]
+    while over() and q10.ov_rows:
+        shown = [shared.stopline_terms(r["snippet"]) for r in _shown_base(q10)] + [[r["snippet"]] for r in q10.ov_rows]
+        repeat = [i for i, r in enumerate(q10.ov_rows) if sum(r["snippet"] in t for t in shown) > 1]
+        q10.ov_rows.pop(repeat[-1] if repeat else -1)
     # Nos sort first in ov_rows, so pop() takes cautions before any No.
     # 1. overlay rows on questions whose answer the overlay did not change, the longest list first; a No dropped
     #    here (0.3.2 already said No) gives back the 0.3.2 row it displaced
@@ -1543,9 +1651,20 @@ def merge(result, ov):
                 raise ValueError("unknown overlay check: " + r["check"])
     why = ov.status if not ov.finished else "full"  # a finished pass falls back only because its rows did not fit
     if _size(result) > release.MAX_OUTPUT_BYTES:
-        return result if ov.finished and not any(ov.rows[q] or ov.gaps[q] for q in QS) else fallback(result, why)
+        # stop-line rows that cannot fit are counted (stopline_stat), so they alone never force the fallback
+        return result if ov.finished and not any(ov.rows[q] or ov.gaps[q] for q in QS if q != "q10") else fallback(result, why)
     out = _fit(result, _plans(result, ov))
     return out if out is not None else fallback(result, why)
+
+
+def stopline_stat(out, ov):
+    """stats.stopline_rows_capped: how many stop-line terms the scan found that no kept Q10 row names (row cap,
+    byte cap, fallback). The verdict ticks the stop-line when it is above 0. Returns out."""
+    kept = set()
+    for r in out["questions"]["q10"]["evidence"]:
+        kept.update(shared.stopline_terms(r["snippet"]))
+    out["stats"]["stopline_rows_capped"] = len(ov.stopline_found - kept)
+    return out
 
 # ------------------------------------------------------------------ scan
 
@@ -1564,6 +1683,7 @@ def scan_with_overlay(repo, opts, clock=time.monotonic):
     result = copy.deepcopy(release.build_result(state, repo))
     result["version"] = __version__
     result["stats"]["overlay_fallback"] = None  # X5: why the overlay's result was not used; sized in from the start
+    result["stats"]["stopline_rows_capped"] = 0  # S-062: stop-line terms no kept row names; sized in from the start
     if os.environ.get("CUSTODY_CHECK_OVERLAY") == "0":
         result["stats"]["overlay_fallback"] = "skipped"
         return _under_cap(result), state, "skipped", 0
@@ -1592,7 +1712,12 @@ def scan_with_overlay(repo, opts, clock=time.monotonic):
     if not ov.finished:
         out["stats"]["overlay_fallback"] = ov.status  # unfinished or error: no DO-loop credit, some tables may show as open
     scan_with_overlay.last = ov  # for the tests: how the pass ended and what it found
-    return _under_cap(out), state, ov.status, int((clock() - now) * 1000)
+    out = stopline_stat(out, ov)
+    for _ in range(3):  # 0.3.2's own trim may drop a Q10 row, and a longer count may need one more trim
+        if _size(out) <= release.MAX_OUTPUT_BYTES:
+            break
+        out = stopline_stat(_under_cap(out), ov)
+    return out, state, ov.status, int((clock() - now) * 1000)
 
 
 def _under_cap(result):
@@ -1601,8 +1726,8 @@ def _under_cap(result):
 
 
 def scan(repo, **kwargs):
-    if release is None:
-        raise ReleaseUnavailable(RELEASE_ERROR)
+    if release is None or shared is None:
+        raise ReleaseUnavailable(RELEASE_ERROR if release is None else SHARED_ERROR)
     opts = release.Options(**kwargs)
     return scan_with_overlay(repo, opts)[0]
 
@@ -1615,8 +1740,8 @@ def main(argv=None):
     exit_code = "--exit-code" in argv
     listing = "--inventory" in argv  # a failed inventory always exits non-zero: the SKILL then takes the degraded line
     fail = 2 if (exit_code or listing) else 0
-    if release is None:
-        out = release_envelope(RELEASE_ERROR)
+    if release is None or shared is None:  # a missing release wins over a missing shared file
+        out = release_envelope(RELEASE_ERROR if release is None else SHARED_ERROR)
         sys.stdout.write((json.dumps(out, ensure_ascii=True, indent=2) if pretty else json.dumps(out, ensure_ascii=True, separators=(",", ":"))) + "\n")
         sys.stdout.flush()
         return fail

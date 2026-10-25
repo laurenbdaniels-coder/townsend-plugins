@@ -100,7 +100,7 @@ Two halves, scored separately; the report uses the lower one.
 
 - **Yes** only from you: you can list every kind of personal data you store and why, in one breath.
 - **No** only from you: you found fields you cannot explain.
-- Scanner evidence: `pii-field`, `pii-form-input` list field names that look personal (email, phone, address, date of birth, government id, card). A field named `ssn`, `dob`, `medical`, `card_number`, or similar also raises the **stop-line**: get a person who does this for a living.
+- Scanner evidence: `pii-field`, `pii-form-input` list field names that look personal (email, phone, address, date of birth, government id, card). A field named `ssn`, `dob`, `medical`, `card_number`, or similar also raises the **stop-line**: get a person who does this for a living. `stopline-field` names one more field from the stop-line list (such as `birthday` or `credit_card`, written as one word too) in a schema or SQL file; its snippet is the list word, never the app's text.
 - **By hand (60 s):** Open your database's table view. Read the column names aloud to someone. Every hesitation is a Don't know.
 - **In the report:** a No is the problem "Your app keeps personal data you can't explain." What it means for you: "Data you don't know you keep is data you can't protect or delete." Still open, it is the bullet "What personal data your app keeps, and why."
 
@@ -221,5 +221,5 @@ Every `check` the scanner can emit, by question. The skill accepts scanner outpu
 - **Q7:** `review-workflow` (evidence)
 - **Q8:** `ai-sdk-dependency` (hint), `model-env-var` (hint), `model-literal` (hint), `spend-cap-word` (hint)
 - **Q9:** `cron-schedule` (hint), `health-route` (hint), `manifest-not-parsed` (evidence), `monitoring-dependency` (hint), `nothing-found-monitoring` (evidence), `sentry-config` (hint), `compressed-file-not-read` (evidence), `checks-not-finished` (evidence)
-- **Q10:** `pii-field` (evidence), `pii-form-input` (evidence)
+- **Q10:** `pii-field` (evidence), `pii-form-input` (evidence), `stopline-field` (evidence)
 - **Q11:** `code-history-local` (evidence), `builder-dependency` (evidence), `builder-file` (evidence), `builder-readme` (evidence), `container-config` (evidence)

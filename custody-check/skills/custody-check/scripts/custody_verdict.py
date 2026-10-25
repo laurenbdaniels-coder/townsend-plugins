@@ -31,18 +31,46 @@ import os
 import re
 import subprocess
 import sys
+import types
 
-__version__ = "0.6.0"
+__version__ = "0.6.1"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCANNER = os.path.join(HERE, "custody_scan.py")
 QUESTIONS_MD = os.path.join(os.path.dirname(HERE), "references", "questions.md")
+SHARED_EXPORTS = ("STOPLINE_FIELDS", "stopline_terms")
+
+
+def load_shared():
+    """Load shared_rules.py (the stop-line list and matcher both free plugins use) from next to this file by path:
+    python3 -I keeps this folder off sys.path. Returns (module, None) or (None, error code); no .pyc is written."""
+    path = os.path.join(HERE, "shared_rules.py")
+    try:
+        with open(path, "rb") as fh:
+            data = fh.read().replace(b"\r\n", b"\n")
+    except FileNotFoundError:
+        return None, "internal:shared-missing"
+    except OSError:
+        return None, "internal:shared-broken"
+    module = types.ModuleType("shared_rules")
+    module.__file__ = path
+    try:
+        exec(compile(data, path, "exec"), module.__dict__)
+    except Exception:
+        return None, "internal:shared-broken"
+    if not all(hasattr(module, name) for name in SHARED_EXPORTS):
+        return None, "internal:shared-broken"
+    return module, None
+
+
+shared, SHARED_ERROR = load_shared()
 
 QS = ["q%d" % i for i in range(1, 12)]
 ANSWERS = ("yes", "no", "dont-know", "nothing-found")
 FOUNDER_VALUES = ("yes", "no", "dont-know")
 ANSWER_KEYS = tuple(QS) + ("q5_code", "q5_data", "stop_line")
-EXPECT_KEYS = tuple("q5_code" if q == "q5" else q for q in QS) + ("partial", "q10_fields", "git_unread")
+EXPECT_ANSWER_KEYS = tuple("q5_code" if q == "q5" else q for q in QS)
+EXPECT_KEYS = EXPECT_ANSWER_KEYS + ("partial", "q10_fields", "git_unread", "stopline_capped")
 FIELDS_RE = re.compile(r"^(-|[a-z0-9_-]{1,80}(,[a-z0-9_-]{1,80}){0,63})$")
 # 0.3.5 stop-line split: card numbers in the app and money moved between people replace "payments". The old word is
 # still accepted and still ticks (an old answers block the founder did not clarify stays on the stop-line).
@@ -53,9 +81,8 @@ STOP_LINE_VALUES = ("none", "card-numbers", "moves-money", "health", "sensitive"
 READ_VALUES = {"q1": ("no", "dont-know"), "q2": ("yes", "no", "dont-know"), "q3": ("no", "dont-know"),
                "q4": ("yes", "no", "dont-know")}
 READ_STOP_LINE_VALUES = ("card-numbers", "moves-money", "health", "sensitive")
-# Same list as the scanner's STOPLINE_FIELDS and SKILL.md rule 6 (custody_verdict_test checks both).
-STOPLINE_FIELDS = ("ssn", "social_security", "dob", "date_of_birth", "birthdate", "medical", "diagnosis",
-                   "credit_card", "card_number", "cc_number", "iban", "passport")
+# The stop-line field list and matcher live in shared_rules.py (custody_verdict_test checks SKILL.md rule 6 against it).
+MAX_WHERE = 2
 SCAN_KEYS = {"ok", "partial", "version", "files_scanned", "stats", "warnings", "git", "questions"}
 WARNINGS = {"repo-is-cwd", "repo-contains-cwd"}
 SCANNER_BACKED = ("q1", "q3", "q6")  # plus Q5's code half: "Don't know (scanner unavailable)" on the degraded path
@@ -126,6 +153,8 @@ def parse_expect(text):
             ok_val = val in ("yes", "no")
         elif key == "q10_fields":
             ok_val = bool(FIELDS_RE.match(val))
+        elif key == "stopline_capped":
+            ok_val = val in ("0", "1")
         else:
             ok_val = val in ANSWERS
         if not sep or key not in EXPECT_KEYS or not ok_val or key in out:
@@ -138,15 +167,21 @@ def parse_expect(text):
 
 def expect_tokens(scan):
     """The --expect string for a scan (what the skill writes from the first scan's JSON): every answer, partial, the
-    Q10 snippets lowercased (any other character run becomes `_`), deduplicated and sorted (`-` when there are none), and whether Q1 has a git-index-unread
-    row. These are everything the door reads from the scan, so an equal rescan gives the first scan's door."""
+    Q10 snippets lowercased (any other character run becomes `_`), deduplicated and sorted (`-` when there are none), whether Q1 has a git-index-unread
+    row, and whether the scanner dropped stop-line rows to fit (stats.stopline_rows_capped above 0). These are everything
+    the door reads from the scan, so an equal rescan gives the first scan's door."""
     q = scan["questions"]
-    parts = ["%s=%s" % (k, q["q5"]["code"]["answer"] if k == "q5_code" else q[k]["answer"]) for k in EXPECT_KEYS[:-3]]
+    parts = ["%s=%s" % (k, q["q5"]["code"]["answer"] if k == "q5_code" else q[k]["answer"]) for k in EXPECT_ANSWER_KEYS]
     fields = sorted({re.sub(r"[^a-z0-9_-]+", "_", e.get("snippet", "").lower())[:80] or "_" for e in q["q10"]["evidence"]})
     git_unread = any(e.get("check") == "git-index-unread" for e in q["q1"]["evidence"])
     return " ".join(parts + ["partial=%s" % ("yes" if scan["partial"] else "no"),
                              "q10_fields=%s" % (",".join(fields) or "-"),
-                             "git_unread=%s" % ("yes" if git_unread else "no")])
+                             "git_unread=%s" % ("yes" if git_unread else "no"),
+                             "stopline_capped=%d" % (1 if _rows_capped(scan) else 0)])
+
+
+def _rows_capped(scan):
+    return scan["stats"].get("stopline_rows_capped", 0) > 0
 
 
 def known_checks():
@@ -214,26 +249,32 @@ def accept_scan(text):
                     return None, "unknown check"
     if not isinstance(scan["stats"], dict):
         return None, "bad stats"
+    capped = scan["stats"].get("stopline_rows_capped", 0)  # 0.6.1; an older scan has none and reads as 0
+    if not isinstance(capped, int) or isinstance(capped, bool) or capped < 0:
+        return None, "bad stats"
     return scan, None
 
 
-def _norm(s):
-    s = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", s)
-    s = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", s)
-    return re.sub(r"[^a-z0-9]+", "_", s.lower())
-
-
-def stopline_terms(snippet):
-    """The stop-line list terms a Q10 snippet names (SKILL.md: "fields such as"): a whole-word match on the snake
-    form (dateOfBirth -> date_of_birth, user_ssn_last4 -> ssn), plus a run-together match for terms of six or more
-    letters (creditcard, birthdate). Returns list terms only, never the app's own text."""
-    n = _norm(snippet)
-    flat = n.replace("_", "")
-    hits = set()
-    for t in STOPLINE_FIELDS:
-        if re.search(r"(?:^|_)%s(?:_|$)" % t, n) or (len(t.replace("_", "")) >= 6 and t.replace("_", "") in flat):
-            hits.add(t)
-    return hits
+def stop_line_where(rows, capped):
+    """At most two `path:line` places for the extra-risk block, never app text. Rows whose snippet names a stop-line
+    term come first: the frozen scanner's before the overlay's (`stopline-field`), and a row that adds a term before
+    one that repeats a term. Other Q10 rows fill the rest, except when the scanner capped stop-line rows (then the
+    report shows only rows that tick). No ticking row: no places (the founder's answers or the cap alone ticked it)."""
+    ticking = [(e, shared.stopline_terms(e.get("snippet", ""))) for e in rows]
+    ticking = sorted([x for x in ticking if x[1]], key=lambda x: x[0].get("check") == "stopline-field")
+    if not ticking:
+        return []
+    seen, first, again = set(), [], []
+    for e, terms in ticking:
+        (first if set(terms) - seen else again).append(e)
+        seen.update(terms)
+    others = [] if capped else [e for e in rows if not shared.stopline_terms(e.get("snippet", ""))]
+    where = []
+    for e in first + again + others:
+        place = "%s:%s" % (e.get("path", ""), e.get("line", 0))
+        if place not in where:
+            where.append(place)
+    return where[:MAX_WHERE]
 
 
 def _confidence(founder):
@@ -305,9 +346,10 @@ def decide(scan, answers, read=None):
     fields = set()
     if scan:
         for e in qs["q10"]["evidence"]:
-            fields |= stopline_terms(e.get("snippet", ""))
+            fields.update(shared.stopline_terms(e.get("snippet", "")))
+    capped = bool(scan) and _rows_capped(scan)
     read_sl = list(read.get("stop_line", [])) if read else []
-    ticked = any(v != "none" for v in founder_sl) or bool(fields) or bool(read_sl)
+    ticked = any(v != "none" for v in founder_sl) or bool(fields) or bool(read_sl) or capped
 
     patch = [q for q in ("q1", "q2", "q3") if rows[q]["answer"] == "no"]
     patch += [q for q in ("q4", "q5", "q6", "q9") if rows[q]["answer"] == "no" or unknown(rows[q]["answer"])]
@@ -335,7 +377,8 @@ def decide(scan, answers, read=None):
     else:
         footer = "default"
 
-    stop_line = {"ticked": ticked, "founder": founder_sl, "fields": sorted(fields)}
+    stop_line = {"ticked": ticked, "founder": founder_sl, "fields": sorted(fields),
+                 "where": stop_line_where(qs["q10"]["evidence"], capped) if scan else [], "capped": capped}
     if read is not None:
         stop_line["read"] = read_sl
     return {
@@ -375,6 +418,10 @@ HINTS = {
     "scan-changed": "the second scan differed from the first; use the written door rule on the first scan",
     "scan-rejected": "the scanner JSON was not accepted; use the written door rule",
     "internal": "the verdict script hit a bug; use the written door rule",
+    "internal:shared-missing": "shared_rules.py is missing next to the verdict script: reinstall the plugin, or re-run "
+                               "the cp -R command in README step 1; for now use the written door rule",
+    "internal:shared-broken": "shared_rules.py next to the verdict script is damaged: reinstall the plugin, or re-run "
+                              "the cp -R command in README step 1; for now use the written door rule",
 }
 
 
@@ -395,6 +442,8 @@ def fail(code):
 
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
+    if SHARED_ERROR is not None:
+        return fail(SHARED_ERROR)
     try:
         p = _Parser(prog="custody_verdict.py", add_help=False)
         mode = p.add_mutually_exclusive_group(required=True)
