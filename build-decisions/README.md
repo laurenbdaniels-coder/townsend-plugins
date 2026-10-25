@@ -145,7 +145,7 @@ Build Decisions shows where your app decides who sees what and what things cost,
 
 ## Evals
 
-Before each release, `claude plugin eval` runs every case under `evals/` (25 in 0.6.2) and the one in `evals-no-search/`, on synthetic apps under `evals/fixtures/`; `evals/run-evals.sh` runs them one at a time:
+Before each release, `claude plugin eval` runs every case under `evals/` (26 in 0.6.3) and the one in `evals-no-search/`, on synthetic apps under `evals/fixtures/`; `evals/run-evals.sh` runs them one at a time:
 - a seeded app with one planted two-place decision per type, all of which must be reported, in a short report
 - a crowded app with many look-alike places, where the planted pairs must still be found
 - an app where two places read one shared list (one source, so no card) beside a real duplicated price (a card)
