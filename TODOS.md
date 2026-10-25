@@ -15,6 +15,12 @@
 - **Env aliases and SvelteKit `$env`.** `const env = import.meta.env; env.VITE_X` and `$env/static/public` imports are not matched (recall gap). Effort: S / S. Priority: P3.
 - **Fold the overlay into a 0.4 scanner.** More Q1 logic in the overlay makes the eventual fold bigger. Effort: L / M. Priority: P3.
 - **G1 docs caveat before the talk** (if Lauren declines it at the gate): a README line saying Q1 cannot yet see a browser-prefixed secret name without `.env`. Effort: S / S. Priority: P1 if kept.
+- **Sample-gate misses (2026-10-25, `plugins-internal/custody-check/s064-sample-2026-10-25/`).** The name rule missed 3 of 13 labelled leak apps:
+  - dynamic `import.meta.env[name]`;
+  - `VITE_Open_AI_Key`: the provider is spelled `Open_AI`;
+  - `VITE_GENAI_KEY`: `GENAI` is not a provider token.
+  Provider spellings could be widened only with a new precision sample. Effort: S / S. Priority: P3.
+- **A name read in screen code nothing imports still counts** (2 "unclear" sample apps, including a dev-only read). Knowing would need an import graph or the built bundle. Written in the 0.6.2 CHANGELOG as a known limit. Effort: L / M. Priority: P3.
 - Gap 3 (keys in `.sh`, `.md`, `.txt`) is the existing entry "Q1 Nothing found after one file, and file kinds Q1 never reads" below; not duplicated.
 
 **Context:** S-064 ships gaps 1 and 2 only (Lauren, 2026-10-24). These were each a weakness main shares, an unmeasured new rule, or an optional surface.
@@ -122,6 +128,8 @@
 **What:** Today a file under a neutral segment (`lib`, `utils`, `services`, ...) is client code only when it imports a UI framework or carries a `use client` directive. In a Vite or plain SPA build, everything under `src/` is bundled for the browser.
 
 **Why:** A hardcoded service key in `src/lib/supabase.ts` is evidence rather than a decisive Q1 `no`. That is deliberate (the same rule stops Next.js server helpers producing false positives), but the tradeoff should be re-decided against real builder exports.
+
+**Update (S-064, custody 0.6.2):** a named live key or service-role token typed into `src/lib` (or any unclear or server file) is now a No (`code-key-live-literal`). This entry now covers only generic secret-named tokens with no named format.
 
 **Context:** Raised by the Codex adversarial pass in the pre-merge review of PR 1 and kept as designed. The M5 precision pass on public builder templates is the right place to settle it: if Vite exports dominate, gate the rule on the presence of `next.config.*` instead.
 
