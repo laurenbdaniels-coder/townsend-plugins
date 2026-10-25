@@ -349,7 +349,12 @@ class SplitTests(unittest.TestCase):
         for d in self.PLUGINS + ("free-plugin-standard",):
             if d != plugin:
                 shutil.copytree(os.path.join(ROOT, d), os.path.join(root, d), ignore=ignore)
-        base = _git("merge-base", "HEAD", "origin/main").stdout.decode().strip()
+        # main's bytes from before the shared copies existed: the parent of the commit that added sync_shared.py.
+        # (merge-base HEAD origin/main was that commit only while S-062 was a branch; once it merged, the
+        # merge-base already holds the copies and the split reverts nothing.)
+        added = _git("log", "--diff-filter=A", "--format=%H", "--", "free-plugin-standard/sync_shared.py").stdout.decode().split()
+        self.assertTrue(added, "sync_shared.py has no adding commit: is the history shallow?")
+        base = added[-1] + "^"
         archive = _git("archive", base, plugin)
         self.assertEqual(archive.returncode, 0, archive.stderr)
         subprocess.run(["tar", "-x", "-C", root], input=archive.stdout, check=True)
