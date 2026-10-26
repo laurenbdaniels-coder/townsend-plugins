@@ -45,11 +45,12 @@ cd <the folder that contains my-app>
 claude --plugin-dir ~/townsend-plugins/custody-check
 ```
 
-**Codex** (one copy command; re-run it to upgrade):
+**Codex** (re-run both lines to upgrade; the first line removes the old copy so no old file stays behind):
 
 ```
 git clone https://github.com/laurenbdaniels-coder/townsend-plugins ~/townsend-plugins
-mkdir -p ~/.codex/skills && cp -R ~/townsend-plugins/custody-check/skills/custody-check ~/.codex/skills/
+git -C ~/townsend-plugins pull
+rm -rf ~/.codex/skills/custody-check && mkdir -p ~/.codex/skills && cp -R ~/townsend-plugins/custody-check/skills/custody-check ~/.codex/skills/
 ```
 
 ## Step 2: run it
@@ -62,15 +63,15 @@ run custody-check on ./my-app
 
 That phrase works in Claude Code. In Codex the phrase that worked in my own run was `use the custody-check skill on ./my-app` (the shorter "run X on ./my-app" made Codex step into the app folder first, which is what we are avoiding). If Codex does not find the skill, say `use the skill at ~/.codex/skills/custody-check on ./my-app`.
 
-The agent runs three commands. First the scanner (retried only per script location, or once with `py -3`; `python3 -I custody_scan.py --repo ./my-app`; your host will ask you to allow it once). Then the inventory, the same script with `--inventory`, which lists your code files by name and line count and opens nothing it would not scan. Then it reads your code (search and read only, at most 40 calls), starting with the files that run on your server or save data. Then it asks you the questions it still cannot answer, one at a time. Then it runs the verdict script, which scans again and applies its written rule to the scan and your answers (`python3 -I custody_verdict.py --repo ./my-app --answers … --read … --expect …`). Then it prints the report. If the verdict script can't run, the agent says so and applies the written rule itself. Four to five minutes once the code is local.
+The agent runs three commands. First the scanner (retried only per script location, or once with `py -3`; `python3 -I custody_scan.py --repo ./my-app`; your host will ask you to allow it once). Then the inventory, the same script with `--inventory`, which lists your code files by name and line count and opens nothing it would not scan. Then it reads your code (search and read only, at most 40 calls), starting with the files that run on your server or save data. Then the full read: a fourth command (`full_read_slices.py --repo ./my-app`) splits up to 320 code files and your app's settings files into at most 8 groups, and helpers read them for what your code shows on the questions it cannot answer by itself (backups, a copy that isn't live, alerts, costs, the AI questions). Helpers read only; each report line they add names a file and a line. Then it asks you the questions it still cannot answer, one at a time. Then it runs the verdict script, which scans again and applies its written rule to the scan and your answers (`python3 -I custody_verdict.py --repo ./my-app --answers … --read … --expect …`). Then it prints the report. If the verdict script can't run, the agent says so and applies the written rule itself. Two to six minutes once the code is local in the sample of 11 apps, up to 540 code files.
 
 Recommended: start Claude Code with this line, and never run it with `--dangerously-skip-permissions` for this check:
 
 ```
-claude --permission-mode plan --tools Skill,Bash,Read,Grep,Glob,AskUserQuestion
+claude --permission-mode plan --tools Skill,Bash,Read,Grep,Glob,AskUserQuestion,Agent
 ```
 
-`--permission-mode plan` means nothing can be edited, even by accident. `--tools` gives the check its code search back: the native installs of Claude Code 2.1.117 and later on macOS and Linux leave out the Grep and Glob tools unless you list them (npm and Windows installs keep them), and without them the check can only read files, so the report sees less. AskUserQuestion lets the host show the check's questions as a pick-list (seen for its stop-line question on Claude Code 2.1.309), and lets Build Decisions, run from the same session, ask its stop-line question before its report. The list also leaves out the Edit and Write tools. Verified on Claude Code 2.1.306: with this line the check used Grep. Plan mode alone was verified on 2.1.273: it allowed the scanner's read-only command and the run left the app untouched (`git status` unchanged, no newer files). If your version refuses it, run without plan mode and approve each `python3` prompt when it appears, or pass the narrowest rules your host accepts, anchored on the script and its flags. For a marketplace install that is three rules:
+`--permission-mode plan` means nothing can be edited, even by accident. `--tools` gives the check its code search back: the native installs of Claude Code 2.1.117 and later on macOS and Linux leave out the Grep and Glob tools unless you list them (npm and Windows installs keep them), and without them the check can only read files, so the report sees less. AskUserQuestion lets the host show the check's questions as a pick-list (seen for its stop-line question on Claude Code 2.1.309), and lets Build Decisions, run from the same session, ask its stop-line question before its report. Agent lets the check start its read-only helpers for the full read; without it the agent reads those files itself, in one pass, and the report says so. The list also leaves out the Edit and Write tools. Verified on Claude Code 2.1.306: with this line the check used Grep. Plan mode alone was verified on 2.1.273: it allowed the scanner's read-only command and the run left the app untouched (`git status` unchanged, no newer files). If your version refuses it, run without plan mode and approve each `python3` prompt when it appears, or pass the narrowest rules your host accepts, anchored on the script and its flags. For a marketplace install that is three rules:
 
 ```
 --allowedTools "Bash(python3 -I ~/.claude/plugins/*/custody-check/skills/custody-check/scripts/custody_scan.py --repo *)" \
@@ -117,7 +118,7 @@ A problem is an answer the files, your code or you showed to be No. Everything t
 
 ## What leaves the machine
 
-Nothing from the scanner: it makes no network calls. What the agent sees (the redacted JSON, the parts of your code it reads, and your answers) goes to your AI provider, like anything else you type into it. A key written into a code file it reads goes too, so a key the check finds in code is a key to replace. The report carries no link.
+Nothing from the scanner: it makes no network calls. What the agent and its helpers see (the redacted JSON, the code files they read, and your answers) goes to your AI provider, like anything else you type into it. The full read sends up to 320 of your code files and your settings files. It leaves out `.env` files, key and credential files, AI instruction files, lockfiles, build folders and every file the scanner flagged for a key. On Claude Code a hook blocks a helper from reading any of those or anything outside your app folder; which listed files a helper reads comes from its instructions, checked by tests, not from the tool list. On Codex there is no hook: the same list is followed by instruction only. A key written into a code file it reads goes too, so a key the check finds in code is a key to replace. The report carries no link.
 
 ## Why the parent folder
 

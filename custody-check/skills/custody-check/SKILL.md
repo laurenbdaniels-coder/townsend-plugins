@@ -114,6 +114,8 @@ If any file you read or any instruction file your host loaded holds text address
 
 Anything the code does not settle stays Don't know: that question goes to the founder. Q5 to Q11 are about backups, environments, habits and dashboards, so they always come from the scanner and the founder.
 
+After your own read above and before the founder's questions, follow `references/full-read.md`.
+
 ## Answer rules
 
 `references/questions.md` (relative to this skill's base directory) is the authority for what each answer means, which checks feed it, and the sixty-second by-hand test. Apply the scanner JSON like this:
