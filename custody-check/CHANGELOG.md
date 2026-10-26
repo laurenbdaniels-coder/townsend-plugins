@@ -2,6 +2,13 @@
 
 The footer of every verdict names the version that produced it. Later entries carry a "What changed since the workshop" line so an attendee can tell whether an answer would come out differently today.
 
+## 0.7.1 (2026-10-26)
+
+What changed since the workshop build: the full read from 0.7.0 now always runs. Problems, the questions it asks you and the rule that decides are the same as 0.6.2 and 0.7.0.
+
+- **The full read could be skipped.** In a real run of 0.7.0 the agent read its instructions for the full read, then went straight to its final step, so the report had no "What we saw:" lines. The final step now refuses to run until the full read's first step has run on the same app with the same settings. When that happens it says so, and the agent does the full read, then finishes.
+- **Nothing else moves.** The final step checks that the full read ran and ignores it otherwise, so answers, problems and the door are exactly what 0.7.0 gives.
+
 ## 0.7.0 (2026-10-26)
 
 What changed since the workshop build: the check now reads the rest of your code too, and each open question that your code has something to say about shows what it saw, with a file and a line. Problems, the questions it asks you and the rule that decides are the same as 0.6.2.

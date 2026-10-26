@@ -55,7 +55,7 @@ class SliceTests(unittest.TestCase):
 
     def test_shape(self):
         out = plan(self.parent, "app")
-        self.assertEqual(set(out), {"ok", "slices", "excluded", "stopped_at_cap", "eligible"})
+        self.assertEqual(set(out), {"ok", "slices", "excluded", "stopped_at_cap", "eligible", "plan_id"})
         self.assertTrue(out["ok"])
 
     def test_includes_code_and_settings_files(self):
@@ -161,6 +161,23 @@ class SliceTests(unittest.TestCase):
                                    capture_output=True, text=True, timeout=120)
                 j = json.loads(next(l for l in p.stdout.splitlines() if l.startswith("{")))
                 self.assertIn(rel, {e.get("path") for e in j["questions"]["q1"]["evidence"]}, rel)
+
+    # --- 0.7.1: the verdict checks that the plan ran, by its id
+    def test_plan_id_on_every_outcome(self):
+        import re as _re
+        ok = plan(self.parent, "app")
+        self.assertRegex(ok["plan_id"], r"^[0-9a-f]{12}$")
+        self.assertEqual(ok["plan_id"], plan(self.parent, "app")["plan_id"])
+        refused = plan(self.parent, "nope")
+        self.assertFalse(refused["ok"])
+        self.assertRegex(refused["plan_id"], r"^[0-9a-f]{12}$")
+        self.assertNotEqual(refused["plan_id"], ok["plan_id"])
+
+    def test_plan_id_changes_with_the_plan(self):
+        before = plan(self.parent, "app")["plan_id"]
+        write(self.app, "src/lib/extra.ts")
+        self.assertNotEqual(before, plan(self.parent, "app")["plan_id"])
+        self.assertNotEqual(before, plan(self.parent, "app", "--exclude-dir", "src")["plan_id"])
 
     def test_missing_repo(self):
         out = plan(self.parent, "nope")

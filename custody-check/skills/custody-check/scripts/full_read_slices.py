@@ -3,8 +3,8 @@
 
 Run from the folder that contains the app, with the same extra flags the scanner got:
   full_read_slices.py --repo <app> [--exclude-dir D ...] [--browser-prefix P ...] [--max-files N] [--max-file-bytes N]
-Prints one JSON line: {"ok", "slices": [{"n", "paths"}], "excluded", "stopped_at_cap", "eligible"}, or
-{"ok": false, "error": <code>}. No file is ever listed that:
+Prints one JSON line: {"ok", "slices": [{"n", "paths"}], "excluded", "stopped_at_cap", "eligible", "plan_id"}, or
+{"ok": false, "error": <code>, "plan_id"}. The verdict script needs plan_id (--full-read) and recomputes it. No file is ever listed that:
   - helper_read_guard.never_open refuses (env, key, credential, instruction, lock and build files),
   - the scanner flagged for a key (compared by the scanner's own masked path, so long names still match),
   - the scanner did not check for keys (settings files) and that holds a key shape by the scanner's patterns,
@@ -12,7 +12,7 @@ Prints one JSON line: {"ok", "slices": [{"n", "paths"}], "excluded", "stopped_at
 It refuses (no helpers) when the scan is partial, the key check did not finish, or the key list is full.
 Slices: by folder, <=40 files, <=6,000 lines (unknown = 6,000), at most 8; server/handler/settings files first.
 """
-import argparse, json, os, re, subprocess, sys
+import argparse, hashlib, json, os, re, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCAN = os.path.join(HERE, "custody_scan.py")
@@ -157,22 +157,40 @@ def plan(a):
             "excluded": excluded, "stopped_at_cap": len(left) + unlisted, "eligible": len(elig)}
 
 
-def main():
+def parser():
     ap = argparse.ArgumentParser()
     ap.add_argument("--repo", required=True)
     ap.add_argument("--exclude-dir", action="append", default=[])
     ap.add_argument("--browser-prefix", action="append", default=[])
     ap.add_argument("--max-files", type=int)
     ap.add_argument("--max-file-bytes", type=int)
+    return ap
+
+
+def with_plan_id(a, result):
+    """Stamp the plan with a short id of what it was made from and what it says. The verdict script recomputes
+    it (0.7.1), so a verdict call only goes through after this plan really ran with the same app and flags."""
+    basis = {"repo": a.repo, "exclude_dir": a.exclude_dir, "browser_prefix": a.browser_prefix,
+             "max_files": a.max_files, "max_file_bytes": a.max_file_bytes, "result": result}
+    result = dict(result)
+    result["plan_id"] = hashlib.sha256(json.dumps(basis, sort_keys=True).encode("utf-8")).hexdigest()[:12]
+    return result
+
+
+def run(a):
     try:
-        a = ap.parse_args()
+        return with_plan_id(a, plan(a))
+    except Exception:  # any failure means no helpers, and the agent still gets its one line
+        return with_plan_id(a, {"ok": False, "error": "plan-failed"})
+
+
+def main():
+    try:
+        a = parser().parse_args()
     except SystemExit:
         out({"ok": False, "error": "usage"})
         return
-    try:
-        out(plan(a))
-    except Exception:  # any failure means no helpers, and the agent still gets its one line
-        out({"ok": False, "error": "plan-failed"})
+    out(run(a))
 
 
 if __name__ == "__main__":

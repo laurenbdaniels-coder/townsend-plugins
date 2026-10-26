@@ -148,9 +148,10 @@ Offer the by-hand test from `references/questions.md` with each question, in the
 When the answers are in (from the block or the interview), run the verdict script once. It sits beside the scanner: take the location where you found `custody_scan.py` and use `custody_verdict.py` in the same folder (never one under `<app>`). Run it from the same directory, with the same `<app>` and the same extra flags you gave the scanner:
 
 ```
-python3 -I '/absolute/path/to/custody_verdict.py' --repo '<app>' --answers '<answers>' --read '<read>' --expect '<expect>' 2>/dev/null
+python3 -I '/absolute/path/to/custody_verdict.py' --repo '<app>' --answers '<answers>' --read '<read>' --expect '<expect>' --full-read '<plan_id>' 2>/dev/null
 ```
 
+- `<plan_id>`: the `plan_id` the full read's step 1 printed (`references/full-read.md`). The full read comes before the founder's questions and before this script; the script checks the id and refuses without it.
 - `<read>`: what the code showed you in "Read the code", one `key=value` per answer you have a `path:line` for, from this vocabulary only: `q1=no`, `q1=dont-know`, `q2=yes`, `q2=no`, `q2=dont-know`, `q3=no`, `q3=dont-know`, `q4=yes`, `q4=no`, `q4=dont-know`, and `stop_line` with a comma-separated list from `card-numbers`, `moves-money`, `health`, `sensitive`. Leave out what you did not read. Pass `--read ''` when you read nothing. A read answer never goes in `<answers>`, and a founder answer never goes in `<read>`.
 - `<answers>`: one `key=value` per founder answer, separated by spaces, from this vocabulary only: `q1` to `q11`, `q5_code` and `q5_data` with `yes`, `no` or `dont-know`; `stop_line` with a comma-separated list from `none`, `card-numbers`, `moves-money`, `health`, `sensitive`, `scale`, and the old word `payments`. Leave out what the founder did not answer. Their text never goes in, but read it: if the founder names a stop-line item anywhere (the `stop_line` line, `stores`, `users`, `next_change`, notes, or the interview), add its word to `stop_line` even when their `stop_line` line says `none`. Map what the founder says like this:
   - The app stores or handles card numbers or other card details itself, even the brand and last four digits: `card-numbers`.
@@ -173,6 +174,8 @@ The script scans again with the same scanner and flags, checks that scan against
 `verdict.door`, `door_step`, `offer_shelve` and `footer_next_step` are not printed in the report.
 
 On the degraded path, run it with `--no-scan` in place of `--repo '<app>'` and `--expect '<expect>'`, keeping `--answers` and `--read`.
+
+**If it says `full-read-missing`**, the full read did not run: do `references/full-read.md` now, then run the verdict again with its `plan_id`. That is not a failure.
 
 **If it fails** (python missing, the script not found, `ok` is `false`, or the output is not accepted), say so in one sentence: "the verdict script could not run, so I applied its written rule myself". Then apply the Door rule section below yourself to the first scan and the answers, as before. An `ok: false` with `scan-changed` means the second scan differed from the first: same sentence, and the written rule on the first scan.
 

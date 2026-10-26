@@ -33,7 +33,7 @@ import subprocess
 import sys
 import types
 
-__version__ = "0.7.0"
+__version__ = "0.7.1"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCANNER = os.path.join(HERE, "custody_scan.py")
@@ -412,7 +412,29 @@ def run_scanner(args):
     return out.stdout.decode("utf-8", "replace")
 
 
+def full_read_plan_id(args):
+    """The plan_id full_read_slices.py gives for this app and these flags (0.7.1). The verdict only runs when the
+    agent passes the same id, which it can only get by running the full read's step 1; the id changes nothing else."""
+    cmd = [sys.executable, "-I", os.path.join(os.path.dirname(os.path.abspath(__file__)), "full_read_slices.py"),
+           "--repo", args.repo]
+    for flag, val in (("--max-files", args.max_files), ("--max-file-bytes", args.max_file_bytes)):
+        if val is not None:
+            cmd += [flag, str(val)]
+    for d in args.exclude_dir:
+        cmd += ["--exclude-dir", d]
+    for p in args.browser_prefix:
+        cmd += ["--browser-prefix", p]
+    out = subprocess.run(cmd, cwd=os.getcwd(), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                         stderr=subprocess.DEVNULL, timeout=(args.deadline_s or 120.0) * 2 + 120.0)
+    line = next((l for l in out.stdout.decode("utf-8", "replace").splitlines() if l.startswith("{")), "{}")
+    value = json.loads(line).get("plan_id")
+    return value if isinstance(value, str) else None
+
+
 HINTS = {
+    "full-read-missing": "the full read has not run for this app: do references/full-read.md now (its step 1 prints "
+                         "plan_id), then run the verdict again with --full-read <plan_id>. This is not a failure: "
+                         "do not use the written door rule",
     "usage": "the verdict command was not well formed; use the written door rule",
     "scan-failed": "the second scan did not run or was not accepted; use the written door rule on the first scan",
     "scan-changed": "the second scan differed from the first; use the written door rule on the first scan",
@@ -459,6 +481,7 @@ def main(argv=None):
         p.add_argument("--deadline-s", type=float)
         p.add_argument("--exclude-dir", action="append", default=[])
         p.add_argument("--browser-prefix", action="append", default=[])
+        p.add_argument("--full-read")
         args = p.parse_args(argv)
         answers = parse_answers(args.answers)
         read = parse_read(args.read) if args.read is not None else None
@@ -484,6 +507,12 @@ def main(argv=None):
             got = parse_expect(expect_tokens(scan))
             if got != expect:
                 return fail("scan-changed")
+            try:
+                expected_plan = full_read_plan_id(args)
+            except (OSError, subprocess.SubprocessError, ValueError):
+                expected_plan = None
+            if not args.full_read or expected_plan is None or args.full_read != expected_plan:
+                return fail("full-read-missing")
         elif args.scan_json:
             scan, _reason = accept_scan(sys.stdin.read())
             if scan is None:
