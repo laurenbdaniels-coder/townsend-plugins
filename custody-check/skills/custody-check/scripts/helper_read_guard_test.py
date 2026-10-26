@@ -109,7 +109,7 @@ class GuardTests(unittest.TestCase):
         finally:
             os.rmdir(target)
 
-    # --- /review round 1 (S-068)
+    # --- review round 1 (S-068)
     def test_whole_path_checked_including_first_folder(self):
         for rel in (".claude/settings.json", "node_modules/x/index.js", ".aws/credentials", ".config/gh/hosts.yml",
                     ".ssh/config", "app/.docker/config.json", "app/.kube/config"):

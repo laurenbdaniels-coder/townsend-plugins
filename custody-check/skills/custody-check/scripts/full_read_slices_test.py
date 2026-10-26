@@ -98,7 +98,7 @@ class SliceTests(unittest.TestCase):
 
     def test_full_key_list_means_no_helpers(self):
         # 0.3.2 keeps at most 12 evidence rows per question; at 12 the key list may be cut short, so a file
-        # with an unlisted key could reach a helper. The plan refuses instead (S-068 ponytail/review finding).
+        # with an unlisted key could reach a helper. The plan refuses instead (S-068 ponytail and review finding).
         for i in range(14):
             write(self.app, "src/components/K%02d.tsx" % i,
                   '"use client"\nexport const k = process.env.NEXT_PUBLIC_SVC%02d_SECRET_KEY\n' % i)
@@ -106,7 +106,7 @@ class SliceTests(unittest.TestCase):
         self.assertFalse(out["ok"])
         self.assertEqual(out.get("error"), "key-list-full")
 
-    # --- /review round 1 (S-068): each case below reached a helper slice before the fix.
+    # --- review round 1 (S-068): each case below reached a helper slice before the fix.
     def test_unchecked_settings_file_with_a_key_left_out(self):
         key = "sk_live_" + "Ab3dE5gH7jK9mN1pQ3sT5vW7yZ9bD1fH"
         for rel in ("Dockerfile", "Procfile", "scripts/seed.sh", "supabase/migrations/002_keys.sql",
