@@ -4,7 +4,11 @@
     "custody-check/skills/custody-check/scripts/*.py": [
       "custody-check/skills/custody-check/scripts/custody_scan_test.py",
       "custody-check/skills/custody-check/scripts/custody_verdict_test.py",
-      "custody-check/skills/custody-check/scripts/plain_english_test.py"
+      "custody-check/skills/custody-check/scripts/plain_english_test.py",
+      "custody-check/skills/custody-check/scripts/full_read_slices_test.py",
+      "custody-check/skills/custody-check/scripts/helper_read_guard_test.py",
+      "custody-check/skills/custody-check/scripts/full_read_files_test.py",
+      "custody-check/skills/custody-check/scripts/report_graders_test.py"
     ],
     "custody-check/skills/custody-check/scripts/fixtures/**": [
       "custody-check/skills/custody-check/scripts/custody_scan_test.py",
@@ -70,6 +74,12 @@
       "free-plugin-standard/sync_graders_test.py"
     ],
     ".github/workflows/ci.yml": [],
-    "decision-census/**": []
+    "decision-census/**": [],
+    "custody-check/agents/**": [
+      "custody-check/skills/custody-check/scripts/full_read_files_test.py"
+    ],
+    "custody-check/hooks/hooks.json": [
+      "custody-check/skills/custody-check/scripts/helper_read_guard_test.py"
+    ]
   }
 }
