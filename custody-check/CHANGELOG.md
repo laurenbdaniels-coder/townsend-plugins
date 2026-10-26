@@ -11,7 +11,7 @@ What changed since the workshop build: the check now reads the rest of your code
 - **When the agent asks you one of these questions,** it says what it saw first, then asks the same question as 0.6.2, in the same words.
 - **Start Claude Code with `Agent` added** to the launch line in the README. Without it, or in Codex, the agent reads those files itself in one pass (at most 120 reads), and the report says which way it read.
 - **What it never reads:** `.env` files, key and credential files, AI instruction files, lockfiles, build folders, folders you excluded, every file the scanner flagged for a key, and any settings file the scanner does not check for keys that holds something key-shaped. The list of files each helper gets leaves all of these out. On Claude Code a hook also blocks a helper from opening `.env`, key, credential and instruction files, hidden folders, and anything outside the folder you started in. The hook acts only on the helpers' reads, never on yours.
-- **Measured before it shipped,** on 11 apps with every question hand-labelled from their code:
+- **Measured on a test build of this release,** on 11 apps with every question hand-labelled from their code:
   - the report showed true evidence for 70% or more of the labelled questions on 9 of 11 apps in a first sample, and on all 4 of the apps that went worst there after the final fixes;
   - after those fixes, 0 of 37 places that matched no label were wrong;
   - about 1 to 4 times the tokens of 0.6.2, 2 to 6 minutes;
