@@ -14,6 +14,15 @@
 - **Holdouts and repeat runs** (waived at Step 0 by Lauren): run the 3 holdout apps and a second run per app with `PTAGS="f1 f2" pilot/run-all.sh` if a later release changes the read. Effort: S (cost ~$200). Priority: P3.
 - **The stricter FIN-style catch.** Release A's prototype found a true open-access problem 0.6.2 misses (anonymous role with full access in a migration) but only through its changed pre-read text; with the freeze it is gone. Revisit as a listed never-worse exception in a Q3 release. Effort: M. Priority: P2.
 
+### From the S-068 /review round 1 (custody-check 0.7.0, 2026-10-26)
+
+**What:** review findings that miss the ship bar (main has the same gap, or the input is contrived), kept out of the PR.
+- **Hook cost on every Read.** The guard starts Python for every Read in any session with the plugin (~0.1 s, measured). A shell pre-filter on `full-read-helper` would skip it for other callers. Effort: S. Priority: P3.
+- **Slice plan re-runs the scanner** (scan + inventory, 1-3 s on real apps). Pass the skill's own scan output in, or run both at once. Effort: S. Priority: P3.
+- **Sandboxed hosts read nothing more.** Where the host blocks `.env` reads, the scan counts read errors and is partial, so the full read never starts (reported, not silent). Decide whether a partial scan whose only gaps are never-open files may still plan slices. Effort: M. Priority: P2.
+- **Scanner gaps the full read now reaches:** a value over 8,192 characters under a key name (counted as a gap, not partial), and a live key in a `.sql` file (not flagged; main has the same gap). The slice plan's key-shape check now covers `.sql`; the long-value gap remains. Effort: S. Priority: P2.
+- **The guard does not know the app folder.** It blocks hidden and credential folders and anything outside the folder Claude Code started in, but not a sibling app beside it. Pass the app folder to the guard (run-scoped) to close it. Effort: M. Priority: P3.
+
 ### Deferred by the S-068 /autoplan (custody-check code-first full read, 2026-10-25)
 
 **What:** items the S-068 plan review deferred. Plan: `~/.claude/plans/idempotent-tinkering-iverson.md`.

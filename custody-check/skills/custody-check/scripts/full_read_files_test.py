@@ -71,6 +71,19 @@ class HelperAgentTests(unittest.TestCase):
         self.assertNotIn('"what"', self.text)
         self.assertIn("You write no sentences", self.text)
 
+    def test_type_descriptions_match_phrase_list(self):
+        phr = read(SKILL_DIR, "references", "evidence-phrases.md")
+        want = {(q, t): d.strip() for q, t, d in re.findall(r"^\| (q\d+|a\d) \| ([a-z-]+) \| [^|]+ \| ([^|]+) \|", phr, re.M)}
+        got = {(q, t): d.strip() for q, t, d in re.findall(r"^- `(q\d+|a\d)` `([a-z-]+)`: (.+)$", self.text, re.M)}
+        self.assertGreater(len(want), 30)
+        self.assertEqual(got, want)
+
+    def test_file_cap_in_report_text_matches_the_plan(self):
+        g = {"__name__": "x", "__file__": os.path.join(HERE, "full_read_slices.py")}
+        with open(g["__file__"], encoding="utf-8") as fh:
+            exec(compile(fh.read(), g["__file__"], "exec"), g)
+        self.assertIn("up to %d code files" % (g["MAX_FILES"] * g["MAX_SLICES"]), read(SKILL_DIR, "references", "full-read.md"))
+
 
 class PhraseTests(unittest.TestCase):
     def test_every_question_has_an_ending(self):

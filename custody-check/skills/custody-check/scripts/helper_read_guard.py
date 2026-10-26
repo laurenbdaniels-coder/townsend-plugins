@@ -4,11 +4,12 @@
 Claude Code runs this for every Read while the plugin is installed. It judges only Reads whose caller is the
 plugin agent custody-check:full-read-helper; every other call gets no output and exit 0, so the founder's own
 session and other agents are untouched. For a helper it denies a Read that:
-  - is outside the working folder, or is not inside a folder under it (the app is <cwd>/<app>/...),
+  - is outside the working folder, is not inside a folder under it, or sits under a hidden or credential folder,
   - uses .., or resolves elsewhere through a link,
   - has no limit, or a limit over 400 lines,
   - names a file the check never opens (env, key, credential, instruction, lock and build files).
-Input it cannot parse is denied (fail closed): Claude Code always sends JSON, so this never touches a normal call.
+Input it cannot parse is left alone, since the caller cannot be identified (Claude Code always sends JSON). If the
+never-open lists cannot load while a helper is calling, that Read is denied (fail closed for helpers only).
 """
 import json
 import os
@@ -20,7 +21,9 @@ MAX_LINES = 400
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 _EXTRA_DIRS = {".claude", ".codex", ".agents", ".cursor", ".windsurf", ".gemini", "node_modules", "dist", "build",
-               ".next", "out", "vendor", "coverage", ".git", ".vercel", ".turbo"}
+               ".next", "out", "vendor", "coverage", ".git", ".vercel", ".turbo",
+               # credential folders a helper never needs, wherever they sit (the working folder can be a home folder)
+               ".aws", ".ssh", ".config", ".docker", ".kube", ".gnupg", ".azure", ".gcloud", ".npm", ".netrc.d"}
 _EXTRA_PAIRS = {(".cursor", "rules"), (".github", "instructions"), (".github", "prompts"), (".github", "agents")}
 _EXTRA_FILES = {".cursorrules", ".windsurfrules"}
 NEVER_DIRS = NEVER_DIR_PAIRS = NEVER_FILES = NEVER_FILE_RE = None
@@ -37,14 +40,15 @@ def load_shared():
         exec(compile(fh.read(), "shared_rules.py", "exec"), shared)
     NEVER_DIRS = set(shared["NEVER_OPEN_DIRS"]) | _EXTRA_DIRS
     NEVER_DIR_PAIRS = set(shared["NEVER_OPEN_DIR_PAIRS"]) | _EXTRA_PAIRS
-    NEVER_FILES = set(shared["NEVER_OPEN_FILES"]) | _EXTRA_FILES
+    NEVER_FILES = {n.lower() for n in set(shared["NEVER_OPEN_FILES"]) | _EXTRA_FILES}
     NEVER_FILE_RE = shared["NEVER_OPEN_FILE_RE"]
 
 
 SECRET_FILE_RE = re.compile(
-    r"^\.env(\..*)?$|.*\.env$|.*\.(pem|key|p12|pfx|p8|jks|keystore)$"
-    r"|^serviceaccount.*\.json$|.*firebase-adminsdk.*\.json$|^credentials.*\.json$|^client_secret.*\.json$"
-    r"|.*secret.*\.ya?ml$|^\.npmrc$|^\.pypirc$|^\.netrc$|^docker-compose.*\.ya?ml$|^id_(rsa|ed25519|ecdsa|dsa)$", re.I)
+    r"^\.env.*$|.*\.env$|.*\.(pem|key|p12|pfx|p8|jks|keystore|ppk|tfvars)$"
+    r"|.*service[-_]?account.*\.json$|.*firebase-adminsdk.*\.json$|^credentials(\..*)?$|^client_secret.*\.json$"
+    r"|^secrets?(\..*)?$|.*secret.*\.(ya?ml|toml|json)$|^\.dev\.vars$|^\.git-credentials$"
+    r"|^\.npmrc$|^\.pypirc$|^\.netrc$|^docker-compose.*\.ya?ml$|^id_(rsa|ed25519|ecdsa|dsa)$", re.I)
 LOCK_RE = re.compile(r".*-lock\.(json|yaml)$|.*\.lock$|^npm-shrinkwrap\.json$", re.I)
 
 
@@ -56,7 +60,7 @@ def never_open(parts):
     for i, d in enumerate(dirs):
         if d in NEVER_DIRS or (i + 1 < len(dirs) and (d, dirs[i + 1]) in NEVER_DIR_PAIRS):
             return "a folder the check never opens"
-    if name in NEVER_FILES or NEVER_FILE_RE.match(name) or SECRET_FILE_RE.match(name) or LOCK_RE.match(name):
+    if name.lower() in NEVER_FILES or NEVER_FILE_RE.match(name) or SECRET_FILE_RE.match(name) or LOCK_RE.match(name):
         return "a file the check never opens"
     return None
 
@@ -89,7 +93,9 @@ def judge(payload):
     parts = rel.replace("\\", "/").split("/")
     if rel.startswith("..") or os.path.isabs(rel) or len(parts) < 2:
         deny("outside the app folder")
-    why = never_open(parts[1:])
+    if parts[0].startswith("."):
+        deny("a hidden folder the check never opens")
+    why = never_open(parts)
     if why:
         deny(why)
 
@@ -99,7 +105,7 @@ def main():
     try:
         payload = json.loads(data)
     except ValueError:
-        deny("could not read the hook input")
+        sys.exit(0)  # the caller cannot be identified: touch no one's Read (Claude Code always sends JSON)
     if not isinstance(payload, dict):
         sys.exit(0)
     if payload.get("agent_type") != HELPER or payload.get("tool_name") != "Read":

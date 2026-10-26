@@ -109,11 +109,42 @@ class GuardTests(unittest.TestCase):
         finally:
             os.rmdir(target)
 
+    # --- /review round 1 (S-068)
+    def test_whole_path_checked_including_first_folder(self):
+        for rel in (".claude/settings.json", "node_modules/x/index.js", ".aws/credentials", ".config/gh/hosts.yml",
+                    ".ssh/config", "app/.docker/config.json", "app/.kube/config"):
+            self.assertEqual(self.call(self.p(rel))[1], "deny", rel)
+
+    def test_more_secret_names(self):
+        for name in (".envrc", ".env-prod", ".dev.vars", ".git-credentials", "secrets.json", "secret.toml",
+                     "firebase-service-account.json", "service_account.json", "credentials", "terraform.tfvars",
+                     ".streamlit/secrets.toml"):
+            self.assertEqual(self.call(self.p("app/" + name))[1], "deny", name)
+
+    def test_names_match_in_any_case(self):
+        for name in (".ENV", "Claude.md", ".CursorRules", "Package-Lock.json"):
+            self.assertEqual(self.call(self.p("app/" + name))[1], "deny", name)
+
+    def test_bad_limits(self):
+        for limit in (0, -1, True, "10", 1.5):
+            self.assertEqual(self.call(self.p("app/src/a.ts"), limit=limit)[1], "deny", repr(limit))
+
+    def test_file_symlink_out_of_folder(self):
+        target = tempfile.NamedTemporaryFile(delete=False)
+        target.close()
+        try:
+            os.symlink(target.name, os.path.join(self.cwd, "app", "h.ts"))
+            self.assertEqual(self.call(self.p("app/h.ts"))[1], "deny")
+        finally:
+            os.unlink(target.name)
+
+    def test_backslash_dotdot(self):
+        self.assertEqual(self.call(self.cwd + "/app\\..\\..\\x.ts")[1], "deny")
+
     # --- fail closed for the helper
-    def test_bad_json_from_helper_context_denies(self):
-        code, decision = run(None, raw="{not json")
-        self.assertIn(code, (0, 2))
-        self.assertEqual(code == 2 or decision == "deny", True)
+    def test_unreadable_input_steps_aside(self):
+        # The caller cannot be identified, so the guard keeps its promise to touch no one else's Read.
+        self.assertEqual(run(None, raw="{not json"), (0, None))
 
     def test_missing_path_denies(self):
         payload = {"tool_name": "Read", "tool_input": {"limit": 10}, "cwd": self.cwd, "agent_type": HELPER}

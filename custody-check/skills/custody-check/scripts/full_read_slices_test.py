@@ -17,8 +17,8 @@ def write(root, rel, text="export const x = 1\n"):
         fh.write(text)
 
 
-def plan(parent, app):
-    p = subprocess.run([sys.executable, "-I", SLICES, "--repo", app], cwd=parent, capture_output=True, text=True, timeout=300)
+def plan(parent, app, *extra):
+    p = subprocess.run([sys.executable, "-I", SLICES, "--repo", app] + list(extra), cwd=parent, capture_output=True, text=True, timeout=300)
     line = next(l for l in p.stdout.splitlines() if l.startswith("{"))
     return json.loads(line)
 
@@ -105,6 +105,62 @@ class SliceTests(unittest.TestCase):
         out = plan(self.parent, "app")
         self.assertFalse(out["ok"])
         self.assertEqual(out.get("error"), "key-list-full")
+
+    # --- /review round 1 (S-068): each case below reached a helper slice before the fix.
+    def test_unchecked_settings_file_with_a_key_left_out(self):
+        key = "sk_live_" + "Ab3dE5gH7jK9mN1pQ3sT5vW7yZ9bD1fH"
+        for rel in ("Dockerfile", "Procfile", "scripts/seed.sh", "supabase/migrations/002_keys.sql",
+                    "package.json", "requirements.txt", "prisma/schema.prisma"):
+            write(self.app, rel, 'STRIPE = "%s"\n' % key)
+        got = set(self.paths(plan(self.parent, "app")))
+        for rel in ("Dockerfile", "Procfile", "scripts/seed.sh", "supabase/migrations/002_keys.sql",
+                    "package.json", "requirements.txt", "prisma/schema.prisma"):
+            self.assertNotIn(rel, got, rel)
+        self.assertIn("supabase/migrations/001_init.sql", got)
+
+    def test_flagged_file_with_a_masked_long_name_left_out(self):
+        rel = "supabase/functions/x/sendgridEmailTransactionalClientHelperLong.ts"
+        fake = "sk_" + "live_" + "Ab3dE5gH7jK9mN1pQ3sT5vW7yZ9bD1fH"  # built at run time: no whole key in the repo
+        write(self.app, rel, 'export const KEY = "%s"\n' % fake)
+        self.assertNotIn(rel, set(self.paths(plan(self.parent, "app"))))
+
+    def test_founder_flags_reach_the_plan(self):
+        write(self.app, "customer-data/export.ts", "export const rows = 1\n")
+        got = set(self.paths(plan(self.parent, "app", "--exclude-dir", "customer-data")))
+        self.assertNotIn("customer-data/export.ts", got)
+        self.assertIn("src/lib/db.ts", got)
+
+    def test_empty_files_count_as_empty(self):
+        for i in range(10):
+            write(self.app, "pkg%d/__init__.py" % i, "")
+            write(self.app, "pkg%d/main.py" % i, "x = 1\ny = 2\n")
+        out = plan(self.parent, "app")
+        self.assertEqual(out["stopped_at_cap"], 0)
+        self.assertLessEqual(len(out["slices"]), 2)
+
+    def test_always_one_json_line(self):
+        p = subprocess.run([sys.executable, "-I", SLICES, "--repo", "app", "--max-files", "notanumber"], cwd=self.parent,
+                           capture_output=True, text=True, timeout=60)
+        line = next(l for l in p.stdout.splitlines() if l.startswith("{"))
+        self.assertFalse(json.loads(line)["ok"])
+
+    def test_cap_matches_the_scanner(self):
+        g = {"__name__": "x", "__file__": SLICES}
+        with open(SLICES, encoding="utf-8") as fh:
+            exec(compile(fh.read(), SLICES, "exec"), g)
+        with open(os.path.join(HERE, "custody_scan_0_3_2.py"), encoding="utf-8") as fh:
+            self.assertIn("MAX_EVIDENCE = %d\n" % g["MAX_Q1_ROWS"], fh.read())
+
+    def test_types_trusted_as_key_checked_really_are(self):
+        # The plan trusts the scanner's key check for these types; a key in each must be flagged.
+        key = "sk_live_" + "Ab3dE5gH7jK9mN1pQ3sT5vW7yZ9bD1fH"
+        for rel in ("src/k.ts", "src/k.py", "fly.toml", "render.yaml", "app.json"):
+            with tempfile.TemporaryDirectory() as t:
+                write(os.path.join(t, "a"), rel, 'STRIPE = "%s"\n' % key)
+                p = subprocess.run([sys.executable, "-I", os.path.join(HERE, "custody_scan.py"), "--repo", "a"], cwd=t,
+                                   capture_output=True, text=True, timeout=120)
+                j = json.loads(next(l for l in p.stdout.splitlines() if l.startswith("{")))
+                self.assertIn(rel, {e.get("path") for e in j["questions"]["q1"]["evidence"]}, rel)
 
     def test_missing_repo(self):
         out = plan(self.parent, "nope")
