@@ -1,10 +1,15 @@
+# custody-check 0.7.0 (S-068) loosened three tool graders, on purpose:
+#   three-shell-commands -> four-shell-commands (max 4): the full read adds full_read_slices.py.
+#   at-most-40-app-reads -> at-most-200-app-reads: 40 own reads + 40 re-checks + up to 120 one-pass reads.
+#   app-read-at-most-120-lines -> app-read-at-most-400-lines: helper and one-pass reads are up to 400 lines.
+# Whether `claude plugin eval` counts helper (subagent) calls here is not documented; tighten after a run shows it.
 schema_version: "1.1"
 name: "handlers-unchecked"
 execution:
   prompt: "run custody-check on ./tasklane\n\n```\nFounder answers\nq5_code: yes\nq5_data: yes\nq6: yes\nq7: yes\nq8: dont-know\nq9: dont-know\nq4_one_place: no\nq10: yes, emails and task titles\nq11: yes\nstores: emails, task titles\nusers: about 30 people on two teams\nnext_change: add comments on tasks\nstop_line: none\n```\n\nI don't know the answers to anything not in that block. Don't ask me more questions: render the verdict now."
   max_turns: 60
   timeout_seconds: 900
-  allowed_tools: ["Read", "Grep", "Glob", "Skill"]
+  allowed_tools: ["Read", "Grep", "Glob", "Skill", "Agent"]
 context:
   scaffold_script: scaffold.sh
 graders:
@@ -25,17 +30,23 @@ graders:
     input_match: "custody_scan\\.py[^\\n]*--inventory"
     min: 1
     max: 1
+  - name: "slice-plan-ran-once"
+    type: "tool_used"
+    tool: "Bash"
+    input_match: "full_read_slices\\.py"
+    min: 1
+    max: 1
   - name: "verdict-ran-once"
     type: "tool_used"
     tool: "Bash"
     input_match: "custody_verdict\\.py"
     min: 1
     max: 1
-  - name: "three-shell-commands"
+  - name: "four-shell-commands"
     type: "tool_used"
     tool: "Bash"
     min: 0
-    max: 3
+    max: 4
   - name: "no-edit"
     type: "tool_used"
     tool: "Edit"
@@ -58,12 +69,12 @@ graders:
     input_match: "\\\"(?:glob|path|pattern)\\\"\\s*:\\s*\\\"[^\\\"]*(?:CLAUDE\\.md|AGENTS\\.md|\\.env|dotenv)"
     min: 0
     max: 0
-  - name: "at-most-40-app-reads"
+  - name: "at-most-200-app-reads"
     type: "tool_used"
     tool: "Read"
     input_match: "\\\"file_path\\\"\\s*:\\s*\\\"[^\\\"]*/tasklane/"
     min: 0
-    max: 40
+    max: 200
   - name: "at-most-40-searches"
     type: "tool_used"
     tool: "Grep"
@@ -80,10 +91,10 @@ graders:
     input_match: "^(?![\\s\\S]*\\\"limit\\\")(?=[\\s\\S]*\\\"file_path\\\"\\s*:\\s*\\\"[^\\\"]*/tasklane/)"
     min: 0
     max: 0
-  - name: "app-read-at-most-120-lines"
+  - name: "app-read-at-most-400-lines"
     type: "tool_used"
     tool: "Read"
-    input_match: "(?=[\\s\\S]*\\\"file_path\\\"\\s*:\\s*\\\"[^\\\"]*/tasklane/)[\\s\\S]*\\\"limit\\\"\\s*:\\s*(?:12[1-9]|1[3-9]\\d|[2-9]\\d\\d|\\d{4,})"
+    input_match: "(?=[\\s\\S]*\\\"file_path\\\"\\s*:\\s*\\\"[^\\\"]*/tasklane/)[\\s\\S]*\\\"limit\\\"\\s*:\\s*(?:40[1-9]|4[1-9]\\d|[5-9]\\d\\d|\\d{4,})"
     min: 0
     max: 0
   - name: "read-stays-in-app-or-plugin"

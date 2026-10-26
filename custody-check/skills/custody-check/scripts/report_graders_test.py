@@ -120,13 +120,16 @@ class AllCasesTests(unittest.TestCase):
                          "points-to-build-decisions", "one-place-line", "never-ship-it", "std-check-it"):
                 self.assertNotIn(gone, g, "%s: %s" % (case, gone))
 
-    def test_three_shell_commands_and_the_inventory(self):
+    def test_four_shell_commands_the_inventory_and_the_slice_plan(self):
+        # 0.7.0 (S-068): the full read adds full_read_slices.py, so three became four.
         for case in self.CASES:
             with open(os.path.join(PLUGIN_DIR, "evals", case, "case.yaml"), encoding="utf-8") as fh:
                 text = fh.read()
-            self.assertIn('- name: "three-shell-commands"', text, case)
+            self.assertIn('- name: "four-shell-commands"', text, case)
             self.assertIn('- name: "inventory-ran-once"', text, case)
-            self.assertNotIn('- name: "two-shell-commands"', text, case)
+            self.assertRegex(text, r'- name: "slice-plan-(?:ran|at-most)-once"', case)
+            self.assertIn('"Agent"', text, case)
+            self.assertNotIn('- name: "three-shell-commands"', text, case)
             scan = re.search(r'- name: "scanner-ran-once"\n(?:    .+\n)+', text).group(0)
             pat = json.loads(re.search(r"input_match: (.+)", scan).group(1))
             self.assertTrue(re.search(pat, "python3 -I '/p/custody_scan.py' --repo 'tasklane' 2>/dev/null"), case)

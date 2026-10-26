@@ -1,0 +1,9 @@
+name: stale
+on:
+  schedule:
+    - cron: "0 1 * * *"
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@v9
