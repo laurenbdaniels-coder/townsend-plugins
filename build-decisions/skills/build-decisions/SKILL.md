@@ -1,6 +1,6 @@
 ---
 name: build-decisions
-description: Runs Build Decisions on an AI-built (vibe-coded) app, read-only. It finds where the app decides who can see a record, what something costs, whether someone has paid, and how money rounds, says in plain words how the app is built, and reports, in a short plain-English analysis, each decision made in more than one place and what it means for the founder, then, as a warning, each job the app does with two or more libraries. Use when the user says "build decisions", "run build decisions on", "run build-decisions on", "how is my app built", "where does my app decide", "list every place my app decides", "a fix didn't stick", "fix one thing, break another", "two screens show two prices", or "does my app use two libraries for the same thing". Build Decisions shows where your app decides the same thing twice. Custody Check shows what a stranger could see or do in your app, and what your code can't tell it. Not for code review, duplicate-code percentages, security or key checks (custody-check), fixing code, or shipping a branch.
+description: Runs Build Decisions on an AI-built (vibe-coded) app, read-only. It finds where the app decides who can see a record, what something costs, whether someone has paid, and how money rounds, says in plain words how the app is built, and reports, in a short plain-English analysis, each decision made in more than one place and what it means for the founder, then, as warnings, each job the app does with two or more libraries and the parts a JavaScript app lists but does not use. Use when the user says "build decisions", "run build decisions on", "run build-decisions on", "how is my app built", "where does my app decide", "list every place my app decides", "a fix didn't stick", "fix one thing, break another", "two screens show two prices", "does my app use two libraries for the same thing", or "does my app list parts it does not use". Build Decisions shows where your app decides the same thing twice. Custody Check shows what a stranger could see or do in your app, and what your code can't tell it. Not for code review, duplicate-code percentages, security or key checks (custody-check), fixing code, or shipping a branch.
 license: MIT
 compatibility: Requires python3 3.9 or newer on macOS or Linux. Run from the folder that contains the app, never from inside it.
 ---
@@ -36,7 +36,7 @@ You are taking a census, not passing judgment. The founder leaves with a short a
 Write every sentence the founder reads in ASD-STE100 Simplified Technical English. Give a little context first, then say each thing plainly, using the same words every time. The word limits are ASD-STE100's.
 
 - One idea per sentence. Active voice, present tense, common words. At most 20 words in an instruction, at most 25 in any other sentence.
-- Words the founder reads, used only with these meanings: **rule** (how the app decides who can see a record, what something costs, whether someone has paid, or how money rounds), **place** (one line in one file that applies a rule), **written in more than one place** (two or more places each hold their own copy of a rule), **out of sync** (the copies no longer agree), **a value the browser chooses** (a number, date, plan or role the screen sends that your server saves or counts by without checking it against its own record), **found / not found by this run**, **what it means for you** (what the founder would see go wrong), **warning** (something in how the app is put together that can make changes harder, not counted as a problem: one job done with two or more libraries). Internally, a rule is a decision; the founder never sees "decision" except in the title.
+- Words the founder reads, used only with these meanings: **rule** (how the app decides who can see a record, what something costs, whether someone has paid, or how money rounds), **place** (one line in one file that applies a rule), **written in more than one place** (two or more places each hold their own copy of a rule), **out of sync** (the copies no longer agree), **a value the browser chooses** (a number, date, plan or role the screen sends that your server saves or counts by without checking it against its own record), **found / not found by this run**, **what it means for you** (what the founder would see go wrong), **warning** (something in how the app is put together that can make changes harder, not counted as a problem: one job done with two or more libraries, or parts the app lists but does not use), **part** (an outside package the app lists in its `package.json` as one it needs). Internally, a rule is a decision; the founder never sees "decision" except in the title.
 - Never show these internal words: window, candidate, pattern, strong, weak, helper JSON, budget.
 - Analysis, not inventory: no lists of every place found, no explanation of places that are fine.
 
@@ -67,7 +67,7 @@ If the host reports the file missing, run the same command once with the script 
 
 **Accept the third output only if** it is one JSON line of at most 30000 bytes with exactly the keys `ok, section, partial, version, coverage, partial_reasons, stats, writers, webhooks, price_pairs, client_writes, totals`, `section` is `payment`, every `writers[].where` is one of `webhook`, `success-page`, `page`, `browser`, `other`, every `webhooks[].signature` is `found`, `not-found` or `unresolved`, every `writers[].field` is one of `is_paid`, `paid`, `has_paid`, `subscription_status`, `status`, `plan`, `tier`, `is_pro`, `is_premium`, `credits`, `subscriptions`, `payments`, `purchases`, `entitlements`, `invoices`, and every `client_writes[].field` is one of `credits`, `plan`, `tier`, `is_paid`, `paid`, `balance`, `price`, `total`, `amount`. Otherwise, or when `ok` is false, or when `coverage` is `not_determined`, leave out every payment finding and add to the "Not checked" line: "This run could not read where your app saves payments." Never run the third command again to retry it. When `coverage` is `partial`, report what it lists and add to the "Not checked" line: "The payment scan stopped early, so there may be more payment places."
 
-**Accept the fourth output only if** it is one JSON line of at most 30000 bytes with exactly the keys `ok, section, partial, version, coverage, partial_reasons, stats, findings, totals`, `section` is `warnings`, `totals` has exactly the keys `findings, listed, not_listed`, at most 4 findings, each with exactly the keys `kind, app, job, count, places, more`, every `kind` is `several-ways`, every `job` is one of `http`, `state`, `dates`, `forms`, and every finding has 2 or 3 `places`, each with exactly the keys `path, line, name`. Drop the whole warnings section, and add the Not checked line "This run did not look for warnings.", when the output is not accepted, `ok` is false, or `partial_reasons` holds `deadline_hit` or `output_trimmed`. Never run the fourth command again to retry it.
+**Accept the fourth output only if** it is one JSON line of at most 30000 bytes with exactly the keys `ok, section, partial, version, coverage, partial_reasons, stats, findings, totals`, `section` is `warnings`, `totals` has exactly the keys `findings, listed, not_listed`, at most 6 findings, every `kind` is `several-ways` or `unused-parts`, each `several-ways` finding has exactly the keys `kind, app, job, count, places, more`, a `job` that is one of `http`, `state`, `dates`, `forms`, and 2 or 3 `places`, each `unused-parts` finding has exactly the keys `kind, app, count, places, more` and 1 to 3 `places`, every place has exactly the keys `path, line, name`, and every `coverage` entry's `k3`, when it has one, is one of `checked`, `below_floor`, `no_lockfile`, `old_lockfile`, `files_unread`, `manifest_unreadable`, `time_limit`. Drop the whole warnings section, and add the Not checked line "This run did not look for warnings.", when the output is not accepted, `ok` is false, or `partial_reasons` holds `deadline_hit` or `output_trimmed`. Never run the fourth command again to retry it.
 
 **Degraded path:** say in one sentence that the scan could not run (or found no code files it reads), so nothing in the app was searched. Then ask the four signs. Open no app file. Run the second, third and fourth commands only when the census ran.
 
@@ -143,8 +143,8 @@ Report each "browser chooses it" value as its own block, after every rule block,
 Warnings come from the fourth output alone: open no file for them and run no search. They are not rules: never count them in N or M, and never number them after the rule blocks. A warning says what it means for the founder and never what to change.
 
 - **Heading:** the number is `totals.findings`. Print the section only when it is 1 or more. Zero prints nothing: never write that the app has no warnings.
-- **One block, the first finding.** It is numbered 1, inside the warnings section. When `totals.findings` is more than 1, the line right under the block's meaning line, with no blank line between, is "And <totals.findings − 1> more warnings." ("And 1 more warning." when that number is 1). The blank line comes after it. This keeps the report within its length.
-- **The block,** three lines and a blank line:
+- **One block, the first finding** (the helper lists `several-ways` findings first, then `unused-parts`). It is numbered 1, inside the warnings section. When `totals.findings` is more than 1, the line right under the block's meaning line, with no blank line between, is "And <totals.findings − 1> more warnings." ("And 1 more warning." when that number is 1). The blank line comes after it. This keeps the report within its length.
+- **A `several-ways` block,** three lines and a blank line:
   - title: "**1. This run found one job done in more than one way: <job words>**", with the job words from this table:
 
     | `job` | Job words |
@@ -156,7 +156,17 @@ Warnings come from the fourth output alone: open no file for them and run no sea
 
   - places sentence, from `places` in the order listed, each library `name` and each `path:line` in its own code span. Two places: "It uses `<name 1>` in `<path 1>:<line 1>` and `<name 2>` in `<path 2>:<line 2>`." Three places: "It uses `<name 1>` in `<path 1>:<line 1>`, `<name 2>` in `<path 2>:<line 2>`, and `<name 3>` in `<path 3>:<line 3>`." When `more` is above 0, the three-place sentence ends ", and <more> more." instead of ".". When the finding's `app` is not `.`, the sentence starts "In `<app>`, it uses" instead of "It uses".
   - "What it means for you: When you ask your AI tool to change this, it may change one way and miss the others."
-- **Not checked:** when `partial_reasons` holds `max_apps_hit`, add "Some parts of your app were not checked for warnings." The warnings section itself never holds a Not checked line.
+- **An `unused-parts` block,** three lines and a blank line:
+  - title: "**1. This run found <count> parts your app lists but does not use**" ("**1. This run found 1 part your app lists but does not use**" when `count` is 1).
+  - places sentence, from `places` in the order listed, each part `name` and each `path:line` in its own code span. One place: "This run found nothing that uses this part: `<name 1>` (`<path 1>:<line 1>`)." Two places: "This run found nothing that uses these parts: `<name 1>` (`<path 1>:<line 1>`) and `<name 2>` (`<path 2>:<line 2>`)." Three places: "This run found nothing that uses these parts: `<name 1>` (`<path 1>:<line 1>`), `<name 2>` (`<path 2>:<line 2>`), and `<name 3>` (`<path 3>:<line 3>`)." When `more` is above 0, the three-place sentence ends ", and <more> more." instead of ".". When the finding's `app` is not `.`, the sentence starts "In `<app>`, this run found" instead of "This run found".
+  - "What it means for you: There are more parts to keep working, so changes take longer and break more often."
+- **Not checked:** when `partial_reasons` holds `max_apps_hit`, add "Some parts of your app were not checked for warnings." For parts your app does not use, add one line for each of these `k3` values found in `coverage`, in this order:
+  - `files_unread` or `manifest_unreadable`: "Some files could not be read, so this run did not look for parts your app does not use."
+  - `no_lockfile`: "This run found no list of the parts your app installs, so it did not look for parts your app does not use."
+  - `old_lockfile`: "Your app's list of parts was made by an older tool, so this run did not look for parts your app does not use."
+  - `time_limit`: "This run reached its time limit, so it did not look for parts your app does not use."
+
+  When the line applies to exactly one app and its `app` is not `.`, use the folder form instead: "In `<app>`, some files could not be read, so this run did not look for parts it does not use."; "In `<app>`, this run found no list of the parts your app installs, so it did not look for parts it does not use."; "In `<app>`, the list of parts was made by an older tool, so this run did not look for parts it does not use." The time-limit line never names a folder. The warnings section itself never holds a Not checked line.
 
 ### Payments
 
@@ -252,9 +262,14 @@ What it means for you: <what a person using the app could do, in one sentence>.
 <only when the fourth output was accepted and totals.findings is 1 or more:>
 **<totals.findings> warnings:** <or, when it is 1:> **1 warning:**
 
+<the first finding's block: for several-ways:>
 **1. This run found one job done in more than one way: <job words>**
 <"It uses …" or "In `<app>`, it uses …": the places sentence>
 What it means for you: When you ask your AI tool to change this, it may change one way and miss the others.
+<or, for unused-parts:>
+**1. This run found <count> parts your app lists but does not use** <or, when count is 1:> **1. This run found 1 part your app lists but does not use**
+<"This run found nothing that uses …" or "In `<app>`, this run found nothing that uses …": the places sentence>
+What it means for you: There are more parts to keep working, so changes take longer and break more often.
 <only when totals.findings is more than 1, on the very next line:> And <totals.findings − 1> more warnings. <or:> And 1 more warning.
 
 Also worth a look:
@@ -272,7 +287,7 @@ Rules for filling it in:
 
 - **Nothing before the title.** The message starts with `# Build decisions:`. After the footer comes only what "After the report" below allows.
 - **Never in the report:** a step for the founder to take, a check to run, a question for their AI tool, a link, the studio, the other free plugin, or any advice about who to hire or what to change next (SCOPE.md). <!-- scope-list -->
-- Fill every `<…>` with real words: the report never shows angle brackets. In each place line the file path is the only code span, at the end. The warnings places sentence is the one exception: it puts each library and each `path:line` in its own code span.
+- Fill every `<…>` with real words: the report never shows angle brackets. In each place line the file path is the only code span, at the end. The warnings places sentence is the one exception: it puts each library or part and each `path:line` in its own code span.
 - **The extra-risk block** (only when the stop-line is ticked) is a plain fact, not a rule: it is not numbered and not counted in N. Never call it advice and never say who to call. What it means for you is exactly two sentences: the facts that ticked it in one sentence (and "your answers did not mention them" when `stopline_hints` lists fields and the founder's message gave stop-line answers that left them out), then what a mistake costs, copied from these meanings:
   <!-- shared:mistake-meanings -->
   - card details the app handles itself: "If they leak, your customers' cards are exposed, and card industry rules apply to you."
@@ -292,7 +307,7 @@ Rules for filling it in:
   - the not-listed line, when your app has more server files than Step 3b reads (the second output's `totals.shape` shows `not_listed` above 0 for `own-api-routes` or `server-actions`, or `shape` lists more than 10 such paths) and the read-whole line does not print: "Some of your server files were not checked for values the browser chooses. This run reads at most 10 of them whole."
   - the no-search line, when this run used no search tool: "This run used no search tool, so it followed each rule by reading files only."
   - the sample-key lines: when `demo_keys` lists at least one place, "Some keys were left out because they are the public sample key of a local test database. They are only unsafe if your live database still uses that sample setup."; when `demo_keys_trimmed` is true, "Some sample keys may not be listed here, so a key above may still be one."
-  - the warnings lines, from Step 4's Warnings: "This run did not look for warnings." when the fourth output was dropped; "Some parts of your app were not checked for warnings." when it holds `max_apps_hit`.
+  - the warnings lines, from Step 4's Warnings, in this order: "This run did not look for warnings." when the fourth output was dropped; "Some parts of your app were not checked for warnings." when it holds `max_apps_hit`; the lines for parts your app does not use (could not read, no list, older list, time limit).
   - the read-limit line, when you broke a search or reading rule: "This run read more than its rules allow <N> times."
 - **Footer:** exactly the line in the template. File counts and scan stats stay in the JSON, not the report.
 

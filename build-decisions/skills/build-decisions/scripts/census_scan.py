@@ -12,12 +12,13 @@ paid (whether someone has paid), rounding (how money rounds).
 file that shows each, facts, one advice id) and census decisions found inside a second app that uses
 the same data. Same rule: only safe paths and fixed words.
 
-`--section warnings` prints each job an app does with two or more libraries (several-ways). Try it:
+`--section warnings` prints each job an app does with two or more libraries (several-ways) and the packages
+a JavaScript app lists but does not use (unused-parts). Try it:
     cd build-decisions/evals/fixtures && python3 -I ../../skills/build-decisions/scripts/census_scan.py \
         --repo notewell --section warnings | python3 -m json.tool
 Tests: python3 -m unittest discover -s build-decisions/skills/build-decisions/scripts -p "*_test.py"
 """
-__version__ = "0.7.0"
+__version__ = "0.8.0"
 
 import sys
 
@@ -451,6 +452,9 @@ class State:
     def on_dir(self, parts):
         pass
 
+    def on_excluded(self, parts):
+        pass
+
     def on_meta(self, path, parts, lower, is_link):
         return False
 
@@ -630,6 +634,7 @@ def walk(repo, state):
                 continue
             if is_dir:
                 if name in EXCLUDED_DIRS:
+                    state.on_excluded(parts + [name])
                     continue
                 parent = parts[-1] if parts else ""
                 if name in shared.NEVER_OPEN_DIRS or (parent, name) in shared.NEVER_OPEN_DIR_PAIRS:
@@ -2008,20 +2013,279 @@ def build_payment(state):
 # ------------------------------------------------------------------ section: warnings
 #
 # `--section warnings` runs its own walk and prints one line: each job an app does with two or more libraries
-# (several-ways), for example two libraries that send requests to other services. A library counts only when the
-# app's manifest declares it and at least one of the app's own source files imports it; tests, stories, fixtures,
-# examples, comments and .mdx pages never count. Nothing from inside a file reaches the output: only safe paths,
-# line numbers, library names from JOB_FAMILIES and the words below.
+# (several-ways), for example two libraries that send requests to other services, and the runtime packages a
+# JavaScript app lists but nothing uses (unused-parts). A library counts only when the app's manifest declares it and
+# at least one of the app's own source files imports it; tests, stories, fixtures, examples, comments and .mdx pages
+# never count. Nothing from inside a file reaches the output: only safe paths, line numbers, library names from
+# JOB_FAMILIES, the words below, and package names from package.json that pass NPM_NAME_RE and MAX_NPM_NAME_CHARS.
 #
-# 0.7.0 ships this one kind. "Code that never runs" and "parts the app does not use" were cut or deferred by their
-# samples (S-059, 2026-10-25); see TODOS.md.
+# 0.8.0 adds a second kind, unused-parts (S-070 K3): runtime packages a JavaScript app lists in package.json that
+# nothing in the app uses. It runs only when a readable lockfile covers the app, since the lockfile shows what each
+# used package needs. "Code that never runs" was cut by its sample and Python apps are not checked for unused parts
+# (S-059, 2026-10-25); see TODOS.md.
 
-WARN_KINDS = ("several-ways",)
+WARN_KINDS = ("several-ways", "unused-parts")
 WARN_JOBS = ("http", "state", "dates", "forms")
 WARN_COVERAGE = ("checked", "below_floor")
-WARN_REASONS = ("max_apps_hit",)
+WARN_K3_STATES = ("checked", "below_floor", "no_lockfile", "old_lockfile", "files_unread", "manifest_unreadable",
+                  "time_limit")
+WARN_REASONS = ("max_apps_hit", "manifest_unreadable")
 MAX_K1_FINDINGS = 4
+MAX_WARNINGS = 6
 MAX_WARN_PLACES = 3
+WARN_FLOOR_K3_PACKAGES = 5
+MAX_CONFIG_TEXT = 262144
+MAX_LOCKFILE_BYTES = 33554432  # lockfiles are read as data only: which package needs which
+LOCKFILES_READ = ("package-lock.json", "pnpm-lock.yaml", "yarn.lock")
+MAX_NPM_NAME_CHARS = 214
+MAX_K3_TEXT_BYTES = 48 * 1024 * 1024  # all K3-only reads (tests, pages, styles, configs) together
+MAX_K3_LOCK_BYTES = 96 * 1024 * 1024  # all lockfiles together
+MAX_K3_REACH_FILES = 20000  # files reached by following imports out of one app folder
+# Folders the walk skips everywhere. Below an app's own top level they can hold code (app/vendor/page.tsx), so an
+# app with one, or with an import into one, is not checked for unused parts.
+K3_BLIND_DIRS = {"vendor", "build", "out", "dist", "coverage"}
+K3_TEXT_EXTS = {".mdx", ".ipynb", ".html", ".htm", ".css", ".scss", ".sass", ".less", ".pcss"}
+
+# A package counts as used when one of its pairs is used (C37). Frozen with the round-4 prototype (S-070).
+PAIRED_WITH = {
+    "react-dom": ("react", "next", "@remix-run/react", "react-router", "gatsby"),
+    "prisma": ("@prisma/client",),
+    "@prisma/client": ("prisma",),
+    "pg": ("drizzle-orm", "knex", "typeorm", "sequelize", "kysely", "@prisma/adapter-pg", "pg-promise", "@mikro-orm/core"),
+    "mysql2": ("drizzle-orm", "knex", "typeorm", "sequelize", "kysely"),
+    "sqlite3": ("knex", "typeorm", "sequelize"),
+    "better-sqlite3": ("drizzle-orm", "knex", "kysely"),
+    "sharp": ("next",),
+    "postcss": ("tailwindcss", "autoprefixer"),
+    "autoprefixer": ("tailwindcss", "postcss"),
+    "typescript": ("next", "vite", "ts-node", "tsx"),
+    "@supabase/supabase-js": ("@supabase/ssr", "@supabase/auth-helpers-nextjs", "@supabase/auth-helpers-react"),
+    "date-fns": ("react-day-picker",),
+    "@emotion/styled": ("@mui/material", "@mui/joy"),
+    "@tiptap/pm": ("@tiptap/react", "@tiptap/starter-kit", "novel"),
+    "@angular/compiler": ("@angular/platform-browser-dynamic",),
+    "@fortawesome/fontawesome-svg-core": ("@fortawesome/react-fontawesome",),
+    "quill": ("primevue", "react-quill", "ngx-quill"),
+    "@discordjs/opus": ("discord.js",),
+    "opusscript": ("discord.js",),
+    "parcel-bundler": ("parcel",),
+    "@emotion/react": ("@mui/material", "@mui/joy", "@emotion/styled"),
+    # database drivers and helpers an ORM loads by itself (never imported by the app)
+    "pg-hstore": ("sequelize",),
+    "mariadb": ("sequelize", "typeorm"),
+    "tedious": ("sequelize", "knex", "typeorm"),
+    "mssql": ("knex", "typeorm"),
+    "oracledb": ("sequelize", "knex", "typeorm"),
+    "mysql": ("knex", "typeorm"),
+    "pg-query-stream": ("knex",),
+    "pg-native": ("pg",),
+    "sql.js": ("typeorm",),
+}
+PAIRED_PREFIX = {"dumi-theme-": ("dumi",)}  # dumi loads dumi-theme-* by itself
+# `node_modules/<pkg>` (also regex-escaped, node_modules\/<pkg>) in a config, CSS, HTML, Gradle file or Podfile: a
+# Tailwind content glob, a CSS font url or a native project path means the build reads that package.
+NM_REF_RE = re.compile(r"node_modules\\?/((?:@[a-z0-9~][a-z0-9._~-]*\\?/)?[a-z0-9~][a-z0-9._~-]*)")
+NATIVE_BUILD_FILES = (".gradle", ".gradle.kts")
+NATIVE_BUILD_NAMES = ("podfile",)
+CONFIG_NAMES = {"angular.json", "registry.json", "project.json", "nest-cli.json", "makefile", "tox.ini", "setup.cfg",
+                ".pre-commit-config.yaml", "pytest.ini", ".flake8", "justfile", "noxfile.py", ".python-version",
+                "components.json", "vercel.json", "netlify.toml", "manifest.json", "app.json", "nodemon.json",
+                "turbo.json", "deno.json", "firebase.json", "wrangler.toml", "wrangler.json", "fly.toml", "render.yaml",
+                "procfile", "dockerfile", "docker-compose.yml", "docker-compose.yaml", "railway.json",
+                "vite.config.json"}
+CONFIG_DOT_PREFIXES = (".babelrc", ".eslintrc", ".prettierrc", "postcss.config", ".stylelintrc", ".lintstagedrc",
+                       ".commitlintrc")
+LINT_PREFIXES = ("eslint-config-", "eslint-plugin-", "prettier-plugin-", "babel-plugin-", "babel-preset-")
+LITERAL_RE = re.compile(r"""['"`]([A-Za-z0-9_@./~$+\-\[\]()]{2,200})['"`]""")
+CSS_IMPORT_RE = re.compile(r"""@(?:import|plugin|use|forward|config|reference)\s+(?:url\()?\s*['"]([^'"]+)['"]""")
+TAILWIND_DIRECTIVE_RE = re.compile(r"@tailwind\s+\w+|@apply\s")
+PY_MODULE_LITERAL_RE = re.compile(r"""^([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)*)(?::[A-Za-z_]\w*)?$""")
+NPM_NAME_RE = re.compile(r"^(@[a-z0-9-~][a-z0-9-._~]*/)?[a-z0-9-~][a-z0-9-._~]*$")
+TOOL_SETTINGS_RE = re.compile(r"^\.([a-z0-9][a-z0-9-]*?)(?:rc(?:\.\w+)?|ignore)$|^([a-z0-9][a-z0-9-]*)\.config\.\w+$")
+
+
+def _pkg_of(spec):
+    """The package an import names (`@scope/name` or `name`), or None for a relative or absolute path."""
+    if spec.startswith(("./", "../", "/")) or spec in (".", ".."):
+        return None
+    segs = spec.split("/")
+    if spec.startswith("@"):
+        return "/".join(segs[:2]) if len(segs) > 1 else None
+    return segs[0]
+
+
+def _jsonc(text):
+    """JSON with // and /* */ comments and trailing commas removed (strings kept), as tsconfig allows. None when it
+    cannot be read."""
+    out, i, n, in_str = [], 0, len(text), False
+    while i < n:
+        c = text[i]
+        if in_str:
+            out.append(c)
+            if c == "\\" and i + 1 < n:
+                out.append(text[i + 1])
+                i += 2
+                continue
+            if c == '"':
+                in_str = False
+            i += 1
+            continue
+        if c == '"':
+            in_str = True
+            out.append(c)
+            i += 1
+        elif text.startswith("//", i):
+            j = text.find("\n", i)
+            i = n if j < 0 else j
+        elif text.startswith("/*", i):
+            j = text.find("*/", i + 2)
+            i = n if j < 0 else j + 2
+        else:
+            out.append(c)
+            i += 1
+    try:
+        obj = json.loads(re.sub(r",(\s*[}\]])", r"\1", "".join(out)))
+    except (ValueError, RecursionError):
+        return None
+    return obj if isinstance(obj, dict) else None
+
+
+def _lock_graph(name, text):
+    """{package: packages it depends on or names as a peer} from one lockfile. Read as data only: nothing from a
+    lockfile is ever printed."""
+    g = {}
+    if name == "package-lock.json":
+        try:
+            obj = json.loads(text)
+        except (ValueError, RecursionError):
+            return g
+        if not isinstance(obj, dict):
+            return g
+        packages = obj.get("packages")
+        for key, ent in (packages.items() if isinstance(packages, dict) else ()):
+            if not isinstance(ent, dict) or "node_modules/" not in key:
+                continue
+            pkg = key.rsplit("node_modules/", 1)[1]
+            for f in ("dependencies", "peerDependencies", "optionalDependencies"):
+                if isinstance(ent.get(f), dict):
+                    g.setdefault(pkg, set()).update(ent[f])
+        if not packages:  # lockfile v1: a nested dependencies tree with "requires"
+            stack = [obj.get("dependencies")]
+            while stack:
+                deps = stack.pop()
+                for pkg, ent in (deps.items() if isinstance(deps, dict) else ()):
+                    if isinstance(ent, dict):
+                        req = ent.get("requires")
+                        g.setdefault(pkg, set()).update(req if isinstance(req, dict) else ())
+                        stack.append(ent.get("dependencies"))
+        return g
+    cur = sub = None
+    in_packages = False
+    for line in text.split("\n"):
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        ind = len(line) - len(line.lstrip(" "))
+        st = line.strip()
+        if name == "pnpm-lock.yaml":
+            if ind == 0:
+                cur = sub = None
+                in_packages = st.rstrip(":") in ("packages", "snapshots")
+                continue
+            if not in_packages:
+                continue
+            if ind == 2:
+                key = st.rstrip(":").strip("'\"").lstrip("/")
+                m = re.match(r"^(@[^@/]+/[^@/(]+|[^@/(]+)[@/]", key)
+                cur = m.group(1) if m else None
+                sub = None
+            elif ind == 4:
+                sub = st.rstrip(":") if st.endswith(":") and st.rstrip(":") in (
+                    "dependencies", "peerDependencies", "optionalDependencies") else None
+            elif ind == 6 and cur and sub:
+                m = re.match(r"""^['"]?(@?[^:'"\s]+)['"]?\s*:""", st)
+                if m:
+                    g.setdefault(cur, set()).add(m.group(1))
+        else:  # yarn.lock (v1 and berry)
+            if ind == 0:
+                first = st.rstrip(":").split(",")[0].strip().strip('"')
+                at = first.rfind("@")
+                cur = first[:at] if at > 0 else None
+                sub = None
+            elif ind == 2:
+                sub = st.rstrip(":") if st.rstrip(":") in ("dependencies", "peerDependencies",
+                                                           "optionalDependencies") else None
+            elif ind == 4 and cur and sub:
+                m = re.match(r"""^"?(@?[^\s":]+)"?[:\s]""", st)
+                if m:
+                    g.setdefault(cur, set()).add(m.group(1))
+    return g
+
+
+def _lock_info(name, text):
+    """A lockfile read as data: {graph, old, importers}, or None when it does not parse as that kind of lockfile.
+    old: it records no peer dependencies (yarn v1, npm lockfileVersion 1), so a part a used package needs only as a
+    peer would look unused. importers: the folders (relative to the lockfile) it covers as workspaces."""
+    if "\n<<<<<<< " in "\n" + text or "\n>>>>>>> " in "\n" + text:
+        return None  # merge-conflict markers: half of it is missing
+    importers = {""}
+    if name == "package-lock.json":
+        try:
+            obj = json.loads(text)
+        except (ValueError, RecursionError):
+            return None
+        if not isinstance(obj, dict):
+            return None
+        packages, deps = obj.get("packages"), obj.get("dependencies")
+        if isinstance(packages, dict) and packages:
+            old = False
+            importers |= {k.strip("/") for k in packages if isinstance(k, str) and "node_modules/" not in k
+                          and not k.startswith("node_modules")}
+        elif isinstance(deps, dict):
+            old = True
+        else:
+            return None
+    elif name == "pnpm-lock.yaml":
+        first = next((l for l in text.split("\n") if l.strip() and not l.lstrip().startswith("#")), "")
+        if not first.startswith("lockfileVersion:"):
+            return None
+        old = False
+        in_importers = False
+        for line in text.split("\n"):
+            if line and not line.startswith(" "):
+                in_importers = line.rstrip().rstrip(":") == "importers"
+                continue
+            if in_importers and line.startswith("  ") and not line.startswith("   ") and line.rstrip().endswith(":"):
+                importers.add(line.strip().rstrip(":").strip("'\"").lstrip("./").rstrip("/") if line.strip() != ".:"
+                              else "")
+    else:  # yarn.lock
+        if "__metadata:" in text:
+            old = False
+            for m in re.finditer(r"@workspace:([^\",\n]*)", text):
+                importers.add(m.group(1).strip().lstrip("./").rstrip("/").rstrip(":"))
+        elif "# yarn lockfile v1" in text:
+            old = True
+        else:
+            return None
+    importers.discard(".")
+    return {"graph": _lock_graph(name, text), "old": old, "importers": importers}
+
+
+def _dep_lines(text):
+    """{name: line} for the runtime dependencies block of a package.json, read as text so each place has a line."""
+    lines, block = {}, None
+    for i, line in enumerate(text.split("\n"), 1):
+        m = re.match(r'^\s*"(dependencies|devDependencies|peerDependencies|optionalDependencies)"\s*:\s*\{', line)
+        if m:
+            block = None if "}" in line[m.end():] else m.group(1)
+            continue
+        if block and re.match(r"^\s*\}", line):
+            block = None
+            continue
+        if block == "dependencies":
+            m = re.match(r'^\s*"([^"]+)"\s*:', line)
+            if m:
+                lines.setdefault(m.group(1), i)
+    return lines
 
 # One closed table: job id -> libraries that do that job (Y1). Only families a sample stratum covered ship (C8).
 JOB_FAMILIES = {
@@ -2105,11 +2369,37 @@ class WarnState(ArchState):
     def __init__(self, opts):
         ArchState.__init__(self, opts)
         self.census_lines = False  # the warnings read only imports: no census rules, stop-line or sample-key work
+        self.uncapped = False  # --uncapped (sample runs only): every unused-parts place and every finding
         self.imports = {}  # rel -> [(library spec or ("py", module), line)]
         self.read = set()  # code files whose lines were read
         self.py_manifests = {}  # dir tuple -> set of normalised names, or None when one could not be read
         self.pkg_text = set()  # dir tuples holding a package.json, parsed or not
         self.venv_dirs = set()  # folders holding pyvenv.cfg: a vendored Python environment, not app code
+        # unused-parts (K3) records, kept apart from the several-ways ones above so that kind never changes
+        self.known = set()  # every file the walk saw (not ignored)
+        self.dirs = set()
+        self.k3_imports = {}  # rel -> [(spec or ("py", dots, module, names), line)], tests and .mdx pages included
+        self.k3_read = set()  # files whose lines K3 read
+        self.literals = set()  # string literals in read files, configs and HTML
+        self.py_literals = set()  # first dotted segments of Python string literals
+        self.css_specs = []  # (css rel, spec)
+        self.tailwind_dirs = set()
+        self.config_texts = {}  # rel -> text of a config, HTML page or tsconfig, read for package names
+        self.config_code = set()  # configs written as code (vite.config.ts): their text is kept from on_lines
+        self.tsconfigs = {}  # dir tuple -> parsed tsconfig.json / jsconfig.json, or None when unreadable
+        self.tsconfig_files = {}  # rel -> parsed tsconfig*.json, for "extends"
+        self.pkg_lines = {}  # dir tuple -> {name: line} of package.json runtime dependencies
+        self.locks = {}  # dir tuple -> [lockfile info]: graph, old (records no peers), importers (folders it covers)
+        self.blind = []  # rel paths of linked code files and folders (never read)
+        self.blind_dirs = []  # skipped folders named in K3_BLIND_DIRS
+        self.k3_bytes = 0
+        self.k3_lock_bytes = 0
+        self.k3_over = False  # a K3 read budget ran out: K3 stays quiet everywhere
+        self.nm_refs = []  # (rel, package) from node_modules/<pkg> paths in native build files and CSS
+        self.unread = set()  # code files the walk saw but could not read
+        self._pending = None
+        self._unread_seen = 0
+        self.stats["names_withheld"] = 0
 
     def ignored(self, parts):
         """Editor backups, vendored Python environments and Vite's temp config copies (RULINGS L5)."""
@@ -2117,20 +2407,39 @@ class WarnState(ArchState):
             return True
         return any(tuple(parts[:k]) in self.venv_dirs for k in range(1, len(parts)))
 
-    def _read_text(self, path):
+    def _read_text(self, path, cap=None):
         try:
-            data, _ = read_file(path, self, cap=MAX_META_BYTES)
+            data, _ = read_file(path, self, cap=MAX_META_BYTES if cap is None else cap)
         except OSError:
             return None
         if data is None or b"\x00" in data[:BINARY_SNIFF_BYTES]:
             return None
         return data.decode("utf-8", errors="replace")
 
+    def _unread_count(self):
+        s = self.stats
+        return s["files_skipped_oversize"] + s["files_skipped_special"] + s["files_errored"]
+
+    def _settle(self):
+        """The code file announced last was not read when the walk's unread counters moved since: K3 skips its app."""
+        if self._pending is not None:
+            if self._pending not in self.k3_read and self._unread_count() > self._unread_seen:
+                self.unread.add(self._pending)
+            self._pending = None
+        self._unread_seen = self._unread_count()
+
+    def on_dir(self, parts):
+        self._settle()
+        ArchState.on_dir(self, parts)
+        self.dirs.add("/".join(parts))
+
     def on_meta(self, path, parts, lower, is_link):
+        self._settle()
         if lower == "pyvenv.cfg":
             self.venv_dirs.add(tuple(parts[:-1]))
         if self.ignored(parts):
             return True  # not read, not counted, not a manifest
+        self._k3_meta(path, parts, lower, is_link)
         d = tuple(parts[:-1])
         if not is_link and not _not_app(d):
             if lower in ("requirements.txt", "pyproject.toml"):
@@ -2148,30 +2457,198 @@ class WarnState(ArchState):
                 return True
         return ArchState.on_meta(self, path, parts, lower, is_link)
 
-    def _notebook(self, path, parts):
-        text = self._read_text(path)
+    def _notebook_code(self, path, cap=None):
+        """The code cells of a Python notebook as lines, or None."""
+        text = self._read_text(path, cap)
         try:
             nb = json.loads(text) if text is not None else None
         except (ValueError, RecursionError):
             nb = None  # a notebook that will not parse is skipped; it never stops the section
         if not isinstance(nb, dict):
-            return
+            return None
         meta = nb.get("metadata")
         kernel = meta.get("kernelspec") if isinstance(meta, dict) else None
         if (kernel.get("language", "python") if isinstance(kernel, dict) else "python") != "python":
-            return
+            return None
         code = []
-        for cell in nb.get("cells") or []:
+        cells = nb.get("cells")
+        for cell in cells if isinstance(cells, list) else ():
             if isinstance(cell, dict) and cell.get("cell_type") == "code":
                 src = cell.get("source")
                 src = "".join(s for s in src if isinstance(s, str)) if isinstance(src, list) else \
                     (src if isinstance(src, str) else "")
                 code += src.split("\n")
-        self._capture(parts, ".py", code)
+        return code
+
+    def _notebook(self, path, parts):
+        code = self._notebook_code(path)
+        if code is not None:
+            self._capture(parts, ".py", code)
 
     def on_lines(self, parts, ext, lines):
+        self._settle()
         if not self.ignored(parts):  # the architecture line analysis is not needed here: manifests come from on_meta
             self._capture(parts, ext, lines)
+            self._k3_capture(parts, ext, lines)
+            rel = "/".join(parts)
+            if rel in self.config_code:
+                self.config_texts[rel] = "\n".join(lines)[:MAX_CONFIG_TEXT]
+
+    # ---- unused-parts (K3): side effects only. Nothing here changes what on_meta returns, so the walk, the
+    # several-ways records and every count stay as they were.
+
+    def _k3_meta(self, path, parts, lower, is_link):
+        rel = "/".join(parts)
+        self.known.add(rel)
+        d = tuple(parts[:-1])
+        ext = os.path.splitext(lower)[1]
+        if lower in LOCKFILES_READ:
+            if not is_link:
+                text = self._k3_text(path, MAX_LOCKFILE_BYTES, lock=True)
+                info = _lock_info(lower, text) if text is not None else None
+                if info is not None:  # only a lockfile that parses covers anything
+                    self.locks.setdefault(d, []).append(info)
+            return
+        if lower in SKIP_BASENAMES:
+            return
+        if not is_link and (lower.endswith(NATIVE_BUILD_FILES) or lower in NATIVE_BUILD_NAMES):
+            text = self._k3_text(path, MAX_CONFIG_TEXT)
+            if text is not None:
+                self._nm(rel, text)
+        if is_link:
+            if ext in SCAN_EXTS or ext in K3_TEXT_EXTS or os.path.isdir(path):
+                self.blind.append(rel)  # a linked file or folder is never read: its imports are unseen
+            return
+        is_test = TEST_FILE_RE.search(parts[-1]) is not None or any(p.lower() in TEST_DIRS for p in parts)
+        if ext in SCAN_EXTS and is_test and (ext in JS_EXTS or ext == ".py"):
+            text = self._k3_text(path, self.opts.max_file_bytes)  # the census skips tests; K3 counts their imports
+            if text is not None:
+                self._k3_capture(parts, ext, text.split("\n"))
+            return
+        if ext == ".ipynb":
+            code = self._notebook_code(path, self.opts.max_file_bytes)
+            if code is not None:
+                self._k3_capture(parts, ".py", code)
+            return
+        if ext == ".mdx":
+            text = self._k3_text(path, self.opts.max_file_bytes)
+            if text is not None:
+                self._k3_capture(parts, ".jsx", text.split("\n"))
+            return
+        if ext in (".html", ".htm"):
+            text = self._k3_text(path, MAX_CONFIG_TEXT)
+            if text is not None:
+                self._literals(text)
+                self.config_texts[rel] = text
+            return
+        if ext in (".css", ".scss", ".sass", ".less", ".pcss"):
+            text = self._k3_text(path, MAX_CONFIG_TEXT)
+            if text is not None:
+                self.css_specs += [(rel, spec) for spec in CSS_IMPORT_RE.findall(text)]
+                self._nm(rel, text)
+                if TAILWIND_DIRECTIVE_RE.search(text):
+                    self.tailwind_dirs.add(d)
+            return
+        if lower in ("tsconfig.json", "jsconfig.json") or (lower.startswith("tsconfig") and ext == ".json"):
+            text = self._k3_text(path, MAX_CONFIG_TEXT)
+            obj = _jsonc(text) if text is not None else None
+            if lower in ("tsconfig.json", "jsconfig.json") and self.tsconfigs.get(d) is None:
+                self.tsconfigs[d] = obj
+            self.tsconfig_files[rel] = obj
+            if text is not None:
+                self.config_texts[rel] = text
+            return
+        if lower in ("requirements.txt", "pyproject.toml"):
+            return  # Python apps are not checked for unused parts
+        if lower == "package.json":
+            text = self._k3_text(path)
+            if text is not None:
+                self.pkg_lines[d] = _dep_lines(text)
+        is_config = (".config." in lower or lower.startswith(CONFIG_DOT_PREFIXES) or lower in CONFIG_NAMES
+                     or (len(parts) > 1 and parts[-2] == ".storybook")
+                     or (len(parts) > 2 and parts[-3] == ".github" and parts[-2] == "workflows"))
+        if is_config and ext not in SCAN_EXTS:
+            text = self._k3_text(path, MAX_CONFIG_TEXT)
+            if text is not None:
+                self.config_texts[rel] = text
+                self._literals(text)
+        elif is_config:
+            self.config_code.add(rel)
+        if ext in SCAN_EXTS and not lower.endswith(SKIP_EXT_SUFFIXES):
+            self._pending = rel
+
+    def on_excluded(self, parts):
+        if parts[-1] in K3_BLIND_DIRS and not self.ignored(parts):
+            self.blind_dirs.append(tuple(parts))
+
+    def _k3_text(self, path, cap=None, lock=False):
+        """A K3-only read, inside its own byte budget. Once a budget runs out K3 reads nothing more and stays quiet."""
+        if self.k3_over:
+            return None
+        text = self._read_text(path, cap)
+        if text is not None:
+            if lock:
+                self.k3_lock_bytes += len(text)
+            else:
+                self.k3_bytes += len(text)
+            if self.k3_lock_bytes > MAX_K3_LOCK_BYTES or self.k3_bytes > MAX_K3_TEXT_BYTES:
+                self.k3_over = True
+                return None
+        return text
+
+    def _nm(self, rel, text):
+        for p in set(NM_REF_RE.findall(text)):
+            self.nm_refs.append((rel, p.replace("\\", "")))
+
+    def _literals(self, text):
+        for lit in LITERAL_RE.findall(text):
+            lit = lit.strip("/")
+            if lit:
+                self.literals.add(lit.lstrip("./"))
+                self.literals.add(os.path.splitext(lit.rsplit("/", 1)[-1])[0])
+
+    def _k3_capture(self, parts, ext, lines):
+        """Every import of a JavaScript or Python file, and the string literals of any read file."""
+        rel = "/".join(parts)
+        self.k3_read.add(rel)
+        imps = []
+        is_js = ext in JS_EXTS
+        for i, line in enumerate(lines, 1):
+            if (i % DEADLINE_LINE_TICK == 0 or len(line) > 512) and self.over_deadline():
+                break
+            if len(line) > LINE_CLIP_CHARS:
+                line = line[:LINE_CLIP_CHARS]
+            stripped = line.lstrip()
+            if stripped.startswith(("//", "/*", "* ", "#")) or stripped == "*":
+                continue  # a commented-out import is not a use
+            if is_js:
+                imps += [(spec, i) for spec in JS_IMPORT_RE.findall(line)]
+                m = EXPORT_FROM_RE.search(line)
+                if m and (m.group(1), i) not in imps:
+                    imps.append((m.group(1), i))
+            elif ext == ".py":
+                m = PY_FROM_RE.match(line)
+                if m:
+                    imps.append((("py", len(m.group(1)), m.group(2) or "", PY_NAME_RE.findall(m.group(3) or "")), i))
+                else:
+                    m = PY_IMPORT_RE.match(line)
+                    if m:
+                        for mod in m.group(1).split(","):
+                            mod = mod.strip().split(" as ")[0].strip()
+                            if mod:
+                                imps.append((("py", 0, mod, []), i))
+                for lit in LITERAL_RE.findall(line):
+                    mm = PY_MODULE_LITERAL_RE.match(lit)
+                    if mm:
+                        self.py_literals.add(mm.group(1).split(".")[0])
+                        self.literals.add(mm.group(1).replace(".", "/"))
+            for lit in LITERAL_RE.findall(line):
+                lit = lit.strip("/")
+                if lit:
+                    self.literals.add(lit.lstrip("./"))
+                    self.literals.add(os.path.splitext(lit.rsplit("/", 1)[-1])[0])
+        if imps:
+            self.k3_imports[rel] = imps
 
     def _capture(self, parts, ext, lines):
         rel = "/".join(parts)
@@ -2213,6 +2690,164 @@ class WarnState(ArchState):
             self.imports[rel] = imps
 
 
+class _K3Resolver(_Resolver):
+    """The payment resolver, plus what unused-parts needs: tsconfig path aliases, workspace packages followed to
+    their entry file, and a stem with several matching files left unplaced (never the first one picked)."""
+
+    def __init__(self, state):
+        _Resolver.__init__(self, state)
+        self.pkg_dirs = {}
+        for d, man in state.manifests.items():
+            name = man.get("name")
+            if isinstance(name, str) and d:
+                self.pkg_dirs[name] = d
+        self.alias_cache = {}
+
+    def files_exist(self, cands):
+        seen, out = set(), []
+        for c in cands:
+            if c in self.state.known and c not in seen:
+                seen.add(c)
+                out.append(c)
+        return out
+
+    def _tsconfig_for(self, parts):
+        for k in range(len(parts) - 1, -1, -1):
+            d = tuple(parts[:k])
+            if d in self.state.tsconfigs:
+                return d, self._load_ts(d)
+        return None, None
+
+    def _load_ts(self, d):
+        if d in self.alias_cache:
+            return self.alias_cache[d]
+        obj = self.state.tsconfigs.get(d)
+        result = None
+        if obj is not None:
+            co = obj.get("compilerOptions") if isinstance(obj.get("compilerOptions"), dict) else {}
+            result = {"paths": {}, "baseUrl": None}
+            ext = obj.get("extends")
+            if isinstance(ext, str) and ext.startswith("."):
+                target = _norm(list(d) + ext.split("/"))
+                if target is None:
+                    result = None
+                else:
+                    tpath = "/".join(target)
+                    if not tpath.endswith(".json"):
+                        tpath += ".json"
+                    pobj = self.state.tsconfig_files.get(tpath)
+                    if pobj is not None:  # one level of extends, as the sample ran it
+                        pd = tuple(tpath.split("/")[:-1])
+                        pco = pobj.get("compilerOptions") if isinstance(pobj.get("compilerOptions"), dict) else {}
+                        if isinstance(pco.get("paths"), dict):
+                            result["paths"] = {k: (v, pd) for k, v in pco["paths"].items()}
+                        if isinstance(pco.get("baseUrl"), str):
+                            result["baseUrl"] = (pco["baseUrl"], pd)
+            if result is not None:
+                if isinstance(co.get("paths"), dict):
+                    result["paths"] = {k: (v, d) for k, v in co["paths"].items()}
+                if isinstance(co.get("baseUrl"), str):
+                    result["baseUrl"] = (co["baseUrl"], d)
+        self.alias_cache[d] = result
+        return result
+
+    def targets(self, parts, imp):
+        """The files this import reaches, or [] when it reaches outside code or cannot be placed."""
+        if isinstance(imp, tuple):
+            got = self._py(parts, imp[1], imp[2], imp[3])
+            return self.files_exist(got) if got else []
+        clean = imp.split("?")[0]
+        if not clean or imp.startswith(EXTERNAL_PREFIXES):
+            return []
+        ext = os.path.splitext(clean)[1].lower()
+        if ext and ext not in RESOLVE_EXTS and ext not in (".js", ".jsx", ".mjs", ".cjs"):
+            if ext.lstrip(".").isalnum() and len(ext) <= 6:
+                return []
+        if clean.startswith(("./", "../")) or clean in (".", ".."):
+            segs = _norm(list(parts[:-1]) + clean.split("/"))
+            return self._pick([] if segs is None else _js_candidates(segs))
+        if clean.startswith("/"):
+            return []
+        segs = clean.split("/")
+        pkg = _pkg_of(clean)
+        if segs[0] in NODE_BUILTINS:
+            return []
+        tsd, ts = self._tsconfig_for(parts)
+        if ts is not None:
+            for pat, (targets, base_dir) in sorted(ts["paths"].items(), key=lambda kv: -len(kv[0])):
+                if not isinstance(targets, list):
+                    continue
+                if pat.endswith("*"):
+                    if not clean.startswith(pat[:-1]):
+                        continue
+                    rest = clean[len(pat) - 1:]
+                elif clean == pat:
+                    rest = ""
+                else:
+                    continue
+                bdir = list(base_dir)
+                if ts["baseUrl"]:
+                    bu, bud = ts["baseUrl"]
+                    bdir = _norm(list(bud) + bu.split("/")) or list(bud)
+                cands = []
+                for t in targets:
+                    if isinstance(t, str):
+                        segs2 = _norm(bdir + (t.replace("*", rest) if "*" in t else t).split("/"))
+                        if segs2:
+                            cands += _js_candidates(segs2)
+                return self._pick(cands)
+        elif tsd is not None and self.state.tsconfigs.get(tsd) is None and clean.startswith(("@/", "~/", "#")):
+            return []  # an unreadable tsconfig: its aliases are unknown
+        if pkg in self.pkg_dirs:
+            return self._workspace(pkg, clean)
+        if pkg in self.local_pkgs or pkg in self.deps:
+            return []
+        if ts is not None and ts["baseUrl"]:
+            bu, bud = ts["baseUrl"]
+            segs2 = _norm(list(bud) + bu.split("/") + clean.split("/"))
+            if segs2:
+                got = self._pick(_js_candidates(segs2))
+                if got:
+                    return got
+        if clean[0] in "@~#$" and (clean.startswith(("@/", "~/", "#/", "$")) or "/" not in clean):
+            cands = []
+            for root in self._roots(parts):
+                s2 = _norm(root + clean[1:].lstrip("/").split("/"))
+                if s2:
+                    cands += _js_candidates(s2)
+            return self._pick(cands)
+        return []  # a package this app does not list: installed by a parent or a tool
+
+    def _pick(self, cands):
+        real = sorted(set(self.files_exist(cands)))
+        return real if len(real) == 1 else []  # two files for one stem: not placed (E4)
+
+    def _workspace(self, pkg, clean):
+        d = list(self.pkg_dirs[pkg])
+        man = self.state.manifests.get(tuple(d), {})
+        sub = clean[len(pkg):].lstrip("/")
+        if sub:
+            return self._pick(_js_candidates(d + sub.split("/")) + _js_candidates(d + ["src"] + sub.split("/")))
+        entries = [man.get(k) for k in ("source", "module", "main", "types", "typings") if isinstance(man.get(k), str)]
+        ex = man.get("exports")
+        if isinstance(ex, str):
+            entries.append(ex)
+        elif isinstance(ex, dict):
+            dot = ex.get(".", ex)
+            if isinstance(dot, str):
+                entries.append(dot)
+            elif isinstance(dot, dict):
+                entries += [v for v in dot.values() if isinstance(v, str)]
+        cands = []
+        for e in entries:
+            s2 = _norm(d + e.split("/"))
+            if s2:
+                cands += _js_candidates(s2)
+        cands += _js_candidates(d + ["index"]) + _js_candidates(d + ["src", "index"])
+        hit = self.files_exist(cands)
+        return hit[:1] + [h for h in hit[1:] if h.endswith(("index.ts", "index.tsx", "index.js"))] if hit else []
+
+
 def _warn_app_roots(state):
     roots = set(d for d in state.manifests if not _not_app(d) and not state.ignored(list(d) + ["x"]))
     roots |= set(d for d in state.py_manifests if not _not_app(d))
@@ -2236,8 +2871,12 @@ def _k1_source(rel):
 
 
 def warn_findings(state):
-    """All several-ways findings in helper order (app folder, then job id), and per-app coverage."""
+    """All findings in helper order (kind, then app folder, then job id), and per-app coverage. Several-ways runs
+    first for every app, exactly as in 0.7.0; unused-parts then runs as its own pass, within what is left of the
+    post-walk budget, so it can never cost a several-ways finding."""
+    state._settle()
     state.post_walk_started = time.monotonic()
+    walk_reasons = set(state.reasons)
     roots = _warn_app_roots(state)
     if len(roots) > MAX_APPS:
         roots = roots[:MAX_APPS]
@@ -2249,7 +2888,7 @@ def warn_findings(state):
             o = _warn_owner(rel.split("/"), rootset)
             if o is not None:
                 files_by_app[o].append(rel)
-    findings, coverage = [], []
+    findings, coverage, done = [], [], []
     for app in roots:
         if _late(state):
             break
@@ -2272,9 +2911,306 @@ def warn_findings(state):
                 finding = _several_ways(state, files_by_app[app], app_name, job, libs, alias)
                 if finding:
                     findings.append(finding)
-        coverage.append({"app": app_name, "k1": "checked" if checked else "below_floor"})
+        cov = {"app": app_name, "k1": "checked" if checked else "below_floor"}
+        coverage.append(cov)
+        done.append((app, app_name, cov))
     findings.sort(key=lambda f: (f["app"], f["job"], f["places"][0]["name"]))
-    return findings, coverage
+    unused = []
+    try:
+        ctx = _k3_context(state, roots, rootset, walk_reasons)
+    except _K3OutOfTime:
+        ctx = None
+    for app, app_name, cov in done:
+        if ctx is None:
+            cov["k3"] = "time_limit"
+            continue
+        try:
+            cov["k3"], finding = _unused_parts(state, ctx, app, app_name)
+        except _K3OutOfTime:
+            cov["k3"], finding, ctx = "time_limit", None, None
+        if finding:
+            unused.append(finding)
+    unused.sort(key=lambda f: f["app"])
+    return findings, unused, coverage
+
+
+class _K3OutOfTime(Exception):
+    """Unused-parts used up the post-walk budget: it stops and says so, and never sets deadline_hit."""
+
+
+def _k3_tick(state):
+    if time.monotonic() - state.post_walk_started > POST_WALK_BUDGET_S:
+        raise _K3OutOfTime()
+
+
+def _k3_context(state, roots, rootset, walk_reasons):
+    """What unused-parts needs across the whole repo: the packages each file imports, the files each file
+    reaches (imports are followed out of the app folder), each app's own files, and which apps have code the walk
+    could not see."""
+    res = _K3Resolver(state)
+    used_specs = {r: set() for r in roots}  # package specs per app folder (owner of the importing file)
+    file_specs = {}  # rel -> packages (and Python top modules) it imports
+    fwd = {}  # rel -> files it imports
+    unread = set(state.unread) | set(state.blind)
+    for n, rel in enumerate(sorted(state.k3_imports)):
+        if n % 64 == 0:
+            _k3_tick(state)
+        parts = rel.split("/")
+        o = _warn_owner(parts, rootset)
+        for imp, _line in state.k3_imports[rel]:
+            if isinstance(imp, str):
+                clean = imp.split("?")[0]
+                pkg = _pkg_of(clean)
+                if pkg:
+                    file_specs.setdefault(rel, set()).add(pkg)
+                    if o is not None:
+                        used_specs[o].add(pkg)
+                elif clean.startswith("."):
+                    segs = _norm(list(parts[:-1]) + clean.split("/"))
+                    if segs and any(x in K3_BLIND_DIRS for x in segs[:-1]):
+                        unread.add(rel)  # an import into a folder the walk skips: code K3 cannot see
+            elif imp[1] == 0 and imp[2]:
+                file_specs.setdefault(rel, set()).add(imp[2].split(".")[0])
+            for t in res.targets(parts, imp):
+                if t != rel:
+                    fwd.setdefault(rel, set()).add(t)
+    for d in state.blind_dirs:
+        if tuple(d[:-1]) not in rootset:  # below an app's own top level: a route or code folder, not build output
+            unread.add("/".join(d))
+    by_root = {r: {"known": [], "imports": [], "configs": [], "css": [], "nm": [], "code": []} for r in roots}
+
+    def put(kind, rel, item):
+        o = _warn_owner(rel.split("/"), rootset)
+        if o is not None:
+            by_root[o][kind].append(item)
+
+    for rel in state.known:
+        put("known", rel, rel)
+    for rel in state.k3_imports:
+        put("imports", rel, rel)
+    for rel, text in state.config_texts.items():
+        put("configs", rel, text)
+    for rel, spec in state.css_specs:
+        put("css", rel, spec)
+    for rel, pkg in state.nm_refs:
+        put("nm", rel, pkg)
+    for rel in state.config_code:
+        put("code", rel, rel)
+    _k3_tick(state)
+    whole = bool(walk_reasons & {"max_files_hit", "max_total_bytes_hit", "dirs_unreadable", "dirs_truncated"})
+    whole = whole or state.k3_over or (state.stats["files_errored"] > 0 and not state.unread)
+    unread_apps = {_warn_owner(u.split("/"), rootset) for u in unread}
+    lit_heads = {lit.split("/", 1)[0] for lit in state.literals if len(lit) < 80 and "/" in lit}
+    return {"res": res, "roots": roots, "rootset": rootset, "used_specs": used_specs, "file_specs": file_specs,
+            "fwd": fwd, "whole_unread": whole, "unread_apps": unread_apps, "by_root": by_root, "lit_heads": lit_heads}
+
+
+def _under_roots(ctx, folder):
+    return [r for r in ctx["roots"] if _under(r, folder)]
+
+
+def _gather(ctx, folder, kind):
+    """Every item of one kind from files under folder (its own and any nested app's)."""
+    out = []
+    for r in _under_roots(ctx, folder):
+        out += ctx["by_root"][r][kind]
+    return out
+
+
+def _covering_locks(state, app):
+    """The lockfiles that cover app: its own folder's, and a folder above whose lockfile lists app as a workspace."""
+    out = list(state.locks.get(app, ()))
+    for k in range(len(app) - 1, -1, -1):
+        rel = "/".join(app[k:])
+        out += [info for info in state.locks.get(tuple(app[:k]), ()) if rel in info["importers"]]
+    return out
+
+
+def _unused_parts(state, ctx, app, app_name):
+    """(coverage state, finding or None) for one app: runtime packages its package.json lists that nothing uses."""
+    if ctx["whole_unread"] or app in ctx["unread_apps"]:
+        return "files_unread", None
+    if app in state.pkg_text and app not in state.manifests:
+        state.reason("manifest_unreadable")
+        return "manifest_unreadable", None
+    man = state.manifests.get(app) or {}
+    res = ctx["res"]
+    runtime = man.get("dependencies") if isinstance(man.get("dependencies"), dict) else {}
+    mrel = ("/".join(app) + "/" if app else "") + "package.json"
+    cands = []  # (name, line)
+    for name, ver in runtime.items():
+        if not isinstance(name, str) or name.startswith("@types/") or name in res.pkg_dirs:
+            continue
+        if isinstance(ver, str) and ver.startswith(LOCAL_DEP_PREFIXES):
+            continue  # the repo's own code (workspace:, file:, link:), never a candidate (C52)
+        cands.append((name, state.pkg_lines.get(app, {}).get(name)))
+    if len(cands) < WARN_FLOOR_K3_PACKAGES:
+        return "below_floor", None
+    locks = _covering_locks(state, app)
+    if not locks:
+        return "no_lockfile", None  # without a lockfile the check cannot see what a used package needs
+    if all(info["old"] for info in locks):
+        return "old_lockfile", None  # it records no peers: a part needed only as a peer would look unused
+    used = _k3_used(state, ctx, app, man)
+    if used is None:
+        return "time_limit", None
+    unused, withheld = [], 0
+    for name, line in cands:
+        if used(name):
+            continue
+        if line is None or len(name) > MAX_NPM_NAME_CHARS or not NPM_NAME_RE.match(name):
+            withheld += 1  # never printed (C51)
+            continue
+        unused.append({"path": mrel, "line": line, "name": name})
+    state.stats["names_withheld"] += withheld
+    if not unused:
+        return "checked", None
+    if safe_rel(mrel.split("/")) is None:
+        state.stats["paths_withheld"] += 1
+        return "checked", None
+    unused.sort(key=lambda p: (p["path"], p["line"], p["name"]))
+    places = unused if state.uncapped else unused[:MAX_WARN_PLACES]
+    return "checked", {"kind": "unused-parts", "app": app_name, "count": len(unused), "places": places,
+                       "more": len(unused) - len(places)}
+
+
+def _mentions(text, name):
+    """name appears in text as a whole name (not inside a longer one). The substring test is the fast path."""
+    return name in text and re.search(r"(?<![\w@/.-])" + re.escape(name) + r"(?![\w-])", text) is not None
+
+
+def _k3_used(state, ctx, app, man):
+    """A test: is this runtime package used by the app? Imports (followed out of the folder), stylesheets, configs,
+    scripts, tool settings files, string literals, pairs and lockfile needs, to a fixed point. None when following
+    imports reached MAX_K3_REACH_FILES files."""
+    rootset, res = ctx["rootset"], ctx["res"]
+    below = [r for r in ctx["roots"] if r[:len(app)] == app]
+    for dep in _deps(man, ("dependencies", "devDependencies")):
+        wd = res.pkg_dirs.get(dep)  # a workspace package this app depends on: what it imports counts here too
+        if wd is not None and wd in rootset and wd not in below:
+            below.append(wd)
+    specs = set()
+    for r in below:
+        specs |= ctx["used_specs"][r]
+    seen = set()
+    for r in below:
+        seen.update(_gather(ctx, r, "imports"))
+    stack, reached = list(seen), 0
+    while stack:
+        for t in ctx["fwd"].get(stack.pop(), ()):
+            if t not in seen:
+                seen.add(t)
+                stack.append(t)
+                reached += 1
+                if reached > MAX_K3_REACH_FILES:
+                    return None
+    _k3_tick(state)
+    for f in seen:
+        specs |= ctx["file_specs"].get(f, set())
+    for spec in _gather(ctx, app, "css"):
+        p = _pkg_of(spec.lstrip("~"))
+        if p:
+            specs.add(p)
+    under = _gather(ctx, app, "known")
+    exts_seen = {os.path.splitext(k)[1] for k in under}
+    for ext, pkg in ((".svelte", "svelte"), (".vue", "vue"), (".astro", "astro")):
+        if ext in exts_seen:
+            specs.add(pkg)
+    if any(d[:len(app)] == app for d in state.tailwind_dirs):
+        specs.add("tailwindcss")
+    if any(d[:len(app)] == app for d in state.tsconfigs):
+        specs.add("typescript")
+    if exts_seen & {".scss", ".sass"}:
+        specs |= {"sass", "node-sass", "sass-embedded"}
+    names_seen = {k.rsplit("/", 1)[-1].lower() for k in under}
+    scripts = man.get("scripts") if isinstance(man.get("scripts"), dict) else {}
+    if any(n.startswith((".eslintrc", "eslint.config")) for n in names_seen) or "next lint" in json.dumps(scripts):
+        specs.add("eslint")
+    if any(n.startswith((".prettierrc", "prettier.config")) for n in names_seen):
+        specs.add("prettier")
+    tool_cfg = set()  # a tool's own settings file in the app (.jshintrc, .jshintignore, x.config.js, supabase/config.toml)
+    for n in names_seen:
+        m = TOOL_SETTINGS_RE.match(n)
+        if m:
+            tool_cfg.add(m.group(1) or m.group(2))
+    tool_cfg |= {k.split("/")[-2] for k in under if k.endswith("/config.toml")}
+    if any(n.startswith("test_") and n.endswith(".py") or n == "conftest.py" or n.endswith("_test.py")
+           for n in names_seen):
+        specs |= {"pytest", "pytest_cov", "pytest_asyncio", "pytest_mock", "pytest_xdist", "coverage"}
+    cfg_text = " ".join(_gather(ctx, app, "configs"))
+    specs |= {x.replace("\\", "") for x in NM_REF_RE.findall(cfg_text)}
+    specs |= set(_gather(ctx, app, "nm"))
+    for r in _gather(ctx, app, "code"):
+        for imp, _ in state.k3_imports.get(r, ()):
+            if isinstance(imp, str) and _pkg_of(imp):
+                specs.add(_pkg_of(imp))
+    script_text = " ".join(v for v in scripts.values() if isinstance(v, str))
+    other_fields = json.dumps({k: v for k, v in man.items() if k not in (
+        "dependencies", "devDependencies", "peerDependencies", "optionalDependencies", "name", "scripts")})
+    mention_text = cfg_text + " " + script_text + " " + other_fields
+    runtime = man.get("dependencies") if isinstance(man.get("dependencies"), dict) else {}
+    py_used = set(state.py_literals)
+    for r in below:
+        py_used |= ctx["used_specs"][r]
+    normed_used = {_py_norm(x) for x in specs | py_used}
+    literals, lit_heads = state.literals, ctx["lit_heads"]
+    _k3_tick(state)
+
+    def direct(name):
+        _k3_tick(state)
+        if name in specs or any(x.startswith(name + "/") for x in specs):
+            return True
+        if _mentions(mention_text, name):
+            return True
+        if name.startswith(LINT_PREFIXES):
+            short = name.split("-", 2)[-1]
+            if short in mention_text or short in literals or short in lit_heads:
+                return True
+        if name in literals or (name.startswith("@") and name.replace("/eslint-plugin", "") in literals):
+            return True  # named as a string in the app's code or config
+        if name.startswith("@") and name.endswith("/eslint-plugin"):
+            # ESLint names a scoped plugin by its scope: "plugin:@x/...", rules "@x/rule"
+            scope = name.split("/")[0]
+            if scope + "/" in mention_text and re.search(
+                    r"(?<![\w@-])" + re.escape(scope) + r"/(?!eslint-plugin\b)", mention_text):
+                return True
+        if name.startswith("expo-") and "expo" in runtime and ("expo" in specs or _mentions(mention_text, "expo")):
+            return True  # Expo autolinks every expo-* module the app lists
+        if "/" not in name and name in tool_cfg:
+            return True
+        if name == "critters" and "optimizeCss" in mention_text:
+            return True  # Next loads critters itself when optimizeCss is on
+        return any(name.startswith(pre) and any(x in specs or x in mention_text for x in users)
+                   for pre, users in PAIRED_PREFIX.items())
+
+    names = [n for n in runtime if isinstance(n, str)]
+    is_used = {n: direct(n) for n in names}
+    dev = man.get("devDependencies") if isinstance(man.get("devDependencies"), dict) else {}
+    # a dev tool the app names (a Babel preset in a config): what the lockfile says it needs counts as used too
+    dev_used = {n for n in dev if isinstance(n, str) and n not in is_used and direct(n)}
+    graph = {}
+    for k in range(len(app), -1, -1):  # lockfiles in the app folder and every folder above it
+        for info in state.locks.get(tuple(app[:k]), ()):
+            for pk, deps in info["graph"].items():
+                graph.setdefault(pk, set()).update(deps)
+    lock_used = set()
+    while True:  # pairs and lockfile needs, followed from every used package, until nothing changes
+        _k3_tick(state)
+        used_names = {n for n, u in is_used.items() if u} | dev_used | specs | normed_used
+        todo = [x for x in used_names if x in graph and x not in lock_used]
+        reached = set(todo)
+        while todo:
+            for dep in graph.get(todo.pop(), ()):
+                if dep not in reached:
+                    reached.add(dep)
+                    todo.append(dep)
+        lock_used |= reached
+        changed = False
+        for n in names:
+            if not is_used[n] and (any(p in used_names for p in PAIRED_WITH.get(n, ())) or n in lock_used):
+                is_used[n] = changed = True
+        if not changed:
+            return lambda n: is_used.get(n, False)
 
 
 def _several_ways(state, files, app_name, job, libs, alias):
@@ -2303,8 +3239,10 @@ def _several_ways(state, files, app_name, job, libs, alias):
 
 
 def build_warnings(state):
-    findings, coverage = warn_findings(state)
-    listed = findings[:MAX_K1_FINDINGS]
+    several, unused, coverage = warn_findings(state)
+    findings = several + unused
+    ordered = several[:MAX_K1_FINDINGS] + unused
+    listed = ordered if state.uncapped else ordered[:MAX_WARNINGS]
     result = {
         "ok": True,
         "section": "warnings",
@@ -2316,13 +3254,13 @@ def build_warnings(state):
         "findings": listed,
         "totals": {"findings": len(findings), "listed": len(listed), "not_listed": len(findings) - len(listed)},
     }
-    return result  # at most 4 findings and 50 apps: always under MAX_OUTPUT_BYTES (test_worst_case_fits)
+    return result  # at most 6 findings and 50 apps: always under MAX_OUTPUT_BYTES (test_worst_case_fits)
 
 
 VOCABULARY = frozenset(VOCABULARY_CENSUS + SECTIONS + SIGNALS + FACTS + ADVICE + COVERAGE + ARCH_KINDS + APP_KINDS
                        + ARCH_REASONS)
 PAY_VOCABULARY = VOCABULARY | frozenset(PAY_WHERE + SIGNATURE + PAID_FIELDS + PAID_TABLES + CLIENT_FIELDS)
-WARN_VOCABULARY = VOCABULARY | frozenset(WARN_KINDS + WARN_JOBS + WARN_COVERAGE + WARN_REASONS
+WARN_VOCABULARY = VOCABULARY | frozenset(WARN_KINDS + WARN_JOBS + WARN_COVERAGE + WARN_K3_STATES + WARN_REASONS
                                          + tuple(lib for libs in JOB_FAMILIES.values() for lib in libs))
 
 
@@ -2499,6 +3437,7 @@ def main(argv=None):
             return 0
         if args.section == "warnings":
             state = WarnState(opts)
+            state.uncapped = args.uncapped
             try:
                 walk(repo, state)
                 emit(build_warnings(state))

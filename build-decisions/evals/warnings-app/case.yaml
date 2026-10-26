@@ -1,4 +1,5 @@
 schema_version: "1.1"
+# 0.8.0 (S-070): no lockfile, so the no-list Not checked line prints and no unused-parts block.
 # 0.7.0 (S-059): one job done with two libraries; the warnings section, word for word, after the problems.
 name: warnings-app
 execution:
@@ -271,6 +272,14 @@ graders:
   - name: "no-overflow-line"
     type: "regex"
     pattern: "more warnings?\\."
+    match: "not_contains"
+  - name: "no-list-line"
+    type: "regex"
+    pattern: "\\nThis run found no list of the parts your app installs, so it did not look for parts your app does not use\\.\\n"
+    match: "contains"
+  - name: "no-unused-parts-block"
+    type: "regex"
+    pattern: "parts? your app lists but does not use"
     match: "not_contains"
   - name: "warnings-not-checked-lines-absent"
     type: "regex"
