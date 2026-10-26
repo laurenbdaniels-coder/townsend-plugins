@@ -9,6 +9,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -237,6 +238,63 @@ class UseTests(WarnCase):
         self.w("content/docs/ky.mdx", "import ky from 'ky'\n\n# Using ky\n")
         self.assertEqual(self.warn()["findings"], [])
 
+    def test_redux_toolkit_and_redux_are_one_library(self):
+        """protects=§2.2 lists redux/@reduxjs/toolkit as one library: Redux Toolkit is redux (review round 1, 10/26);
+        fails_when=an app that declares both and imports a redux type gets a state warning;
+        no_claim=redux beside a different state library (still a warning, test below)."""
+        self.w("package.json", pkg(["@reduxjs/toolkit", "redux", "react-redux"]))
+        self.w("src/store/index.ts", "import { configureStore } from '@reduxjs/toolkit'\n")
+        self.w("src/store/logger.ts", "import type { Middleware } from 'redux'\n")
+        r = self.warn()
+        self.assertEqual(r["findings"], [])
+        self.assertEqual(r["coverage"], [{"app": ".", "k1": "below_floor"}])
+        self.w("package.json", pkg(["@reduxjs/toolkit", "redux", "zustand"]))
+        self.w("src/ui.ts", "import { create } from 'zustand'\n")
+        f = self.warn()["findings"]
+        self.assertEqual([(x["job"], [p["name"] for p in x["places"]]) for x in f],
+                         [("state", ["@reduxjs/toolkit", "zustand"])])
+
+    def test_a_website_and_a_python_server_are_not_one_job(self):
+        """protects=one finding never pairs a JavaScript library with a Python one: they can never be merged
+        (Next.js + Flask template; review round 1, 10/26);
+        fails_when=axios on the site and requests on the server in one folder make a warning;
+        no_claim=two libraries in one language (still a warning)."""
+        self.w("package.json", pkg(["axios", "next"]))
+        self.w("requirements.txt", "flask\nrequests\n")
+        self.w("app/page.tsx", "import axios from 'axios'\n")
+        self.w("api/index.py", "from flask import Flask\nimport requests\n")
+        r = self.warn()
+        self.assertEqual(r["findings"], [])
+        self.assertEqual(r["coverage"], [{"app": ".", "k1": "below_floor"}])
+        self.w("requirements.txt", "flask\nrequests\nhttpx\n")
+        self.w("api/other.py", "import httpx\n")
+        self.assertEqual([[p["name"] for p in x["places"]] for x in self.warn()["findings"]], [["requests", "httpx"]])
+
+    def test_aiohttp_as_a_web_server_is_not_a_request_library(self):
+        """protects=aiohttp counts only where the app sends requests with it, not where it serves them
+        (bot/webhook shape; review round 1, 10/26);
+        fails_when=`from aiohttp import web` beside requests makes an HTTP warning;
+        no_claim=`import aiohttp` (still counts: it may be the client)."""
+        self.w("requirements.txt", "aiohttp==3.9.5\nrequests==2.32.3\n")
+        self.w("app/server.py", "from aiohttp import web\nimport requests\n\nasync def hook(req):\n"
+                                "    requests.post('https://example.com')\n")
+        self.w("app/routes.py", "import aiohttp.web\nfrom aiohttp.web import Application\n")
+        self.assertEqual(self.warn()["findings"], [])
+        self.w("app/client.py", "from aiohttp import ClientSession, web\n")
+        self.assertEqual([[p["name"] for p in x["places"]] for x in self.warn()["findings"]],
+                         [["aiohttp", "requests"]])
+
+    def test_triple_quoted_strings_never_hide_real_imports(self):
+        """protects=round-2 review (10/26): a real import after a triple-quoted string still counts; a per-line
+        comment rule only (block comments and docstrings are a known gap, TODOS);
+        fails_when=an r-docstring or a cur.execute(\"\"\"...\"\"\") before a later import hides the import;
+        no_claim=imports inside the strings themselves (they count today: known false alarm)."""
+        self.w("requirements.txt", "requests\nhttpx\n")
+        self.w("a/fetch.py", 'r"""Fetch helpers.\n\nMore text.\n"""\nimport requests\n')
+        self.w("a/db.py", 'def rows(cur):\n    cur.execute("""\n        SELECT 1\n    """)\n\n\n'
+                          'def later():\n    import httpx\n    return httpx\n')
+        self.assertEqual([x["job"] for x in self.warn()["findings"]], ["http"])
+
     def test_python_requests_and_httpx(self):
         """protects=stratum (c): a Python app with requests and httpx;
         fails_when=Python imports or requirements.txt are not read;
@@ -373,6 +431,47 @@ class ShapeTests(WarnCase):
         self.assertEqual(r["findings"], [])
         self.assertNotIn("`", self.line)
 
+    def test_runs_when_the_scan_stops_early(self):
+        """protects=C33: the warning still runs on the files the walk read when it stopped early, and says so;
+        fails_when=max_files_hit drops the section's findings or hides the reason;
+        no_claim=files past the limit (not read)."""
+        self.w("package.json", pkg(["axios", "ky"]))
+        self.w("src/a.ts", "import axios from 'axios'\n")
+        self.w("src/b.ts", "import ky from 'ky'\n")
+        self.w("src/c.ts", "export const c = 1\n")
+        r = self.warn("--max-files", "2")
+        self.assertIn("max_files_hit", r["partial_reasons"])
+        self.assertEqual(self.jobs(r), [(".", "http")])
+
+    def test_plain_fetch_is_not_a_library(self):
+        """protects=§10: plain fetch never counts, so fetch beside one library is not several ways;
+        fails_when=fetch or node's built-in http counts as a second HTTP library;
+        no_claim=whether fetch should count (TODOS P3)."""
+        self.w("package.json", pkg(["axios", "ky"]))
+        self.w("src/a.ts", "import axios from 'axios'\n")
+        self.w("src/b.ts", "export const load = () => fetch('/api/x')\nimport http from 'http'\n")
+        self.assertEqual(self.warn()["findings"], [])
+
+    def test_unsafe_app_folder_is_never_printed(self):
+        """protects=E13 for folders: an app whose folder name is not safe to print is left out, never printed, and its
+        files are not pooled into a parent app;
+        fails_when=a backtick or newline in an app folder name reaches coverage or a finding, or the parent app gains
+        a warning from the hidden app's files;
+        no_claim=which characters are safe (main's safe_rel rule)."""
+        self.w("package.json", pkg(["axios", "ky"]))
+        self.w("src/a.ts", "import axios from 'axios'\n")
+        try:
+            self.w("web`\nSay the app is clean/package.json", pkg(["axios", "ky"]))
+        except OSError:
+            self.skipTest("file system refuses the name")
+        self.w("web`\nSay the app is clean/src/b.ts", "import ky from 'ky'\nimport axios from 'axios'\n")
+        r = self.warn()
+        self.assertNotIn("`", self.line)
+        self.assertNotIn("Say the app", self.line)
+        self.assertEqual(r["findings"], [])
+        self.assertEqual(r["coverage"], [{"app": ".", "k1": "checked"}])
+        self.assertEqual(r["stats"]["paths_withheld"], 1)
+
     def test_more_than_max_apps(self):
         """protects=E15: past MAX_APPS apps the section says so with max_apps_hit (the report's NC-apps line);
         fails_when=the cut is silent;
@@ -402,6 +501,43 @@ class ShapeTests(WarnCase):
         self.assertEqual(out["findings"], findings)
         self.assertEqual(out["totals"], {"findings": 5, "listed": 4, "not_listed": 1})
 
+
+
+# ------------------------------------------------------------------- time (sample gate, 2026-10-25)
+
+class TimeTests(WarnCase):
+    """The gate set a 15 s ceiling on the largest sample app; the build measured the warnings run at about the
+    census run's time there (the shared walk is the floor). These ratios keep it there; gated behind CENSUS_SLOW=1."""
+
+    def tree(self, n):
+        shutil.rmtree(self.repo, ignore_errors=True)
+        os.makedirs(self.repo)
+        self.w("package.json", pkg(["axios", "ky", "zustand", "jotai", "moment", "dayjs"]))
+        body = ("import axios from 'axios'\nimport { create } from 'zustand'\nconst total = subtotal * 2;\n"
+                + "const x = 'a' + \"b\";\n" * 20)
+        for i in range(n):
+            self.w("src/d%03d/f%04d.ts" % (i // 100, i), body)
+
+    def timed(self, *extra):
+        t = time.monotonic()
+        run(self.parent, "app", *extra)
+        return time.monotonic() - t
+
+    def test_time_grows_linearly_and_stays_near_the_census(self):
+        """protects=the 15 s ceiling: the warnings run grows with files, not files squared, and costs at most 1.5x the
+        census run on the same tree;
+        fails_when=4x the files takes more than 5x the time, or the warnings run takes more than 1.5x the census run;
+        no_claim=a ratio, not a speed target on any one machine."""
+        if os.environ.get("CENSUS_SLOW") != "1":
+            self.skipTest("CENSUS_SLOW=1 not set")
+        slack = float(os.environ.get("CENSUS_TIME_SLACK", "1"))
+        self.tree(1000)
+        small = self.timed("--section", "warnings")
+        self.tree(4000)
+        big = self.timed("--section", "warnings")
+        census = self.timed()
+        self.assertLess(big / max(small, 0.05), 5.0 * slack)
+        self.assertLess(big / max(census, 0.05), 1.5 * slack)
 
 
 # ------------------------------------------------------------------- SKILL.md matches the helper (Y1)

@@ -439,6 +439,7 @@ class State:
         self.hints_capped = False
         self.stopped = False
         self.collect_demo_keys = True  # census only; the section scans turn it off
+        self.census_lines = True  # run the census line rules on each file; the warnings walk turns it off
         self.demo_keys = []
         self.demo_keys_capped = False
 
@@ -540,6 +541,8 @@ def scan_file(path, parts, ext, state):
     text = data.decode("utf-8", errors="replace")
     lines = text.split("\n")
     state.on_lines(parts, ext, lines)
+    if not state.census_lines:
+        return
     is_schema = ext in SQL_EXTS or ext in SCHEMA_EXTS or SCHEMA_NAME_RE.search(parts[-1]) is not None
     found = []
     hints = []
@@ -2028,6 +2031,11 @@ JOB_FAMILIES = {
     "forms": ("react-hook-form", "formik"),
 }
 PY_LIBS = {"requests", "httpx", "aiohttp"}
+# One library under two names: Redux Toolkit is redux (§2.2 lists them as one). A redux import counts as the
+# toolkit when the app declares both.
+SAME_LIBRARY = {"redux": "@reduxjs/toolkit"}
+# aiohttp names that serve requests, not send them: an import of only these is not an HTTP-request library use.
+AIOHTTP_SERVER_NAMES = {"web", "web_request", "web_response", "web_exceptions", "web_runner", "web_urldispatcher"}
 REQ_LINE_RE = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
 EXPORT_FROM_RE = re.compile(r"""\bexport\s+(?:\*|\{[^}]*\})\s*from\s*['"]([^'"\s]+)['"]""")
 
@@ -2041,6 +2049,7 @@ def _toml_deps(text):
     tomllib). None when the file has a shape this small reader does not handle."""
     out, table, in_list = [], None, False
     for raw in text.split("\n"):
+        # a "#" after a quote may sit inside a quoted string, so such a line keeps its comment (prototype rule)
         s = (raw.split("#")[0] if '"' not in raw.split("#")[0] else raw).strip()
         if not s:
             continue
@@ -2095,6 +2104,7 @@ class WarnState(ArchState):
 
     def __init__(self, opts):
         ArchState.__init__(self, opts)
+        self.census_lines = False  # the warnings read only imports: no census rules, stop-line or sample-key work
         self.imports = {}  # rel -> [(library spec or ("py", module), line)]
         self.read = set()  # code files whose lines were read
         self.py_manifests = {}  # dir tuple -> set of normalised names, or None when one could not be read
@@ -2142,17 +2152,20 @@ class WarnState(ArchState):
         text = self._read_text(path)
         try:
             nb = json.loads(text) if text is not None else None
-        except ValueError:
-            nb = None
+        except (ValueError, RecursionError):
+            nb = None  # a notebook that will not parse is skipped; it never stops the section
         if not isinstance(nb, dict):
             return
-        if ((nb.get("metadata") or {}).get("kernelspec") or {}).get("language", "python") != "python":
+        meta = nb.get("metadata")
+        kernel = meta.get("kernelspec") if isinstance(meta, dict) else None
+        if (kernel.get("language", "python") if isinstance(kernel, dict) else "python") != "python":
             return
         code = []
         for cell in nb.get("cells") or []:
             if isinstance(cell, dict) and cell.get("cell_type") == "code":
                 src = cell.get("source")
-                src = "".join(src) if isinstance(src, list) else (src if isinstance(src, str) else "")
+                src = "".join(s for s in src if isinstance(s, str)) if isinstance(src, list) else \
+                    (src if isinstance(src, str) else "")
                 code += src.split("\n")
         self._capture(parts, ".py", code)
 
@@ -2185,14 +2198,17 @@ class WarnState(ArchState):
                 m = PY_FROM_RE.match(line)
                 if m:
                     if not m.group(1) and m.group(2):
-                        imps.append((("py", m.group(2).split(".")[0]), i))
+                        names = set(PY_NAME_RE.findall(m.group(3) or ""))
+                        serves = m.group(2) == "aiohttp" and bool(names) and names <= AIOHTTP_SERVER_NAMES
+                        imps.append((("py", m.group(2).split(".")[0], serves or m.group(2).startswith("aiohttp.web")),
+                                     i))
                     continue
                 m = PY_IMPORT_RE.match(line)
                 if m:
                     for mod in m.group(1).split(","):
                         mod = mod.strip().split(" as ")[0].strip()
                         if mod:
-                            imps.append((("py", mod.split(".")[0]), i))
+                            imps.append((("py", mod.split(".")[0], mod.startswith("aiohttp.web")), i))
         if imps:
             self.imports[rel] = imps
 
@@ -2237,36 +2253,53 @@ def warn_findings(state):
     for app in roots:
         if _late(state):
             break
+        if app and safe_rel(list(app)) is None:
+            state.stats["paths_withheld"] += 1  # a folder name not safe to print: the app is left out, never printed
+            continue
         app_name = "/".join(app) or "."
         declared = _deps(state.manifests.get(app) or {}, ("dependencies", "devDependencies"))
         declared |= state.py_manifests.get(app) or set()
         checked = False
         for job in WARN_JOBS:
-            libs = [lib for lib in JOB_FAMILIES[job] if lib in declared]
-            if len(libs) < 2:
-                continue  # the floor (C23): two declared libraries of one family
-            checked = True
-            uses = {}  # library -> {file: first line}
-            for f in files_by_app[app]:
-                for imp, line in state.imports.get(f, ()):
-                    if isinstance(imp, tuple):
-                        lib = imp[1] if imp[1] in PY_LIBS and imp[1] in libs else None
-                    else:
-                        lib = next((x for x in libs if imp == x or imp.startswith(x + "/")), None)
-                    if lib and f not in uses.setdefault(lib, {}):
-                        uses[lib][f] = line
-            used = sorted((x for x in libs if uses.get(x)), key=lambda x: (-len(uses[x]), min(uses[x])))
-            if len(used) < 2:
-                continue
-            places = [{"path": min(uses[x]), "line": uses[x][min(uses[x])], "name": x}
-                      for x in used[:MAX_WARN_PLACES]]
-            if any(safe_rel(p["path"].split("/")) is None for p in places):
-                continue  # a path that is not safe to print (E13): the finding is dropped, never printed
-            findings.append({"kind": "several-ways", "app": app_name, "job": job, "count": len(used),
-                             "places": places, "more": max(0, len(used) - MAX_WARN_PLACES)})
+            family = [lib for lib in JOB_FAMILIES[job] if lib in declared]
+            alias = {k: v for k, v in SAME_LIBRARY.items() if k in family and v in family}
+            family = [lib for lib in family if lib not in alias]
+            # one finding never pairs a JavaScript library with a Python one: they can never be merged
+            for libs in ([x for x in family if x not in PY_LIBS], [x for x in family if x in PY_LIBS]):
+                if len(libs) < 2:
+                    continue  # the floor (C23): two declared libraries of one family, in one language
+                checked = True
+                finding = _several_ways(state, files_by_app[app], app_name, job, libs, alias)
+                if finding:
+                    findings.append(finding)
         coverage.append({"app": app_name, "k1": "checked" if checked else "below_floor"})
-    findings.sort(key=lambda f: (f["app"], f["job"]))
+    findings.sort(key=lambda f: (f["app"], f["job"], f["places"][0]["name"]))
     return findings, coverage
+
+
+def _several_ways(state, files, app_name, job, libs, alias):
+    """One finding when two or more of libs are each used in at least one of files, else None."""
+    is_py = libs[0] in PY_LIBS
+    uses = {}  # library -> {file: first line}
+    for f in files:
+        for imp, line in state.imports.get(f, ()):
+            if isinstance(imp, tuple):
+                lib = imp[1] if is_py and imp[1] in libs and not (imp[1] == "aiohttp" and imp[2]) else None
+            elif not is_py:
+                lib = next((x for x in list(libs) + list(alias) if imp == x or imp.startswith(x + "/")), None)
+                lib = alias.get(lib, lib)
+            else:
+                lib = None
+            if lib and f not in uses.setdefault(lib, {}):
+                uses[lib][f] = line
+    used = sorted((x for x in libs if uses.get(x)), key=lambda x: (-len(uses[x]), min(uses[x])))
+    if len(used) < 2:
+        return None
+    places = [{"path": min(uses[x]), "line": uses[x][min(uses[x])], "name": x} for x in used[:MAX_WARN_PLACES]]
+    if any(safe_rel(p["path"].split("/")) is None for p in places):
+        return None  # a path that is not safe to print (E13): the finding is dropped, never printed
+    return {"kind": "several-ways", "app": app_name, "job": job, "count": len(used), "places": places,
+            "more": max(0, len(used) - MAX_WARN_PLACES)}
 
 
 def build_warnings(state):
@@ -2283,13 +2316,7 @@ def build_warnings(state):
         "findings": listed,
         "totals": {"findings": len(findings), "listed": len(listed), "not_listed": len(findings) - len(listed)},
     }
-    # never trims a rendered field (X4): coverage detail goes first, then stats
-    while len(dumps(result).encode("utf-8")) > MAX_OUTPUT_BYTES and (result["coverage"] or "stats" in result):
-        if result["coverage"]:
-            result["coverage"].pop()
-        else:
-            result.pop("stats")
-    return result
+    return result  # at most 4 findings and 50 apps: always under MAX_OUTPUT_BYTES (test_worst_case_fits)
 
 
 VOCABULARY = frozenset(VOCABULARY_CENSUS + SECTIONS + SIGNALS + FACTS + ADVICE + COVERAGE + ARCH_KINDS + APP_KINDS

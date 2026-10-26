@@ -381,6 +381,18 @@ WARN_NEW_ALARMS = [
     {"key": ["evals/warnings-app/notewell", ".", "http", ["axios", "src/lib/notesClient.ts", 1],
              ["ky", "src/lib/syncClient.ts", 1]],
      "reason": "seeded: the warnings-app scaffold copies notewell"},
+    {"key": ["fixtures/warnings-fine", "devscript", "http", ["node-fetch", "devscript/scripts/seed.mjs", 1],
+             ["axios", "devscript/src/api.ts", 1]],
+     "reason": "KNOWN FALSE ALARM (review 10/26, TODOS): node-fetch is a devDependency used only by a hand-run "
+               "script. warnings-fine's other apps (Redux Toolkit + redux, a website + Python server in one "
+               "folder, aiohttp as a server) must stay silent."},
+    {"key": ["fixtures/warnings-fine", "commented", "http", ["axios", "commented/src/api.ts", 4],
+             ["ky", "commented/src/api.ts", 1]],
+     "reason": "KNOWN FALSE ALARM (review 10/26, TODOS): axios is imported only inside a /* */ block. A block-comment "
+               "rule was tried and reverted in round 2: it hid real imports after triple-quoted strings."},
+    {"key": ["fixtures/warnings-fine", "commented", "http", ["requests", "commented/svc/main.py", 3],
+             ["httpx", "commented/svc/main.py", 6]],
+     "reason": "KNOWN FALSE ALARM (review 10/26, TODOS): requests appears only in a docstring example (same cause)."},
 ]
 # Warnings main prints that the branch may stop printing, each with the reason main was wrong. Same key shape.
 WARN_RECALL_EXCEPTIONS = []
