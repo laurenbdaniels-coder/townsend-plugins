@@ -371,7 +371,7 @@ class PaymentSectionTests(unittest.TestCase):
 WARN_NEW_ALARMS = [
     {"key": ["evals/fixtures/notewell", ".", "http", ["axios", "src/lib/notesClient.ts", 1],
              ["ky", "src/lib/syncClient.ts", 1]],
-     "reason": "seeded: notewell sends requests with axios and with ky (warnings-app, warnings-stable)"},
+     "reason": "seeded: notewell sends requests with axios and with ky (warnings-app)"},
     {"key": ["evals/warnings-crowded/cartwheel", ".", "http", ["axios", "src/lib/net/feed.ts", 1],
              ["ky", "src/lib/net/upload.ts", 1]],
      "reason": "seeded by the warnings-crowded scaffold (two warnings on the crowded app)"},
@@ -381,9 +381,6 @@ WARN_NEW_ALARMS = [
     {"key": ["evals/warnings-app/notewell", ".", "http", ["axios", "src/lib/notesClient.ts", 1],
              ["ky", "src/lib/syncClient.ts", 1]],
      "reason": "seeded: the warnings-app scaffold copies notewell"},
-    {"key": ["evals/warnings-stable/notewell", ".", "http", ["axios", "src/lib/notesClient.ts", 1],
-             ["ky", "src/lib/syncClient.ts", 1]],
-     "reason": "seeded: the warnings-stable scaffold copies notewell"},
 ]
 # Warnings main prints that the branch may stop printing, each with the reason main was wrong. Same key shape.
 WARN_RECALL_EXCEPTIONS = []

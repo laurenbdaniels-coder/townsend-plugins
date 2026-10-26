@@ -161,7 +161,7 @@ Build Decisions shows where your app decides the same thing twice. Custody Check
 
 ## Evals
 
-Before each release, `claude plugin eval` runs every case under `evals/` (30 in 0.7.0) and the one in `evals-no-search/`, on synthetic apps under `evals/fixtures/`; `evals/run-evals.sh` runs them one at a time:
+Before each release, `claude plugin eval` runs every case under `evals/` (29 in 0.7.0) and the one in `evals-no-search/`, on synthetic apps under `evals/fixtures/`; `evals/run-evals.sh` runs them one at a time:
 - a seeded app with one planted two-place decision per type, all of which must be reported, in a short report
 - a crowded app with many look-alike places, where the planted pairs must still be found
 - an app where two places read one shared list (one source, so no card) beside a real duplicated price (a card)
@@ -184,7 +184,7 @@ Before each release, `claude plugin eval` runs every case under `evals/` (30 in 
 - an app whose server code runs inside the database service: no block, and the Not checked line says which code this version checks
 - a folder with no code files the scan reads: it must never say the app is clean
 - an app with more server files than a run reads whole: the report must say some were not checked, and still find the one value the screen chooses
-- an app that sends requests with two libraries: one warning, word for word, after the problems and never in the count line (and the same app twice more: the same words each time)
+- an app that sends requests with two libraries: one warning, word for word, after the problems and never in the count line; it runs 3 times, with the same words each time
 - an app that lists two such libraries and uses one: no warnings section
 - the crowded app with two warnings: one in full, "And 1 more warning.", all four rules still shown, and the report still 50 lines or fewer
 

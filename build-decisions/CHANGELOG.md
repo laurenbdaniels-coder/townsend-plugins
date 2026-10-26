@@ -8,7 +8,7 @@ The footer of every report names the version that produced it. Up to 0.3.2 this 
 - A library counts only when your app lists it and one of its own code files uses it. Tests, stories, fixtures, examples, comments and `.mdx` pages never count. Each app folder is checked on its own.
 - A sample of 125 public apps (2026-10-25) found it in 11 of 11 apps that have it, and flagged 1 of 17 apps that are fine. Not shipped: warnings for code that never runs (its sample flagged too many fine apps) and for parts your app lists and does not use (some warnings named a part the app needs; it gets a new sample).
 - The skill runs the helper four times (`--section warnings` is new). If that run fails, the report says "This run did not look for warnings." and the rest stands.
-- Evals: four new cases (`warnings-app`, `warnings-stable`, `warnings-quiet`, `warnings-crowded`). Every existing case allows one more helper call (`four-shell-commands-at-most`), and each case that checks the payment run also checks the warnings run once.
+- Evals: three new cases (`warnings-app`, run 3 times for the same words each time, `warnings-quiet`, `warnings-crowded`). Every existing case allows one more helper call (`four-shell-commands-at-most`), and each case that checks the payment run also checks the warnings run once.
 
 ## 0.6.3 (2026-10-24)
 
