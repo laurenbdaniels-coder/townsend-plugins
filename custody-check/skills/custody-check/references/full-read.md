@@ -23,4 +23,4 @@ Under the We also can't see line, each only when it applies:
 - a helper did not answer, or its envelope was rejected: "Some of your files were not read for the questions below, because a reader did not finish."
 - on Claude Code with no Agent tool: "Extra readers were not available. Start Claude Code with the launch line in the README, which includes Agent, for a full read."
 
-**Asking the founder.** When you ask an open question that has a passed finding, lead with its "What we saw:" sentence, then ask: "Is that what is live? yes / no / don't know". Their answer counts exactly as any other answer to that question.
+**Asking the founder.** When you ask an open question that has a passed finding, say its "What we saw:" sentence first, then ask that question exactly as SKILL.md and `references/questions.md` word it. Never ask whether the evidence is live or true instead: the answer must be to the question itself, so it counts exactly as it does without evidence.
