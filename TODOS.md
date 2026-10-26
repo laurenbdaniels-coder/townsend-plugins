@@ -2,6 +2,41 @@
 
 ## custody-check
 
+
+### From the S-068 build (custody-check 0.7.0 full read, 2026-10-26)
+
+**What:** items the 0.7.0 build left out, by scope. Record: `townsend-ai-studio-workspace/plugins-internal/custody-check/s068-sample-2026-10-25/README.md`.
+- **Credential file names into free-plugin-standard/shared.** helper_read_guard.py keeps its own credential list so build-decisions' shipped copy did not change. Move it to shared_rules.py with a build-decisions release. Effort: S. Priority: P3.
+- **Eval caps that count helpers separately.** `claude plugin eval` does not document whether a subagent's calls count in `tool_used`; 0.7.0 loosened three caps (4 shell commands, 200 reads, 400-line reads). Tighten main-agent caps once a run shows how calls are counted. Effort: S. Priority: P2.
+- **Hook without python3.** The PreToolUse guard runs `python3 -I`; where python3 is missing (some Windows installs) the hook errors on every Read and does not block. Add a `py -3` fallback or a no-python note. Effort: S. Priority: P2.
+- **Per-run exclusion in the hook.** The guard enforces fixed rules only; the per-run list of Q1-flagged files is enforced by the slice plan, the brief and evals. A run-scoped deny list needs somewhere read-only to keep it. Effort: M. Priority: P3.
+- **Report length.** Reports with "What we saw:" lines ran 640-800 words on 11 sample apps; five eval cases cap reports at 500 words. Decide the cap with real eval runs. Effort: S. Priority: P2.
+- **Holdouts and repeat runs** (waived at Step 0 by Lauren): run the 3 holdout apps and a second run per app with `PTAGS="f1 f2" pilot/run-all.sh` if a later release changes the read. Effort: S (cost ~$200). Priority: P3.
+- **The stricter FIN-style catch.** Release A's prototype found a true open-access problem 0.6.2 misses (anonymous role with full access in a migration) but only through its changed pre-read text; with the freeze it is gone. Revisit as a listed never-worse exception in a Q3 release. Effort: M. Priority: P2.
+
+### From the S-068 /review round 1 (custody-check 0.7.0, 2026-10-26)
+
+**What:** review findings that miss the ship bar (main has the same gap, or the input is contrived), kept out of the PR.
+- **Hook cost on every Read.** The guard starts Python for every Read in any session with the plugin (~0.1 s, measured). A shell pre-filter on `full-read-helper` would skip it for other callers. Effort: S. Priority: P3.
+- **Slice plan re-runs the scanner** (scan + inventory, 1-3 s on real apps). Pass the skill's own scan output in, or run both at once. Effort: S. Priority: P3.
+- **Sandboxed hosts read nothing more.** Where the host blocks `.env` reads, the scan counts read errors and is partial, so the full read never starts (reported, not silent). Decide whether a partial scan whose only gaps are never-open files may still plan slices. Effort: M. Priority: P2.
+- **Scanner gaps the full read now reaches:** a value over 8,192 characters under a key name (counted as a gap, not partial), and a live key in a `.sql` file (not flagged; main has the same gap). The slice plan's key-shape check now covers `.sql`; the long-value gap remains. Effort: S. Priority: P2.
+- **App folder named like a build folder.** The guard checks the whole path, so an app folder named `build`, `dist`, `out`, `vendor` or `coverage` has every helper Read refused (evidence lost, nothing unsafe). Check the first folder for hidden/credential names only. Effort: S. Priority: P2.
+- **`--exclude-dir ./name`.** The slice plan (like the scanner) ignores a path-like value; SKILL.md only allows a bare name. Normalise both the same way. Effort: S. Priority: P3.
+- **Code files named `secrets.ts` / `credentials.ts`** are never read by helpers (the secret-name pattern is broad on purpose). Narrow it to non-code extensions if evidence is missed. Effort: S. Priority: P3.
+- **The guard does not know the app folder.** It blocks hidden and credential folders and anything outside the folder Claude Code started in, but not a sibling app beside it. Pass the app folder to the guard (run-scoped) to close it. Effort: M. Priority: P3.
+
+### Deferred by the S-068 /autoplan (custody-check code-first full read, 2026-10-25)
+
+**What:** items the S-068 plan review deferred. Plan: `~/.claude/plans/idempotent-tinkering-iverson.md`.
+- **Deep-file Q1-Q4 findings by helpers.** In Release A, helpers report evidence only, because a re-opened line cannot prove a missing guard that lives in another file (eng review). Revisit with question-specific proof rules, cross-file tracing and hand labels for Q1-Q4. Related: S-063, S-041. Effort: M / M. Priority: P2.
+- **E1, local git history as Q7 evidence** (merged-via-PR commits, review trailers), read by the scanner overlay. No network. Revisit if Release A's sample shows Q7 still open on most apps. Effort: M / S. Priority: P3.
+- **E3, full-read cache per commit.** First decide the usage pattern (one-shot before launch, or rerun after each deploy). Effort: M / S. Priority: P3.
+- **CLI exit codes.** The scanner and inventory disagree on a missing folder (exit 0 vs 2), and `custody_verdict.py --help` returns usage JSON with exit 0 (Codex DX 6). Existing behaviour: document it as internal JSON interfaces, or align it in a separate release. Effort: S / S. Priority: P3.
+- **One copy-paste quickstart per host** at the top of the custody-check README (Codex DX 7). Effort: S / S. Priority: P3.
+
+**Context:** S-068 Release A ships evidence on open questions only (Lauren D1, 10/25); Release B (settings reads) is S-069.
+
 ### Deferred by the S-064 /autoplan (browser-key names and live keys in code, 2026-10-25)
 
 **What:** items the S-064 plan review deferred. Plan: `~/.claude/plans/idempotent-wishing-feigenbaum.md`.

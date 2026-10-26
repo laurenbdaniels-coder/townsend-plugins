@@ -2,6 +2,25 @@
 
 The footer of every verdict names the version that produced it. Later entries carry a "What changed since the workshop" line so an attendee can tell whether an answer would come out differently today.
 
+## 0.7.0 (2026-10-26)
+
+What changed since the workshop build: the check now reads the rest of your code too, and each open question that your code has something to say about shows what it saw, with a file and a line. Problems, the questions it asks you and the rule that decides are the same as 0.6.2.
+
+- **A full read for the open questions.** After its own read, the agent starts up to 8 read-only helpers. They read up to 320 code files and your app's settings files (server and settings files first) for the questions the code cannot answer alone: backups, a copy that isn't live, who reads changes, costs, alerts, your data, leaving your platform, and the AI questions.
+- **"What we saw:" on an open question.** For example: "What we saw: a scheduled job is set at `vercel.json:19`; this does not show that a named person is told when something fails." Every such sentence comes from a fixed list, so it says only what kind of thing the line is, and always says what it does not show. A question with nothing to show stays as before; the report never says nothing was found.
+- **When the agent asks you one of these questions,** it says what it saw first, then asks the same question as 0.6.2, in the same words.
+- **Start Claude Code with `Agent` added** to the launch line in the README. Without it, or in Codex, the agent reads those files itself in one pass (at most 120 reads), and the report says which way it read.
+- **What it never reads:** `.env` files, key and credential files, AI instruction files, lockfiles, build folders, folders you excluded, every file the scanner flagged for a key, and any settings file the scanner does not check for keys that holds something key-shaped. The list of files each helper gets leaves all of these out. On Claude Code a hook also blocks a helper from opening `.env`, key, credential and instruction files, hidden folders, and anything outside the folder you started in. The hook acts only on the helpers' reads, never on yours.
+- **Measured on a test build of this release,** on 11 apps with every question hand-labelled from their code:
+  - the report showed true evidence for 70% or more of the labelled questions on 9 of 11 apps in a first sample, and on all 4 of the apps that went worst there after the final fixes;
+  - after those fixes, 0 of 37 places that matched no label were wrong;
+  - about 1 to 4 times the tokens of 0.6.2, 2 to 6 minutes;
+  - no helper opened a file it should not.
+- **Known limits:**
+  - Above 320 code files, the rest are not read for these questions; the report says how many.
+  - Which listed files a helper reads comes from its instructions, checked by tests, not from its tools. On Codex the never-open list is followed by instruction only.
+  - Every file the full read opens goes to your AI provider.
+
 ## 0.6.2 (2026-10-25)
 
 What changed since the workshop build: two kinds of exposed key that gave "Nothing found" or only "can't tell" now count as a problem, with a "Do today: replace" line. A clean app reads the same as before.

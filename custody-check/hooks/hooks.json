@@ -1,0 +1,17 @@
+{
+  "description": "custody-check: limits what its full-read helpers may Read. Acts only on Read calls made by custody-check:full-read-helper.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/skills/custody-check/scripts/helper_read_guard.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
