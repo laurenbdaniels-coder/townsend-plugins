@@ -404,5 +404,70 @@ class ShapeTests(WarnCase):
 
 
 
+# ------------------------------------------------------------------- SKILL.md matches the helper (Y1)
+
+SKILL = os.path.join(os.path.dirname(SCRIPT_DIR), "SKILL.md")
+JOB_WORDS = {"http": "sending requests to other services", "state": "keeping track of what is on screen",
+             "dates": "working with dates", "forms": "handling forms people fill in"}  # Lauren, sample gate 10/25
+FIXED = (
+    "**1. This run found one job done in more than one way: <job words>**",
+    "What it means for you: When you ask your AI tool to change this, it may change one way and miss the others.",
+    "And <totals.findings − 1> more warnings.",
+    "And 1 more warning.",
+    "This run did not look for warnings.",
+    "Some parts of your app were not checked for warnings.",
+    "**1 warning:**",
+    "**<totals.findings> warnings:**",
+    'Two places: "It uses `<name 1>` in `<path 1>:<line 1>` and `<name 2>` in `<path 2>:<line 2>`."',
+    'Three places: "It uses `<name 1>` in `<path 1>:<line 1>`, `<name 2>` in `<path 2>:<line 2>`, and `<name 3>` in '
+    '`<path 3>:<line 3>`."',
+    '", and <more> more."',
+    '"In `<app>`, it uses"',
+    "--section warnings 2>/dev/null",
+)
+
+
+class SkillSyncTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        with open(SKILL, encoding="utf-8") as fh:
+            cls.text = fh.read()
+
+    def test_job_words_match_the_table(self):
+        """protects=Y1/D10: every job id the helper can emit has exactly its approved words in SKILL.md;
+        fails_when=a job id has no words, other words, or SKILL.md names a job the helper never emits;
+        no_claim=the rendered report (evals)."""
+        import re
+        rows = dict(re.findall(r"^\s*\| `(\w+)` \| ([a-z][^|]*?) \|$", self.text, re.M))
+        found = {k: v for k, v in rows.items() if k in cs.WARN_JOBS or v in JOB_WORDS.values()}
+        self.assertEqual(found, JOB_WORDS)
+        self.assertEqual(set(JOB_WORDS), set(cs.WARN_JOBS))
+
+    def test_fixed_strings(self):
+        """protects=X6: the founder strings are the approved ones (voice B, Lauren 10/25);
+        fails_when=any fixed warnings string is reworded or deleted;
+        no_claim=strings outside the warnings section."""
+        for s in FIXED:
+            self.assertIn(s, self.text, s)
+
+    def test_accept_check_names_the_helper_keys(self):
+        """protects=the accept check and the helper agree on keys and closed ids;
+        fails_when=the helper gains or loses a key the check does not list, or the check names an id the helper
+        cannot emit;
+        no_claim=the census, architecture and payment checks."""
+        check = self.text.split("**Accept the fourth output only if**", 1)[1].split("\n\n", 1)[0]
+        self.assertIn("`" + ", ".join(sorted(WARN_KEYS, key=list(
+            ("ok", "section", "partial", "version", "coverage", "partial_reasons", "stats", "findings",
+             "totals")).index)) + "`", check)
+        self.assertIn("`kind, app, job, count, places, more`", check)
+        self.assertIn("`path, line, name`", check)
+        self.assertIn("`findings, listed, not_listed`", check)
+        self.assertIn("at most %d findings" % cs.MAX_K1_FINDINGS, check)
+        for job in cs.WARN_JOBS:
+            self.assertIn("`%s`" % job, check)
+        for kind in cs.WARN_KINDS:
+            self.assertIn("`%s`" % kind, check)
+
+
 if __name__ == "__main__":
     unittest.main()
