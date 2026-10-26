@@ -21,6 +21,9 @@
 - **Slice plan re-runs the scanner** (scan + inventory, 1-3 s on real apps). Pass the skill's own scan output in, or run both at once. Effort: S. Priority: P3.
 - **Sandboxed hosts read nothing more.** Where the host blocks `.env` reads, the scan counts read errors and is partial, so the full read never starts (reported, not silent). Decide whether a partial scan whose only gaps are never-open files may still plan slices. Effort: M. Priority: P2.
 - **Scanner gaps the full read now reaches:** a value over 8,192 characters under a key name (counted as a gap, not partial), and a live key in a `.sql` file (not flagged; main has the same gap). The slice plan's key-shape check now covers `.sql`; the long-value gap remains. Effort: S. Priority: P2.
+- **App folder named like a build folder.** The guard checks the whole path, so an app folder named `build`, `dist`, `out`, `vendor` or `coverage` has every helper Read refused (evidence lost, nothing unsafe). Check the first folder for hidden/credential names only. Effort: S. Priority: P2.
+- **`--exclude-dir ./name`.** The slice plan (like the scanner) ignores a path-like value; SKILL.md only allows a bare name. Normalise both the same way. Effort: S. Priority: P3.
+- **Code files named `secrets.ts` / `credentials.ts`** are never read by helpers (the secret-name pattern is broad on purpose). Narrow it to non-code extensions if evidence is missed. Effort: S. Priority: P3.
 - **The guard does not know the app folder.** It blocks hidden and credential folders and anything outside the folder Claude Code started in, but not a sibling app beside it. Pass the app folder to the guard (run-scoped) to close it. Effort: M. Priority: P3.
 
 ### Deferred by the S-068 /autoplan (custody-check code-first full read, 2026-10-25)
