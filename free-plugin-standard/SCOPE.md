@@ -4,7 +4,7 @@ The one place this is written down. Every plan, template, SKILL.md, README, deck
 custody-check or build-decisions agrees with it. A change starts here, with the date and who decided, before any
 other file moves. `scope_test.py` checks the parts a machine can check.
 
-Decided by Lauren Townsend. Last change: 2026-10-23.
+Decided by Lauren Townsend. Last change: 2026-10-25.
 
 ## What these plugins are
 
@@ -85,3 +85,9 @@ counted in the opening count line, which stays the same. Warnings get their own 
 with their own number. Each warning says what it means for the founder and never says what to change. Each kind
 ships only after its own sample of real apps passes the same bar as the other checks: it finds the problem in at
 least half of the apps that have it, and it flags at most 1 in 10 apps that are fine. A kind that fails is cut.
+
+Warnings in 0.7.0 (Lauren, 2026-10-25): only "one job done several ways" ships. Its sample of 125 real apps found it
+in 11 of 11 apps that have it and flagged 1 of 17 apps that are fine. "Code that never runs" is cut: its first
+sample flagged too many fine apps. "More parts than the app uses" is not in 0.7.0: some of its warnings named a part
+the app needs, and it gets a new sample later. A report shows at most one warning in full; the rest are counted in
+one line.
