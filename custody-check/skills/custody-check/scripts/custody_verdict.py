@@ -33,7 +33,7 @@ import subprocess
 import sys
 import types
 
-__version__ = "0.7.0"
+__version__ = "0.7.1"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCANNER = os.path.join(HERE, "custody_scan.py")
@@ -412,7 +412,21 @@ def run_scanner(args):
     return out.stdout.decode("utf-8", "replace")
 
 
+def full_read_plan_id(args):
+    """The plan_id full_read_slices.py prints for this app and these flags (0.7.1), computed here from the same
+    inputs (no second plan run). The verdict only runs when the agent passes it, which it gets from step 1 of the
+    full read; the id changes nothing else in the verdict."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "full_read_slices.py")
+    ns = {"__name__": "full_read_slices", "__file__": path}
+    with open(path, encoding="utf-8") as fh:
+        exec(compile(fh.read(), path, "exec"), ns)
+    return ns["plan_id_for"](args.repo, args.exclude_dir, args.browser_prefix, args.max_files, args.max_file_bytes)
+
+
 HINTS = {
+    "full-read-missing": "the full read's step 1 has not run for this app and these flags: do references/full-read.md "
+                         "now (its step 1 prints plan_id), then run the verdict again with --full-read <plan_id>. If "
+                         "it refuses twice, use the written door rule",
     "usage": "the verdict command was not well formed; use the written door rule",
     "scan-failed": "the second scan did not run or was not accepted; use the written door rule on the first scan",
     "scan-changed": "the second scan differed from the first; use the written door rule on the first scan",
@@ -459,6 +473,7 @@ def main(argv=None):
         p.add_argument("--deadline-s", type=float)
         p.add_argument("--exclude-dir", action="append", default=[])
         p.add_argument("--browser-prefix", action="append", default=[])
+        p.add_argument("--full-read")
         args = p.parse_args(argv)
         answers = parse_answers(args.answers)
         read = parse_read(args.read) if args.read is not None else None
@@ -484,6 +499,12 @@ def main(argv=None):
             got = parse_expect(expect_tokens(scan))
             if got != expect:
                 return fail("scan-changed")
+            try:
+                expected_plan = full_read_plan_id(args)
+            except Exception:  # noqa: BLE001 - cannot check: refuse, and the skill's second-refusal rule applies
+                expected_plan = None
+            if not args.full_read or expected_plan is None or args.full_read != expected_plan:
+                return fail("full-read-missing")
         elif args.scan_json:
             scan, _reason = accept_scan(sys.stdin.read())
             if scan is None:

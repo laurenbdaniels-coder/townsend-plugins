@@ -14,6 +14,13 @@
 - **Holdouts and repeat runs** (waived at Step 0 by Lauren): run the 3 holdout apps and a second run per app with `PTAGS="f1 f2" pilot/run-all.sh` if a later release changes the read. Effort: S (cost ~$200). Priority: P3.
 - **The stricter FIN-style catch.** Release A's prototype found a true open-access problem 0.6.2 misses (anonymous role with full access in a migration) but only through its changed pre-read text; with the freeze it is gone. Revisit as a listed never-worse exception in a Q3 release. Effort: M. Priority: P2.
 
+### From the 0.7.1 review (custody-check full read always runs, 2026-10-26)
+
+**What:** findings under the ship bar; each still ends in a report through the second-refusal rule.
+- **Absolute vs relative app path.** plan_id normalises the folder as typed, so step 1 with `app` and a verdict with an absolute path differ. Normalise with abspath against the working folder. Effort: S. Priority: P3.
+- **Partial install.** With `helper_read_guard.py` missing, step 1 crashes and the verdict refuses twice, then the written rule applies (main's script would still answer). The plugin ships whole. Effort: S. Priority: P3.
+- **The id comes from the inputs only,** so it proves the agent was told the id, not that helpers ran. Stronger proof (a nonce in the helper envelopes) if a run ever skips helpers after step 1. Effort: M. Priority: P3.
+
 ### From the S-068 /review round 1 (custody-check 0.7.0, 2026-10-26)
 
 **What:** review findings that miss the ship bar (main has the same gap, or the input is contrived), kept out of the PR.

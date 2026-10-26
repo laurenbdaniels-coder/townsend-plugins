@@ -1,6 +1,6 @@
 {
   "name": "custody-check",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Run the eleven gut-check questions from 'It Said It Was Fine' on your own AI-built app, read-only, and get a plain report: what is broken, what it means for you, and what your code can't tell. Works in Claude Code and Codex.",
   "author": {
     "name": "Lauren Townsend"

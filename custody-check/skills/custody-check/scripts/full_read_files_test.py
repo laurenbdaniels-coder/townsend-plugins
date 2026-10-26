@@ -1,9 +1,11 @@
 """Pins for the full read (custody-check 0.7.0, S-068).
 
-The freeze: the text the main agent reads before its own Q1-Q4 read stays exactly 0.6.2's, because the
-S-068 sample showed any change there moves its answers (a dropped stop-line on one app). SKILL.md may differ
-from 0.6.2 only by the one pointer line; questions.md and the report template not at all. To change them on
-purpose, rerun the never-worse differential and the sample's 4-app check first, then update the hash here.
+The freeze: the instructions that shape the main agent's own Q1-Q4 read stay exactly 0.6.2's, because the
+S-068 sample showed any change there moves its answers (a dropped stop-line on one app). Everything in SKILL.md
+before "## Run the verdict" may differ from 0.6.2 only by the one pointer line; questions.md and the report
+template not at all. 0.7.1 changed only the verdict step (the --full-read plan id): everything from
+"## If AI drives" on is pinned to 0.6.2 too, and the whole file by hash. To change any of it on purpose, rerun the never-worse differential and the sample's 4-app check
+first, then update the hashes here.
 """
 import hashlib
 import os
@@ -15,7 +17,9 @@ SKILL_DIR = os.path.dirname(HERE)
 PLUGIN = os.path.dirname(os.path.dirname(SKILL_DIR))
 POINTER = "After your own read above and before the founder's questions, follow `references/full-read.md`.\n"
 
-SKILL_062 = "ef6b3938ea95f960d8d438e67d25f4c6cfe7c2097f1d62b9266768b6bba9fef8"
+SKILL_PREFIX_062 = "a982bb65b9766718cf8d2611df6c45580938c62ae285f42446083aeee9b0d697"  # 0.6.2 up to "## Run the verdict"
+SKILL_SUFFIX_062 = "f120d2efe4b98456dc6ccf37966ff38c9cd7de5d46519f3c98cba88c063f0e4f"  # 0.6.2 from "## If AI drives"
+SKILL_071 = "8b995fe7593e201ae11c07019bb6e85edd2ec9ff600c7c9ae6296196e80f2e18"
 QUESTIONS_062 = "01271f2fd3466a511f66a7a23ec88a6c1534ed673b199455fbf073e506cc2251"
 TEMPLATE_062 = "31c2f0efde5e6ee7023c49840be9244d93665730deef3b8fb89cff972040cb82"
 
@@ -35,11 +39,26 @@ def phrase_pairs():
 
 
 class FreezeTests(unittest.TestCase):
-    def test_skill_is_062_plus_pointer(self):
+    def test_skill_before_the_verdict_is_062_plus_pointer(self):
         s = read(SKILL_DIR, "SKILL.md")
         self.assertEqual(s.count(POINTER), 1)
-        self.assertEqual(sha(s.replace("\n" + POINTER, "", 1)), SKILL_062,
-                         "SKILL.md changed beyond the full-read pointer line; see this file's docstring")
+        prefix = s[:s.index("\n## Run the verdict")]
+        self.assertEqual(sha(prefix.replace("\n" + POINTER, "", 1)), SKILL_PREFIX_062,
+                         "SKILL.md changed before the verdict step beyond the pointer line; see this file's docstring")
+
+    def test_skill_after_the_verdict_step_is_062(self):
+        s = read(SKILL_DIR, "SKILL.md")
+        self.assertEqual(sha(s[s.index("\n## If AI drives"):]), SKILL_SUFFIX_062,
+                         "SKILL.md changed after the verdict step; only the verdict step may differ from 0.6.2")
+
+    def test_skill_is_pinned(self):
+        self.assertEqual(sha(read(SKILL_DIR, "SKILL.md")), SKILL_071, "SKILL.md changed; see this file's docstring")
+
+    def test_verdict_step_passes_the_plan_id(self):
+        s = read(SKILL_DIR, "SKILL.md")
+        verdict = s[s.index("## Run the verdict"):]
+        self.assertIn("--full-read '<plan_id>'", verdict)
+        self.assertIn("full-read-missing", verdict)
 
     def test_pointer_sits_before_answer_rules(self):
         s = read(SKILL_DIR, "SKILL.md")

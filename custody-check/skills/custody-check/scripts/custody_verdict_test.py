@@ -303,8 +303,9 @@ class ExpectTests(unittest.TestCase):
 
     def run_main(self, first, second, answers="stop_line=none q1=yes q2=yes q3=yes q4=yes q5=yes q6=yes q9=yes"):
         buf = io.StringIO()
-        with mock.patch.object(cv, "run_scanner", return_value=json.dumps(second) + "\n"), mock.patch("sys.stdout", buf):
-            cv.main(["--repo", "app", "--answers", answers, "--expect", cv.expect_tokens(first)])
+        with mock.patch.object(cv, "run_scanner", return_value=json.dumps(second) + "\n"), \
+                mock.patch.object(cv, "full_read_plan_id", return_value="abcdefabcdef"), mock.patch("sys.stdout", buf):
+            cv.main(["--repo", "app", "--answers", answers, "--expect", cv.expect_tokens(first), "--full-read", "abcdefabcdef"])
         return json.loads(buf.getvalue())
 
     def test_rescan_that_loses_a_q10_field_is_scan_changed(self):
@@ -554,6 +555,13 @@ class ParityTests(unittest.TestCase):
             self.assertIn(c, names)
 
 
+def plan_id(app, cwd=FIXTURES):
+    """The id full_read_slices.py prints for this app: what a verdict call must pass as --full-read (0.7.1)."""
+    out = subprocess.run([sys.executable, "-I", os.path.join(SCRIPT_DIR, "full_read_slices.py"), "--repo", app], cwd=cwd,
+                         capture_output=True, text=True, timeout=300).stdout
+    return json.loads(next(l for l in out.splitlines() if l.startswith("{")))["plan_id"]
+
+
 class CliTests(unittest.TestCase):
     def run_cli(self, args, stdin=None, cwd=FIXTURES):
         out = subprocess.run([sys.executable, "-I", VERDICT] + args, input=stdin, cwd=cwd, capture_output=True,
@@ -565,7 +573,8 @@ class CliTests(unittest.TestCase):
     def test_end_to_end_on_seeded_app(self):
         first = json.loads(subprocess.run([sys.executable, "-I", os.path.join(SCRIPT_DIR, "custody_scan.py"), "--repo",
                                            "seeded-app"], cwd=FIXTURES, capture_output=True, text=True, timeout=300).stdout)
-        out = self.run_cli(["--repo", "seeded-app", "--answers", "stop_line=none", "--expect", cv.expect_tokens(first)])
+        out = self.run_cli(["--repo", "seeded-app", "--answers", "stop_line=none", "--expect", cv.expect_tokens(first),
+                            "--full-read", plan_id("seeded-app")])
         self.assertTrue(out["ok"], out)
         self.assertEqual(out["scanner"], "ran")
         self.assertEqual(out["verdict"]["door"], "get-a-person")  # Q10 has ssn and dob
@@ -573,6 +582,48 @@ class CliTests(unittest.TestCase):
         self.assertEqual(out["scan"]["questions"]["q3"]["answer"], "no")
         self.assertEqual(sorted(out), sorted(cv.OUTPUT_KEYS))
         self.assertLessEqual(len(json.dumps(out, separators=(",", ":"))), cv.MAX_OUTPUT_BYTES)
+
+    # --- 0.7.1: the verdict only runs after the full read's plan ran (S-068 release run skipped it)
+    def _first(self):
+        return json.loads(subprocess.run([sys.executable, "-I", os.path.join(SCRIPT_DIR, "custody_scan.py"), "--repo",
+                                          "seeded-app"], cwd=FIXTURES, capture_output=True, text=True, timeout=300).stdout)
+
+    def test_repo_without_the_full_read_is_refused(self):
+        out = self.run_cli(["--repo", "seeded-app", "--answers", "stop_line=none", "--expect", cv.expect_tokens(self._first())])
+        self.assertEqual((out["ok"], out["error"]), (False, "full-read-missing"))
+        self.assertIn("full-read.md", out["hint"])
+
+    def test_a_plan_id_that_does_not_match_is_refused(self):
+        out = self.run_cli(["--repo", "seeded-app", "--answers", "stop_line=none", "--expect", cv.expect_tokens(self._first()),
+                            "--full-read", "0123456789ab"])
+        self.assertEqual((out["ok"], out["error"]), (False, "full-read-missing"))
+
+    def test_the_plan_id_changes_nothing_in_the_verdict(self):
+        first = self._first()
+        out = self.run_cli(["--repo", "seeded-app", "--answers", "stop_line=none", "--expect", cv.expect_tokens(first),
+                            "--full-read", plan_id("seeded-app")])
+        self.assertEqual(out["verdict"], cv.decide(out["scan"], cv.parse_answers("stop_line=none"), None))
+
+    def test_founder_flags_reach_the_plan_check(self):
+        first = json.loads(subprocess.run([sys.executable, "-I", os.path.join(SCRIPT_DIR, "custody_scan.py"), "--repo",
+                                           "seeded-app", "--exclude-dir", "src", "--max-files", "50"], cwd=FIXTURES,
+                                          capture_output=True, text=True, timeout=300).stdout)
+        pid = json.loads(next(l for l in subprocess.run(
+            [sys.executable, "-I", os.path.join(SCRIPT_DIR, "full_read_slices.py"), "--repo", "seeded-app", "--exclude-dir",
+             "src", "--max-files", "50", "--deadline-s", "300"], cwd=FIXTURES, capture_output=True, text=True,
+            timeout=300).stdout.splitlines() if l.startswith("{")))["plan_id"]
+        out = self.run_cli(["--repo", "seeded-app", "--exclude-dir", "src", "--max-files", "50", "--deadline-s", "300",
+                            "--answers", "stop_line=none", "--expect", cv.expect_tokens(first), "--full-read", pid])
+        self.assertTrue(out["ok"], out)
+        out = self.run_cli(["--repo", "seeded-app", "--exclude-dir", "src", "--answers", "stop_line=none",
+                            "--expect", cv.expect_tokens(first), "--full-read", pid])
+        self.assertEqual(out.get("error"), "full-read-missing")  # a flag left off the verdict call
+
+    def test_the_hint_allows_the_written_rule_after_a_second_refusal(self):
+        self.assertIn("twice", cv.HINTS["full-read-missing"])
+
+    def test_no_scan_needs_no_plan(self):
+        self.assertTrue(self.run_cli(["--no-scan", "--answers", "stop_line=none"])["ok"])
 
     def test_repo_requires_expect(self):
         out = self.run_cli(["--repo", "seeded-app", "--answers", "stop_line=none"])
