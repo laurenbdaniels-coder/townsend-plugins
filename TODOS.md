@@ -2,6 +2,18 @@
 
 ## custody-check
 
+
+### Deferred by the S-068 /autoplan (custody-check code-first full read, 2026-10-25)
+
+**What:** items the S-068 plan review deferred. Plan: `~/.claude/plans/idempotent-tinkering-iverson.md`.
+- **Deep-file Q1-Q4 findings by helpers.** In Release A, helpers report evidence only, because a re-opened line cannot prove a missing guard that lives in another file (eng review). Revisit with question-specific proof rules, cross-file tracing and hand labels for Q1-Q4. Related: S-063, S-041. Effort: M / M. Priority: P2.
+- **E1, local git history as Q7 evidence** (merged-via-PR commits, review trailers), read by the scanner overlay. No network. Revisit if Release A's sample shows Q7 still open on most apps. Effort: M / S. Priority: P3.
+- **E3, full-read cache per commit.** First decide the usage pattern (one-shot before launch, or rerun after each deploy). Effort: M / S. Priority: P3.
+- **CLI exit codes.** The scanner and inventory disagree on a missing folder (exit 0 vs 2), and `custody_verdict.py --help` returns usage JSON with exit 0 (Codex DX 6). Existing behaviour: document it as internal JSON interfaces, or align it in a separate release. Effort: S / S. Priority: P3.
+- **One copy-paste quickstart per host** at the top of the custody-check README (Codex DX 7). Effort: S / S. Priority: P3.
+
+**Context:** S-068 Release A ships evidence on open questions only (Lauren D1, 10/25); Release B (settings reads) is S-069.
+
 ### Deferred by the S-064 /autoplan (browser-key names and live keys in code, 2026-10-25)
 
 **What:** items the S-064 plan review deferred. Plan: `~/.claude/plans/idempotent-wishing-feigenbaum.md`.
