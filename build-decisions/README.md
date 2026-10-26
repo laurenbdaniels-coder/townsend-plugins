@@ -2,7 +2,7 @@
 
 Build Decisions (until 0.3.2 called Decision Census; that name now installs a pointer to this plugin) is the companion to custody-check. custody-check covers "it says it's fine, and it's broken". This covers "it works, and it's piling up": the same decision made in two places, so a fix lands in one and the other stays broken, or one screen shows a price and checkout charges another. Both copies work today, which is why you can't see it from the app.
 
-Build Decisions shows where your app decides who sees what and what things cost, and which rules it wrote more than once. Custody Check shows what a stranger could see or do in your app, and what your code can't tell it.
+Build Decisions shows where your app decides the same thing twice. Custody Check shows what a stranger could see or do in your app, and what your code can't tell it.
 
 It looks for the places where your AI-built app decides four things:
 
@@ -129,6 +129,8 @@ The agent runs three commands, all the same helper (`python3 -I census_scan.py -
 | Values the browser chooses that your own server code saves or counts by | | Values chosen in code that runs inside your database service (planned) |
 | How the app is built: browser to database, its own server code, a second app sharing the data | Screens that save money or paid fields straight to the database: listed, not confirmed (the database may refuse the write) | Database settings that say who may change a field (planned) |
 | Rules found inside a second app that shares the data | A price in the app beside a payment-company price id | Library versions with known security fixes (planned) |
+|  |  | Limits, discounts and date cutoffs decided twice (next release) |
+|  |  | Warnings, counted on their own: several ways to do one job, code that never runs, more parts than the job needs (next release) |
 
 The report's "Not checked" line names what this version does not check, so a missing section never reads as nothing found.
 
@@ -141,7 +143,7 @@ It reads files, not your running app. It can't see:
 - whether two places give different answers in your running app (the report puts places that already disagree in the files first)
 - how your app is deployed: "signs of a second app" means the files show one, not that it is live or shares a live database
 
-Build Decisions shows where your app decides who sees what and what things cost, and which rules it wrote more than once. Custody Check shows what a stranger could see or do in your app, and what your code can't tell it.
+Build Decisions shows where your app decides the same thing twice. Custody Check shows what a stranger could see or do in your app, and what your code can't tell it.
 
 ## Evals
 
