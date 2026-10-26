@@ -367,8 +367,15 @@ class PaymentSectionTests(unittest.TestCase):
 
 # Every warning the helper prints on a fixture app or a scaffolded eval case, by exact case, with its reason
 # (S-059, C1/C14). Any warning not listed here fails CI, and so does an entry that no longer fires.
-# Key: [where, app folder, job, [library, path, line], ...] in the helper's place order.
+# Key: [where, app folder, job (or the kind, for unused-parts), [library or part, path, line], ...] in the helper's
+# place order.
 WARN_NEW_ALARMS = [
+    {"key": ["fixtures/unused-parts", "seeded", "unused-parts", ["moment", "seeded/package.json", 12],
+             ["left-pad", "seeded/package.json", 13]],
+     "reason": "seeded (0.8.0, S-070): two runtime parts nothing in the app uses; a lockfile covers the app"},
+    {"key": ["evals/warnings-unused/notewell", ".", "unused-parts", ["ky", "package.json", 10],
+             ["moment", "package.json", 11]],
+     "reason": "seeded (0.8.0, S-070): the warnings-unused eval lists ky and moment and uses neither; a lockfile covers it"},
     {"key": ["evals/fixtures/notewell", ".", "http", ["axios", "src/lib/notesClient.ts", 1],
              ["ky", "src/lib/syncClient.ts", 1]],
      "reason": "seeded: notewell sends requests with axios and with ky (warnings-app)"},
@@ -399,7 +406,7 @@ WARN_RECALL_EXCEPTIONS = []
 
 
 def warn_keys(where, result):
-    return {(where, f["app"], f["job"]) + tuple((p["name"], p["path"], p["line"]) for p in f["places"])
+    return {(where, f["app"], f.get("job", f["kind"])) + tuple((p["name"], p["path"], p["line"]) for p in f["places"])
             for f in result["findings"]}
 
 
@@ -469,6 +476,22 @@ class WarningsSectionTests(unittest.TestCase):
         with open(os.path.join(repo, "src", "lib", "syncClient.ts"), "w", encoding="utf-8") as fh:
             fh.write("import ky from 'ky'\n\nexport const pushNotes = (n: unknown[]) => ky.post('/n', { json: n })\n")
         planted = warn_keys("evals/fixtures/notewell-quiet", scan(SCRIPT, repo, "--section", "warnings"))
+        self.assertEqual(len(unlisted_warnings(self.found | planted)), 1)
+
+    def test_planted_unused_part_turns_the_gate_red(self):
+        """protects=the gate for unused-parts (C1 mutation, S-070): one more listed part nothing uses, in the fine
+        fixture, is caught;
+        fails_when=a planted unused runtime part in unused-parts/fine passes unlisted;
+        no_claim=other plants."""
+        repo = os.path.join(self.tmp, "planted-k3", "fine")
+        shutil.copytree(os.path.join(FIXTURES, "unused-parts", "fine"), repo)
+        path = os.path.join(repo, "package.json")
+        with open(path, encoding="utf-8") as fh:
+            man = json.load(fh)
+        man["dependencies"]["left-pad"] = "1.3.0"
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(man, fh, indent=2)
+        planted = warn_keys("fixtures/unused-parts", scan(SCRIPT, repo, "--section", "warnings"))
         self.assertEqual(len(unlisted_warnings(self.found | planted)), 1)
 
     def test_never_worse_than_main(self):

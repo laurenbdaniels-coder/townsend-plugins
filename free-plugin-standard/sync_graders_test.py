@@ -1511,6 +1511,15 @@ NEW_GRADERS.update({
     ('build-decisions', 'stopline-app', 'says-what-not-what-to-do'): ('0.6.0', _B060['says-what-not-what-to-do']),
 })
 
+# 0.8.0 (S-070): the warnings-app and warnings-quiet apps have no lockfile, so 0.8.0 prints the new Not checked line
+# for parts the app does not use. Saved 0.7.0 reports cannot have it.
+_NO_LIST = ('build-decisions 0.8.0 (S-070): an app with no lockfile gets the Not checked line "This run found no list '
+            'of the parts your app installs, so it did not look for parts your app does not use."')
+NEW_GRADERS.update({
+    ('build-decisions', 'warnings-app', 'no-list-line'): ('0.8.0', _NO_LIST),
+    ('build-decisions', 'warnings-quiet', 'no-list-line'): ('0.8.0', _NO_LIST),
+})
+
 NEW_GRADER_PROBLEMS = ('malformed', 'unproven', 'not needed')
 
 
@@ -2100,7 +2109,7 @@ class NeverSaysCleanGraderTest(unittest.TestCase):
                     self.assertFalse(_fails(check, line), '%s fails plain line %r' % (case, line))
                 for line in SAYS_CLEAN:
                     self.assertTrue(_fails(check, line), '%s misses %r' % (case, line))
-        self.assertEqual(seen, 13)  # 0.6.0: crowded-values carries seeded-app's grader; 0.6.2: so does bare-yes; 0.7.0: the three warnings-* cases
+        self.assertEqual(seen, 14)  # 0.6.0: crowded-values carries seeded-app's grader; 0.6.2: so does bare-yes; 0.7.0: the three warnings-* cases; 0.8.0: warnings-unused
 
 
 

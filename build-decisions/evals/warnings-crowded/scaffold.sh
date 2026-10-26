@@ -16,7 +16,7 @@ export async function POST(req: Request) {
 TS
 # 0.7.0 (S-059): two jobs each done with two libraries, so the warnings heading says 2 and one block shows.
 cat > ./cartwheel/package.json <<'JSON'
-{ "name": "cartwheel", "private": true, "dependencies": { "next": "15.0.0", "@supabase/supabase-js": "2.45.0", "axios": "1.7.2", "ky": "1.4.0", "zustand": "4.5.4", "jotai": "2.9.0" } }
+{ "name": "cartwheel", "private": true, "scripts": { "dev": "next dev" }, "dependencies": { "next": "15.0.0", "@supabase/supabase-js": "2.45.0", "axios": "1.7.2", "ky": "1.4.0", "zustand": "4.5.4", "jotai": "2.9.0" } }
 JSON
 mkdir -p ./cartwheel/src/lib/net ./cartwheel/src/lib/store
 cat > ./cartwheel/src/lib/net/feed.ts <<'TS'
@@ -47,3 +47,8 @@ import { atom } from 'jotai'
 // Remembers the light or dark look.
 export const themeAtom = atom<'light' | 'dark'>('light')
 TS
+# 0.8.0 (S-070): a lockfile covers the app, so the report has no "no list of the parts" line and stays at
+# 50 lines (Lauren 10/26). Every listed part is used, so unused-parts adds no warning.
+cat > ./cartwheel/package-lock.json <<'JSON'
+{ "name": "cartwheel", "lockfileVersion": 3, "requires": true, "packages": { "": { "name": "cartwheel" } } }
+JSON

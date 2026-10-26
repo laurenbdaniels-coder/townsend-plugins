@@ -32,6 +32,11 @@ def pkg(deps=None, dev=None):
     return json.dumps(obj, indent=2)
 
 
+def k1cov(result):
+    """The several-ways part of coverage (unused-parts adds its own k3 field; unused_parts_test checks it)."""
+    return [{"app": c["app"], "k1": c["k1"]} for c in result["coverage"]]
+
+
 class WarnCase(unittest.TestCase):
     def setUp(self):
         self.parent = tempfile.mkdtemp(prefix="warn-test-")
@@ -174,7 +179,7 @@ class UseTests(WarnCase):
         self.w("src/a.ts", "import axios from 'axios'\n")
         r = self.warn()
         self.assertEqual(r["findings"], [])
-        self.assertEqual(r["coverage"], [{"app": ".", "k1": "checked"}])
+        self.assertEqual(k1cov(r), [{"app": ".", "k1": "checked"}])
 
     def test_used_but_not_declared_does_not_count(self):
         """protects=a library must be declared by the app (the floor reads the manifest);
@@ -247,7 +252,7 @@ class UseTests(WarnCase):
         self.w("src/store/logger.ts", "import type { Middleware } from 'redux'\n")
         r = self.warn()
         self.assertEqual(r["findings"], [])
-        self.assertEqual(r["coverage"], [{"app": ".", "k1": "below_floor"}])
+        self.assertEqual(k1cov(r), [{"app": ".", "k1": "below_floor"}])
         self.w("package.json", pkg(["@reduxjs/toolkit", "redux", "zustand"]))
         self.w("src/ui.ts", "import { create } from 'zustand'\n")
         f = self.warn()["findings"]
@@ -265,7 +270,7 @@ class UseTests(WarnCase):
         self.w("api/index.py", "from flask import Flask\nimport requests\n")
         r = self.warn()
         self.assertEqual(r["findings"], [])
-        self.assertEqual(r["coverage"], [{"app": ".", "k1": "below_floor"}])
+        self.assertEqual(k1cov(r), [{"app": ".", "k1": "below_floor"}])
         self.w("requirements.txt", "flask\nrequests\nhttpx\n")
         self.w("api/other.py", "import httpx\n")
         self.assertEqual([[p["name"] for p in x["places"]] for x in self.warn()["findings"]], [["requests", "httpx"]])
@@ -361,9 +366,9 @@ class ShapeTests(WarnCase):
         no_claim=other families."""
         self.w("package.json", pkg(["axios"]))
         self.w("src/a.ts", "import axios from 'axios'\n")
-        self.assertEqual(self.warn()["coverage"], [{"app": ".", "k1": "below_floor"}])
+        self.assertEqual(k1cov(self.warn()), [{"app": ".", "k1": "below_floor"}])
         self.w("package.json", pkg(["axios", "ky"]))
-        self.assertEqual(self.warn()["coverage"], [{"app": ".", "k1": "checked"}])
+        self.assertEqual(k1cov(self.warn()), [{"app": ".", "k1": "checked"}])
 
     def test_four_libraries_name_three(self):
         """protects=D8/E11: up to 3 libraries named, by files using each then path; each named once at its first
@@ -469,7 +474,7 @@ class ShapeTests(WarnCase):
         self.assertNotIn("`", self.line)
         self.assertNotIn("Say the app", self.line)
         self.assertEqual(r["findings"], [])
-        self.assertEqual(r["coverage"], [{"app": ".", "k1": "checked"}])
+        self.assertEqual(k1cov(r), [{"app": ".", "k1": "checked"}])
         self.assertEqual(r["stats"]["paths_withheld"], 1)
 
     def test_more_than_max_apps(self):
@@ -484,22 +489,25 @@ class ShapeTests(WarnCase):
         self.assertEqual(len(r["coverage"]), cs.MAX_APPS)
 
     def test_worst_case_fits(self):
-        """protects=X4/E16: 4 findings of 3 places with the longest paths, and 50 apps of coverage, fit the cap
-        without trimming a rendered field;
-        fails_when=the line passes 30000 bytes or a finding is cut to fit;
+        """protects=X4/E16: 4 several-ways and 2 unused-parts findings of 3 places with the longest paths and package
+        names, and 50 apps of coverage, fit the cap without trimming a rendered field;
+        fails_when=the line passes 30000 bytes, a finding is cut to fit, or the caps (4 several-ways, 6 in all) slip;
         no_claim=real apps (smaller)."""
         state = cs.WarnState(cs.Options(10, 10, 10, 10))
         state.post_walk_started = 0
         long = "/".join(["d" * 40] * 6)
-        findings = [{"kind": "several-ways", "app": long, "job": "http", "count": 8,
-                     "places": [{"path": long + "/f%d.ts" % k, "line": 99999, "name": "@reduxjs/toolkit"}
-                                for k in range(3)], "more": 5} for _ in range(4)]
-        coverage = [{"app": long + str(i), "k1": "checked"} for i in range(50)]
-        with mock.patch.object(cs, "warn_findings", return_value=(findings + findings[:1], coverage)):
+        several = [{"kind": "several-ways", "app": long, "job": "http", "count": 8,
+                    "places": [{"path": long + "/f%d.ts" % k, "line": 99999, "name": "@reduxjs/toolkit"}
+                               for k in range(3)], "more": 5} for _ in range(5)]
+        unused = [{"kind": "unused-parts", "app": long, "count": 9,
+                   "places": [{"path": long + "/package.json", "line": 99999, "name": "n" * cs.MAX_NPM_NAME_CHARS}
+                              for _ in range(3)], "more": 6} for _ in range(3)]
+        coverage = [{"app": long + str(i), "k1": "checked", "k3": "manifest_unreadable"} for i in range(50)]
+        with mock.patch.object(cs, "warn_findings", return_value=(several, unused, coverage)):
             out = cs.build_warnings(state)
         self.assertLessEqual(len(cs.dumps(out).encode("utf-8")), cs.MAX_OUTPUT_BYTES)
-        self.assertEqual(out["findings"], findings)
-        self.assertEqual(out["totals"], {"findings": 5, "listed": 4, "not_listed": 1})
+        self.assertEqual(out["findings"], several[:4] + unused[:2])
+        self.assertEqual(out["totals"], {"findings": 8, "listed": 6, "not_listed": 2})
 
 
 
@@ -558,6 +566,23 @@ FIXED = (
     'Three places: "It uses `<name 1>` in `<path 1>:<line 1>`, `<name 2>` in `<path 2>:<line 2>`, and `<name 3>` in '
     '`<path 3>:<line 3>`."',
     '", and <more> more."',
+    # unused-parts (S-070 K3; voice B and the M-K3 meaning approved 10/23-10/25, the no-list line 10/26)
+    "**1. This run found <count> parts your app lists but does not use**",
+    "**1. This run found 1 part your app lists but does not use**",
+    'One place: "This run found nothing that uses this part: `<name 1>` (`<path 1>:<line 1>`)."',
+    'Two places: "This run found nothing that uses these parts: `<name 1>` (`<path 1>:<line 1>`) and `<name 2>` '
+    '(`<path 2>:<line 2>`)."',
+    'Three places: "This run found nothing that uses these parts: `<name 1>` (`<path 1>:<line 1>`), `<name 2>` '
+    '(`<path 2>:<line 2>`), and `<name 3>` (`<path 3>:<line 3>`)."',
+    '"In `<app>`, this run found"',
+    "What it means for you: There are more parts to keep working, so changes take longer and break more often.",
+    "Some files could not be read, so this run did not look for parts your app does not use.",
+    "This run found no list of the parts your app installs, so it did not look for parts your app does not use.",
+    "Your app's list of parts was made by an older tool, so this run did not look for parts your app does not use.",
+    "This run reached its time limit, so it did not look for parts your app does not use.",
+    "In `<app>`, some files could not be read, so this run did not look for parts it does not use.",
+    "In `<app>`, this run found no list of the parts your app installs, so it did not look for parts it does not use.",
+    "In `<app>`, the list of parts was made by an older tool, so this run did not look for parts it does not use.",
     '"In `<app>`, it uses"',
     "--section warnings 2>/dev/null",
 )
@@ -598,7 +623,10 @@ class SkillSyncTests(unittest.TestCase):
         self.assertIn("`kind, app, job, count, places, more`", check)
         self.assertIn("`path, line, name`", check)
         self.assertIn("`findings, listed, not_listed`", check)
-        self.assertIn("at most %d findings" % cs.MAX_K1_FINDINGS, check)
+        self.assertIn("`kind, app, count, places, more`", check)
+        self.assertIn("at most %d findings" % cs.MAX_WARNINGS, check)
+        for state in cs.WARN_K3_STATES:
+            self.assertIn("`%s`" % state, check)
         for job in cs.WARN_JOBS:
             self.assertIn("`%s`" % job, check)
         for kind in cs.WARN_KINDS:

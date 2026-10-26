@@ -91,3 +91,9 @@ in 11 of 11 apps that have it and flagged 1 of 17 apps that are fine. "Code that
 sample flagged too many fine apps. "More parts than the app uses" is not in 0.7.0: some of its warnings named a part
 the app needs, and it gets a new sample later. A report shows at most one warning in full; the rest are counted in
 one line.
+
+Warnings in 0.8.0 (Lauren, 2026-10-26): "more parts than the app uses" ships for JavaScript apps, worded "parts your
+app lists but does not use". After the fixes for the parts it wrongly named, it runs only when a lockfile covers
+the app. Its fresh sample of 55 public JavaScript apps found it in 43 of 47 apps that have it and flagged 0 of 11
+apps that are fine. Without a lockfile, or when files could not be read, the report says it did not look. Python
+apps are not checked for parts.
