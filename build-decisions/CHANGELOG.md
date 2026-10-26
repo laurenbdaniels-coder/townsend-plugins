@@ -2,6 +2,14 @@
 
 The footer of every report names the version that produced it. Up to 0.3.2 this plugin was called decision-census.
 
+## 0.8.0 (2026-10-26)
+
+- **New warning: parts your app lists but does not use** (JavaScript apps). When a JavaScript app lists outside packages in `package.json` that nothing in the app uses, the report can add a warning: "This run found 3 parts your app lists but does not use", up to three of them with their `package.json` line, and what it means for you ("There are more parts to keep working, so changes take longer and break more often."). Like every warning, it is not counted in the opening count line, and the report still shows one warning in full (one job done in more than one way comes first).
+- A part counts as used when a file imports it (tests and `.mdx` pages too, following imports out of the app folder), a stylesheet, config file or script names it, a tool's own settings file is in the app, a `node_modules/<part>` path names it, a part it pairs with is used, or a used part needs it according to the lockfile. Never listed: `devDependencies`, `@types/` packages and the repo's own `workspace:`/`file:`/`link:` packages. Apps that list fewer than 5 parts are not checked.
+- **It needs a lockfile.** It runs only when a readable `package-lock.json`, `pnpm-lock.yaml` or `yarn.lock` covers the app; otherwise Not checked says "This run found no list of the exact parts your app installs, so it did not look for parts your app does not use." When a code file or `package.json` could not be read, it says "Some files could not be read, so this run did not look for parts your app does not use." Python apps are not checked for parts.
+- A fresh sample of 55 public JavaScript apps (2026-10-26), run once on the frozen rules: found in 43 of 47 apps that have it, 0 of 11 fine apps flagged, 227 of 232 listed parts really unused. The shipped helper lists the same parts as the frozen prototype on all 228 sample apps.
+- Everything above the warnings, and the several-ways warning, is unchanged from 0.7.0 on every sample app and test app.
+
 ## 0.7.0 (2026-10-26)
 
 - **New: warnings, counted on their own.** When your app does one job with two or more libraries (sending requests to other services, keeping track of what is on screen, working with dates, handling forms people fill in), the report adds a warning after the problems: "This run found one job done in more than one way", the libraries and where each is used, and what it means for you. Warnings never enter the opening count line and are numbered on their own. The report shows one in full and counts the rest ("And 1 more warning."). An app with no warning shows no warnings section.

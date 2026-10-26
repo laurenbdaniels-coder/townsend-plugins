@@ -142,8 +142,9 @@ class ShippedCopyTests(unittest.TestCase):
         self.assertEqual(found(read(ROOT, "free-plugin-standard", "STANDARD.md")), [])
 
 
-# Kinds of warning the 0.7.0 sample cut or deferred (S-059): no shipped description or trigger may name them.
-CUT_KINDS = re.compile(r"never runs|dead code|unused|does not use|more parts than|not use", re.I)
+# The kind of warning the S-059 sample cut (code that never runs): no shipped description or trigger may name it.
+# 0.8.0 ships "parts your app lists but does not use" (S-070) next to "one job done in more than one way".
+CUT_KINDS = re.compile(r"never runs|dead code|nothing else uses|code that never", re.I)
 ADVICE = re.compile(r"\byou should\b|\bremove\b|\bdelete\b|\bpick one\b|\bkeep one\b|\bswitch to\b|\breplace\b",
                     re.I)
 
@@ -152,12 +153,13 @@ class WarningsCopyTests(unittest.TestCase):
     descriptions = ShippedCopyTests.descriptions
 
     def test_descriptions_name_only_the_shipped_kind(self):
-        """protects=D7: the shipped copy names only the warning that passed its sample;
-        fails_when=a description names a cut kind, or drops the shipped one;
+        """protects=D7: the shipped copy names only the warnings that passed their samples;
+        fails_when=a description names the cut kind, or drops a shipped one;
         no_claim=the README's Not yet column, which lists what is not checked."""
         for name, text in self.descriptions().items():
             self.assertIsNone(CUT_KINDS.search(text), name)
             self.assertRegex(text, r"two or more libraries|two libraries for the same thing", name)
+            self.assertRegex(text, r"lists parts it does not use|parts a JavaScript app lists but does not use", name)
         self.assertIn('"does my app use two libraries for the same thing"', self.descriptions()["SKILL.md description"])
         self.assertNotIn("dead code", skill())
 
@@ -168,6 +170,7 @@ class WarningsCopyTests(unittest.TestCase):
         text = read(PLUGIN, "README.md")
         part = text.split("## How Build Decisions decides a warning", 1)[1].split("\n## ", 1)[0]
         self.assertIn("One job done in more than one way", part)
+        self.assertIn("Parts your app lists but does not use", part)
         self.assertIsNone(CUT_KINDS.search(part))
         self.assertIsNone(ADVICE.search(part))
 
@@ -184,7 +187,7 @@ class VersionTests(unittest.TestCase):
         row = [l for l in read(ROOT, "README.md").splitlines() if l.startswith("| build-decisions |")][0]
         readme = row.split("|")[2].strip()
         self.assertEqual({helper, plugin, market, changelog, readme}, {helper}, (helper, plugin, market, changelog, readme))
-        self.assertEqual(helper, "0.7.0")
+        self.assertEqual(helper, "0.8.0")
 
 
 if __name__ == "__main__":

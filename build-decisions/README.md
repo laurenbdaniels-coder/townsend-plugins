@@ -17,7 +17,7 @@ It also says, in one or two plain sentences, **how your app is built**: whether 
 
 And it says **where your app saves whether someone has paid**: when two places do it (say, the payment company's message and a thank-you page), that is a rule written in more than one place. It points out a price written in your app that the payment company also charges, and a screen that seems to save credits, a plan or a total straight to the database.
 
-And it gives **warnings**, counted on their own and never as problems: a job your app does with two or more libraries, for example two libraries that send requests to other services. When you ask your AI tool to change that job, it may change one way and miss the others.
+And it gives **warnings**, counted on their own and never as problems: a job your app does with two or more libraries, for example two libraries that send requests to other services. When you ask your AI tool to change that job, it may change one way and miss the others. In a JavaScript app it also warns about parts (outside packages) your app lists in `package.json` but does not use: there are more parts to keep working, so changes take longer and break more often.
 
 You get a short, plain-English report, written for someone who builds with an AI tool and does not read code. It starts with how many rules your app writes in more than one place, and why that matters: when a change lands in one copy and misses the others, the app does things you don't expect. Then it says how much of your code it read, and for each rule the places as `path:line` with what each does in the app, and what it means for you. It says what is broken and what it means; it does not tell you what to do. Places that read one shared value are fine and are not reported.
 
@@ -64,7 +64,7 @@ Also worth a look:
 Not checked: database settings, dashboards, other projects, names this run does not know, and code it did not search. This version also does not check sign-in checks on server code, or library versions. Payment places are found from the files, not tested in the app. This version does not check whether payment messages really come from your payment company. It checks values the browser chooses only in your app's own server code, not in code that runs inside your database service. Not found does not mean it isn't there.
 
 ---
-build-decisions v0.7.0 · read-only · a review, not an audit
+build-decisions v0.8.0 · read-only · a review, not an audit
 ```
 
 It's a review, not an audit. It reports, and it changes nothing in your app. It never says your app is clean. "Not found" means not found by this run, never "not there".
@@ -133,18 +133,19 @@ The agent runs four commands, all the same helper (`python3 -I census_scan.py --
 ## How Build Decisions decides a warning
 
 - **One job done in more than one way.** The helper knows four jobs and the libraries that do each: sending requests to other services (axios, ky, got, node-fetch, superagent; in Python requests, httpx, aiohttp), keeping track of what is on screen (redux, Redux Toolkit, zustand, jotai, recoil, mobx, valtio), working with dates (moment, dayjs, date-fns, luxon) and handling forms people fill in (react-hook-form, formik). A warning needs two or more libraries of one job, each listed in the app's `package.json`, `requirements.txt` or `pyproject.toml` and each used in at least one of the app's own code files. A library that is only listed does not count, and neither do tests, stories, fixtures, examples, lines that start with a comment mark (`//`, `/*`, `*`, `#`) or `.mdx` pages. Each app folder is checked on its own, so a website and a phone app that use different libraries are never one warning, and a JavaScript library is never paired with a Python one. Redux Toolkit and redux count as one library. aiohttp does not count in a file that imports only its server part (`aiohttp.web`). Plain `fetch` is not a library and never counts.
-- The report shows one warning in full and counts the rest in one line. A sample of 125 public apps (2026-10-25) found it in 11 of 11 apps that have it, and flagged 1 of 17 apps that are fine.
+- **Parts your app lists but does not use** (JavaScript apps). The candidates are the packages in `package.json` `dependencies` (never `devDependencies`, `@types/` packages, or the repo's own `workspace:`, `file:` and `link:` packages). A part counts as used when any file of the app imports it (tests and `.mdx` pages included, and imports are followed out of the app folder), when a stylesheet, config file, `package.json` script or other `package.json` field names it, when a tool's own settings file is in the app (`.jshintrc`, `vite.config.ts`, `supabase/config.toml`), when a `node_modules/<part>` path names it, when a part it is paired with is used (for example `react-dom` with `react`, `pg-hstore` with `sequelize`), or when a used part needs it according to the app's lockfile. It runs only when a readable `package-lock.json`, `pnpm-lock.yaml` or `yarn.lock` covers the app, and only for apps that list 5 or more such parts. Without a lockfile the report says it did not look. Each warning names at most three parts with their `package.json` line; names that are not plain package names are never printed. Python apps are not checked for parts they do not use.
+- The report shows one warning in full and counts the rest in one line. One job done in more than one way: a sample of 125 public apps (2026-10-25) found it in 11 of 11 apps that have it, and flagged 1 of 17 apps that are fine. Parts your app lists but does not use: a fresh sample of 55 public JavaScript apps (2026-10-26) found it in 43 of 47 apps that have it, flagged 0 of 11 apps that are fine, and 227 of 232 listed parts were really unused.
 
 ## What this version checks
 
-| Checked in 0.7.0 | Partly | Not yet |
+| Checked in 0.8.0 | Partly | Not yet |
 |---|---|---|
 | Rules written in more than one place (who can see a record, prices, paid status, money rounding) | Places that save paid status: listed from the files, read by the agent, not tested in the app | Whether payment messages really come from the payment company (next); sign-in checks on each part that runs on a server (planned) |
 | Values the browser chooses that your own server code saves or counts by | | Values chosen in code that runs inside your database service (planned) |
 | How the app is built: browser to database, its own server code, a second app sharing the data | Screens that save money or paid fields straight to the database: listed, not confirmed (the database may refuse the write) | Database settings that say who may change a field (planned) |
 | Rules found inside a second app that shares the data | A price in the app beside a payment-company price id | Library versions with known security fixes (planned) |
-| Warnings, counted on their own: one job done with two or more libraries (requests to other services, what is on screen, dates, forms) | | Limits and date cutoffs decided twice |
-|  |  | Warnings for code that never runs, or for parts your app lists and does not use |
+| Warnings, counted on their own: one job done with two or more libraries (requests to other services, what is on screen, dates, forms) | Parts a JavaScript app lists and does not use: only when a lockfile covers the app | Limits and date cutoffs decided twice |
+|  |  | Warnings for code that never runs, or for parts a Python app lists and does not use |
 
 The report's "Not checked" line names what this version does not check, so a missing section never reads as nothing found.
 
@@ -185,7 +186,8 @@ Before each release, `claude plugin eval` runs every case under `evals/` (29 in 
 - a folder with no code files the scan reads: it must never say the app is clean
 - an app with more server files than a run reads whole: the report must say some were not checked, and still find the one value the screen chooses
 - an app that sends requests with two libraries: one warning, word for word, after the problems and never in the count line; it runs 3 times, with the same words each time
-- an app that lists two such libraries and uses one: no warnings section
+- an app that lists two such libraries and uses one: no warnings section; it has no lockfile, so Not checked says the run did not look for parts the app does not use
+- an app with a lockfile that lists two parts nothing uses: one "parts your app lists but does not use" warning, word for word
 - the crowded app with two warnings: one in full, "And 1 more warning.", all four rules still shown, and the report still 50 lines or fewer
 
 Every case that renders a report also checks the "How your app is built" line, four helper calls at most, that no internal id is printed, and the "Not checked" line. After the footer, it checks that the stop-line question comes after the footer and that the run then waits (the eval host cannot show a question before the report; in the stop-line app, whose code already answers it, the first of the four signs comes next instead), that the signs come one at a time, and that no part of the report follows the footer. The `decision-census` pointer has its own case: it prints the switch text and runs nothing.
@@ -219,6 +221,8 @@ Claude Code reads the instruction files in the folder it starts in. If you start
 - **"The scan stopped early: …"** The helper stopped early (file limit, size limit, time limit, unreadable files). The report says whether a rerun helps; when it does, say the line it gives (`--max-files 50000` or `--max-file-bytes 5242880`).
 - **The stop-line question comes after the report.** Your tool has no way to show a question before the report (for example Codex, `claude -p`, or a launch line without AskUserQuestion), so it asks in plain text after the footer. Answer in your own words. A yes adds a short extra-risk note before the four signs. A plain "yes" gets one more question first: which of the risks it is. To skip the question, start your request with `stop_line: none`.
 - **"This run did not look for warnings."** The fourth call failed or stopped at its time limit. The rest of the report still stands.
+- **"This run found no list of the exact parts your app installs, so it did not look for parts your app does not use."** The app has no `package-lock.json`, `pnpm-lock.yaml` or `yarn.lock` (Bun's lockfiles are not read yet). Without one the helper cannot see which parts a used part needs, so it stays quiet.
+- **"Some files could not be read, so this run did not look for parts your app does not use."** A code file was too large, linked, or unreadable, or the app's `package.json` would not parse, so a part used only there could look unused.
 - **"Some of your server files were not checked for values the browser chooses."** Your app has more than 10 server files, and a run reads at most 10 of them whole, starting with the ones that take a value from the screen.
 - **A card looks wrong.** Two places that look alike can decide different things. Open both lines; if they don't make the same decision, ignore the card, and open an issue on this repository with the pattern names from the census so I can tune the helper.
 
