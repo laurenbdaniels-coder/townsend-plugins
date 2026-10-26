@@ -11,8 +11,13 @@ paid (whether someone has paid), rounding (how money rounds).
 `--section architecture` prints a different line instead: how the app is built (shape signals with the
 file that shows each, facts, one advice id) and census decisions found inside a second app that uses
 the same data. Same rule: only safe paths and fixed words.
+
+`--section warnings` prints each job an app does with two or more libraries (several-ways). Try it:
+    cd build-decisions/evals/fixtures && python3 -I ../../skills/build-decisions/scripts/census_scan.py \
+        --repo notewell --section warnings | python3 -m json.tool
+Tests: python3 -m unittest discover -s build-decisions/skills/build-decisions/scripts -p "*_test.py"
 """
-__version__ = "0.6.3"
+__version__ = "0.7.0"
 
 import sys
 

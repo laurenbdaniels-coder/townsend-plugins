@@ -498,6 +498,22 @@
 
 ## build-decisions (decision-census until 0.4.0)
 
+### From S-059, warnings (build-decisions 0.7.0, 2026-10-25)
+
+**What:** what the warnings release left out. Plan: `~/.claude/plans/s059-warnings-approved.md`; sample: `plugins-internal/build-decisions/f6-sample-2026-10-25-warnings-files/SAMPLE-REPORT.md`.
+- **Code that never runs (K2), cut by its sample.** Round 1: caught 36% of apps that have it, 87% of listed places right (bars 50% and 95%). Causes: the import resolver's dotted-name gap (main has it too), framework start points it does not know, low reach. Effort: L / M. Priority: P2.
+- **Parts the app lists and does not use (K3), deferred to S-070.** Round 2 (JavaScript apps): caught 77%, 0 of 14 fine apps flagged, 95.5% of places right, but 5 of 34 shown warnings named a part the app needs (packages named by `node_modules/<pkg>` paths, database helpers a library loads by itself, Expo autolinked modules, ESLint shorthand). Python K3 cut on the dev data. Effort: M / M. Priority: P2.
+- **K1 misses libraries used but not listed** (by design: the floor reads the manifest), and its one sample false alarm was an import in a hand-run script. Effort: M / S. Priority: P3.
+- **K1 at product level:** two sign-in paths, two data layers. Families with no sample stratum (sign-in, database access, input checks, styling, toasts) are not in `JOB_FAMILIES` (C8). Each needs its own sample. Effort: M / M. Priority: P2 (product level), P3 (families).
+- **Plain `fetch` as a K1 library.** Effort: S / S. Priority: P3.
+- **"And N more warnings" could name the hidden kinds** (Y6). Only one kind ships, so it says nothing today. Effort: S / S. Priority: P3.
+- **W = 1:** a report shows one warning in full; the crowded eval sits at exactly 50 lines. A second block needs a shorter report or a longer limit (Lauren 10/25). Effort: S / S. Priority: P3.
+- **A requirements.txt `-r other.txt` line is not followed**, and a `pyproject.toml` this reader cannot handle means the folder declares no Python library. Effort: S / S. Priority: P3.
+- **Broader over-building detector** (TD1 alternative), **unused exports and env keys**, a **founder suppression** for a known-fine warning (needs the sample's false-alarm data). Effort: L / M. Priority: P3.
+- **Main's gaps the warnings code shares:** the helper exits 0 on `ok:false`, error codes have no doc anchors and there is no BD_DEBUG trace; there is no path-character allowlist for every printed path. Effort: S / S. Priority: P3.
+
+**Context:** Lauren shipped K1 alone after round 2 (2026-10-25); K2 cut, K3 → S-070.
+
 ### From the build-decisions 0.6.2 eval run (2026-10-23)
 
 **What:** below the ship bar, not fixed in the PR:
