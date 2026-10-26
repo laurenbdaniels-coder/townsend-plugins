@@ -1,2 +1,2 @@
 OPENAI_API_KEY={{SK}}
-SENTRY_DSN=https://example.ingest.sentry.io/1
+SENTRY_DSN=not-set
