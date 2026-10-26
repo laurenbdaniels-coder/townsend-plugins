@@ -120,6 +120,35 @@ class GuardTests(unittest.TestCase):
         self.assertEqual(run(payload)[1], "deny")
 
 
+class MissingSharedRulesTests(unittest.TestCase):
+    """Without shared_rules.py next to it, the guard denies a helper Read and leaves every other call alone."""
+
+    def setUp(self):
+        import shutil
+        self.tmp = tempfile.TemporaryDirectory()
+        self.guard = os.path.join(self.tmp.name, "helper_read_guard.py")
+        shutil.copy(GUARD, self.guard)
+        os.makedirs(os.path.join(self.tmp.name, "app"))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_copy(self, agent):
+        payload = {"tool_name": "Read", "tool_input": {"file_path": os.path.join(self.tmp.name, "app", "a.ts"), "limit": 10},
+                   "cwd": self.tmp.name}
+        if agent:
+            payload["agent_type"] = agent
+        p = subprocess.run([sys.executable, "-I", self.guard], input=json.dumps(payload), capture_output=True, text=True)
+        out = p.stdout.strip()
+        return p.returncode, (json.loads(out)["hookSpecificOutput"]["permissionDecision"] if out else None)
+
+    def test_helper_denied(self):
+        self.assertEqual(self.run_copy(HELPER), (0, "deny"))
+
+    def test_other_callers_untouched(self):
+        self.assertEqual(self.run_copy(None), (0, None))
+
+
 class HooksFileTests(unittest.TestCase):
     def test_hooks_json_points_at_guard(self):
         plugin = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))

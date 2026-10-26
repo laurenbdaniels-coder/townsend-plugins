@@ -15,6 +15,7 @@ _guard = {"__name__": "helper_read_guard", "__file__": os.path.join(HERE, "helpe
 with open(os.path.join(HERE, "helper_read_guard.py"), encoding="utf-8") as _fh:
     exec(compile(_fh.read(), "helper_read_guard.py", "exec"), _guard)
 never_open = _guard["never_open"]
+_guard["load_shared"]()
 SKIP_DIRS = _guard["NEVER_DIRS"]
 OPS = re.compile(r"^(vercel\.json|netlify\.toml|fly(\.[\w-]+)?\.toml|render\.yaml|railway\.json|app\.json|wrangler\.toml|"
                  r"supabase/config\.toml|\.github/workflows/[^/]+\.ya?ml|\.github/CODEOWNERS|CODEOWNERS|docs/CODEOWNERS|"
@@ -23,6 +24,7 @@ OPS = re.compile(r"^(vercel\.json|netlify\.toml|fly(\.[\w-]+)?\.toml|render\.yam
                  r"nixpacks\.toml|scripts/[^/]+\.(sh|mjs|js|ts|py)|supabase/migrations/[^/]+\.sql|prisma/schema\.prisma|"
                  r"\.coderabbit\.ya?ml|promptfooconfig\.ya?ml)$")
 MAX_FILES, MAX_LINES, MAX_SLICES = 40, 6000, 8
+MAX_Q1_ROWS = 12  # custody_scan_0_3_2.MAX_EVIDENCE
 
 
 def jline(out):
@@ -51,9 +53,11 @@ def main():
         print(json.dumps({"ok": False, "error": "scan-or-inventory-failed"}))
         return
     q1 = (scan.get("questions") or {}).get("q1") or {}
-    flagged = {e.get("path") for e in q1.get("evidence", []) if e.get("path")}
-    if scan.get("partial") or (scan.get("stats") or {}).get("q1_rows_capped"):
-        print(json.dumps({"ok": True, "slices": [], "excluded": len(flagged), "stopped_at_cap": "scan-partial-or-capped", "eligible": 0}))
+    evidence = q1.get("evidence", [])
+    flagged = {e.get("path") for e in evidence if e.get("path")}
+    # The scan keeps at most MAX_Q1_ROWS rows; at that count the key list may be cut short, so no helper reads.
+    if scan.get("partial") or len(evidence) >= MAX_Q1_ROWS:
+        print(json.dumps({"ok": False, "error": "scan-partial" if scan.get("partial") else "key-list-full"}))
         return
     rows = {}
     for r in inv.get("files", []):
@@ -73,33 +77,20 @@ def main():
             excluded += 1
             continue
         elig.append((pri, rel, lines))
-    elig.sort(key=lambda t: (t[0], t[1]))
-    # group by folder within priority order, then pack
-    slices, cur, cur_lines = [], [], 0
-    left = []
-    by_folder = {}
-    order = []
-    for pri, rel, lines in elig:
-        k = (pri, os.path.dirname(rel))
-        if k not in by_folder:
-            by_folder[k] = []
-            order.append(k)
-        by_folder[k].append((rel, lines))
-    for k in order:
-        for rel, lines in by_folder[k]:
-            lines = min(lines, MAX_LINES)
-            if cur and (len(cur) >= MAX_FILES or cur_lines + lines > MAX_LINES):
-                slices.append(cur)
-                cur, cur_lines = [], 0
-            if len(slices) >= MAX_SLICES:
-                left.append(rel)
-                continue
-            cur.append(rel)
-            cur_lines += lines
-    if cur and len(slices) < MAX_SLICES:
+    elig.sort(key=lambda t: (t[0], os.path.dirname(t[1]), t[1]))  # priority, then folder, then path
+    slices, cur, cur_lines, left = [], [], 0, []
+    for _pri, rel, lines in elig:
+        lines = min(lines, MAX_LINES)
+        if cur and (len(cur) >= MAX_FILES or cur_lines + lines > MAX_LINES):
+            slices.append(cur)
+            cur, cur_lines = [], 0
+        if len(slices) >= MAX_SLICES:
+            left.append(rel)
+            continue
+        cur.append(rel)
+        cur_lines += lines
+    if cur:
         slices.append(cur)
-    elif cur:
-        left += cur
     print(json.dumps({"ok": True, "slices": [{"n": i + 1, "paths": s} for i, s in enumerate(slices)],
                       "excluded": excluded, "stopped_at_cap": len(left), "eligible": len(elig)}))
 

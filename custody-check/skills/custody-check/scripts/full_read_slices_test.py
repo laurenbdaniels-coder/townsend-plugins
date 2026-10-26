@@ -96,6 +96,16 @@ class SliceTests(unittest.TestCase):
         for rel in ("app/api/health/route.ts", "vercel.json", ".github/workflows/ci.yml"):
             self.assertIn(rel, got)
 
+    def test_full_key_list_means_no_helpers(self):
+        # 0.3.2 keeps at most 12 evidence rows per question; at 12 the key list may be cut short, so a file
+        # with an unlisted key could reach a helper. The plan refuses instead (S-068 ponytail/review finding).
+        for i in range(14):
+            write(self.app, "src/components/K%02d.tsx" % i,
+                  '"use client"\nexport const k = process.env.NEXT_PUBLIC_SVC%02d_SECRET_KEY\n' % i)
+        out = plan(self.parent, "app")
+        self.assertFalse(out["ok"])
+        self.assertEqual(out.get("error"), "key-list-full")
+
     def test_missing_repo(self):
         out = plan(self.parent, "nope")
         self.assertFalse(out["ok"])

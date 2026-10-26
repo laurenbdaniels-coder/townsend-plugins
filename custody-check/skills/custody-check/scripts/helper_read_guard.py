@@ -19,20 +19,27 @@ HELPER = "custody-check:full-read-helper"
 MAX_LINES = 400
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-_shared = {}
-try:
-    with open(os.path.join(HERE, "shared_rules.py"), encoding="utf-8") as fh:
-        exec(compile(fh.read(), "shared_rules.py", "exec"), _shared)
-except (OSError, SyntaxError):
-    _shared = {}
+_EXTRA_DIRS = {".claude", ".codex", ".agents", ".cursor", ".windsurf", ".gemini", "node_modules", "dist", "build",
+               ".next", "out", "vendor", "coverage", ".git", ".vercel", ".turbo"}
+_EXTRA_PAIRS = {(".cursor", "rules"), (".github", "instructions"), (".github", "prompts"), (".github", "agents")}
+_EXTRA_FILES = {".cursorrules", ".windsurfrules"}
+NEVER_DIRS = NEVER_DIR_PAIRS = NEVER_FILES = NEVER_FILE_RE = None
 
-NEVER_DIRS = set(_shared.get("NEVER_OPEN_DIRS", ())) | {".claude", ".codex", ".agents", ".cursor", ".windsurf", ".gemini",
-                                                       "node_modules", "dist", "build", ".next", "out", "vendor", "coverage",
-                                                       ".git", ".vercel", ".turbo"}
-NEVER_DIR_PAIRS = set(_shared.get("NEVER_OPEN_DIR_PAIRS", ())) | {(".cursor", "rules"), (".github", "instructions"),
-                                                                 (".github", "prompts"), (".github", "agents")}
-NEVER_FILE_RE = _shared.get("NEVER_OPEN_FILE_RE") or re.compile(r"^(?:claude|agents?|gemini|conventions)\.md$|.*\.mdc$", re.I)
-NEVER_FILES = set(_shared.get("NEVER_OPEN_FILES", ())) | {".cursorrules", ".windsurfrules"}
+
+def load_shared():
+    """The never-open lists from shared_rules.py, which ships next to this file (sync_shared.py --check).
+    Loaded only once a helper is calling, so a missing file can never touch anyone else's Read."""
+    global NEVER_DIRS, NEVER_DIR_PAIRS, NEVER_FILES, NEVER_FILE_RE
+    if NEVER_FILE_RE is not None:
+        return
+    shared = {}
+    with open(os.path.join(HERE, "shared_rules.py"), encoding="utf-8") as fh:
+        exec(compile(fh.read(), "shared_rules.py", "exec"), shared)
+    NEVER_DIRS = set(shared["NEVER_OPEN_DIRS"]) | _EXTRA_DIRS
+    NEVER_DIR_PAIRS = set(shared["NEVER_OPEN_DIR_PAIRS"]) | _EXTRA_PAIRS
+    NEVER_FILES = set(shared["NEVER_OPEN_FILES"]) | _EXTRA_FILES
+    NEVER_FILE_RE = shared["NEVER_OPEN_FILE_RE"]
+
 
 SECRET_FILE_RE = re.compile(
     r"^\.env(\..*)?$|.*\.env$|.*\.(pem|key|p12|pfx|p8|jks|keystore)$"
@@ -44,6 +51,7 @@ LOCK_RE = re.compile(r".*-lock\.(json|yaml)$|.*\.lock$|^npm-shrinkwrap\.json$", 
 def never_open(parts):
     """parts: a path inside the app, split on /. Returns why the check never opens it, or None.
     full_read_slices.py uses this too, so the slice plan and the guard share one list."""
+    load_shared()
     dirs, name = [p.lower() for p in parts[:-1]], parts[-1]
     for i, d in enumerate(dirs):
         if d in NEVER_DIRS or (i + 1 < len(dirs) and (d, dirs[i + 1]) in NEVER_DIR_PAIRS):
@@ -96,6 +104,10 @@ def main():
         sys.exit(0)
     if payload.get("agent_type") != HELPER or payload.get("tool_name") != "Read":
         sys.exit(0)
+    try:
+        load_shared()
+    except Exception:  # fail closed, but only for the helper
+        deny("could not load the list of files the check never opens")
     judge(payload)
     sys.exit(0)
 
