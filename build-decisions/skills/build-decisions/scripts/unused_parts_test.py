@@ -9,8 +9,11 @@ import json
 import os
 import shutil
 import sys
+import ast
 import tempfile
+import time
 import unittest
+from unittest import mock
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPT_DIR)
@@ -46,7 +49,10 @@ class K3Case(unittest.TestCase):
         has a package.json and no lockfile, since K3 needs one (round 4)."""
         if lock and "package.json" in tree and not any(
                 k.endswith(("package-lock.json", "pnpm-lock.yaml", "yarn.lock")) for k in tree):
-            tree = dict(tree, **{"package-lock.json": LOCK})
+            # like an npm workspaces lockfile: it lists every package folder it covers
+            folders = {k[:-len("/package.json")]: {} for k in tree if k.endswith("/package.json")}
+            tree = dict(tree, **{"package-lock.json": json.dumps(
+                {"lockfileVersion": 3, "packages": dict({"": {}}, **folders)})})
         app = os.path.join(self.parent, "app")
         shutil.rmtree(app, ignore_errors=True)
         os.makedirs(app)
@@ -272,12 +278,12 @@ class LockfileTests(K3Case):
         self.assertEqual(self.names(self.run_tree(t)), ["a", "b"])
 
     def test_yarn_lock_dependency(self):
-        """protects=round 2: a dependency in yarn.lock is used;
+        """protects=round 2: a dependency in yarn.lock (berry) is used;
         fails_when=react-is is listed;
-        no_claim=yarn berry quirks beyond this shape."""
+        no_claim=yarn v1 (old_lockfile, below)."""
         t = self.base()
-        t["yarn.lock"] = ('# yarn lockfile v1\n\n"recharts@^2":\n  version "2.1.0"\n  dependencies:\n'
-                          '    react-is "^18"\n\nreact-is@^18:\n  version "18.0.0"\n')
+        t["yarn.lock"] = ('__metadata:\n  version: 8\n\n"recharts@npm:^2":\n  version: 2.1.0\n  dependencies:\n'
+                          '    react-is: "npm:^18"\n\n"react-is@npm:^18":\n  version: 18.0.0\n')
         self.assertEqual(self.names(self.run_tree(t)), ["a", "b"])
 
     def test_no_lockfile_is_quiet(self):
@@ -299,24 +305,56 @@ class LockfileTests(K3Case):
         self.assertEqual((self.k3(out), self.k3_state(out)), ([], ["no_lockfile"]))
 
     def test_lockfile_in_parent_folder_counts(self):
-        """protects=round 4: a lockfile in a folder above the app covers it (monorepo root lockfile);
+        """protects=round 4: a workspace lockfile in a folder above the app covers it (monorepo root lockfile);
         fails_when=the app is no_lockfile;
-        no_claim=lockfiles in sibling folders."""
-        t = {"package-lock.json": LOCK,
+        no_claim=a parent lockfile that does not list the app (test_parent_lockfile_must_name_the_app)."""
+        t = {"package-lock.json": json.dumps({"lockfileVersion": 3, "packages": {"": {}, "web": {}}}),
              "web/package.json": pkg({"react": "18", "react-dom": "18", "a-pkg": "1", "b-pkg": "1", "c-pkg": "1"}),
              "web/src/main.tsx": "import 'react'\nimport 'react-dom/client'\n"}
         self.assertEqual(self.names(self.run_tree(t, lock=False), "web"), ["a-pkg", "b-pkg", "c-pkg"])
 
-    def test_empty_lockfile_counts_as_read(self):
-        """protects=round 4 'readable' as the sample ran it: an empty or unparsable but readable lockfile covers
-        the app (its graph is empty, so nothing extra counts as used);
-        fails_when=the app is no_lockfile;
+    def test_unparsable_lockfile_is_no_lockfile(self):
+        """protects=review round 1 (0.8.0): a lockfile that does not parse (empty, merge-conflict markers, cut short)
+        never counts as covering the app;
+        fails_when=such an app is checked (a used package's needs are then invisible and look unused);
         no_claim=lockfiles over MAX_LOCKFILE_BYTES (read as none; the cap is checked here)."""
         t = {"package.json": pkg({"react": "18", "react-dom": "18", "a-pkg": "1", "b-pkg": "1", "c-pkg": "1"}),
-             "src/main.tsx": "import 'react'\nimport 'react-dom/client'\n", "yarn.lock": ""}
-        out = self.run_tree(t, lock=False)
-        self.assertEqual(self.k3_state(out), ["checked"])
+             "src/main.tsx": "import 'react'\nimport 'react-dom/client'\n"}
+        for lock in ({"yarn.lock": ""}, {"package-lock.json": "<<<<<<< HEAD\n{}\n=======\n{}\n>>>>>>> x\n"},
+                     {"package-lock.json": "[]"}, {"pnpm-lock.yaml": "not: [a lockfile\n"}):
+            out = self.run_tree(dict(t, **lock), lock=False)
+            self.assertEqual((self.k3(out), self.k3_state(out)), ([], ["no_lockfile"]), lock)
         self.assertEqual(cs.MAX_LOCKFILE_BYTES, 32 * 1024 * 1024)
+
+    def test_old_lockfiles_record_no_peers(self):
+        """protects=review round 1: yarn v1 and npm lockfileVersion 1 do not record peer dependencies, so a part a
+        used package needs only as a peer would look unused; K3 stays quiet (old_lockfile);
+        fails_when=a warning is printed with such a lockfile;
+        no_claim=yarn berry, pnpm and npm v2/v3 (they record peers)."""
+        t = {"package.json": pkg({"react": "18", "react-dom": "18", "bootstrap": "5", "@popperjs/core": "2", "a-pkg": "1"}),
+             "src/main.tsx": "import 'react'\nimport 'react-dom/client'\nimport 'bootstrap'\n"}
+        yarn1 = '# THIS IS AN AUTOGENERATED FILE.\n# yarn lockfile v1\n\n\nbootstrap@^5:\n  version "5.3.0"\n'
+        npm1 = json.dumps({"lockfileVersion": 1, "dependencies": {"bootstrap": {"version": "5.3.0"}}})
+        for lock in ({"yarn.lock": yarn1}, {"package-lock.json": npm1}):
+            out = self.run_tree(dict(t, **lock), lock=False)
+            self.assertEqual((self.k3(out), self.k3_state(out)), ([], ["old_lockfile"]), lock)
+
+    def test_parent_lockfile_must_name_the_app(self):
+        """protects=review round 1: a lockfile in a folder above counts only when it lists the app's folder (a
+        workspace lockfile); a root project's own lockfile does not cover client/;
+        fails_when=client/ is checked against a lockfile that does not list it, or a workspace lockfile is ignored;
+        no_claim=yarn v1 workspaces (old_lockfile anyway)."""
+        deps = {"react": "18", "react-dom": "18", "a-pkg": "1", "b-pkg": "1", "c-pkg": "1"}
+        t = {"package.json": pkg({"concurrently": "8"}),
+             "package-lock.json": json.dumps({"lockfileVersion": 3, "packages": {"": {}, "node_modules/concurrently": {}}}),
+             "client/package.json": pkg(deps), "client/src/main.tsx": "import 'react'\nimport 'react-dom/client'\n"}
+        out = self.run_tree(t, lock=False)
+        self.assertEqual(dict((c["app"], c["k3"]) for c in out["coverage"])["client"], "no_lockfile")
+        t["package-lock.json"] = json.dumps({"lockfileVersion": 3, "packages": {"": {}, "client": {}}})
+        self.assertEqual(self.names(self.run_tree(t, lock=False), "client"), ["a-pkg", "b-pkg", "c-pkg"])
+        t["package-lock.json"] = "lockfileVersion: '9.0'\n\nimporters:\n\n  .:\n    dependencies: {}\n\n  client:\n    dependencies: {}\n"
+        t["pnpm-lock.yaml"] = t.pop("package-lock.json")
+        self.assertEqual(self.names(self.run_tree(t, lock=False), "client"), ["a-pkg", "b-pkg", "c-pkg"])
 
 
 # ------------------------------------------------------------------- S-070 fixes (round 3) and round 4 rules
@@ -433,6 +471,135 @@ class SkipTests(K3Case):
         self.assertEqual((self.k3(out), self.k3_state(out)), ([], ["below_floor"]))
         out = self.run_tree({"pyproject.toml": "[tool.poetry.dependencies]\n[[weird\n", "app.py": "import flask\n"})
         self.assertNotIn("manifest_unreadable", out["partial_reasons"])
+
+
+# ------------------------------------------------------------------- blind spots (review round 1, 0.8.0)
+
+class BlindSpotTests(K3Case):
+    """K3 says a part is unused only when it could see every place that might use it."""
+    DEPS = {"react": "18", "react-dom": "18", "recharts": "2", "a-pkg": "1", "b-pkg": "1"}
+
+    def base(self, **files):
+        t = {"package.json": pkg(self.DEPS), "src/main.tsx": "import 'react'\nimport 'react-dom/client'\n"}
+        t.update(files)
+        return t
+
+    def link_tree(self, link_rel, target_text=None, target_dir=None):
+        out = self.run_tree(self.base(**{"src/main.tsx": "import 'react'\nimport 'react-dom/client'\n"
+                                                         "import { u } from './shared/util'\n"}))
+        app = os.path.join(self.parent, "app")
+        outside = os.path.join(self.parent, "outside")
+        os.makedirs(outside, exist_ok=True)
+        write(outside, "util.ts", "import { LineChart } from 'recharts'\nexport const u = LineChart\n")
+        dest = os.path.join(app, *link_rel.split("/"))
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        os.symlink(os.path.join(outside, "util.ts") if target_dir is None else outside, dest)
+        result, _, _ = run(self.parent, "app", "--section", "warnings")
+        return out, result
+
+    def test_symlinked_code_file_skips_k3(self):
+        """protects=review round 1: a linked code file is not read, so its imports are unseen; K3 stays quiet;
+        fails_when=recharts (used only through the link) is listed;
+        no_claim=links outside the app folder."""
+        _, out = self.link_tree("src/shared/util.ts")
+        self.assertEqual((self.k3(out), self.k3_state(out)), ([], ["files_unread"]))
+
+    def test_symlinked_folder_skips_k3(self):
+        """protects=review round 1: a linked folder is not walked; K3 stays quiet;
+        fails_when=recharts is listed;
+        no_claim=links to files that are not code."""
+        _, out = self.link_tree("src/shared", target_dir=True)
+        self.assertEqual((self.k3(out), self.k3_state(out)), ([], ["files_unread"]))
+
+    def test_code_inside_a_skipped_folder_name_skips_k3(self):
+        """protects=review round 1: the walk skips folders named vendor, build, out, dist and coverage everywhere;
+        a page under app/vendor/ or an import into ./vendor is code K3 cannot see, so it stays quiet;
+        fails_when=recharts (used only there) is listed;
+        no_claim=build output at the app's top level (dist/, build/), which is still checked."""
+        out = self.run_tree(self.base(**{"app/vendor/page.tsx": "import { LineChart } from 'recharts'\n"}))
+        self.assertEqual((self.k3(out), self.k3_state(out)), ([], ["files_unread"]))
+        out = self.run_tree(self.base(**{"src/main.tsx": "import 'react'\nimport 'react-dom/client'\n"
+                                                        "import { x } from '../vendor/charts'\n",
+                                         "vendor/charts.ts": "import { LineChart } from 'recharts'\n"}))
+        self.assertEqual((self.k3(out), self.k3_state(out)), ([], ["files_unread"]))
+        out = self.run_tree(self.base(**{"dist/assets/index.js": "console.log(1)\n"}))
+        self.assertEqual(self.k3_state(out), ["checked"])
+        self.assertIn("recharts", self.names(out))
+
+    def test_config_named_dev_tool_needs_count(self):
+        """protects=review round 1: a devDependency named only in a config (a Babel preset) is used, so what the
+        lockfile says it needs is used too (core-js under Vue CLI);
+        fails_when=core-js is listed;
+        no_claim=devDependencies nothing names."""
+        lock = {"lockfileVersion": 3, "packages": {"": {}, "node_modules/@vue/cli-plugin-babel": {
+            "dependencies": {"@vue/babel-preset-app": "^5"}}, "node_modules/@vue/babel-preset-app": {
+            "dependencies": {"core-js": "^3"}}}}
+        t = {"package.json": pkg({"vue": "3", "core-js": "3", "a-pkg": "1", "b-pkg": "1", "c-pkg": "1"},
+                                 {"@vue/cli-plugin-babel": "5"}),
+             "babel.config.js": "module.exports = { presets: ['@vue/cli-plugin-babel/preset'] }\n",
+             "src/main.ts": "import { createApp } from 'vue'\n", "package-lock.json": json.dumps(lock)}
+        self.assertEqual(self.names(self.run_tree(t, "--uncapped")), ["a-pkg", "b-pkg", "c-pkg"])
+
+
+# ------------------------------------------------------------------- cost (review round 1, 0.8.0)
+
+class CostTests(K3Case):
+    def test_slow_k3_never_drops_several_ways(self):
+        """protects=ship bar: several-ways output equals 0.7.0 whatever unused-parts costs; K3 that runs out of time
+        says so (time_limit) and never sets deadline_hit (which drops the whole section);
+        fails_when=a slow K3 removes a later app's several-ways warning or sets deadline_hit;
+        no_claim=the walk's own deadline."""
+        t = {"package.json": pkg(workspaces=["apps/*"]),
+             "apps/a/package.json": pkg({"p%d" % i: "1" for i in range(6)}), "apps/a/package-lock.json": LOCK,
+             "apps/b/package.json": pkg({"axios": "1", "ky": "1"}), "apps/b/src/a.ts": "import axios from 'axios'\n",
+             "apps/b/src/b.ts": "import ky from 'ky'\n"}
+        app = os.path.join(self.parent, "app")
+        os.makedirs(app)
+        for rel, text in t.items():
+            write(app, rel, text)
+        state = cs.WarnState(cs.Options(cs.DEFAULT_MAX_FILES, cs.DEFAULT_MAX_FILE_BYTES, cs.DEFAULT_MAX_TOTAL_BYTES, 90))
+        cs.walk(app, state)
+        real = cs._k3_used
+
+        def slow(*a, **k):
+            time.sleep(0.3)
+            return real(*a, **k)
+
+        with mock.patch.object(cs, "_k3_used", slow), mock.patch.object(cs, "POST_WALK_BUDGET_S", 0.2):
+            out = cs.build_warnings(state)
+        self.assertIn(("several-ways", "apps/b"), [(f["kind"], f["app"]) for f in out["findings"]])
+        self.assertNotIn("deadline_hit", out["partial_reasons"])
+        self.assertIn("time_limit", [c.get("k3") for c in out["coverage"]])
+
+    def test_large_html_folder_stays_fast(self):
+        """protects=review round 1 time overrun: committed HTML pages (a docs or static-site folder) are read for
+        mentions, and 40 runtime parts against 10 MB of pages stays well inside the post-walk budget;
+        fails_when=the warnings run takes 4 s or more (the regex-per-part scan took about 6 s);
+        no_claim=machines much slower than CI."""
+        deps = {"react": "18", "react-dom": "18"}
+        deps.update({"p%02d" % i: "1" for i in range(38)})
+        t = {"package.json": pkg(deps), "src/main.tsx": "import 'react'\nimport 'react-dom/client'\n"}
+        page = "<html>" + "<p>'tok' 'word' some text here</p>\n" * 1000
+        for i in range(250):
+            t["public/docs/p%03d.html" % i] = page
+        t0 = time.monotonic()
+        out = self.run_tree(t)
+        self.assertLess(time.monotonic() - t0, 4.0)  # gstack-timing-ok: the review's measured overrun was 6-12 s
+        self.assertEqual(self.k3_state(out), ["checked"])
+
+
+class StructureTests(unittest.TestCase):
+    def test_no_name_defined_twice(self):
+        """protects=review round 1: a second top-level `_under` silently replaced the architecture section's helper;
+        fails_when=any top-level function, class or constant name in census_scan.py is defined twice;
+        no_claim=names inside functions."""
+        tree = ast.parse(open(os.path.join(SCRIPT_DIR, "census_scan.py"), encoding="utf-8").read())
+        names = []
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.ClassDef)):
+                names.append(node.name)
+        dupes = sorted(n for n in set(names) if names.count(n) > 1)
+        self.assertEqual(dupes, [])
 
 
 # ------------------------------------------------------------------- output order and caps

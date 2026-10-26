@@ -1514,7 +1514,7 @@ NEW_GRADERS.update({
 # 0.8.0 (S-070): the warnings-app and warnings-quiet apps have no lockfile, so 0.8.0 prints the new Not checked line
 # for parts the app does not use. Saved 0.7.0 reports cannot have it.
 _NO_LIST = ('build-decisions 0.8.0 (S-070): an app with no lockfile gets the Not checked line "This run found no list '
-            'of the exact parts your app installs, so it did not look for parts your app does not use."')
+            'of the parts your app installs, so it did not look for parts your app does not use."')
 NEW_GRADERS.update({
     ('build-decisions', 'warnings-app', 'no-list-line'): ('0.8.0', _NO_LIST),
     ('build-decisions', 'warnings-quiet', 'no-list-line'): ('0.8.0', _NO_LIST),

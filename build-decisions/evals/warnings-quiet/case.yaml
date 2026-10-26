@@ -271,7 +271,7 @@ graders:
     match: "not_contains"
   - name: "no-list-line"
     type: "regex"
-    pattern: "\\nThis run found no list of the exact parts your app installs, so it did not look for parts your app does not use\\.\\n"
+    pattern: "\\nThis run found no list of the parts your app installs, so it did not look for parts your app does not use\\.\\n"
     match: "contains"
   - name: "no-unused-parts-block"
     type: "regex"

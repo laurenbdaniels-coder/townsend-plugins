@@ -47,7 +47,7 @@ import { atom } from 'jotai'
 // Remembers the light or dark look.
 export const themeAtom = atom<'light' | 'dark'>('light')
 TS
-# 0.8.0 (S-070): a lockfile covers the app, so the report has no "no list of the exact parts" line and stays at
+# 0.8.0 (S-070): a lockfile covers the app, so the report has no "no list of the parts" line and stays at
 # 50 lines (Lauren 10/26). Every listed part is used, so unused-parts adds no warning.
 cat > ./cartwheel/package-lock.json <<'JSON'
 { "name": "cartwheel", "lockfileVersion": 3, "requires": true, "packages": { "": { "name": "cartwheel" } } }
