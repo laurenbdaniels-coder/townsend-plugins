@@ -604,6 +604,24 @@ class CliTests(unittest.TestCase):
                             "--full-read", plan_id("seeded-app")])
         self.assertEqual(out["verdict"], cv.decide(out["scan"], cv.parse_answers("stop_line=none"), None))
 
+    def test_founder_flags_reach_the_plan_check(self):
+        first = json.loads(subprocess.run([sys.executable, "-I", os.path.join(SCRIPT_DIR, "custody_scan.py"), "--repo",
+                                           "seeded-app", "--exclude-dir", "src", "--max-files", "50"], cwd=FIXTURES,
+                                          capture_output=True, text=True, timeout=300).stdout)
+        pid = json.loads(next(l for l in subprocess.run(
+            [sys.executable, "-I", os.path.join(SCRIPT_DIR, "full_read_slices.py"), "--repo", "seeded-app", "--exclude-dir",
+             "src", "--max-files", "50", "--deadline-s", "300"], cwd=FIXTURES, capture_output=True, text=True,
+            timeout=300).stdout.splitlines() if l.startswith("{")))["plan_id"]
+        out = self.run_cli(["--repo", "seeded-app", "--exclude-dir", "src", "--max-files", "50", "--deadline-s", "300",
+                            "--answers", "stop_line=none", "--expect", cv.expect_tokens(first), "--full-read", pid])
+        self.assertTrue(out["ok"], out)
+        out = self.run_cli(["--repo", "seeded-app", "--exclude-dir", "src", "--answers", "stop_line=none",
+                            "--expect", cv.expect_tokens(first), "--full-read", pid])
+        self.assertEqual(out.get("error"), "full-read-missing")  # a flag left off the verdict call
+
+    def test_the_hint_allows_the_written_rule_after_a_second_refusal(self):
+        self.assertIn("twice", cv.HINTS["full-read-missing"])
+
     def test_no_scan_needs_no_plan(self):
         self.assertTrue(self.run_cli(["--no-scan", "--answers", "stop_line=none"])["ok"])
 

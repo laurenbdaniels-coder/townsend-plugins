@@ -413,28 +413,20 @@ def run_scanner(args):
 
 
 def full_read_plan_id(args):
-    """The plan_id full_read_slices.py gives for this app and these flags (0.7.1). The verdict only runs when the
-    agent passes the same id, which it can only get by running the full read's step 1; the id changes nothing else."""
-    cmd = [sys.executable, "-I", os.path.join(os.path.dirname(os.path.abspath(__file__)), "full_read_slices.py"),
-           "--repo", args.repo]
-    for flag, val in (("--max-files", args.max_files), ("--max-file-bytes", args.max_file_bytes)):
-        if val is not None:
-            cmd += [flag, str(val)]
-    for d in args.exclude_dir:
-        cmd += ["--exclude-dir", d]
-    for p in args.browser_prefix:
-        cmd += ["--browser-prefix", p]
-    out = subprocess.run(cmd, cwd=os.getcwd(), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                         stderr=subprocess.DEVNULL, timeout=(args.deadline_s or 120.0) * 2 + 120.0)
-    line = next((l for l in out.stdout.decode("utf-8", "replace").splitlines() if l.startswith("{")), "{}")
-    value = json.loads(line).get("plan_id")
-    return value if isinstance(value, str) else None
+    """The plan_id full_read_slices.py prints for this app and these flags (0.7.1), computed here from the same
+    inputs (no second plan run). The verdict only runs when the agent passes it, which it gets from step 1 of the
+    full read; the id changes nothing else in the verdict."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "full_read_slices.py")
+    ns = {"__name__": "full_read_slices", "__file__": path}
+    with open(path, encoding="utf-8") as fh:
+        exec(compile(fh.read(), path, "exec"), ns)
+    return ns["plan_id_for"](args.repo, args.exclude_dir, args.browser_prefix, args.max_files, args.max_file_bytes)
 
 
 HINTS = {
-    "full-read-missing": "the full read has not run for this app: do references/full-read.md now (its step 1 prints "
-                         "plan_id), then run the verdict again with --full-read <plan_id>. This is not a failure: "
-                         "do not use the written door rule",
+    "full-read-missing": "the full read's step 1 has not run for this app and these flags: do references/full-read.md "
+                         "now (its step 1 prints plan_id), then run the verdict again with --full-read <plan_id>. If "
+                         "it refuses twice, use the written door rule",
     "usage": "the verdict command was not well formed; use the written door rule",
     "scan-failed": "the second scan did not run or was not accepted; use the written door rule on the first scan",
     "scan-changed": "the second scan differed from the first; use the written door rule on the first scan",
@@ -509,7 +501,7 @@ def main(argv=None):
                 return fail("scan-changed")
             try:
                 expected_plan = full_read_plan_id(args)
-            except (OSError, subprocess.SubprocessError, ValueError):
+            except Exception:  # noqa: BLE001 - cannot check: refuse, and the skill's second-refusal rule applies
                 expected_plan = None
             if not args.full_read or expected_plan is None or args.full_read != expected_plan:
                 return fail("full-read-missing")

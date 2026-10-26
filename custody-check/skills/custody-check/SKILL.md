@@ -175,7 +175,7 @@ The script scans again with the same scanner and flags, checks that scan against
 
 On the degraded path, run it with `--no-scan` in place of `--repo '<app>'` and `--expect '<expect>'`, keeping `--answers` and `--read`.
 
-**If it says `full-read-missing`**, the full read did not run: do `references/full-read.md` now, then run the verdict again with its `plan_id`. That is not a failure.
+**If it says `full-read-missing`**, the full read's step 1 did not run for this app and these flags: do `references/full-read.md` now, then run the verdict again with its `plan_id`. That is not a failure. If it says `full-read-missing` a second time, treat it as a failure, below.
 
 **If it fails** (python missing, the script not found, `ok` is `false`, or the output is not accepted), say so in one sentence: "the verdict script could not run, so I applied its written rule myself". Then apply the Door rule section below yourself to the first scan and the answers, as before. An `ok: false` with `scan-changed` means the second scan differed from the first: same sentence, and the written rule on the first scan.
 

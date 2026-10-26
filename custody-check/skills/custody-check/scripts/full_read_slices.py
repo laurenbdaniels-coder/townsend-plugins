@@ -4,7 +4,8 @@
 Run from the folder that contains the app, with the same extra flags the scanner got:
   full_read_slices.py --repo <app> [--exclude-dir D ...] [--browser-prefix P ...] [--max-files N] [--max-file-bytes N]
 Prints one JSON line: {"ok", "slices": [{"n", "paths"}], "excluded", "stopped_at_cap", "eligible", "plan_id"}, or
-{"ok": false, "error": <code>, "plan_id"}. The verdict script needs plan_id (--full-read) and recomputes it. No file is ever listed that:
+{"ok": false, "error": <code>, "plan_id"} (a malformed command prints no plan_id). The verdict script needs
+plan_id (--full-read) and computes the same id from its own arguments. No file is ever listed that:
   - helper_read_guard.never_open refuses (env, key, credential, instruction, lock and build files),
   - the scanner flagged for a key (compared by the scanner's own masked path, so long names still match),
   - the scanner did not check for keys (settings files) and that holds a key shape by the scanner's patterns,
@@ -97,6 +98,10 @@ def plan(a):
         flags += ["--max-files", str(a.max_files)]
     if a.max_file_bytes is not None:
         flags += ["--max-file-bytes", str(a.max_file_bytes)]
+    if a.max_total_bytes is not None:
+        flags += ["--max-total-bytes", str(a.max_total_bytes)]
+    if a.deadline_s is not None:
+        flags += ["--deadline-s", str(a.deadline_s)]
     scan = scanner(["--repo", a.repo] + flags)
     if not scan.get("ok"):
         return {"ok": False, "error": "scan-failed"}
@@ -164,16 +169,25 @@ def parser():
     ap.add_argument("--browser-prefix", action="append", default=[])
     ap.add_argument("--max-files", type=int)
     ap.add_argument("--max-file-bytes", type=int)
+    ap.add_argument("--max-total-bytes", type=int)  # passed to the scanner, as the scan got them; not part of plan_id
+    ap.add_argument("--deadline-s", type=float)
     return ap
 
 
+def plan_id_for(repo, exclude_dir=(), browser_prefix=(), max_files=None, max_file_bytes=None):
+    """A short id of the app folder and the scanner flags that decide what is read (0.7.1). The verdict script
+    computes the same id from its own arguments and refuses without it, so the agent has to run step 1 first.
+    It comes from the inputs only: an edit to the app between the full read and the verdict, a trailing slash or
+    the order of repeated flags never changes it."""
+    basis = {"repo": os.path.normpath(repo).replace("\\", "/"), "exclude_dir": sorted(exclude_dir),
+             "browser_prefix": sorted(browser_prefix), "max_files": max_files, "max_file_bytes": max_file_bytes,
+             "v": "full-read-1"}
+    return hashlib.sha256(json.dumps(basis, sort_keys=True).encode("utf-8")).hexdigest()[:12]
+
+
 def with_plan_id(a, result):
-    """Stamp the plan with a short id of what it was made from and what it says. The verdict script recomputes
-    it (0.7.1), so a verdict call only goes through after this plan really ran with the same app and flags."""
-    basis = {"repo": a.repo, "exclude_dir": a.exclude_dir, "browser_prefix": a.browser_prefix,
-             "max_files": a.max_files, "max_file_bytes": a.max_file_bytes, "result": result}
     result = dict(result)
-    result["plan_id"] = hashlib.sha256(json.dumps(basis, sort_keys=True).encode("utf-8")).hexdigest()[:12]
+    result["plan_id"] = plan_id_for(a.repo, a.exclude_dir, a.browser_prefix, a.max_files, a.max_file_bytes)
     return result
 
 

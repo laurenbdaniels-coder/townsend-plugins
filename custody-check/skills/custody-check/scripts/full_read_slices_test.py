@@ -164,7 +164,6 @@ class SliceTests(unittest.TestCase):
 
     # --- 0.7.1: the verdict checks that the plan ran, by its id
     def test_plan_id_on_every_outcome(self):
-        import re as _re
         ok = plan(self.parent, "app")
         self.assertRegex(ok["plan_id"], r"^[0-9a-f]{12}$")
         self.assertEqual(ok["plan_id"], plan(self.parent, "app")["plan_id"])
@@ -173,11 +172,20 @@ class SliceTests(unittest.TestCase):
         self.assertRegex(refused["plan_id"], r"^[0-9a-f]{12}$")
         self.assertNotEqual(refused["plan_id"], ok["plan_id"])
 
-    def test_plan_id_changes_with_the_plan(self):
+    def test_plan_id_comes_from_the_inputs_only(self):
+        # review round 1 (0.7.1): an edit to the app between the full read and the verdict must not change the id
         before = plan(self.parent, "app")["plan_id"]
         write(self.app, "src/lib/extra.ts")
-        self.assertNotEqual(before, plan(self.parent, "app")["plan_id"])
+        self.assertEqual(before, plan(self.parent, "app")["plan_id"])
+        self.assertEqual(before, plan(self.parent, "./app/")["plan_id"])
         self.assertNotEqual(before, plan(self.parent, "app", "--exclude-dir", "src")["plan_id"])
+        self.assertEqual(plan(self.parent, "app", "--exclude-dir", "a", "--exclude-dir", "b")["plan_id"],
+                         plan(self.parent, "app", "--exclude-dir", "b", "--exclude-dir", "a")["plan_id"])
+
+    def test_every_scanner_flag_is_accepted(self):
+        out = plan(self.parent, "app", "--deadline-s", "600", "--max-total-bytes", "100000000")
+        self.assertTrue(out["ok"], out)
+        self.assertEqual(out["plan_id"], plan(self.parent, "app")["plan_id"])
 
     def test_missing_repo(self):
         out = plan(self.parent, "nope")
