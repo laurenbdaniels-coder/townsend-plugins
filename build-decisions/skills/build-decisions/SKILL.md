@@ -163,10 +163,10 @@ Warnings come from the fourth output alone: open no file for them and run no sea
 - **Not checked:** when `partial_reasons` holds `max_apps_hit`, add "Some parts of your app were not checked for warnings." For parts your app does not use, add one line for each of these `k3` values found in `coverage`, in this order:
   - `files_unread` or `manifest_unreadable`: "Some files could not be read, so this run did not look for parts your app does not use."
   - `no_lockfile`: "This run found no list of the parts your app installs, so it did not look for parts your app does not use."
-  - `old_lockfile`: "Your app's list of parts is an older kind, so this run did not look for parts your app does not use."
+  - `old_lockfile`: "Your app's list of parts was made by an older tool, so this run did not look for parts your app does not use."
   - `time_limit`: "This run reached its time limit, so it did not look for parts your app does not use."
 
-  When exactly one entry has that value and its `app` is not `.`, use the folder form instead: "In `<app>`, some files could not be read, so this run did not look for parts it does not use."; "In `<app>`, this run found no list of the parts your app installs, so it did not look for parts it does not use."; "In `<app>`, the list of parts is an older kind, so this run did not look for parts it does not use." The time-limit line never names a folder. The warnings section itself never holds a Not checked line.
+  When the line applies to exactly one app and its `app` is not `.`, use the folder form instead: "In `<app>`, some files could not be read, so this run did not look for parts it does not use."; "In `<app>`, this run found no list of the parts your app installs, so it did not look for parts it does not use."; "In `<app>`, the list of parts was made by an older tool, so this run did not look for parts it does not use." The time-limit line never names a folder. The warnings section itself never holds a Not checked line.
 
 ### Payments
 

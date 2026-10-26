@@ -578,11 +578,11 @@ FIXED = (
     "What it means for you: There are more parts to keep working, so changes take longer and break more often.",
     "Some files could not be read, so this run did not look for parts your app does not use.",
     "This run found no list of the parts your app installs, so it did not look for parts your app does not use.",
-    "Your app's list of parts is an older kind, so this run did not look for parts your app does not use.",
+    "Your app's list of parts was made by an older tool, so this run did not look for parts your app does not use.",
     "This run reached its time limit, so it did not look for parts your app does not use.",
     "In `<app>`, some files could not be read, so this run did not look for parts it does not use.",
     "In `<app>`, this run found no list of the parts your app installs, so it did not look for parts it does not use.",
-    "In `<app>`, the list of parts is an older kind, so this run did not look for parts it does not use.",
+    "In `<app>`, the list of parts was made by an older tool, so this run did not look for parts it does not use.",
     '"In `<app>`, it uses"',
     "--section warnings 2>/dev/null",
 )
