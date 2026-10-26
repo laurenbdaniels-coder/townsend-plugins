@@ -31,11 +31,17 @@ graders:
     input_match: "census_scan\\.py'? --repo '[^']*'? --section payment 2>"
     min: 1
     max: 1
-  - name: "three-shell-commands-at-most"
+  - name: "warnings-section-ran-once"
+    type: "tool_used"
+    tool: "Bash"
+    input_match: "census_scan\\.py'? --repo '[^']*'? --section warnings 2>"
+    min: 1
+    max: 1
+  - name: "four-shell-commands-at-most"
     type: "tool_used"
     tool: "Bash"
     min: 0
-    max: 3
+    max: 4
   - name: "never-says-clean"
     type: "regex"
     pattern: "\\bclean\\b|no duplicates|(?<!skipped )(?<!make sure )(?<!stop_line: )\\bnone\\b|make sure none\\b[^.\\n]*(?:duplicat|\\brules?\\b|\\bdecisions?\\b|more than one place|two places)"

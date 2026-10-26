@@ -143,7 +143,7 @@ Report each "browser chooses it" value as its own block, after every rule block,
 Warnings come from the fourth output alone: open no file for them and run no search. They are not rules: never count them in N or M, and never number them after the rule blocks. A warning says what it means for the founder and never what to change.
 
 - **Heading:** the number is `totals.findings`. Print the section only when it is 1 or more. Zero prints nothing: never write that the app has no warnings.
-- **One block, the first finding.** It is numbered 1, inside the warnings section. When `totals.findings` is more than 1, the block is followed by "And <totals.findings − 1> more warnings." ("And 1 more warning." when that number is 1).
+- **One block, the first finding.** It is numbered 1, inside the warnings section. When `totals.findings` is more than 1, the line right under the block's meaning line, with no blank line between, is "And <totals.findings − 1> more warnings." ("And 1 more warning." when that number is 1). The blank line comes after it. This keeps the report within its length.
 - **The block,** three lines and a blank line:
   - title: "**1. This run found one job done in more than one way: <job words>**", with the job words from this table:
 
@@ -255,8 +255,7 @@ What it means for you: <what a person using the app could do, in one sentence>.
 **1. This run found one job done in more than one way: <job words>**
 <"It uses …" or "In `<app>`, it uses …": the places sentence>
 What it means for you: When you ask your AI tool to change this, it may change one way and miss the others.
-
-<only when totals.findings is more than 1:> And <totals.findings − 1> more warnings. <or:> And 1 more warning.
+<only when totals.findings is more than 1, on the very next line:> And <totals.findings − 1> more warnings. <or:> And 1 more warning.
 
 Also worth a look:
 - <at most 2 lines, each its own "- " line, payment lines first; omit the heading and lines when there is nothing>

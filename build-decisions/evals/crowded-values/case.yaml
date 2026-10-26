@@ -32,11 +32,17 @@ graders:
     input_match: "census_scan\\.py'? --repo '[^']*'? --section payment 2>"
     min: 1
     max: 1
-  - name: "three-shell-commands-at-most"
+  - name: "warnings-section-ran-once"
+    type: "tool_used"
+    tool: "Bash"
+    input_match: "census_scan\\.py'? --repo '[^']*'? --section warnings 2>"
+    min: 1
+    max: 1
+  - name: "four-shell-commands-at-most"
     type: "tool_used"
     tool: "Bash"
     min: 0
-    max: 3
+    max: 4
   - name: "visibility-pair-server"
     type: "regex"
     pattern: "(?:^|\\n)- (?![^\\n]*addressed to an AI)[^`\\n]+`[^`\\n]*src/app/api/projects/route\\.ts:\\d+`\\.?[ \\t]*(?=\\n|$)"
