@@ -136,5 +136,17 @@ class AllCasesTests(unittest.TestCase):
             self.assertFalse(re.search(pat, "python3 -I '/p/custody_scan.py' --inventory --repo 'tasklane'"), case)
 
 
+class CaseFileShapeTests(unittest.TestCase):
+    def test_every_prompt_is_one_quoted_line(self):
+        # The eval runner's YAML reader rejects a quoted string that spans lines; PyYAML accepts it (S-068).
+        import glob
+        for path in glob.glob(os.path.join(PLUGIN_DIR, "evals", "*", "case.yaml")):
+            with open(path, encoding="utf-8") as fh:
+                lines = fh.read().splitlines()
+            prompt = [l for l in lines if l.startswith("  prompt: ")]
+            self.assertEqual(len(prompt), 1, path)
+            self.assertTrue(prompt[0].rstrip().endswith('"'), path)
+
+
 if __name__ == "__main__":
     unittest.main()

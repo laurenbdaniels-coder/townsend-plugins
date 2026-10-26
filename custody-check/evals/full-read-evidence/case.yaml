@@ -6,32 +6,7 @@
 schema_version: "1.1"
 name: "full-read-evidence"
 execution:
-  prompt: "run custody-check on ./fullread-app
-
-```
-Founder answers
-q5_code: dont-know
-q5_data: dont-know
-q6: dont-know
-q7: dont-know
-q8: dont-know
-q9: dont-know
-q10: dont-know
-q11: dont-know
-a1: dont-know
-a2: dont-know
-a3: dont-know
-a4: dont-know
-a5: dont-know
-a6: dont-know
-ai_model: yes
-stores: emails and messages
-users: about 20 people
-next_change: add a share button
-stop_line: none
-```
-
-I don't know the answers to anything not in that block. Don't ask me more questions: render the verdict now."
+  prompt: "run custody-check on ./fullread-app\n\n```\nFounder answers\nq5_code: dont-know\nq5_data: dont-know\nq6: dont-know\nq7: dont-know\nq8: dont-know\nq9: dont-know\nq10: dont-know\nq11: dont-know\na1: dont-know\na2: dont-know\na3: dont-know\na4: dont-know\na5: dont-know\na6: dont-know\nai_model: yes\nstores: emails and messages\nusers: about 20 people\nnext_change: add a share button\nstop_line: none\n```\n\nI don't know the answers to anything not in that block. Don't ask me more questions: render the verdict now."
   max_turns: 60
   timeout_seconds: 900
   allowed_tools: ["Read", "Grep", "Glob", "Skill", "Agent"]
