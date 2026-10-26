@@ -3,6 +3,17 @@
 ## custody-check
 
 
+### From the S-068 build (custody-check 0.7.0 full read, 2026-10-26)
+
+**What:** items the 0.7.0 build left out, by scope. Record: `townsend-ai-studio-workspace/plugins-internal/custody-check/s068-sample-2026-10-25/README.md`.
+- **Credential file names into free-plugin-standard/shared.** helper_read_guard.py keeps its own credential list so build-decisions' shipped copy did not change. Move it to shared_rules.py with a build-decisions release. Effort: S. Priority: P3.
+- **Eval caps that count helpers separately.** `claude plugin eval` does not document whether a subagent's calls count in `tool_used`; 0.7.0 loosened three caps (4 shell commands, 200 reads, 400-line reads). Tighten main-agent caps once a run shows how calls are counted. Effort: S. Priority: P2.
+- **Hook without python3.** The PreToolUse guard runs `python3 -I`; where python3 is missing (some Windows installs) the hook errors on every Read and does not block. Add a `py -3` fallback or a no-python note. Effort: S. Priority: P2.
+- **Per-run exclusion in the hook.** The guard enforces fixed rules only; the per-run list of Q1-flagged files is enforced by the slice plan, the brief and evals. A run-scoped deny list needs somewhere read-only to keep it. Effort: M. Priority: P3.
+- **Report length.** Reports with "What we saw:" lines ran 640-800 words on 11 sample apps; five eval cases cap reports at 500 words. Decide the cap with real eval runs. Effort: S. Priority: P2.
+- **Holdouts and repeat runs** (waived at Step 0 by Lauren): run the 3 holdout apps and a second run per app with `PTAGS="f1 f2" pilot/run-all.sh` if a later release changes the read. Effort: S (cost ~$200). Priority: P3.
+- **The stricter FIN-style catch.** Release A's prototype found a true open-access problem 0.6.2 misses (anonymous role with full access in a migration) but only through its changed pre-read text; with the freeze it is gone. Revisit as a listed never-worse exception in a Q3 release. Effort: M. Priority: P2.
+
 ### Deferred by the S-068 /autoplan (custody-check code-first full read, 2026-10-25)
 
 **What:** items the S-068 plan review deferred. Plan: `~/.claude/plans/idempotent-tinkering-iverson.md`.
