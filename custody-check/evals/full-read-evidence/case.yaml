@@ -209,7 +209,7 @@ graders:
     match: "not_contains"
   - name: "never-claims-nothing-found-in-code"
     type: "regex"
-    pattern: "(?:saw|found) nothing|nothing (?:in|from) your code|no (?:sign|evidence) (?:of|that)"
+    pattern: "We saw nothing|saw nothing in|nothing (?:in|from) your code|no (?:sign|evidence) (?:of|that)"
     flags: "i"
     match: "not_contains"
   - name: "repo-upkeep-job-not-evidence"
