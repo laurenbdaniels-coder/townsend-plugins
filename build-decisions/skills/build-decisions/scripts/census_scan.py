@@ -2152,8 +2152,7 @@ class WarnState(ArchState):
         self._capture(parts, ".py", code)
 
     def on_lines(self, parts, ext, lines):
-        ArchState.on_lines(self, parts, ext, lines)
-        if not self.ignored(parts):
+        if not self.ignored(parts):  # the architecture line analysis is not needed here: manifests come from on_meta
             self._capture(parts, ext, lines)
 
     def _capture(self, parts, ext, lines):
