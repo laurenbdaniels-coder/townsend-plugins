@@ -498,6 +498,34 @@
 
 ## build-decisions (decision-census until 0.4.0)
 
+### From S-059, warnings (build-decisions 0.7.0, 2026-10-25)
+
+**What:** what the warnings release left out. Plan: `~/.claude/plans/s059-warnings-approved.md`; sample: `plugins-internal/build-decisions/f6-sample-2026-10-25-warnings-files/SAMPLE-REPORT.md`.
+- **Code that never runs (K2), cut by its sample.** Round 1: caught 36% of apps that have it, 87% of listed places right (bars 50% and 95%). Causes: the import resolver's dotted-name gap (main has it too), framework start points it does not know, low reach. Effort: L / M. Priority: P2.
+- **Parts the app lists and does not use (K3), deferred to S-070.** Round 2 (JavaScript apps): caught 77%, 0 of 14 fine apps flagged, 95.5% of places right, but 5 of 34 shown warnings named a part the app needs (packages named by `node_modules/<pkg>` paths, database helpers a library loads by itself, Expo autolinked modules, ESLint shorthand). Python K3 cut on the dev data. Effort: M / M. Priority: P2.
+- **K1 misses libraries used but not listed** (by design: the floor reads the manifest), and its one sample false alarm was an import in a hand-run script. Effort: M / S. Priority: P3.
+- **K1 at product level:** two sign-in paths, two data layers. Families with no sample stratum (sign-in, database access, input checks, styling, toasts) are not in `JOB_FAMILIES` (C8). Each needs its own sample. Effort: M / M. Priority: P2 (product level), P3 (families).
+- **Plain `fetch` as a K1 library.** Effort: S / S. Priority: P3.
+- **"And N more warnings" could name the hidden kinds** (Y6). Only one kind ships, so it says nothing today. Effort: S / S. Priority: P3.
+- **W = 1:** a report shows one warning in full; the crowded eval sits at exactly 50 lines. A second block needs a shorter report or a longer limit (Lauren 10/25). Effort: S / S. Priority: P3.
+- **A requirements.txt `-r other.txt` line is not followed**, and a `pyproject.toml` this reader cannot handle means the folder declares no Python library. Effort: S / S. Priority: P3.
+- **Broader over-building detector** (TD1 alternative), **unused exports and env keys**, a **founder suppression** for a known-fine warning (needs the sample's false-alarm data). Effort: L / M. Priority: P3.
+- **Main's gaps the warnings code shares:** the helper exits 0 on `ok:false`, error codes have no doc anchors and there is no BD_DEBUG trace; there is no path-character allowlist for every printed path. Effort: S / S. Priority: P3.
+
+- **From the 0.7.0 /review (2026-10-26), below the ship bar:**
+  - devDependency used only by a hand-run script (`scripts/seed.mjs` with node-fetch) still pairs with the app's library: known false alarm, listed in `WARN_NEW_ALARMS` (`fixtures/warnings-fine/devscript`). Effort: S / S. Priority: P2.
+  - A walk that stopped early (`max_files_hit`, `max_total_bytes_hit`, unreadable files) or withheld an unsafe app folder prints no warnings Not checked line; the census's stopped-early line covers the first case only. Effort: S / S. Priority: P3.
+  - Past `MAX_APPS`, files of the cut apps fall to an ancestor app and can pair there; Nx-style projects with `project.json` and no `package.json` fold into `.`. Effort: M / S. Priority: P3.
+  - `_toml_deps`: an extras bracket (`"fastapi[all]"`) ends the dependency list early, and a `#` comment after a quote is kept. Under-reports or contrived. Effort: S / S. Priority: P3.
+  - Manifest and notebook reads in the warnings walk count against neither `MAX_META_FILES` nor the byte budget (bounded by the walk deadline); `warn_findings` checks the post-walk budget only between apps. Effort: S / S. Priority: P3.
+  - `apps_capped` (inherited from the architecture walk) can appear in the warnings output and is ignored; the warnings app cap is `max_apps_hit`. Effort: S / S. Priority: P3.
+  - `import aiohttp` still counts as a request library even when the file only builds an `aiohttp.web` server; so do `from aiohttp import web as w` and a parenthesised multi-line `from aiohttp import (web,)`. Effort: S / S. Priority: P3.
+  - **Imports inside `/* */` blocks and Python docstrings count** (known false alarm, listed in `WARN_NEW_ALARMS`, `fixtures/warnings-fine/commented`). A start-of-line block rule was tried and reverted in round 2: it hid real imports after triple-quoted strings that open mid-line (`cur.execute("""`, `X = """`, `r"""`). A fix needs a real string/comment tokenizer, its own review and the must-fire tests in `warnings_test.py`. Effort: M / S. Priority: P2.
+  - When both redux and Redux Toolkit are listed but only `redux` is imported, the place is labelled `@reduxjs/toolkit`. Effort: S / S. Priority: P3.
+  - Docs (main shares these): build-decisions README's "Not yet" column still says "(next)" and "(planned)", and the payments bullet "a later version" (free plugins promise no future release); the Evals line "four helper calls at most" holds only for the 10 capped cases; "When it goes wrong" lacks "Some parts of your app were not checked for warnings.". Effort: S / S. Priority: P3.
+
+**Context:** Lauren shipped K1 alone after round 2 (2026-10-25); K2 cut, K3 → S-070.
+
 ### From the build-decisions 0.6.2 eval run (2026-10-23)
 
 **What:** below the ship bar, not fixed in the PR:

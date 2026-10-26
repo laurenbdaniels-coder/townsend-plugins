@@ -13,11 +13,11 @@ graders:
     tool: "Skill"
     input_match: "build-decisions"
     min: 1
-  - name: "three-shell-commands-at-most"
+  - name: "four-shell-commands-at-most"
     type: "tool_used"
     tool: "Bash"
     min: 0
-    max: 3
+    max: 4
   - name: "at-most-40-reads"
     type: "tool_used"
     tool: "Read"

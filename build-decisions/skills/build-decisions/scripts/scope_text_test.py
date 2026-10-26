@@ -142,6 +142,36 @@ class ShippedCopyTests(unittest.TestCase):
         self.assertEqual(found(read(ROOT, "free-plugin-standard", "STANDARD.md")), [])
 
 
+# Kinds of warning the 0.7.0 sample cut or deferred (S-059): no shipped description or trigger may name them.
+CUT_KINDS = re.compile(r"never runs|dead code|unused|does not use|more parts than|not use", re.I)
+ADVICE = re.compile(r"\byou should\b|\bremove\b|\bdelete\b|\bpick one\b|\bkeep one\b|\bswitch to\b|\breplace\b",
+                    re.I)
+
+
+class WarningsCopyTests(unittest.TestCase):
+    descriptions = ShippedCopyTests.descriptions
+
+    def test_descriptions_name_only_the_shipped_kind(self):
+        """protects=D7: the shipped copy names only the warning that passed its sample;
+        fails_when=a description names a cut kind, or drops the shipped one;
+        no_claim=the README's Not yet column, which lists what is not checked."""
+        for name, text in self.descriptions().items():
+            self.assertIsNone(CUT_KINDS.search(text), name)
+            self.assertRegex(text, r"two or more libraries|two libraries for the same thing", name)
+        self.assertIn('"does my app use two libraries for the same thing"', self.descriptions()["SKILL.md description"])
+        self.assertNotIn("dead code", skill())
+
+    def test_how_it_decides_gives_no_advice(self):
+        """protects=X9: the README says how a warning is decided and never what to change;
+        fails_when=the entry is missing, names a cut kind, or gives advice;
+        no_claim=the report itself (evals)."""
+        text = read(PLUGIN, "README.md")
+        part = text.split("## How Build Decisions decides a warning", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("One job done in more than one way", part)
+        self.assertIsNone(CUT_KINDS.search(part))
+        self.assertIsNone(ADVICE.search(part))
+
+
 class VersionTests(unittest.TestCase):
     def test_one_version_everywhere(self):
         """protects=the footer, manifests and docs name one release; fails_when=any of the five places is
@@ -154,7 +184,7 @@ class VersionTests(unittest.TestCase):
         row = [l for l in read(ROOT, "README.md").splitlines() if l.startswith("| build-decisions |")][0]
         readme = row.split("|")[2].strip()
         self.assertEqual({helper, plugin, market, changelog, readme}, {helper}, (helper, plugin, market, changelog, readme))
-        self.assertEqual(helper, "0.6.3")
+        self.assertEqual(helper, "0.7.0")
 
 
 if __name__ == "__main__":

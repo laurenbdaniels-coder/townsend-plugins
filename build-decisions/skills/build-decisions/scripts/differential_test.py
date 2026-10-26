@@ -365,6 +365,135 @@ class PaymentSectionTests(unittest.TestCase):
         self.assertEqual(new, [], "the branch lists these and main does not (add each with a reason): %r" % new)
 
 
+# Every warning the helper prints on a fixture app or a scaffolded eval case, by exact case, with its reason
+# (S-059, C1/C14). Any warning not listed here fails CI, and so does an entry that no longer fires.
+# Key: [where, app folder, job, [library, path, line], ...] in the helper's place order.
+WARN_NEW_ALARMS = [
+    {"key": ["evals/fixtures/notewell", ".", "http", ["axios", "src/lib/notesClient.ts", 1],
+             ["ky", "src/lib/syncClient.ts", 1]],
+     "reason": "seeded: notewell sends requests with axios and with ky (warnings-app)"},
+    {"key": ["evals/warnings-crowded/cartwheel", ".", "http", ["axios", "src/lib/net/feed.ts", 1],
+             ["ky", "src/lib/net/upload.ts", 1]],
+     "reason": "seeded by the warnings-crowded scaffold (two warnings on the crowded app)"},
+    {"key": ["evals/warnings-crowded/cartwheel", ".", "state", ["zustand", "src/lib/store/sidebar.ts", 1],
+             ["jotai", "src/lib/store/theme.ts", 1]],
+     "reason": "seeded by the warnings-crowded scaffold (two warnings on the crowded app)"},
+    {"key": ["evals/warnings-app/notewell", ".", "http", ["axios", "src/lib/notesClient.ts", 1],
+             ["ky", "src/lib/syncClient.ts", 1]],
+     "reason": "seeded: the warnings-app scaffold copies notewell"},
+    {"key": ["fixtures/warnings-fine", "devscript", "http", ["node-fetch", "devscript/scripts/seed.mjs", 1],
+             ["axios", "devscript/src/api.ts", 1]],
+     "reason": "KNOWN FALSE ALARM (review 10/26, TODOS): node-fetch is a devDependency used only by a hand-run "
+               "script. warnings-fine's other apps (Redux Toolkit + redux, a website + Python server in one "
+               "folder, aiohttp as a server) must stay silent."},
+    {"key": ["fixtures/warnings-fine", "commented", "http", ["axios", "commented/src/api.ts", 4],
+             ["ky", "commented/src/api.ts", 1]],
+     "reason": "KNOWN FALSE ALARM (review 10/26, TODOS): axios is imported only inside a /* */ block. A block-comment "
+               "rule was tried and reverted in round 2: it hid real imports after triple-quoted strings."},
+    {"key": ["fixtures/warnings-fine", "commented", "http", ["requests", "commented/svc/main.py", 3],
+             ["httpx", "commented/svc/main.py", 6]],
+     "reason": "KNOWN FALSE ALARM (review 10/26, TODOS): requests appears only in a docstring example (same cause)."},
+]
+# Warnings main prints that the branch may stop printing, each with the reason main was wrong. Same key shape.
+WARN_RECALL_EXCEPTIONS = []
+
+
+def warn_keys(where, result):
+    return {(where, f["app"], f["job"]) + tuple((p["name"], p["path"], p["line"]) for p in f["places"])
+            for f in result["findings"]}
+
+
+def norm_key(key):
+    return tuple(key[:3]) + tuple(tuple(p) for p in key[3:])
+
+
+def warning_apps(tmp):
+    """(where, app dir) for every unit fixture, every eval fixture and every eval case as its scaffold builds it."""
+    out = [("fixtures/" + n, os.path.join(FIXTURES, n)) for n in sorted(os.listdir(FIXTURES))
+           if os.path.isdir(os.path.join(FIXTURES, n))]
+    out += [("evals/fixtures/" + n, os.path.join(EVAL_FIXTURES, n)) for n in sorted(os.listdir(EVAL_FIXTURES))
+            if os.path.isdir(os.path.join(EVAL_FIXTURES, n))]
+    for evals in ("evals", "evals-no-search"):
+        root = os.path.join(PLUGIN_DIR, evals)
+        for case in sorted(os.listdir(root)):
+            sc = os.path.join(root, case, "scaffold.sh")
+            if not os.path.isfile(sc):
+                continue
+            work = os.path.join(tmp, evals, case)
+            os.makedirs(work)
+            subprocess.run(["bash", sc], cwd=work, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            out += [("%s/%s/%s" % (evals, case, n), os.path.join(work, n)) for n in sorted(os.listdir(work))
+                    if os.path.isdir(os.path.join(work, n))]
+    return out
+
+
+def unlisted_warnings(found):
+    return sorted(found - {norm_key(e["key"]) for e in WARN_NEW_ALARMS})
+
+
+class WarningsSectionTests(unittest.TestCase):
+    """The warnings section is new in 0.7.0 (S-059): every warning on a fixture or scaffolded eval case is listed
+    in WARN_NEW_ALARMS with its reason, and main vs branch once main ships the section."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp(prefix="census-warn-")
+        cls.apps = warning_apps(cls.tmp)
+        cls.found = set()
+        for where, path in cls.apps:
+            cls.found |= warn_keys(where, scan(SCRIPT, path, "--section", "warnings"))
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_every_warning_is_listed(self):
+        """protects=C1/C14: a release never adds a warning to a fixture without saying why;
+        fails_when=the helper prints a warning WARN_NEW_ALARMS does not list;
+        no_claim=real apps (the F-6 sample measured those)."""
+        self.assertEqual(unlisted_warnings(self.found), [])
+
+    def test_every_listed_warning_still_fires(self):
+        """protects=never-miss: each seeded warning is still found;
+        fails_when=an entry in WARN_NEW_ALARMS is no longer printed;
+        no_claim=places the fixtures do not seed."""
+        stale = sorted({norm_key(e["key"]) for e in WARN_NEW_ALARMS} - self.found)
+        self.assertEqual(stale, [])
+
+    def test_planted_warning_turns_the_gate_red(self):
+        """protects=the gate itself (C1 mutation): one more library used in a fine fixture is caught;
+        fails_when=a planted second HTTP library in notewell-quiet passes unlisted;
+        no_claim=other plants."""
+        repo = os.path.join(self.tmp, "planted", "notewell-quiet")
+        shutil.copytree(os.path.join(EVAL_FIXTURES, "notewell-quiet"), repo)
+        with open(os.path.join(repo, "src", "lib", "syncClient.ts"), "w", encoding="utf-8") as fh:
+            fh.write("import ky from 'ky'\n\nexport const pushNotes = (n: unknown[]) => ky.post('/n', { json: n })\n")
+        planted = warn_keys("evals/fixtures/notewell-quiet", scan(SCRIPT, repo, "--section", "warnings"))
+        self.assertEqual(len(unlisted_warnings(self.found | planted)), 1)
+
+    def test_never_worse_than_main(self):
+        """protects=no later version drops a warning main prints, or prints a new one, without a listed reason;
+        fails_when=main's warnings and the branch's differ with no exception;
+        no_claim=skipped (visibly) while main has no warnings section (before 0.7.0 merges)."""
+        script = main_script(self.tmp)
+        if script is None:
+            self.skipTest("main helper not found; the census differential reports this")
+        theirs = set()
+        for where, path in self.apps:
+            parent, name = os.path.split(path)
+            proc = subprocess.run([sys.executable, "-I", script, "--repo", name, "--section", "warnings"],
+                                  cwd=parent, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=600)
+            result = json.loads(proc.stdout.decode("utf-8").strip().split("\n")[0])
+            if not result.get("ok") and result.get("error") == "usage":
+                print("SKIPPED: main has no warnings section yet")
+                self.skipTest("main has no warnings section yet")
+            theirs |= warn_keys(where, result)
+        lost = sorted(theirs - self.found - {norm_key(e["key"]) for e in WARN_RECALL_EXCEPTIONS})
+        self.assertEqual(lost, [], "main prints these and the branch does not: %r" % lost)
+        new = unlisted_warnings(self.found - theirs)
+        self.assertEqual(new, [], "the branch prints these and main does not (add each with a reason): %r" % new)
+
+
 class MainScriptTests(unittest.TestCase):
     """main_script() finds main's helper under either name, and says so when it finds neither."""
 

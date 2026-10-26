@@ -1,7 +1,7 @@
 {
   "name": "build-decisions",
-  "version": "0.6.3",
-  "description": "Shows where your AI-built app decides the same thing twice (who sees what, what things cost, who has paid, how money rounds), what each one means for you, and how the app is built. Next release: limits, discounts and date cutoffs, and warnings for several ways to do one job, code that never runs, and more parts than the job needs. Read-only; a review, not an audit.",
+  "version": "0.7.0",
+  "description": "Shows where your AI-built app decides the same thing twice (who sees what, what things cost, who has paid, how money rounds), what each one means for you, and how the app is built. It also warns, on its own, when your app does one job with two or more libraries. Read-only; a review, not an audit.",
   "author": {
     "name": "Lauren Townsend"
   },

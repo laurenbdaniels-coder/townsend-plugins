@@ -2,6 +2,14 @@
 
 The footer of every report names the version that produced it. Up to 0.3.2 this plugin was called decision-census.
 
+## 0.7.0 (2026-10-26)
+
+- **New: warnings, counted on their own.** When your app does one job with two or more libraries (sending requests to other services, keeping track of what is on screen, working with dates, handling forms people fill in), the report adds a warning after the problems: "This run found one job done in more than one way", the libraries and where each is used, and what it means for you. Warnings never enter the opening count line and are numbered on their own. The report shows one in full and counts the rest ("And 1 more warning."). An app with no warning shows no warnings section.
+- A library counts only when your app lists it and one of its own code files uses it. Tests, stories, fixtures, examples, lines that start with a comment mark (`//`, `/*`, `*`, `#`) and `.mdx` pages never count. Each app folder is checked on its own, and a JavaScript library is never paired with a Python one. Redux Toolkit and redux count as one library, and aiohttp does not count in a file that imports only its server part (`aiohttp.web`).
+- A sample of 125 public apps (2026-10-25) found it in 11 of 11 apps that have it, and flagged 1 of 17 apps that are fine. Not shipped: warnings for code that never runs (its sample flagged too many fine apps) and for parts your app lists and does not use (some warnings named a part the app needs; it gets a new sample).
+- The skill runs the helper four times (`--section warnings` is new). If that run fails, the report says "This run did not look for warnings." and the rest stands.
+- Evals: three new cases (`warnings-app`, run 3 times for the same words each time, `warnings-quiet`, `warnings-crowded`). Every existing case allows one more helper call (`four-shell-commands-at-most`), and each case that checks the payment run also checks the warnings run once.
+
 ## 0.6.3 (2026-10-24)
 
 - **Fields written as one word, like `creditcard`, or named `birthday`, now count as extra-risk in both plugins.** A field named only in a comment, including one that spans several lines, or inside quoted text of more than one word, such as `"medical history"`, no longer counts. A quoted single word, such as `"birthday"`, still counts.

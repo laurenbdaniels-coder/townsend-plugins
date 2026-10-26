@@ -11,8 +11,13 @@ paid (whether someone has paid), rounding (how money rounds).
 `--section architecture` prints a different line instead: how the app is built (shape signals with the
 file that shows each, facts, one advice id) and census decisions found inside a second app that uses
 the same data. Same rule: only safe paths and fixed words.
+
+`--section warnings` prints each job an app does with two or more libraries (several-ways). Try it:
+    cd build-decisions/evals/fixtures && python3 -I ../../skills/build-decisions/scripts/census_scan.py \
+        --repo notewell --section warnings | python3 -m json.tool
+Tests: python3 -m unittest discover -s build-decisions/skills/build-decisions/scripts -p "*_test.py"
 """
-__version__ = "0.6.3"
+__version__ = "0.7.0"
 
 import sys
 
@@ -25,6 +30,7 @@ HINTS = {
     "repo-contains-cwd": "The folder you named is the folder you launched from, or contains it. Run from the folder that contains your app and pass its name, never . or ..",
     "python-too-old": "This helper needs python 3.9 or newer. Run python3 --version; on macOS install the Command Line Tools.",
     "internal": "The helper hit an unexpected error. Ask the four signs by hand and file an issue.",
+    "internal-warnings": "The warnings part of the helper hit an unexpected error. The rest of the report is not affected.",
     "internal:shared-missing": "The helper is missing its shared_rules.py file. Update the plugin, then run it again.",
     "internal:shared-broken": "The helper's shared_rules.py file is damaged. Update the plugin, then run it again.",
 }
@@ -433,6 +439,7 @@ class State:
         self.hints_capped = False
         self.stopped = False
         self.collect_demo_keys = True  # census only; the section scans turn it off
+        self.census_lines = True  # run the census line rules on each file; the warnings walk turns it off
         self.demo_keys = []
         self.demo_keys_capped = False
 
@@ -534,6 +541,8 @@ def scan_file(path, parts, ext, state):
     text = data.decode("utf-8", errors="replace")
     lines = text.split("\n")
     state.on_lines(parts, ext, lines)
+    if not state.census_lines:
+        return
     is_schema = ext in SQL_EXTS or ext in SCHEMA_EXTS or SCHEMA_NAME_RE.search(parts[-1]) is not None
     found = []
     hints = []
@@ -676,7 +685,7 @@ def walk(repo, state):
 # a file reaches the output: only safe paths and the words below. App text (globs, route paths, called
 # paths) is never compiled into a regex: it is matched one path segment at a time.
 
-SECTIONS = ("architecture", "payment")
+SECTIONS = ("architecture", "payment", "warnings")
 SIGNALS = ("baas-from-browser", "own-api-routes", "server-actions", "separate-backend", "second-client")
 FACTS = ("mobile-app", "multi-frontend", "api-key-routes")
 ADVICE = ("shared-api", "each-entry-checks", "one-server-place")
@@ -1996,9 +2005,325 @@ def build_payment(state):
     return result
 
 
+# ------------------------------------------------------------------ section: warnings
+#
+# `--section warnings` runs its own walk and prints one line: each job an app does with two or more libraries
+# (several-ways), for example two libraries that send requests to other services. A library counts only when the
+# app's manifest declares it and at least one of the app's own source files imports it; tests, stories, fixtures,
+# examples, comments and .mdx pages never count. Nothing from inside a file reaches the output: only safe paths,
+# line numbers, library names from JOB_FAMILIES and the words below.
+#
+# 0.7.0 ships this one kind. "Code that never runs" and "parts the app does not use" were cut or deferred by their
+# samples (S-059, 2026-10-25); see TODOS.md.
+
+WARN_KINDS = ("several-ways",)
+WARN_JOBS = ("http", "state", "dates", "forms")
+WARN_COVERAGE = ("checked", "below_floor")
+WARN_REASONS = ("max_apps_hit",)
+MAX_K1_FINDINGS = 4
+MAX_WARN_PLACES = 3
+
+# One closed table: job id -> libraries that do that job (Y1). Only families a sample stratum covered ship (C8).
+JOB_FAMILIES = {
+    "http": ("axios", "ky", "got", "node-fetch", "superagent", "requests", "httpx", "aiohttp"),
+    "state": ("redux", "@reduxjs/toolkit", "zustand", "jotai", "recoil", "mobx", "valtio"),
+    "dates": ("moment", "dayjs", "date-fns", "luxon"),
+    "forms": ("react-hook-form", "formik"),
+}
+PY_LIBS = {"requests", "httpx", "aiohttp"}
+# One library under two names: Redux Toolkit is redux (§2.2 lists them as one). A redux import counts as the
+# toolkit when the app declares both.
+SAME_LIBRARY = {"redux": "@reduxjs/toolkit"}
+# aiohttp names that serve requests, not send them: an import of only these is not an HTTP-request library use.
+AIOHTTP_SERVER_NAMES = {"web", "web_request", "web_response", "web_exceptions", "web_runner", "web_urldispatcher"}
+REQ_LINE_RE = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
+EXPORT_FROM_RE = re.compile(r"""\bexport\s+(?:\*|\{[^}]*\})\s*from\s*['"]([^'"\s]+)['"]""")
+
+
+def _py_norm(name):
+    return re.sub(r"[-_.]+", "_", name).lower()
+
+
+def _toml_deps(text):
+    """Names in [project].dependencies and [tool.poetry.dependencies] of a pyproject.toml (python 3.9 has no
+    tomllib). None when the file has a shape this small reader does not handle."""
+    out, table, in_list = [], None, False
+    for raw in text.split("\n"):
+        # a "#" after a quote may sit inside a quoted string, so such a line keeps its comment (prototype rule)
+        s = (raw.split("#")[0] if '"' not in raw.split("#")[0] else raw).strip()
+        if not s:
+            continue
+        m = re.match(r"^\[([^\]]+)\]$", s)
+        if m and not in_list:
+            table = m.group(1).strip()
+            continue
+        if table == "project":
+            if in_list:
+                out += re.findall(r"""['"]\s*([A-Za-z0-9][A-Za-z0-9._-]*)""", s)
+                in_list = "]" not in s
+                continue
+            m = re.match(r"^dependencies\s*=\s*\[(.*)$", s)
+            if m:
+                out += re.findall(r"""['"]\s*([A-Za-z0-9][A-Za-z0-9._-]*)""", m.group(1))
+                in_list = "]" not in m.group(1)
+        elif table == "tool.poetry.dependencies":
+            m = re.match(r"""^['"]?([A-Za-z0-9][A-Za-z0-9._-]*)['"]?\s*=""", s)
+            if not m:
+                return None
+            if m.group(1).lower() != "python":
+                out.append(m.group(1))
+    return None if in_list else out
+
+
+def _req_names(text):
+    """Names in a requirements.txt. Options (-e, --index-url) and bare URL lines name nothing; reading stops at
+    -r, which this reader does not follow."""
+    out = []
+    for raw in text.split("\n"):
+        line = raw.split(" #")[0].split("\t#")[0].strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith(("-r ", "--requirement")):
+            break
+        if line.startswith("-"):
+            continue
+        if "://" in line and "@" not in line.split("://")[0]:
+            m = re.match(r"^([A-Za-z0-9][A-Za-z0-9._-]*)\s*@\s*\S+://", line)
+            if m:
+                out.append(m.group(1))
+            continue
+        m = REQ_LINE_RE.match(line)
+        if m:
+            out.append(m.group(1))
+    return out
+
+
+class WarnState(ArchState):
+    """An architecture walk (for package.json manifests) that also records Python manifests and the libraries
+    each code file imports. Test files never reach on_lines (walk skips them)."""
+
+    def __init__(self, opts):
+        ArchState.__init__(self, opts)
+        self.census_lines = False  # the warnings read only imports: no census rules, stop-line or sample-key work
+        self.imports = {}  # rel -> [(library spec or ("py", module), line)]
+        self.read = set()  # code files whose lines were read
+        self.py_manifests = {}  # dir tuple -> set of normalised names, or None when one could not be read
+        self.pkg_text = set()  # dir tuples holding a package.json, parsed or not
+        self.venv_dirs = set()  # folders holding pyvenv.cfg: a vendored Python environment, not app code
+
+    def ignored(self, parts):
+        """Editor backups, vendored Python environments and Vite's temp config copies (RULINGS L5)."""
+        if ".history" in parts or "site-packages" in parts or ".timestamp-" in parts[-1]:
+            return True
+        return any(tuple(parts[:k]) in self.venv_dirs for k in range(1, len(parts)))
+
+    def _read_text(self, path):
+        try:
+            data, _ = read_file(path, self, cap=MAX_META_BYTES)
+        except OSError:
+            return None
+        if data is None or b"\x00" in data[:BINARY_SNIFF_BYTES]:
+            return None
+        return data.decode("utf-8", errors="replace")
+
+    def on_meta(self, path, parts, lower, is_link):
+        if lower == "pyvenv.cfg":
+            self.venv_dirs.add(tuple(parts[:-1]))
+        if self.ignored(parts):
+            return True  # not read, not counted, not a manifest
+        d = tuple(parts[:-1])
+        if not is_link and not _not_app(d):
+            if lower in ("requirements.txt", "pyproject.toml"):
+                text = self._read_text(path)
+                names = None if text is None else _req_names(text) if lower == "requirements.txt" \
+                    else _toml_deps(text)
+                if names is None or self.py_manifests.get(d, set()) is None:
+                    self.py_manifests[d] = None  # unreadable: this folder declares no Python library
+                else:
+                    self.py_manifests.setdefault(d, set()).update(_py_norm(n) for n in names)
+            elif lower == "package.json" and self._read_text(path) is not None:
+                self.pkg_text.add(d)
+            elif lower.endswith(".ipynb"):
+                self._notebook(path, parts)
+                return True
+        return ArchState.on_meta(self, path, parts, lower, is_link)
+
+    def _notebook(self, path, parts):
+        text = self._read_text(path)
+        try:
+            nb = json.loads(text) if text is not None else None
+        except (ValueError, RecursionError):
+            nb = None  # a notebook that will not parse is skipped; it never stops the section
+        if not isinstance(nb, dict):
+            return
+        meta = nb.get("metadata")
+        kernel = meta.get("kernelspec") if isinstance(meta, dict) else None
+        if (kernel.get("language", "python") if isinstance(kernel, dict) else "python") != "python":
+            return
+        code = []
+        for cell in nb.get("cells") or []:
+            if isinstance(cell, dict) and cell.get("cell_type") == "code":
+                src = cell.get("source")
+                src = "".join(s for s in src if isinstance(s, str)) if isinstance(src, list) else \
+                    (src if isinstance(src, str) else "")
+                code += src.split("\n")
+        self._capture(parts, ".py", code)
+
+    def on_lines(self, parts, ext, lines):
+        if not self.ignored(parts):  # the architecture line analysis is not needed here: manifests come from on_meta
+            self._capture(parts, ext, lines)
+
+    def _capture(self, parts, ext, lines):
+        rel = "/".join(parts)
+        self.read.add(rel)
+        is_js = ext in JS_EXTS
+        if not is_js and ext != ".py":
+            return
+        imps = []
+        for i, line in enumerate(lines, 1):
+            if (i % DEADLINE_LINE_TICK == 0 or len(line) > 512) and self.over_deadline():
+                break
+            if len(line) > LINE_CLIP_CHARS:
+                line = line[:LINE_CLIP_CHARS]
+            stripped = line.lstrip()
+            if stripped.startswith(("//", "/*", "* ", "#")) or stripped == "*":
+                continue  # a commented-out import is not a use
+            if is_js:
+                specs = JS_IMPORT_RE.findall(line)
+                m = EXPORT_FROM_RE.search(line)
+                if m and m.group(1) not in specs:
+                    specs.append(m.group(1))
+                imps += [(s, i) for s in specs]
+            else:
+                m = PY_FROM_RE.match(line)
+                if m:
+                    if not m.group(1) and m.group(2):
+                        names = set(PY_NAME_RE.findall(m.group(3) or ""))
+                        serves = m.group(2) == "aiohttp" and bool(names) and names <= AIOHTTP_SERVER_NAMES
+                        imps.append((("py", m.group(2).split(".")[0], serves or m.group(2).startswith("aiohttp.web")),
+                                     i))
+                    continue
+                m = PY_IMPORT_RE.match(line)
+                if m:
+                    for mod in m.group(1).split(","):
+                        mod = mod.strip().split(" as ")[0].strip()
+                        if mod:
+                            imps.append((("py", mod.split(".")[0], mod.startswith("aiohttp.web")), i))
+        if imps:
+            self.imports[rel] = imps
+
+
+def _warn_app_roots(state):
+    roots = set(d for d in state.manifests if not _not_app(d) and not state.ignored(list(d) + ["x"]))
+    roots |= set(d for d in state.py_manifests if not _not_app(d))
+    roots |= set(d for d in state.pkg_text if not _not_app(d))  # a package.json that would not parse
+    return sorted(roots)
+
+
+def _warn_owner(parts, roots):
+    for k in range(len(parts) - 1, -1, -1):
+        if tuple(parts[:k]) in roots:
+            return tuple(parts[:k])
+    return None
+
+
+def _k1_source(rel):
+    """The app's own source: never tests, stories, fixtures or examples (Python test files included)."""
+    parts = rel.split("/")
+    low = parts[-1].lower()
+    return not (TEST_FILE_RE.search(parts[-1]) or any(p.lower() in NOT_APP_DIRS for p in parts)
+                or ".stories." in rel or low.startswith("test_") or low.endswith("_test.py") or low == "conftest.py")
+
+
+def warn_findings(state):
+    """All several-ways findings in helper order (app folder, then job id), and per-app coverage."""
+    state.post_walk_started = time.monotonic()
+    roots = _warn_app_roots(state)
+    if len(roots) > MAX_APPS:
+        roots = roots[:MAX_APPS]
+        state.reason("max_apps_hit")
+    rootset = set(roots)
+    files_by_app = {r: [] for r in roots}
+    for rel in sorted(state.read):
+        if _k1_source(rel):
+            o = _warn_owner(rel.split("/"), rootset)
+            if o is not None:
+                files_by_app[o].append(rel)
+    findings, coverage = [], []
+    for app in roots:
+        if _late(state):
+            break
+        if app and safe_rel(list(app)) is None:
+            state.stats["paths_withheld"] += 1  # a folder name not safe to print: the app is left out, never printed
+            continue
+        app_name = "/".join(app) or "."
+        declared = _deps(state.manifests.get(app) or {}, ("dependencies", "devDependencies"))
+        declared |= state.py_manifests.get(app) or set()
+        checked = False
+        for job in WARN_JOBS:
+            family = [lib for lib in JOB_FAMILIES[job] if lib in declared]
+            alias = {k: v for k, v in SAME_LIBRARY.items() if k in family and v in family}
+            family = [lib for lib in family if lib not in alias]
+            # one finding never pairs a JavaScript library with a Python one: they can never be merged
+            for libs in ([x for x in family if x not in PY_LIBS], [x for x in family if x in PY_LIBS]):
+                if len(libs) < 2:
+                    continue  # the floor (C23): two declared libraries of one family, in one language
+                checked = True
+                finding = _several_ways(state, files_by_app[app], app_name, job, libs, alias)
+                if finding:
+                    findings.append(finding)
+        coverage.append({"app": app_name, "k1": "checked" if checked else "below_floor"})
+    findings.sort(key=lambda f: (f["app"], f["job"], f["places"][0]["name"]))
+    return findings, coverage
+
+
+def _several_ways(state, files, app_name, job, libs, alias):
+    """One finding when two or more of libs are each used in at least one of files, else None."""
+    is_py = libs[0] in PY_LIBS
+    uses = {}  # library -> {file: first line}
+    for f in files:
+        for imp, line in state.imports.get(f, ()):
+            if isinstance(imp, tuple):
+                lib = imp[1] if is_py and imp[1] in libs and not (imp[1] == "aiohttp" and imp[2]) else None
+            elif not is_py:
+                lib = next((x for x in list(libs) + list(alias) if imp == x or imp.startswith(x + "/")), None)
+                lib = alias.get(lib, lib)
+            else:
+                lib = None
+            if lib and f not in uses.setdefault(lib, {}):
+                uses[lib][f] = line
+    used = sorted((x for x in libs if uses.get(x)), key=lambda x: (-len(uses[x]), min(uses[x])))
+    if len(used) < 2:
+        return None
+    places = [{"path": min(uses[x]), "line": uses[x][min(uses[x])], "name": x} for x in used[:MAX_WARN_PLACES]]
+    if any(safe_rel(p["path"].split("/")) is None for p in places):
+        return None  # a path that is not safe to print (E13): the finding is dropped, never printed
+    return {"kind": "several-ways", "app": app_name, "job": job, "count": len(used), "places": places,
+            "more": max(0, len(used) - MAX_WARN_PLACES)}
+
+
+def build_warnings(state):
+    findings, coverage = warn_findings(state)
+    listed = findings[:MAX_K1_FINDINGS]
+    result = {
+        "ok": True,
+        "section": "warnings",
+        "partial": bool(state.reasons),
+        "version": __version__,
+        "coverage": coverage,
+        "partial_reasons": list(state.reasons),
+        "stats": dict(state.stats, files_read=state.files_read),
+        "findings": listed,
+        "totals": {"findings": len(findings), "listed": len(listed), "not_listed": len(findings) - len(listed)},
+    }
+    return result  # at most 4 findings and 50 apps: always under MAX_OUTPUT_BYTES (test_worst_case_fits)
+
+
 VOCABULARY = frozenset(VOCABULARY_CENSUS + SECTIONS + SIGNALS + FACTS + ADVICE + COVERAGE + ARCH_KINDS + APP_KINDS
                        + ARCH_REASONS)
 PAY_VOCABULARY = VOCABULARY | frozenset(PAY_WHERE + SIGNATURE + PAID_FIELDS + PAID_TABLES + CLIENT_FIELDS)
+WARN_VOCABULARY = VOCABULARY | frozenset(WARN_KINDS + WARN_JOBS + WARN_COVERAGE + WARN_REASONS
+                                         + tuple(lib for libs in JOB_FAMILIES.values() for lib in libs))
 
 
 # ------------------------------------------------------------------- output
@@ -2171,6 +2496,14 @@ def main(argv=None):
             state = PayState(opts)
             walk(repo, state)
             emit(build_payment(state))
+            return 0
+        if args.section == "warnings":
+            state = WarnState(opts)
+            try:
+                walk(repo, state)
+                emit(build_warnings(state))
+            except Exception:
+                emit(envelope("internal-warnings"))  # its own code and hint, never the census one (X3)
             return 0
         if args.section == "architecture":
             state = ArchState(opts)

@@ -2100,7 +2100,7 @@ class NeverSaysCleanGraderTest(unittest.TestCase):
                     self.assertFalse(_fails(check, line), '%s fails plain line %r' % (case, line))
                 for line in SAYS_CLEAN:
                     self.assertTrue(_fails(check, line), '%s misses %r' % (case, line))
-        self.assertEqual(seen, 10)  # 0.6.0: crowded-values carries seeded-app's grader; 0.6.2: so does bare-yes
+        self.assertEqual(seen, 13)  # 0.6.0: crowded-values carries seeded-app's grader; 0.6.2: so does bare-yes; 0.7.0: the three warnings-* cases
 
 
 
